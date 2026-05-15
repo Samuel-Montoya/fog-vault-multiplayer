@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Fog Vault Multiplayer</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <div id="menu" class="screen screen-open">
+    <div class="panel title-panel">
+      <div class="eyebrow">server-authoritative horror chase</div>
+      <h1>Fog Vault Multiplayer</h1>
+      <p>Open lobbies, 1 killer, up to 4 survivors, generators, vaults, pallets, and enough fog to make basic navigation a lifestyle choice.</p>
+
+      <label class="field-label" for="playerName">Name</label>
+      <input id="playerName" maxlength="18" placeholder="Player" />
+
+      <div class="role-row">
+        <button class="role-btn selected" data-role="survivor">Survivor</button>
+        <button class="role-btn" data-role="killer">Killer</button>
+      </div>
+
+      <div class="button-row">
+        <button id="quickJoinBtn" class="primary">Quick Join Open Lobby</button>
+        <button id="createLobbyBtn">Create Open Lobby</button>
+      </div>
+
+      <h2>Open Lobbies</h2>
+      <div id="lobbyList" class="lobby-list empty">No open lobbies yet. Civilization remains lonely.</div>
+    </div>
+  </div>
+
+  <div id="lobbyScreen" class="screen">
+    <div class="panel lobby-panel">
+      <div class="eyebrow">waiting room</div>
+      <h1 id="lobbyTitle">Lobby</h1>
+      <p id="lobbySubtitle">Choose roles. Only one killer per match. Yes, sharing is hard.</p>
+      <div id="playersList" class="players-list"></div>
+      <div class="role-row">
+        <button id="beSurvivorBtn">Choose Survivor</button>
+        <button id="beKillerBtn">Choose Killer</button>
+      </div>
+      <div class="button-row">
+        <button id="readyBtn">Ready</button>
+        <button id="startBtn" class="primary">Start Match</button>
+        <button id="leaveBtn">Leave</button>
+      </div>
+      <p class="hint">Start requires exactly <b>1 killer</b> and at least <b>1 survivor</b>. Lobbies are open, no codes, because apparently passwords were too sophisticated for the murder yard.</p>
+    </div>
+  </div>
+
+  <div id="hud" class="hud hidden">
+    <div class="hud-card">
+      <h2 id="roleLabel">Role</h2>
+      <p id="controlsLabel">Controls</p>
+    </div>
+    <div class="hud-card objective-card">
+      <div><span>Generators</span><b id="genText">0 / 0</b></div>
+      <div><span>Gate</span><b id="gateText">Closed</b></div>
+      <div><span>Health</span><b id="healthText">Healthy</b></div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <div id="endScreen" class="screen">
+    <div class="panel end-panel">
+      <div class="eyebrow">match ended</div>
+      <h1 id="winnerText">Survivors Win</h1>
+      <p id="reasonText">All generators are complete.</p>
+      <div class="button-row center">
+        <button id="backToLobbyBtn" class="primary">Back To Lobby</button>
+        <button id="mainMenuBtn">Main Menu</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/maps.js"></script>
+  <script src="/client.js"></script>
+</body>
+</html>
