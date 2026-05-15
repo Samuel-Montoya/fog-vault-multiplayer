@@ -1,7 +1,7 @@
 {
-  "name": "fog-vault-multiplayer",
-  "version": "1.0.0",
-  "description": "Server-authoritative top-down horror chase game with open Socket.IO lobbies.",
+  "name": "fog-vault-multiplayer-phaser",
+  "version": "2.4.0",
+  "description": "Server-authoritative top-down horror chase game rendered with Phaser 3 and Socket.IO.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -9,7 +9,8 @@
   },
   "dependencies": {
     "express": "^5.1.0",
-    "socket.io": "^4.8.1"
+    "socket.io": "^4.8.1",
+    "phaser": "^3.90.0"
   },
   "engines": {
     "node": ">=20"

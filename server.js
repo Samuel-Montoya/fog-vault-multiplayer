@@ -12,27 +12,37 @@ const io = new Server(server, {
 
 const PORT = process.env.PORT || 3000;
 const PUBLIC_DIR = path.join(__dirname, "public");
+const PHASER_FILE = path.join(__dirname, "node_modules", "phaser", "dist", "phaser.min.js");
 
+app.get("/vendor/phaser.min.js", (req, res) => res.sendFile(PHASER_FILE));
 app.use(express.static(PUBLIC_DIR));
 app.get("/", (req, res) => res.sendFile(path.join(PUBLIC_DIR, "index.html")));
 
 const TICK_RATE = 60;
-const SNAPSHOT_RATE = 30;
+const SNAPSHOT_RATE = 60;
 const MAX_SURVIVORS = 4;
 const PLAYER_SIZE = 30;
 const KILLER_SIZE = 38;
 const INTERACT_DISTANCE = 74;
-const HIT_RANGE = 64;
-const TOUCH_HIT_RANGE = 32;
-const ATTACK_ARC = Math.PI * 0.62;
+const QUICK_ATTACK_RANGE = 74;
+const LUNGE_ATTACK_RANGE = 118;
+const ATTACK_ARC = Math.PI * 0.58;
+const ATTACK_SIDE_RADIUS = 34;
+const ATTACK_TAP_MAX = 0.18;
+const LUNGE_CHARGE_TIME = 0.24;
+const QUICK_ATTACK_ACTIVE = 0.22;
+const LUNGE_ATTACK_ACTIVE = 0.44;
+const LUNGE_SPEED_MULT = 1.55;
 const SURVIVOR_WALK_SPEED = 170;
 const SURVIVOR_SPRINT_SPEED = 285;
 const SURVIVOR_HIT_BURST_SPEED = 350;
 const KILLER_SPEED = 310;
 const KILLER_RECOVERY_SPEED_MULT = 0.28;
-const KILLER_MISS_RECOVERY = 1.15;
-const KILLER_HIT_RECOVERY = 1.65;
-const KILLER_ATTACK_COOLDOWN = 0.7;
+const KILLER_QUICK_MISS_RECOVERY = 1.05;
+const KILLER_QUICK_HIT_RECOVERY = 1.55;
+const KILLER_LUNGE_MISS_RECOVERY = 1.35;
+const KILLER_LUNGE_HIT_RECOVERY = 1.85;
+const KILLER_ATTACK_COOLDOWN = 0.18;
 const SURVIVOR_INVULN = 1.45;
 const SURVIVOR_HIT_BOOST = 1.0;
 const SURVIVOR_VAULT_TIME = 0.38;
@@ -43,11 +53,22 @@ const GATE_ESCAPE_TIME = 0.75;
 const TERROR_RADIUS = 760;
 const CHASE_START_RADIUS = 520;
 const CHASE_HOLD_SECONDS = 3;
-const CLOSE_REVEAL_RADIUS = 180;
+const CLOSE_REVEAL_RADIUS = 120;
 const SURVIVOR_CONE_LENGTH = 620;
 const SURVIVOR_CONE_ANGLE = Math.PI / 2.6;
-const KILLER_CONE_LENGTH = 850;
-const KILLER_CONE_ANGLE = Math.PI / 1.8;
+const KILLER_CONE_LENGTH = 920;
+const KILLER_CONE_ANGLE = Math.PI / 1.75;
+const KILLER_SCRATCH_MARK_VISIBILITY_RANGE = 520;
+const MUSIC_LAYER_1_VOLUME = 0.14;
+const MUSIC_LAYER_2_MAX_VOLUME = 0.22;
+const MUSIC_LAYER_3_VOLUME = 0.32;
+const BOT_REPATH_MIN = 0.16;
+const BOT_REPATH_MAX = 0.42;
+const BOT_SURVIVOR_THREAT_RADIUS = 640;
+const BOT_SURVIVOR_PANIC_RADIUS = 285;
+const BOT_SURVIVOR_LOOP_RADIUS = 430;
+const BOT_KILLER_MEMORY_SECONDS = 4.5;
+const BOT_KILLER_SCRATCH_MEMORY_SECONDS = 3.0;
 
 let nextLobbyNumber = 1;
 const lobbies = new Map();
@@ -175,7 +196,13 @@ function attackBlockingRects(game) {
 
 function wouldCollide(game, actor, x, y) {
   const box = actorRect(actor, x, y);
-  return solidRects(game).some((r) => rectsOverlap(box, r));
+  return solidRects(game).some((r) => {
+    // If a survivor drops a pallet while standing still on top of the interaction zone,
+    // give them a tiny pass-through grace on that one pallet so they can step out instead of
+    // becoming part of the furniture. Humans apparently dislike being furniture.
+    if (actor.palletGraceId && actor.palletGraceTime > 0 && r.id === actor.palletGraceId) return false;
+    return rectsOverlap(box, r);
+  });
 }
 
 function segmentClearAgainst(blockers, ax, ay, bx, by) {
@@ -229,10 +256,11 @@ function broadcastLobbyList() {
   io.emit("lobbyList", list);
 }
 
-function makePlayer(socket, role, name) {
+function makePlayer(socket, role, name, options = {}) {
   return {
     id: socket.id,
     name: String(name || "Player").slice(0, 18),
+    isBot: !!options.isBot,
     role,
     ready: false,
     x: 0,
@@ -249,8 +277,31 @@ function makePlayer(socket, role, name) {
     vault: null,
     breakTarget: null,
     attackCooldown: 0,
+    attackState: null,
+    attackType: null,
+    attackTimer: 0,
+    attackDuration: 0,
+    attackCharge: 0,
+    attackHasHit: false,
+    attackNeedsRelease: false,
     swingTime: 0,
     chaseHold: 0,
+    palletGraceId: null,
+    palletGraceTime: 0,
+    bot: {
+      repath: 0,
+      path: [],
+      targetId: null,
+      lastSeenX: 0,
+      lastSeenY: 0,
+      lastSeenTime: 0,
+      goalX: 0,
+      goalY: 0,
+      stuckTimer: 0,
+      lastX: 0,
+      lastY: 0,
+      actionCooldown: 0
+    },
     input: {
       up: false,
       down: false,
@@ -260,6 +311,9 @@ function makePlayer(socket, role, name) {
       action: false,
       repair: false,
       attack: false,
+      attackHeld: false,
+      attackReleased: false,
+      actionDir: null,
       angle: 0
     }
   };
@@ -302,7 +356,7 @@ function joinLobby(socket, lobby, requestedRole, name) {
     return false;
   }
 
-  const player = makePlayer(socket, role, name);
+  const player = makePlayer(socket, role, name, { isBot: false });
   lobby.players.set(socket.id, player);
   socketToLobby.set(socket.id, lobby.id);
   socket.join(lobby.id);
@@ -322,7 +376,8 @@ function leaveCurrentLobby(socket) {
   if (!lobby) return;
   lobby.players.delete(socket.id);
 
-  if (lobby.players.size === 0) {
+  const humanCount = [...lobby.players.values()].filter((p) => !p.isBot).length;
+  if (lobby.players.size === 0 || humanCount === 0) {
     lobbies.delete(lobby.id);
   } else {
     if (lobby.phase === "game" && lobby.game) {
@@ -347,8 +402,27 @@ function broadcastLobbyState(lobby) {
     name: lobby.name,
     phase: lobby.phase,
     mapName: lobby.mapName,
-    players: [...lobby.players.values()].map((p) => ({ id: p.id, name: p.name, role: p.role, ready: p.ready }))
+    players: [...lobby.players.values()].map((p) => ({ id: p.id, name: p.name, role: p.role, ready: p.ready, isBot: !!p.isBot }))
   });
+}
+
+function addBotToLobby(lobby, role) {
+  if (!lobby || lobby.phase !== "lobby") return { ok: false, message: "Bots can only be added in the lobby." };
+  const roleValue = role === "killer" ? "killer" : "survivor";
+  const players = [...lobby.players.values()];
+  if (roleValue === "killer" && players.some((p) => p.role === "killer")) {
+    return { ok: false, message: "Killer is already taken." };
+  }
+  if (roleValue === "survivor" && players.filter((p) => p.role === "survivor").length >= MAX_SURVIVORS) {
+    return { ok: false, message: "Survivor slots are full." };
+  }
+  const id = uid("bot");
+  const count = players.filter((p) => p.isBot && p.role === roleValue).length + 1;
+  const name = roleValue === "killer" ? "Bot Killer" : `Bot Survivor ${count}`;
+  const bot = makePlayer({ id }, roleValue, name, { isBot: true });
+  bot.ready = true;
+  lobby.players.set(id, bot);
+  return { ok: true };
 }
 
 function canChangeRole(lobby, player, role) {
@@ -382,12 +456,13 @@ function startGame(lobby) {
     particles: [],
     scratchMarks: [],
     requiredGenerators: map.generators.length,
-    escapeOpen: false
+    escapeOpen: false,
+    time: 0
   };
 
   let survivorSpawnIndex = 0;
   for (const player of players) {
-    const actor = makePlayer({ id: player.id }, player.role, player.name);
+    const actor = makePlayer({ id: player.id }, player.role, player.name, { isBot: !!player.isBot });
     actor.ready = player.ready;
     if (actor.role === "killer") {
       const spawn = map.killerSpawns[0];
@@ -436,7 +511,7 @@ function addEvent(game, type, data = {}) {
 }
 
 function addScratch(game, actor) {
-  game.scratchMarks.push({ id: uid("scratch"), x: actor.x, y: actor.y, angle: actor.angle + (Math.random() - 0.5), ttl: 4.0 });
+  game.scratchMarks.push({ id: uid("scratch"), x: actor.x, y: actor.y, angle: actor.angle + (Math.random() - 0.5), ttl: 4.0, createdAt: game.time || 0 });
   if (game.scratchMarks.length > 180) game.scratchMarks.splice(0, game.scratchMarks.length - 180);
 }
 
@@ -484,6 +559,22 @@ function moveActor(game, actor, dt) {
   const len = Math.hypot(dx, dy) || 1;
   dx /= len;
   dy /= len;
+
+  // During a lunge the killer gets a short forward burst in their facing direction.
+  // This is server-authoritative so the client can't fake a giga-lunge. Truly tragic.
+  if (actor.role === "killer" && actor.attackState === "lunge") {
+    const lungeSpeed = KILLER_SPEED * LUNGE_SPEED_MULT;
+    const lx = Math.cos(actor.angle || 0);
+    const ly = Math.sin(actor.angle || 0);
+    const nextX = clamp(actor.x + lx * lungeSpeed * dt, 36, game.map.width - 36);
+    const nextY = clamp(actor.y + ly * lungeSpeed * dt, 36, game.map.height - 36);
+    if (!wouldCollide(game, actor, nextX, actor.y)) actor.x = nextX;
+    if (!wouldCollide(game, actor, actor.x, nextY)) actor.y = nextY;
+    return;
+  }
+
+  // Quick attacks commit the killer briefly. Charging still allows normal movement.
+  if (actor.role === "killer" && actor.attackState === "quick") return;
 
   let speed = actor.role === "killer" ? KILLER_SPEED : (actor.input.sprint ? SURVIVOR_SPRINT_SPEED : SURVIVOR_WALK_SPEED);
   if (actor.role === "survivor" && actor.hitBoost > 0) speed = SURVIVOR_HIT_BURST_SPEED;
@@ -548,16 +639,78 @@ function startVault(game, actor, object) {
   addEvent(game, "vault", { x: c.x, y: c.y, role: actor.role });
 }
 
-function moveToNearestSafeSide(actor, pallet, tile) {
-  const c = centerOf(pallet);
-  const gap = tile * 0.48 + PLAYER_SIZE * 0.65;
-  if (pallet.orientation === "horizontal") {
-    actor.x = clamp(actor.x, pallet.x + PLAYER_SIZE, pallet.x + pallet.w - PLAYER_SIZE);
-    actor.y = actor.y < c.y ? c.y - gap : c.y + gap;
-  } else {
-    actor.x = actor.x < c.x ? c.x - gap : c.x + gap;
-    actor.y = clamp(actor.y, pallet.y + PLAYER_SIZE, pallet.y + pallet.h - PLAYER_SIZE);
+function movementDirection(input) {
+  return {
+    dx: (input.right ? 1 : 0) - (input.left ? 1 : 0),
+    dy: (input.down ? 1 : 0) - (input.up ? 1 : 0)
+  };
+}
+
+function directionFromInput(input) {
+  if (["up", "down", "left", "right"].includes(input.actionDir)) return input.actionDir;
+  const { dx, dy } = movementDirection(input);
+  if (dx === 0 && dy === 0) return null;
+  if (Math.abs(dy) >= Math.abs(dx)) return dy < 0 ? "up" : "down";
+  return dx < 0 ? "left" : "right";
+}
+
+function palletSidePosition(actor, pallet, direction, slideOffset = 0) {
+  const size = actor.role === "killer" ? KILLER_SIZE : PLAYER_SIZE;
+  const margin = size / 2 + 7;
+  const minX = pallet.x + margin;
+  const maxX = pallet.x + pallet.w - margin;
+  const minY = pallet.y + margin;
+  const maxY = pallet.y + pallet.h - margin;
+
+  if (direction === "up") {
+    return { x: clamp(actor.x + slideOffset, minX, maxX), y: pallet.y - margin };
   }
+  if (direction === "down") {
+    return { x: clamp(actor.x + slideOffset, minX, maxX), y: pallet.y + pallet.h + margin };
+  }
+  if (direction === "left") {
+    return { x: pallet.x - margin, y: clamp(actor.y + slideOffset, minY, maxY) };
+  }
+  return { x: pallet.x + pallet.w + margin, y: clamp(actor.y + slideOffset, minY, maxY) };
+}
+
+function wouldCollideWithFuturePallet(game, actor, x, y, pallet) {
+  const box = actorRect(actor, x, y);
+  const blockers = [...solidRects(game)];
+  if (!pallet.broken) blockers.push(pallet);
+  return blockers.some((r) => rectsOverlap(box, r));
+}
+
+function moveToPalletSideByInput(game, actor, pallet) {
+  const direction = directionFromInput(actor.input);
+
+  // No movement key held: do not move the player. Drop the pallet and grant a short
+  // grace window so they can walk out if the collision volume overlaps them.
+  if (!direction) {
+    actor.palletGraceId = pallet.id;
+    actor.palletGraceTime = 0.65;
+    return;
+  }
+
+  // IMPORTANT: never fall back to the opposite side. If the player presses W,
+  // they go to the top side or stay put with grace. The old fallback system was
+  // what caused the cursed random-side teleport nonsense.
+  const offsets = [0, -18, 18, -36, 36, -54, 54];
+  for (const offset of offsets) {
+    const pos = palletSidePosition(actor, pallet, direction, offset);
+    const x = clamp(pos.x, 36, game.map.width - 36);
+    const y = clamp(pos.y, 36, game.map.height - 36);
+    if (!wouldCollideWithFuturePallet(game, actor, x, y, pallet)) {
+      actor.x = x;
+      actor.y = y;
+      actor.palletGraceId = null;
+      actor.palletGraceTime = 0;
+      return;
+    }
+  }
+
+  actor.palletGraceId = pallet.id;
+  actor.palletGraceTime = 0.65;
 }
 
 function handleAction(game, actor) {
@@ -568,7 +721,7 @@ function handleAction(game, actor) {
   if (hit.type === "window" || hit.type === "palletVault") {
     startVault(game, actor, hit.object);
   } else if (hit.type === "palletDrop") {
-    moveToNearestSafeSide(actor, hit.object, game.map.tile);
+    moveToPalletSideByInput(game, actor, hit.object);
     hit.object.state = "dropped";
     addEvent(game, "palletDrop", { x: hit.object.x + hit.object.w / 2, y: hit.object.y + hit.object.h / 2 });
 
@@ -596,8 +749,11 @@ function damageSurvivor(game, killer, survivor) {
   survivor.injured = survivor.health === 1;
   survivor.invuln = SURVIVOR_INVULN;
   survivor.hitBoost = SURVIVOR_HIT_BOOST;
-  killer.recovery = Math.max(killer.recovery, KILLER_HIT_RECOVERY);
-  killer.attackCooldown = Math.max(killer.attackCooldown, KILLER_ATTACK_COOLDOWN);
+  if (killer && killer.attackState) killer.attackHasHit = true;
+  else if (killer) {
+    killer.recovery = Math.max(killer.recovery, KILLER_QUICK_HIT_RECOVERY);
+    killer.attackCooldown = Math.max(killer.attackCooldown, KILLER_ATTACK_COOLDOWN);
+  }
   addEvent(game, "hit", { x: survivor.x, y: survivor.y, survivorId: survivor.id, health: survivor.health });
 
   if (survivor.health <= 0) {
@@ -608,32 +764,133 @@ function damageSurvivor(game, killer, survivor) {
   return true;
 }
 
-function handleKillerAttack(game, killer) {
-  if (!killer || killer.dead || killer.actionLock > 0 || killer.vault || killer.breakTarget) return;
+function attackProfile(type) {
+  const lunge = type === "lunge";
+  return {
+    type: lunge ? "lunge" : "quick",
+    range: lunge ? LUNGE_ATTACK_RANGE : QUICK_ATTACK_RANGE,
+    arc: ATTACK_ARC,
+    duration: lunge ? LUNGE_ATTACK_ACTIVE : QUICK_ATTACK_ACTIVE,
+    hitRecovery: lunge ? KILLER_LUNGE_HIT_RECOVERY : KILLER_QUICK_HIT_RECOVERY,
+    missRecovery: lunge ? KILLER_LUNGE_MISS_RECOVERY : KILLER_QUICK_MISS_RECOVERY
+  };
+}
 
-  const survivors = [...game.actors.values()].filter((p) => p.role === "survivor" && !p.dead && !p.escaped);
+function startKillerAttack(game, killer, type) {
+  const profile = attackProfile(type);
+  killer.attackState = profile.type;
+  killer.attackType = profile.type;
+  killer.attackTimer = 0;
+  killer.attackDuration = profile.duration;
+  killer.attackHasHit = false;
+  killer.attackCharge = 0;
+  killer.attackNeedsRelease = true;
+  addEvent(game, "swipe", {
+    actorId: killer.id,
+    x: killer.x,
+    y: killer.y,
+    angle: killer.angle,
+    type: profile.type,
+    range: profile.range,
+    arc: profile.arc,
+    duration: profile.duration
+  });
+}
+
+function finishKillerAttack(killer) {
+  const profile = attackProfile(killer.attackType || "quick");
+  killer.recovery = Math.max(killer.recovery, killer.attackHasHit ? profile.hitRecovery : profile.missRecovery);
+  killer.attackCooldown = Math.max(killer.attackCooldown, KILLER_ATTACK_COOLDOWN);
+  killer.attackState = null;
+  killer.attackType = null;
+  killer.attackTimer = 0;
+  killer.attackDuration = 0;
+  killer.attackCharge = 0;
+  killer.attackHasHit = false;
+}
+
+function survivorInAttackSwipe(killer, survivor, profile) {
+  const dx = survivor.x - killer.x;
+  const dy = survivor.y - killer.y;
+  const d = Math.hypot(dx, dy);
+  if (d > profile.range + PLAYER_SIZE / 2) return false;
+
+  const facingX = Math.cos(killer.angle || 0);
+  const facingY = Math.sin(killer.angle || 0);
+  const forward = dx * facingX + dy * facingY;
+  if (forward < -PLAYER_SIZE / 2 || forward > profile.range + PLAYER_SIZE / 2) return false;
+
+  const perp = Math.abs(dx * facingY - dy * facingX);
+  const targetAngle = Math.atan2(dy, dx);
+  const inCone = angleDiff(targetAngle, killer.angle || 0) <= profile.arc / 2;
+  const inFrontRadius = forward > 0 && forward <= profile.range && perp <= ATTACK_SIDE_RADIUS + PLAYER_SIZE / 2;
+  return inCone || inFrontRadius;
+}
+
+function resolveKillerAttackHit(game, killer) {
+  if (!killer.attackState || killer.attackHasHit) return;
+  const profile = attackProfile(killer.attackType || killer.attackState);
+  const survivors = [...game.actors.values()]
+    .filter((p) => p.role === "survivor" && !p.dead && !p.escaped && p.invuln <= 0)
+    .sort((a, b) => dist(killer.x, killer.y, a.x, a.y) - dist(killer.x, killer.y, b.x, b.y));
+
   for (const survivor of survivors) {
-    if (dist(killer.x, killer.y, survivor.x, survivor.y) < TOUCH_HIT_RANGE + PLAYER_SIZE * 0.5) {
-      if (killer.attackCooldown <= 0) damageSurvivor(game, killer, survivor);
+    if (!survivorInAttackSwipe(killer, survivor, profile)) continue;
+    if (!attackSegmentClear(game, killer.x, killer.y, survivor.x, survivor.y)) continue;
+    if (damageSurvivor(game, killer, survivor)) {
+      // End the active hit window once the swing connects, then enter slowdown.
+      finishKillerAttack(killer);
       return;
     }
   }
+}
 
-  if (!killer.input.attack || killer.attackCooldown > 0 || killer.recovery > 0) return;
+function updateKillerAttack(game, killer, dt) {
+  if (!killer || killer.dead) return;
 
-  killer.attackCooldown = KILLER_ATTACK_COOLDOWN;
-  killer.recovery = KILLER_MISS_RECOVERY;
-  addEvent(game, "swing", { x: killer.x, y: killer.y, angle: killer.angle });
+  if (killer.input.attackReleased) killer.attackNeedsRelease = false;
 
-  for (const survivor of survivors) {
-    const d = dist(killer.x, killer.y, survivor.x, survivor.y);
-    if (d > HIT_RANGE) continue;
-    const a = Math.atan2(survivor.y - killer.y, survivor.x - killer.x);
-    if (angleDiff(a, killer.angle) > ATTACK_ARC / 2) continue;
-    if (!attackSegmentClear(game, killer.x, killer.y, survivor.x, survivor.y)) continue;
-    damageSurvivor(game, killer, survivor);
-    break;
+  if (killer.actionLock > 0 || killer.vault || killer.breakTarget) {
+    killer.attackState = null;
+    killer.attackType = null;
+    killer.attackCharge = 0;
+    return;
   }
+
+  if (killer.attackState === "quick" || killer.attackState === "lunge") {
+    killer.attackTimer += dt;
+    resolveKillerAttackHit(game, killer);
+    if (killer.attackState && killer.attackTimer >= killer.attackDuration) finishKillerAttack(killer);
+    return;
+  }
+
+  if (killer.recovery > 0 || killer.attackCooldown > 0) {
+    killer.attackCharge = 0;
+    if (!killer.input.attackHeld) killer.attackNeedsRelease = false;
+    return;
+  }
+
+  if (killer.attackNeedsRelease) {
+    killer.attackCharge = 0;
+    if (!killer.input.attackHeld) killer.attackNeedsRelease = false;
+    return;
+  }
+
+  if (killer.input.attackHeld) {
+    killer.attackState = "charging";
+    killer.attackCharge += dt;
+    if (killer.attackCharge >= LUNGE_CHARGE_TIME) startKillerAttack(game, killer, "lunge");
+    return;
+  }
+
+  if (killer.input.attackReleased || killer.input.attack) {
+    startKillerAttack(game, killer, "quick");
+    resolveKillerAttackHit(game, killer);
+    return;
+  }
+
+  killer.attackState = null;
+  killer.attackCharge = 0;
 }
 
 function updateTimers(game, dt) {
@@ -643,6 +900,8 @@ function updateTimers(game, dt) {
     actor.recovery = Math.max(0, actor.recovery - dt);
     actor.attackCooldown = Math.max(0, actor.attackCooldown - dt);
     actor.chaseHold = Math.max(0, actor.chaseHold - dt);
+    actor.palletGraceTime = Math.max(0, actor.palletGraceTime - dt);
+    if (actor.palletGraceTime <= 0) actor.palletGraceId = null;
   }
   for (const s of game.scratchMarks) s.ttl -= dt;
   game.scratchMarks = game.scratchMarks.filter((s) => s.ttl > 0);
@@ -749,17 +1008,357 @@ function endGame(lobby, winner, reason) {
   broadcastLobbyList();
 }
 
+
+
+function resetInput(input) {
+  input.up = false;
+  input.down = false;
+  input.left = false;
+  input.right = false;
+  input.sprint = false;
+  input.action = false;
+  input.repair = false;
+  input.attack = false;
+  input.attackHeld = false;
+  input.attackReleased = false;
+  input.actionDir = null;
+}
+
+function setMoveToward(actor, tx, ty, sprint = false) {
+  const dx = tx - actor.x;
+  const dy = ty - actor.y;
+  actor.input.left = dx < -8;
+  actor.input.right = dx > 8;
+  actor.input.up = dy < -8;
+  actor.input.down = dy > 8;
+  actor.input.sprint = !!sprint;
+  actor.input.angle = Math.atan2(dy, dx);
+}
+
+function setMoveAway(actor, fromX, fromY, sprint = true) {
+  const dx = actor.x - fromX;
+  const dy = actor.y - fromY;
+  const len = Math.hypot(dx, dy) || 1;
+  setMoveToward(actor, actor.x + (dx / len) * 300, actor.y + (dy / len) * 300, sprint);
+}
+
+function botRandomRepath() {
+  return BOT_REPATH_MIN + Math.random() * (BOT_REPATH_MAX - BOT_REPATH_MIN);
+}
+
+function tileAt(game, x, y) {
+  return {
+    x: clamp(Math.floor(x / game.map.tile), 0, game.map.cols - 1),
+    y: clamp(Math.floor(y / game.map.tile), 0, game.map.rows - 1)
+  };
+}
+
+function tileCenter(game, tx, ty) {
+  return {
+    x: tx * game.map.tile + game.map.tile / 2,
+    y: ty * game.map.tile + game.map.tile / 2
+  };
+}
+
+function isWallTile(game, tx, ty) {
+  if (tx < 0 || ty < 0 || tx >= game.map.cols || ty >= game.map.rows) return true;
+  return game.map.rawRows[ty]?.[tx] === "X";
+}
+
+function isDroppedPalletTile(game, tx, ty) {
+  return game.map.pallets.some((p) => !p.broken && p.state === "dropped" && p.tileX === tx && p.tileY === ty);
+}
+
+function isPathTileBlocked(game, tx, ty, role) {
+  if (isWallTile(game, tx, ty)) return true;
+  // Windows and dropped pallets are intentionally allowed in bot paths. The bot will
+  // vault or break them when it reaches the interaction range instead of walking
+  // around every useful loop forever like a confused office printer.
+  return false;
+}
+
+function findPath(game, actor, targetX, targetY, options = {}) {
+  const role = options.role || actor.role;
+  const start = tileAt(game, actor.x, actor.y);
+  const goal = tileAt(game, targetX, targetY);
+  const key = (x, y) => `${x},${y}`;
+  if (isPathTileBlocked(game, goal.x, goal.y, role)) return [];
+  const startKey = key(start.x, start.y);
+  const goalKey = key(goal.x, goal.y);
+  if (startKey === goalKey) return [tileCenter(game, goal.x, goal.y)];
+
+  const open = [{ x: start.x, y: start.y, f: 0, g: 0 }];
+  const cameFrom = new Map();
+  const gScore = new Map([[startKey, 0]]);
+  const seen = new Set();
+  let loops = 0;
+
+  function h(x, y) {
+    return Math.abs(x - goal.x) + Math.abs(y - goal.y);
+  }
+
+  while (open.length && loops++ < 2500) {
+    open.sort((a, b) => a.f - b.f);
+    const current = open.shift();
+    const currentKey = key(current.x, current.y);
+    if (seen.has(currentKey)) continue;
+    seen.add(currentKey);
+
+    if (currentKey === goalKey) {
+      const tiles = [];
+      let k = currentKey;
+      while (k) {
+        const [x, y] = k.split(",").map(Number);
+        tiles.push(tileCenter(game, x, y));
+        k = cameFrom.get(k);
+      }
+      tiles.reverse();
+      return tiles;
+    }
+
+    const neighbors = [
+      { x: current.x + 1, y: current.y },
+      { x: current.x - 1, y: current.y },
+      { x: current.x, y: current.y + 1 },
+      { x: current.x, y: current.y - 1 }
+    ];
+
+    for (const n of neighbors) {
+      if (isPathTileBlocked(game, n.x, n.y, role)) continue;
+      const nk = key(n.x, n.y);
+      if (seen.has(nk)) continue;
+      const passableButSlower = isDroppedPalletTile(game, n.x, n.y) ? 3.5 : 1;
+      const tentative = (gScore.get(currentKey) ?? Infinity) + passableButSlower;
+      if (tentative < (gScore.get(nk) ?? Infinity)) {
+        cameFrom.set(nk, currentKey);
+        gScore.set(nk, tentative);
+        open.push({ x: n.x, y: n.y, g: tentative, f: tentative + h(n.x, n.y) });
+      }
+    }
+  }
+  return [];
+}
+
+function followPath(game, actor, targetX, targetY, sprint = false) {
+  const bot = actor.bot;
+  bot.repath -= 1 / TICK_RATE;
+  const targetChanged = dist(bot.goalX || 0, bot.goalY || 0, targetX, targetY) > game.map.tile * 0.6;
+  if (!bot.path?.length || bot.repath <= 0 || targetChanged) {
+    bot.goalX = targetX;
+    bot.goalY = targetY;
+    bot.path = findPath(game, actor, targetX, targetY, { role: actor.role });
+    bot.repath = botRandomRepath();
+  }
+
+  if (!bot.path?.length) {
+    setMoveToward(actor, targetX, targetY, sprint);
+    return;
+  }
+
+  while (bot.path.length > 1 && dist(actor.x, actor.y, bot.path[0].x, bot.path[0].y) < game.map.tile * 0.28) {
+    bot.path.shift();
+  }
+
+  const next = bot.path[Math.min(1, bot.path.length - 1)] || bot.path[0];
+  setMoveToward(actor, next.x, next.y, sprint);
+
+  // If the next node is a vault/window/pallet tile and we're close, interact with it.
+  const hit = nearestInteractable(game, actor, actor.role === "survivor");
+  if (hit && actor.bot.actionCooldown <= 0) {
+    const tactical = hit.type === "window" || hit.type === "palletVault" || hit.type === "palletBreak";
+    if (tactical && dist(actor.x, actor.y, hit.object.x + hit.object.w / 2, hit.object.y + hit.object.h / 2) <= INTERACT_DISTANCE) {
+      actor.input.action = true;
+      actor.bot.actionCooldown = 0.18;
+    }
+  }
+}
+
+function nearestLivingSurvivor(game, actor) {
+  return [...game.actors.values()]
+    .filter((p) => p.role === "survivor" && !p.dead && !p.escaped)
+    .sort((a, b) => dist(actor.x, actor.y, a.x, a.y) - dist(actor.x, actor.y, b.x, b.y))[0];
+}
+
+function visibleSurvivorsForKiller(game, killer) {
+  return [...game.actors.values()]
+    .filter((p) => p.role === "survivor" && !p.dead && !p.escaped)
+    .filter((p) => {
+      const d = dist(killer.x, killer.y, p.x, p.y);
+      const los = segmentClear(game, killer.x, killer.y, p.x, p.y);
+      if (!los) return false;
+      if (d <= CLOSE_REVEAL_RADIUS) return true;
+      return coneSees(killer, p, KILLER_CONE_LENGTH, KILLER_CONE_ANGLE);
+    });
+}
+
+function chooseKillerTarget(game, killer) {
+  const visible = visibleSurvivorsForKiller(game, killer)
+    .sort((a, b) => dist(killer.x, killer.y, a.x, a.y) - dist(killer.x, killer.y, b.x, b.y));
+
+  if (visible.length) {
+    const target = visible[0];
+    killer.bot.targetId = target.id;
+    killer.bot.lastSeenX = target.x;
+    killer.bot.lastSeenY = target.y;
+    killer.bot.lastSeenTime = game.time;
+    return { actor: target, x: target.x, y: target.y, visible: true };
+  }
+
+  const remembered = killer.bot.targetId ? game.actors.get(killer.bot.targetId) : null;
+  if (remembered && !remembered.dead && !remembered.escaped && game.time - killer.bot.lastSeenTime < BOT_KILLER_MEMORY_SECONDS) {
+    return { actor: remembered, x: killer.bot.lastSeenX, y: killer.bot.lastSeenY, visible: false };
+  }
+
+  const scratch = game.scratchMarks
+    .filter((s) => s.ttl > 0 && game.time - (s.createdAt || 0) < BOT_KILLER_SCRATCH_MEMORY_SECONDS)
+    .sort((a, b) => dist(killer.x, killer.y, a.x, a.y) - dist(killer.x, killer.y, b.x, b.y))[0];
+  if (scratch) return { actor: null, x: scratch.x, y: scratch.y, visible: false };
+
+  const nearest = nearestLivingSurvivor(game, killer);
+  if (nearest) return { actor: nearest, x: nearest.x, y: nearest.y, visible: false };
+  return null;
+}
+
+function chooseFleePoint(game, survivor, killer) {
+  const actorTile = tileAt(game, survivor.x, survivor.y);
+  let best = { x: survivor.x, y: survivor.y, score: -Infinity };
+  const radius = 7;
+
+  for (let ty = actorTile.y - radius; ty <= actorTile.y + radius; ty++) {
+    for (let tx = actorTile.x - radius; tx <= actorTile.x + radius; tx++) {
+      if (isPathTileBlocked(game, tx, ty, survivor.role)) continue;
+      const p = tileCenter(game, tx, ty);
+      const distanceFromKiller = dist(p.x, p.y, killer.x, killer.y);
+      const distanceFromSelf = dist(p.x, p.y, survivor.x, survivor.y);
+      if (distanceFromSelf < game.map.tile * 1.5) continue;
+      const breaksLos = !segmentClear(game, killer.x, killer.y, p.x, p.y);
+      const towardMapCenter = -dist(p.x, p.y, game.map.width / 2, game.map.height / 2) * 0.04;
+      const score = distanceFromKiller + (breaksLos ? 260 : 0) - distanceFromSelf * 0.22 + towardMapCenter;
+      if (score > best.score) best = { x: p.x, y: p.y, score };
+    }
+  }
+  return best;
+}
+
+function botShouldDropPallet(game, survivor, killer, hit) {
+  if (!hit || hit.type !== "palletDrop") return false;
+  const killerDistance = dist(survivor.x, survivor.y, killer.x, killer.y);
+  if (killerDistance > BOT_SURVIVOR_PANIC_RADIUS) return false;
+  // Drop if the killer is behind/near the survivor and not on the survivor's escape side.
+  return segmentClear(game, survivor.x, survivor.y, killer.x, killer.y) || killerDistance < 190;
+}
+
+function botUseLoopObject(game, survivor, killer) {
+  if (!killer || survivor.bot.actionCooldown > 0) return false;
+  const hit = nearestInteractable(game, survivor, true);
+  if (!hit) return false;
+  const killerDistance = dist(survivor.x, survivor.y, killer.x, killer.y);
+  if ((hit.type === "window" || hit.type === "palletVault") && killerDistance < BOT_SURVIVOR_LOOP_RADIUS) {
+    survivor.input.action = true;
+    survivor.bot.actionCooldown = 0.22;
+    return true;
+  }
+  if (botShouldDropPallet(game, survivor, killer, hit)) {
+    const md = movementDirection(survivor.input);
+    if (Math.abs(md.dx) > Math.abs(md.dy)) survivor.input.actionDir = md.dx < 0 ? "left" : "right";
+    else if (md.dy !== 0) survivor.input.actionDir = md.dy < 0 ? "up" : "down";
+    survivor.input.action = true;
+    survivor.bot.actionCooldown = 0.35;
+    return true;
+  }
+  return false;
+}
+
+function botMoveToObjective(game, actor) {
+  if (game.escapeOpen && game.map.gates.length) {
+    const gate = [...game.map.gates].sort((a, b) => dist(actor.x, actor.y, a.x, a.y) - dist(actor.x, actor.y, b.x, b.y))[0];
+    followPath(game, actor, gate.x, gate.y, true);
+    if (dist(actor.x, actor.y, gate.x, gate.y) < INTERACT_DISTANCE) actor.input.repair = true;
+    return;
+  }
+
+  const gen = game.map.generators
+    .filter((g) => !g.done)
+    .sort((a, b) => dist(actor.x, actor.y, a.x, a.y) - dist(actor.x, actor.y, b.x, b.y))[0];
+
+  if (gen) {
+    if (dist(actor.x, actor.y, gen.x, gen.y) < INTERACT_DISTANCE && segmentClear(game, actor.x, actor.y, gen.x, gen.y)) {
+      actor.input.repair = true;
+      actor.input.angle = Math.atan2(gen.y - actor.y, gen.x - actor.x);
+    } else {
+      followPath(game, actor, gen.x, gen.y, false);
+    }
+  }
+}
+
+function updateBotInputs(game, dt) {
+  const killer = [...game.actors.values()].find((p) => p.role === "killer" && !p.dead);
+
+  for (const actor of game.actors.values()) {
+    if (!actor.isBot || actor.dead || actor.escaped) continue;
+    resetInput(actor.input);
+    actor.bot.actionCooldown = Math.max(0, actor.bot.actionCooldown - dt);
+
+    if (actor.role === "killer") {
+      const target = chooseKillerTarget(game, actor);
+      if (!target) continue;
+
+      if (target.actor) actor.input.angle = Math.atan2(target.actor.y - actor.y, target.actor.x - actor.x);
+      else actor.input.angle = Math.atan2(target.y - actor.y, target.x - actor.x);
+
+      const hit = target.actor ? nearestInteractable(game, actor, false) : null;
+      const targetDistance = dist(actor.x, actor.y, target.x, target.y);
+      const hasClearAttack = target.actor && attackSegmentClear(game, actor.x, actor.y, target.actor.x, target.actor.y);
+
+      if (target.actor && targetDistance <= QUICK_ATTACK_RANGE * 0.95 && hasClearAttack && actor.attackCooldown <= 0 && actor.recovery <= 0 && !actor.attackState) {
+        actor.input.attackReleased = true;
+      } else if (target.actor && targetDistance <= LUNGE_ATTACK_RANGE * 1.25 && hasClearAttack && actor.attackCooldown <= 0 && actor.recovery <= 0 && !actor.attackState) {
+        actor.input.attackHeld = true;
+      } else {
+        followPath(game, actor, target.x, target.y, false);
+      }
+
+      if (hit && actor.bot.actionCooldown <= 0) {
+        const usefulObstacle = hit.type === "window" || hit.type === "palletBreak";
+        const blockedAttack = target.actor && !hasClearAttack && targetDistance < 260;
+        if (usefulObstacle && (blockedAttack || targetDistance > QUICK_ATTACK_RANGE * 1.4)) {
+          actor.input.action = true;
+          actor.bot.actionCooldown = hit.type === "palletBreak" ? 0.8 : 0.25;
+        }
+      }
+      continue;
+    }
+
+    if (actor.role === "survivor") {
+      const killerDistance = killer && !killer.dead ? dist(actor.x, actor.y, killer.x, killer.y) : Infinity;
+      const killerHasLos = killer && segmentClear(game, actor.x, actor.y, killer.x, killer.y);
+      const threatened = killer && killerDistance < BOT_SURVIVOR_THREAT_RADIUS && (killerHasLos || actor.chaseHold > 0 || killerDistance < BOT_SURVIVOR_PANIC_RADIUS);
+
+      if (threatened) {
+        const flee = chooseFleePoint(game, actor, killer);
+        followPath(game, actor, flee.x, flee.y, true);
+        botUseLoopObject(game, actor, killer);
+        continue;
+      }
+
+      botMoveToObjective(game, actor);
+    }
+  }
+}
+
 function updateGame(lobby, dt) {
   const game = lobby.game;
   if (!game || game.phase !== "game") return;
 
+  game.time = (game.time || 0) + dt;
+  updateBotInputs(game, dt);
   updateTimers(game, dt);
+  const killer = [...game.actors.values()].find((p) => p.role === "killer");
   for (const actor of game.actors.values()) moveActor(game, actor, dt);
+  updateKillerAttack(game, killer, dt);
   for (const actor of game.actors.values()) {
     if (actor.input.action) handleAction(game, actor);
   }
-  const killer = [...game.actors.values()].find((p) => p.role === "killer");
-  handleKillerAttack(game, killer);
   updateGeneratorsAndGates(game, dt);
   updateChaseState(game, dt);
   checkWinConditions(lobby);
@@ -767,6 +1366,7 @@ function updateGame(lobby, dt) {
   for (const actor of game.actors.values()) {
     actor.input.action = false;
     actor.input.attack = false;
+    actor.input.attackReleased = false;
   }
 }
 
@@ -784,12 +1384,10 @@ function isActorVisibleToViewer(game, viewer, actor) {
   }
 
   if (viewer.role === "killer" && actor.role === "survivor") {
-    // Killer player visibility is strictly line-of-sight based. No seeing survivors through walls
-    // just because they sprinted, repaired, sneezed, or offended the fog gods.
+    // Killers only see survivors through line of sight: inside their cone,
+    // or extremely close, including right behind them. No global sprint/repair wallhack nonsense.
     if (!los) return false;
     if (d <= CLOSE_REVEAL_RADIUS) return true;
-    if (actor.input?.sprint && d < 900) return true;
-    if (actor.input?.repair && d < 700) return true;
     return coneSees(viewer, actor, KILLER_CONE_LENGTH, KILLER_CONE_ANGLE);
   }
 
@@ -801,14 +1399,14 @@ function isActorVisibleToViewer(game, viewer, actor) {
 }
 
 function serializeActor(actor, visible = true) {
-  if (!visible) {
-    return { id: actor.id, role: actor.role, visible: false, dead: actor.dead, escaped: actor.escaped, name: actor.name };
-  }
+  // Always send position and angle, even when the viewer cannot see this actor.
+  // The client hides the sprite locally but keeps interpolating it, so reappearing actors
+  // do not teleport from an old stale position. The fog may lie, the server does not.
   return {
     id: actor.id,
     name: actor.name,
     role: actor.role,
-    visible: true,
+    visible: !!visible,
     x: Number(actor.x.toFixed(2)),
     y: Number(actor.y.toFixed(2)),
     angle: actor.angle,
@@ -817,6 +1415,10 @@ function serializeActor(actor, visible = true) {
     dead: actor.dead,
     escaped: actor.escaped,
     recovery: actor.recovery,
+    attackState: actor.attackState,
+    attackType: actor.attackType,
+    attackCharge: actor.attackCharge,
+    attacking: actor.attackState === "quick" || actor.attackState === "lunge",
     vaulting: !!actor.vault,
     breaking: !!actor.breakTarget,
     invuln: actor.invuln,
@@ -835,15 +1437,15 @@ function buildSnapshotFor(lobby, socketId) {
   }
 
   const killer = [...game.actors.values()].find((p) => p.role === "killer");
-  let music = { layer1: 0.45, layer2: 0, layer3: 0, chase: false, terror: 0, distance: 9999 };
+  let music = { layer1: MUSIC_LAYER_1_VOLUME, layer2: 0, layer3: 0, chase: false, terror: 0, distance: 9999 };
   if (viewer && viewer.role === "survivor" && killer && !viewer.dead && !viewer.escaped) {
     const d = dist(viewer.x, viewer.y, killer.x, killer.y);
     const terror = clamp(1 - d / TERROR_RADIUS, 0, 1);
     const chase = viewer.chaseHold > 0;
     music = {
-      layer1: 0.45,
-      layer2: chase ? Math.max(0.22, terror * 0.58) : terror * 0.72,
-      layer3: chase ? 0.95 : 0,
+      layer1: MUSIC_LAYER_1_VOLUME,
+      layer2: chase ? Math.max(MUSIC_LAYER_2_MAX_VOLUME * 0.45, terror * MUSIC_LAYER_2_MAX_VOLUME) : terror * MUSIC_LAYER_2_MAX_VOLUME,
+      layer3: chase ? MUSIC_LAYER_3_VOLUME : 0,
       chase,
       terror,
       distance: d
@@ -851,7 +1453,13 @@ function buildSnapshotFor(lobby, socketId) {
   }
 
   const visibleScratchMarks = viewer?.role === "killer"
-    ? game.scratchMarks
+    ? game.scratchMarks.filter((s) => {
+        if (!viewer) return false;
+        const d = dist(viewer.x, viewer.y, s.x, s.y);
+        if (d > KILLER_SCRATCH_MARK_VISIBILITY_RANGE) return false;
+        const target = { x: s.x, y: s.y };
+        return coneSees(viewer, target, KILLER_SCRATCH_MARK_VISIBILITY_RANGE, KILLER_CONE_ANGLE) && segmentClear(game, viewer.x, viewer.y, s.x, s.y);
+      })
     : game.scratchMarks.filter((s) => dist(viewer?.x || 0, viewer?.y || 0, s.x, s.y) < 180);
 
   return {
@@ -954,6 +1562,18 @@ io.on("connection", (socket) => {
     broadcastLobbyState(lobby);
   });
 
+  socket.on("addBot", ({ role } = {}) => {
+    const lobby = lobbies.get(socketToLobby.get(socket.id));
+    if (!lobby) return;
+    const result = addBotToLobby(lobby, role);
+    if (!result.ok) {
+      socket.emit("toast", { type: "error", message: result.message });
+      return;
+    }
+    broadcastLobbyState(lobby);
+    broadcastLobbyList();
+  });
+
   socket.on("startGame", () => {
     const lobby = lobbies.get(socketToLobby.get(socket.id));
     if (!lobby) return;
@@ -972,7 +1592,12 @@ io.on("connection", (socket) => {
     actor.input.sprint = actor.role === "survivor" && !!input.sprint;
     actor.input.repair = actor.role === "survivor" && !!input.repair;
     actor.input.action = actor.input.action || !!input.action;
-    actor.input.attack = actor.input.attack || (actor.role === "killer" && !!input.attack);
+    if (["up", "down", "left", "right"].includes(input.actionDir)) actor.input.actionDir = input.actionDir;
+    if (actor.role === "killer") {
+      actor.input.attack = actor.input.attack || !!input.attack;
+      actor.input.attackHeld = !!input.attackHeld;
+      actor.input.attackReleased = actor.input.attackReleased || !!input.attackReleased;
+    }
     if (Number.isFinite(input.angle)) actor.input.angle = input.angle;
   });
 

@@ -3,17 +3,17 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Fog Vault Multiplayer</title>
+  <title>Fog Vault Multiplayer - Phaser</title>
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
-  <canvas id="game"></canvas>
+  <div id="gameWrap"></div>
 
   <div id="menu" class="screen screen-open">
     <div class="panel title-panel">
-      <div class="eyebrow">server-authoritative horror chase</div>
+      <div class="eyebrow">phaser-rendered server-authoritative horror chase</div>
       <h1>Fog Vault Multiplayer</h1>
-      <p>Open lobbies, 1 killer, up to 4 survivors, generators, vaults, pallets, and enough fog to make basic navigation a lifestyle choice.</p>
+      <p>Open lobbies, 1 killer, up to 4 survivors, generators, vaults, pallets, bots, layered chase music, and lighting that finally behaves like a flashlight instead of a haunted printer.</p>
 
       <label class="field-label" for="playerName">Name</label>
       <input id="playerName" maxlength="18" placeholder="Player" />
@@ -29,7 +29,7 @@
       </div>
 
       <h2>Open Lobbies</h2>
-      <div id="lobbyList" class="lobby-list empty">No open lobbies yet. Civilization remains lonely.</div>
+      <div id="lobbyList" class="lobby-list empty">No open lobbies yet.</div>
     </div>
   </div>
 
@@ -37,7 +37,7 @@
     <div class="panel lobby-panel">
       <div class="eyebrow">waiting room</div>
       <h1 id="lobbyTitle">Lobby</h1>
-      <p id="lobbySubtitle">Choose roles. Only one killer per match. Yes, sharing is hard.</p>
+      <p id="lobbySubtitle">Choose roles. Only one killer per match.</p>
       <div id="playersList" class="players-list"></div>
       <div class="role-row">
         <button id="beSurvivorBtn">Choose Survivor</button>
@@ -45,10 +45,12 @@
       </div>
       <div class="button-row">
         <button id="readyBtn">Ready</button>
+        <button id="addBotSurvivorBtn">Add Bot Survivor</button>
+        <button id="addBotKillerBtn">Add Bot Killer</button>
         <button id="startBtn" class="primary">Start Match</button>
         <button id="leaveBtn">Leave</button>
       </div>
-      <p class="hint">Start requires exactly <b>1 killer</b> and at least <b>1 survivor</b>. Lobbies are open, no codes, because apparently passwords were too sophisticated for the murder yard.</p>
+      <p class="hint">Start requires exactly <b>1 killer</b> and at least <b>1 survivor</b>. Bot buttons are for testing, because asking friends to help debug collision math is apparently a social crime.</p>
     </div>
   </div>
 
@@ -61,6 +63,7 @@
       <div><span>Generators</span><b id="genText">0 / 0</b></div>
       <div><span>Gate</span><b id="gateText">Closed</b></div>
       <div><span>Health</span><b id="healthText">Healthy</b></div>
+      <div><span>Audio</span><b id="audioText">Press any key</b></div>
     </div>
   </div>
 
@@ -79,6 +82,7 @@
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
+  <script src="/vendor/phaser.min.js"></script>
   <script src="/maps.js"></script>
   <script src="/client.js"></script>
 </body>
