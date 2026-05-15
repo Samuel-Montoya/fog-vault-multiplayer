@@ -36,6 +36,7 @@
   let currentLobby = null;
   let fullMap = null;
   let snapshot = null;
+  const visualActors = new Map();
   let width = 0;
   let height = 0;
   let dpr = 1;
@@ -121,6 +122,7 @@
     socket.emit("leaveLobby");
     currentLobby = null;
     snapshot = null;
+    visualActors.clear();
     showScreen("menu");
   });
   ui.backToLobbyBtn.addEventListener("click", () => {
@@ -131,6 +133,7 @@
     socket.emit("leaveLobby");
     currentLobby = null;
     snapshot = null;
+    visualActors.clear();
     showScreen("menu");
   });
 
@@ -166,12 +169,14 @@
   socket.on("gameStarted", (map) => {
     fullMap = map;
     snapshot = null;
+    visualActors.clear();
     particles.length = 0;
     showScreen("game");
   });
   socket.on("snapshot", (s) => {
     snapshot = s;
     if (!fullMap && s.map) fullMap = { ...s.map, walls: [], windows: [] };
+    primeVisualActors(s.actors || []);
     processEvents(s.events || []);
     updateHud();
   });
@@ -235,8 +240,76 @@
     return snapshot?.actors?.find((a) => a.id === myId && a.visible);
   }
 
-  function sendInput() {
+  function actorForRender(actor) {
+    const v = visualActors.get(actor.id);
+    return v ? { ...actor, x: v.x, y: v.y, angle: v.angle } : actor;
+  }
+
+  function localRenderActor() {
     const me = localActor();
+    return me ? actorForRender(me) : me;
+  }
+
+  function angleLerp(a, b, t) {
+    let d = b - a;
+    while (d > Math.PI) d -= Math.PI * 2;
+    while (d < -Math.PI) d += Math.PI * 2;
+    return a + d * t;
+  }
+
+  function primeVisualActors(actors) {
+    for (const actor of actors) {
+      if (!actor.visible || !Number.isFinite(actor.x) || !Number.isFinite(actor.y)) {
+        visualActors.delete(actor.id);
+        continue;
+      }
+      if (!visualActors.has(actor.id)) {
+        visualActors.set(actor.id, {
+          x: actor.x, y: actor.y, angle: actor.angle || 0,
+          targetX: actor.x, targetY: actor.y, targetAngle: actor.angle || 0
+        });
+      } else {
+        const v = visualActors.get(actor.id);
+        v.targetX = actor.x;
+        v.targetY = actor.y;
+        v.targetAngle = actor.angle || 0;
+      }
+    }
+  }
+
+  function updateVisualActors(dt) {
+    if (!snapshot?.actors) return;
+    const seen = new Set();
+    const alpha = Math.min(1, dt * 18);
+    for (const actor of snapshot.actors) {
+      if (!actor.visible || !Number.isFinite(actor.x) || !Number.isFinite(actor.y)) continue;
+      seen.add(actor.id);
+      let v = visualActors.get(actor.id);
+      if (!v) {
+        v = { x: actor.x, y: actor.y, angle: actor.angle || 0, targetX: actor.x, targetY: actor.y, targetAngle: actor.angle || 0 };
+        visualActors.set(actor.id, v);
+      }
+      v.targetX = actor.x;
+      v.targetY = actor.y;
+      v.targetAngle = actor.angle || 0;
+      const jump = Math.hypot(v.targetX - v.x, v.targetY - v.y);
+      if (jump > 240) {
+        v.x = v.targetX;
+        v.y = v.targetY;
+        v.angle = v.targetAngle;
+      } else {
+        v.x += (v.targetX - v.x) * alpha;
+        v.y += (v.targetY - v.y) * alpha;
+        v.angle = angleLerp(v.angle, v.targetAngle, alpha);
+      }
+    }
+    for (const id of visualActors.keys()) {
+      if (!seen.has(id)) visualActors.delete(id);
+    }
+  }
+
+  function sendInput() {
+    const me = localRenderActor();
     let angle = 0;
     if (me) angle = Math.atan2(mouse.y + camera.y - me.y, mouse.x + camera.x - me.x);
     const role = me?.role;
@@ -254,7 +327,7 @@
     actionQueued = false;
     attackQueued = false;
   }
-  setInterval(sendInput, 1000 / 30);
+  setInterval(sendInput, 1000 / 60);
 
   function updateHud() {
     const me = localActor();
@@ -381,7 +454,7 @@
   function sy(y) { return y - camera.y; }
 
   function updateCamera() {
-    const me = localActor();
+    const me = localRenderActor();
     if (!me || !snapshot?.map) return;
     camera.x = clamp(me.x - width / 2, 0, Math.max(0, snapshot.map.width - width));
     camera.y = clamp(me.y - height / 2, 0, Math.max(0, snapshot.map.height - height));
@@ -553,8 +626,9 @@
   }
 
   function drawActors() {
-    for (const actor of snapshot.actors || []) {
-      if (!actor.visible || actor.dead || actor.escaped) continue;
+    for (const raw of snapshot.actors || []) {
+      if (!raw.visible || raw.dead || raw.escaped) continue;
+      const actor = actorForRender(raw);
       if (actor.role === "killer") drawKiller(actor);
       else drawSurvivor(actor);
     }
@@ -619,32 +693,40 @@
   }
 
   function drawFog() {
-    const me = localActor();
+    const me = localRenderActor();
     if (!me || !snapshot?.map) return;
+
     const isKiller = me.role === "killer";
-    const length = isKiller ? 850 : 620;
-    const angleSize = isKiller ? Math.PI / 1.8 : Math.PI / 2.6;
+    const length = isKiller ? 940 : 700;
+    const angleSize = isKiller ? Math.PI / 1.65 : Math.PI / 2.35;
+    const auraRadius = isKiller ? 235 : 180;
+    const outsideFog = isKiller ? 0.38 : 0.50;
     const px = sx(me.x), py = sy(me.y);
     const a = me.angle || 0;
     const left = a - angleSize / 2;
     const right = a + angleSize / 2;
 
+    // Soft global fog. Keep the map readable outside vision instead of turning the whole thing into spilled ink.
     ctx.save();
-    ctx.fillStyle = isKiller ? "rgba(0,0,0,.54)" : "rgba(0,0,0,.72)";
+    ctx.fillStyle = `rgba(0,0,0,${outsideFog})`;
     ctx.fillRect(0, 0, width, height);
+
+    // Cut a bright local aura and flashlight cone out of the fog.
     ctx.globalCompositeOperation = "destination-out";
 
-    const aura = ctx.createRadialGradient(px, py, 20, px, py, isKiller ? 180 : 130);
-    aura.addColorStop(0, "rgba(255,255,255,.95)");
+    const aura = ctx.createRadialGradient(px, py, 8, px, py, auraRadius);
+    aura.addColorStop(0, "rgba(255,255,255,1)");
+    aura.addColorStop(0.55, "rgba(255,255,255,.82)");
     aura.addColorStop(1, "rgba(255,255,255,0)");
     ctx.fillStyle = aura;
     ctx.beginPath();
-    ctx.arc(px, py, isKiller ? 180 : 130, 0, Math.PI * 2);
+    ctx.arc(px, py, auraRadius, 0, Math.PI * 2);
     ctx.fill();
 
-    const grad = ctx.createRadialGradient(px, py, 60, px, py, length);
-    grad.addColorStop(0, "rgba(255,255,255,.95)");
-    grad.addColorStop(0.58, "rgba(255,255,255,.62)");
+    const grad = ctx.createRadialGradient(px, py, 35, px, py, length);
+    grad.addColorStop(0, "rgba(255,255,255,1)");
+    grad.addColorStop(0.45, "rgba(255,255,255,.92)");
+    grad.addColorStop(0.76, "rgba(255,255,255,.48)");
     grad.addColorStop(1, "rgba(255,255,255,0)");
     ctx.fillStyle = grad;
     ctx.beginPath();
@@ -653,7 +735,30 @@
     ctx.arc(px, py, length, left, right);
     ctx.closePath();
     ctx.fill();
+    ctx.restore();
 
+    // Add actual light color back on top after the mask. This prevents the cone from being technically clear but visually dead.
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    const warm = ctx.createRadialGradient(px, py, 40, px, py, length);
+    warm.addColorStop(0, isKiller ? "rgba(255,80,60,.18)" : "rgba(255,238,188,.24)");
+    warm.addColorStop(0.48, isKiller ? "rgba(255,30,20,.10)" : "rgba(255,220,150,.15)");
+    warm.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = warm;
+    ctx.beginPath();
+    ctx.moveTo(px, py);
+    ctx.lineTo(px + Math.cos(left) * length, py + Math.sin(left) * length);
+    ctx.arc(px, py, length, left, right);
+    ctx.closePath();
+    ctx.fill();
+
+    const closeGlow = ctx.createRadialGradient(px, py, 5, px, py, auraRadius * 0.9);
+    closeGlow.addColorStop(0, isKiller ? "rgba(255,40,35,.18)" : "rgba(255,245,210,.18)");
+    closeGlow.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = closeGlow;
+    ctx.beginPath();
+    ctx.arc(px, py, auraRadius * 0.9, 0, Math.PI * 2);
+    ctx.fill();
     ctx.restore();
   }
 
@@ -670,8 +775,9 @@
     ctx.strokeRect(x, y, w, h);
     ctx.fillStyle = "rgba(255,255,255,.18)";
     for (const wall of fullMap.walls || []) ctx.fillRect(x + wall.x * sxm, y + wall.y * sym, Math.max(1, wall.w * sxm), Math.max(1, wall.h * sym));
-    for (const actor of snapshot.actors || []) {
-      if (!actor.visible || actor.dead || actor.escaped) continue;
+    for (const raw of snapshot.actors || []) {
+      if (!raw.visible || raw.dead || raw.escaped) continue;
+      const actor = actorForRender(raw);
       ctx.fillStyle = actor.role === "killer" ? colors.killer : colors.survivor;
       ctx.fillRect(x + actor.x * sxm - 2, y + actor.y * sym - 2, 4, 4);
     }
@@ -682,6 +788,7 @@
     const dt = Math.min(0.04, (now - lastFrame) / 1000);
     lastFrame = now;
     updateParticles(dt);
+    updateVisualActors(dt);
     updateAudio(dt);
     draw();
     requestAnimationFrame(frame);

@@ -16,8 +16,8 @@ const PUBLIC_DIR = path.join(__dirname, "public");
 app.use(express.static(PUBLIC_DIR));
 app.get("/", (req, res) => res.sendFile(path.join(PUBLIC_DIR, "index.html")));
 
-const TICK_RATE = 30;
-const SNAPSHOT_RATE = 20;
+const TICK_RATE = 60;
+const SNAPSHOT_RATE = 30;
 const MAX_SURVIVORS = 4;
 const PLAYER_SIZE = 30;
 const KILLER_SIZE = 38;
@@ -163,7 +163,13 @@ function solidRects(game) {
   return solids;
 }
 
-function losBlockingRects(game) {
+function visionBlockingRects(game) {
+  // Only true walls block sight. Windows and dropped pallets block bodies, not eyeballs.
+  return game.map.walls;
+}
+
+function attackBlockingRects(game) {
+  // Attacks should not hit through walls, windows, or dropped pallets.
   return solidRects(game);
 }
 
@@ -172,10 +178,9 @@ function wouldCollide(game, actor, x, y) {
   return solidRects(game).some((r) => rectsOverlap(box, r));
 }
 
-function segmentClear(game, ax, ay, bx, by) {
+function segmentClearAgainst(blockers, ax, ay, bx, by) {
   const distance = dist(ax, ay, bx, by);
-  const steps = Math.max(2, Math.ceil(distance / 22));
-  const blockers = losBlockingRects(game);
+  const steps = Math.max(2, Math.ceil(distance / 18));
   for (let i = 1; i < steps; i++) {
     const t = i / steps;
     const x = ax + (bx - ax) * t;
@@ -183,6 +188,14 @@ function segmentClear(game, ax, ay, bx, by) {
     if (blockers.some((r) => pointInRect(x, y, r))) return false;
   }
   return true;
+}
+
+function segmentClear(game, ax, ay, bx, by) {
+  return segmentClearAgainst(visionBlockingRects(game), ax, ay, bx, by);
+}
+
+function attackSegmentClear(game, ax, ay, bx, by) {
+  return segmentClearAgainst(attackBlockingRects(game), ax, ay, bx, by);
 }
 
 function coneSees(viewer, target, length, angle) {
@@ -617,7 +630,7 @@ function handleKillerAttack(game, killer) {
     if (d > HIT_RANGE) continue;
     const a = Math.atan2(survivor.y - killer.y, survivor.x - killer.x);
     if (angleDiff(a, killer.angle) > ATTACK_ARC / 2) continue;
-    if (!segmentClear(game, killer.x, killer.y, survivor.x, survivor.y)) continue;
+    if (!attackSegmentClear(game, killer.x, killer.y, survivor.x, survivor.y)) continue;
     damageSurvivor(game, killer, survivor);
     break;
   }
@@ -681,14 +694,22 @@ function updateChaseState(game, dt) {
 
   for (const survivor of game.actors.values()) {
     if (survivor.role !== "survivor" || survivor.dead || survivor.escaped) continue;
+
     const d = dist(killer.x, killer.y, survivor.x, survivor.y);
-    const killerLooking = coneSees(killer, survivor, KILLER_CONE_LENGTH, KILLER_CONE_ANGLE);
     const los = segmentClear(game, killer.x, killer.y, survivor.x, survivor.y);
-    const moving = Math.abs(killer.input.up - killer.input.down) + Math.abs(killer.input.left - killer.input.right) > 0;
-    if (d < CHASE_START_RADIUS && killerLooking && los && moving) {
-      survivor.chaseHold = CHASE_HOLD_SECONDS;
-    }
-    if (d < TERROR_RADIUS && survivor.chaseHold > 0) {
+    const killerLooking = coneSees(killer, survivor, KILLER_CONE_LENGTH, KILLER_CONE_ANGLE);
+    const killerMoving = Math.abs(killer.input.up - killer.input.down) + Math.abs(killer.input.left - killer.input.right) > 0;
+
+    // Start chase only when the killer actually sees the survivor.
+    const startsChase = d <= CHASE_START_RADIUS && los && killerLooking && killerMoving;
+
+    // Once chase has started, keep it alive while the killer is still meaningfully on them.
+    // Windows and pallets do not block this, but walls do. When this stops being true,
+    // chaseHold counts down for three seconds and the layer_3 music fades out.
+    const closePressure = d <= CLOSE_REVEAL_RADIUS * 2.4;
+    const keepsChase = survivor.chaseHold > 0 && los && d <= TERROR_RADIUS && (killerLooking || closePressure);
+
+    if (startsChase || keepsChase) {
       survivor.chaseHold = CHASE_HOLD_SECONDS;
     }
   }
@@ -763,10 +784,13 @@ function isActorVisibleToViewer(game, viewer, actor) {
   }
 
   if (viewer.role === "killer" && actor.role === "survivor") {
-    if (d <= CLOSE_REVEAL_RADIUS && los) return true;
+    // Killer player visibility is strictly line-of-sight based. No seeing survivors through walls
+    // just because they sprinted, repaired, sneezed, or offended the fog gods.
+    if (!los) return false;
+    if (d <= CLOSE_REVEAL_RADIUS) return true;
     if (actor.input?.sprint && d < 900) return true;
-    if (actor.input?.repair && d < 700 && los) return true;
-    return los && coneSees(viewer, actor, KILLER_CONE_LENGTH, KILLER_CONE_ANGLE);
+    if (actor.input?.repair && d < 700) return true;
+    return coneSees(viewer, actor, KILLER_CONE_LENGTH, KILLER_CONE_ANGLE);
   }
 
   if (viewer.role === "survivor" && actor.role === "survivor") {
@@ -785,8 +809,8 @@ function serializeActor(actor, visible = true) {
     name: actor.name,
     role: actor.role,
     visible: true,
-    x: Math.round(actor.x),
-    y: Math.round(actor.y),
+    x: Number(actor.x.toFixed(2)),
+    y: Number(actor.y.toFixed(2)),
     angle: actor.angle,
     health: actor.health,
     injured: actor.injured,
@@ -818,7 +842,7 @@ function buildSnapshotFor(lobby, socketId) {
     const chase = viewer.chaseHold > 0;
     music = {
       layer1: 0.45,
-      layer2: chase ? 0.18 : terror * 0.72,
+      layer2: chase ? Math.max(0.22, terror * 0.58) : terror * 0.72,
       layer3: chase ? 0.95 : 0,
       chase,
       terror,

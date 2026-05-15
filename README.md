@@ -79,3 +79,21 @@ E = exit gate
 ```
 
 Pallets work best between wall pieces. Windows work best inside wall runs.
+
+## v15 fixes
+
+- Brighter fog/flashlight lighting so survivor view is readable again.
+- Wider, brighter aura around the player.
+- Added warm light bloom in the cone so the visible area does not look flat or dead.
+- Killer player visibility now requires line of sight for every survivor reveal rule, including sprinting and repairing.
+
+## v16 fixes
+
+- Chase music now stops after the killer loses chase pressure for 3 seconds instead of staying stuck just because the survivor is inside terror radius.
+- `layer_1.mp3` stays as ambient, `layer_2.mp3` fades with terror distance, and `layer_3.mp3` stays up only while chase grace is active.
+- Windows and dropped pallets block movement/attacks but no longer block vision, so survivors can see killers through them.
+- Walls still block line of sight.
+- Server tick rate increased to 60Hz and snapshot rate increased to 30Hz.
+- Client input sends at 60Hz.
+- Actor positions are no longer rounded before snapshots.
+- Client rendering now smooths visible actor movement between snapshots.
