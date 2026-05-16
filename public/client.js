@@ -25,6 +25,20 @@
     LAYERS: ["/layer_1.mp3", "/layer_2.mp3", "/layer_3.mp3"]
   };
 
+  const SFX = {
+    MASTER: 0.72,
+    FILES: {
+      hooked: "/hooked.mp3",
+      dead: "/dead.mp3",
+      gen: "/gen.mp3"
+    },
+    VOLUMES: {
+      hooked: 0.82,
+      dead: 0.9,
+      gen: 0.76
+    }
+  };
+
   // Client-only fear tuning. This does not change hitboxes or movement on the server.
   // It just makes the camera and overlay behave like the chase is pulling you inward.
   const IMMERSION = {
@@ -35,14 +49,18 @@
     CHASE_IN_LERP: 0.085,
     CHASE_OUT_LERP: 0.045,
     TERROR_LERP: 0.075,
-    BREATH_SWAY: 3,
-    CHASE_SWAY: 8,
-    HEARTBEAT_MIN_INTERVAL: 0.02,
-    HEARTBEAT_MAX_INTERVAL: 0.08,
-    HEARTBEAT_SHAKE_BASE: 0.0,
-    HEARTBEAT_SHAKE_CHASE: 0.0,
+    BREATH_SWAY: 8,
+    CHASE_SWAY: 14,
+    HEARTBEAT_MIN_INTERVAL: 0.32,
+    HEARTBEAT_MAX_INTERVAL: 0.88,
+    HEARTBEAT_SHAKE_BASE: 0.0014,
+    HEARTBEAT_SHAKE_CHASE: 0.0032,
     TUNNEL_MAX: 0.85
   };
+
+  // Keep this matched with server.js. Client uses it only for local prediction
+  // so walking into generators does not feel like rubber-band soup.
+  const GENERATOR_COLLISION_SIZE = 54;
 
   const LOCAL_SPEEDS = {
     survivorWalk: 170,
@@ -139,6 +157,7 @@
     ready: false,
     tried: false,
     layers: [],
+    sfx: {},
     targets: [0, 0, 0],
     volumes: [0, 0, 0]
   };
@@ -259,6 +278,17 @@
       });
       return a;
     });
+
+    audio.sfx = Object.fromEntries(Object.entries(SFX.FILES).map(([name, src]) => {
+      const a = new Audio(src);
+      a.loop = false;
+      a.preload = "auto";
+      a.volume = clamp((SFX.VOLUMES[name] || 0.75) * SFX.MASTER, 0, 1);
+      a.addEventListener("error", () => {
+        // Missing SFX files should not brick the match. The void can stay quiet.
+      });
+      return [name, a];
+    }));
   }
 
   function ensureAudioStarted() {
@@ -289,11 +319,26 @@
     }
   }
 
+  function playSfx(name) {
+    const base = audio.sfx?.[name];
+    if (!base) return;
+    const clip = base.cloneNode(true);
+    clip.loop = false;
+    clip.volume = clamp((SFX.VOLUMES[name] || 0.75) * SFX.MASTER, 0, 1);
+    clip.play().catch(() => {
+      // Browser autoplay rules can still block if the user has not interacted yet.
+      // Once they click or press a key, future effects will play. Naturally, browsers need consent to scream.
+    });
+  }
+
   function survivorStateLabel(actor) {
     if (actor.dead) return "Dead";
     if (actor.escaped) return "Escaped";
-    if (actor.hooked) return actor.unhookProgress > 0 ? "Being Rescued" : "Hooked";
-    if (actor.downed) return actor.hookProgress > 0 ? "Being Hooked" : "Downed";
+    if (actor.hooked) return actor.unhookProgress > 0 ? "Being Rescued" : `Hooked ${actor.hookCount || 1}/2`;
+    if (actor.downed) {
+      if (actor.healProgress > 0) return "Being Healed";
+      return actor.hookProgress > 0 ? ((actor.hookCount || 0) >= 2 ? "Being Executed" : "Being Hooked") : "Downed";
+    }
     if (actor.health <= 1 || actor.injured) return actor.healProgress > 0 ? "Being Healed" : "Injured";
     return actor.chase ? "Chased" : "Healthy";
   }
@@ -315,7 +360,10 @@
     if (actor.dead) return "skull";
     if (actor.escaped) return "out";
     if (actor.hooked) return actor.unhookProgress > 0 ? "rescue" : "hook";
-    if (actor.downed) return actor.hookProgress > 0 ? "capture" : "down";
+    if (actor.downed) {
+      if (actor.healProgress > 0) return "heal";
+      return actor.hookProgress > 0 ? ((actor.hookCount || 0) >= 2 ? "execute" : "capture") : "down";
+    }
     if (actor.chase) return "chase";
     if (actor.healProgress > 0) return "heal";
     if (actor.health <= 1 || actor.injured) return "hurt";
@@ -744,7 +792,7 @@
       if (!me) return;
       ui.roleLabel.textContent = me.role === "killer" ? "Killer" : "Survivor";
       ui.controlsLabel.textContent = me.role === "killer"
-        ? "WASD move • Mouse aim • M1 attack/lunge • Space vault/break • hold E pick up/hook downed survivor"
+        ? "WASD move • Mouse aim • M1 attack/lunge • Space vault/break • hold E hook/execute downed survivor"
         : "WASD move • Shift sprint • Mouse flashlight • Space vault/drop • hold E heal/repair/escape";
       ui.genText.textContent = `${snapshot.objective?.doneGenerators ?? 0} / ${snapshot.objective?.totalGenerators ?? 0}`;
       ui.gateText.textContent = snapshot.objective?.escapeOpen ? "Open" : "Closed";
@@ -753,9 +801,11 @@
         const hookingTarget = actors.find((a) => a.id === me.hookActionTargetId);
         const readyTarget = actors.find((a) => a.id === me.hookReadyTargetId);
         if (hookingTarget) {
-          ui.healthText.textContent = `Hooking ${hookingTarget.name || "survivor"} ${Math.round((hookingTarget.hookProgress || 0) * 100)}%`;
+          const executing = me.hookActionType === "execute" || (hookingTarget.hookCount || 0) >= 2;
+          ui.healthText.textContent = `${executing ? "Executing" : "Hooking"} ${hookingTarget.name || "survivor"} ${Math.round((hookingTarget.hookProgress || 0) * 100)}%`;
         } else if (readyTarget) {
-          ui.healthText.textContent = `Hold E: hook ${readyTarget.name || "survivor"}`;
+          const executeReady = (readyTarget.hookCount || 0) >= 2;
+          ui.healthText.textContent = `Hold E: ${executeReady ? "Execute" : "hook"} ${readyTarget.name || "survivor"}`;
         } else {
           ui.healthText.textContent = "Killer";
         }
@@ -868,9 +918,11 @@
         if (data.hooked) color = COLORS.hook;
         const disabled = data.dead || data.escaped;
         item.body.setFillStyle(data.dead ? 0x555555 : color, disabled ? 0.45 : 1);
-        const progress = data.hooked ? (data.unhookProgress || 0) : data.downed ? (data.hookProgress || 0) : (data.healProgress || 0);
+        const downedHealProgress = data.downed && data.healProgress > 0 ? data.healProgress : 0;
+        const progress = data.hooked ? (data.unhookProgress || 0) : data.downed ? (downedHealProgress || data.hookProgress || 0) : (data.healProgress || 0);
         const showProgress = progress > 0 && !data.dead && !data.escaped;
-        const progressColor = data.hooked ? 0x75d5ff : data.downed ? 0xffb36b : 0x8dff9a;
+        const executing = data.downed && (data.hookCount || 0) >= 2 && data.hookProgress > 0;
+        const progressColor = data.hooked ? 0x75d5ff : downedHealProgress ? 0x8dff9a : executing ? 0xff4040 : data.downed ? 0xffb36b : 0x8dff9a;
         item.outline.setStrokeStyle(2, showProgress ? progressColor : data.invuln > 0 ? 0xffffff : data.hooked ? 0xffc06a : 0xf7fbff, showProgress || data.invuln > 0 || data.hooked ? 1 : 0.75);
         item.facing.setFillStyle(0xffffff, disabled || data.hooked ? 0.15 : 0.42);
         if (item.healBarBg && item.healBar) {
@@ -887,11 +939,16 @@
         if (this[`seen_${event.id}`]) continue;
         this[`seen_${event.id}`] = true;
         if (event.type === "swipe" || event.type === "swing") this.addSwipeIndicator(event);
-        if (["hit", "death", "downed", "hooked", "unhooked"].includes(event.type)) {
+        if (event.type === "hooked") playSfx("hooked");
+        if (event.type === "execute" || event.type === "death") playSfx("dead");
+        if (event.type === "genDone") playSfx("gen");
+        if (["hit", "death", "execute", "downed", "hooked", "unhooked"].includes(event.type)) {
           const color = event.type === "unhooked" ? 0x75d5ff : event.type === "hooked" ? COLORS.hook : COLORS.blood;
-          this.burst(event.x, event.y, color, event.type === "hooked" ? 52 : 38, event.type === "unhooked" ? 140 : 220);
-          this.cameras.main.shake(event.type === "death" || event.type === "downed" || event.type === "hooked" ? 260 : 150, event.type === "death" || event.type === "downed" || event.type === "hooked" ? 0.008 : 0.005);
+          const heavy = event.type === "death" || event.type === "execute" || event.type === "downed" || event.type === "hooked";
+          this.burst(event.x, event.y, color, event.type === "hooked" ? 52 : event.type === "execute" || event.type === "death" ? 62 : 38, event.type === "unhooked" ? 140 : 220);
+          this.cameras.main.shake(heavy ? 260 : 150, heavy ? 0.008 : 0.005);
         }
+        if (event.type === "genDone") this.burst(event.x, event.y, COLORS.gen, 42, 170);
         if (event.type === "vault") this.burst(event.x, event.y, 0xd8d0bd, 12, 90);
         if (event.type === "palletDrop") this.burst(event.x, event.y, COLORS.pallet, 16, 130);
         if (event.type === "palletBreak" || event.type === "palletBreakStart") this.burst(event.x, event.y, 0xffc36a, 18, 150);
@@ -1086,6 +1143,12 @@
       const solids = [...(this.map.walls || []), ...(this.map.windows || [])];
       for (const p of currentSnapshot?.map?.pallets || []) {
         if (!p.broken && p.state === "dropped") solids.push(p);
+      }
+      if (role === "survivor") {
+        for (const gen of currentSnapshot?.map?.generators || this.map.generators || []) {
+          const size = GENERATOR_COLLISION_SIZE;
+          solids.push({ id: gen.id, x: gen.x - size / 2, y: gen.y - size / 2, w: size, h: size });
+        }
       }
       return solids.some((r) => rectsOverlap(box, r));
     }

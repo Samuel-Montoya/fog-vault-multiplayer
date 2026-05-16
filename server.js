@@ -50,13 +50,17 @@ const SURVIVOR_HIT_BOOST = 1.0;
 const SURVIVOR_VAULT_TIME = 0.38;
 const KILLER_VAULT_TIME = 1.05;
 const KILLER_BREAK_TIME = 1.25;
-const GENERATOR_REPAIR_TIME = 12.0;
+// Adjustable generator speed: raise this number to make generators slower.
+const GENERATOR_REPAIR_TIME = 28.0;
+const GENERATOR_COLLISION_SIZE = 54;
 const GATE_ESCAPE_TIME = 0.75;
 const HEAL_TIME = 6.0;
 const HEAL_DISTANCE = 82;
 const DOWNED_CRAWL_SPEED = 62;
 const HOOK_CHANNEL_TIME = 1.35;
+const EXECUTE_CHANNEL_TIME = 2.15;
 const UNHOOK_TIME = 3.25;
+const HOOKS_BEFORE_EXECUTION = 2;
 const HOOK_INTERACT_DISTANCE = 128;
 const HOOK_RESCUE_DISTANCE = 108;
 const TERROR_RADIUS = 760;
@@ -194,6 +198,25 @@ function solidRects(game) {
   return solids;
 }
 
+function generatorCollisionRects(game) {
+  const size = GENERATOR_COLLISION_SIZE;
+  return game.map.generators.map((g) => ({
+    id: g.id,
+    x: g.x - size / 2,
+    y: g.y - size / 2,
+    w: size,
+    h: size
+  }));
+}
+
+function movementBlockingRects(game, actor) {
+  const solids = solidRects(game);
+  // Survivors must path around generators. Killers get to phase through them,
+  // because horror balance apparently requires forklift privileges.
+  if (actor?.role === "survivor") return [...solids, ...generatorCollisionRects(game)];
+  return solids;
+}
+
 function visionBlockingRects(game) {
   // Only true walls block sight. Windows and dropped pallets block bodies, not eyeballs.
   return game.map.walls;
@@ -206,7 +229,7 @@ function attackBlockingRects(game) {
 
 function wouldCollide(game, actor, x, y) {
   const box = actorRect(actor, x, y);
-  return solidRects(game).some((r) => {
+  return movementBlockingRects(game, actor).some((r) => {
     // If a survivor drops a pallet while standing still on top of the interaction zone,
     // give them a tiny pass-through grace on that one pallet so they can step out instead of
     // becoming part of the furniture. Humans apparently dislike being furniture.
@@ -284,7 +307,9 @@ function makePlayer(socket, role, name, options = {}) {
     hookId: null,
     hookProgress: 0,
     unhookProgress: 0,
+    hookCount: 0,
     hookActionTargetId: null,
+    hookActionType: null,
     unhookTargetId: null,
     injured: false,
     invuln: 0,
@@ -706,7 +731,7 @@ function palletSidePosition(actor, pallet, direction, slideOffset = 0) {
 
 function wouldCollideWithFuturePallet(game, actor, x, y, pallet) {
   const box = actorRect(actor, x, y);
-  const blockers = [...solidRects(game)];
+  const blockers = [...movementBlockingRects(game, actor)];
   if (!pallet.broken) blockers.push(pallet);
   return blockers.some((r) => rectsOverlap(box, r));
 }
@@ -778,6 +803,7 @@ function damageSurvivor(game, killer, survivor) {
   survivor.health -= 1;
   survivor.healProgress = 0;
   survivor.activeHealers = [];
+  survivor.healingTargetId = null;
   survivor.hookProgress = 0;
   survivor.unhookProgress = 0;
 
@@ -1043,12 +1069,34 @@ function sendSurvivorToHook(game, survivor) {
   survivor.hooked = true;
   survivor.downed = true;
   survivor.hookId = hook.id;
+  survivor.hookCount = (survivor.hookCount || 0) + 1;
+  survivor.hookProgress = 0;
+  survivor.unhookProgress = 0;
+  survivor.healProgress = 0;
+  survivor.activeHealers = [];
+  survivor.healingTargetId = null;
+  survivor.input.up = survivor.input.down = survivor.input.left = survivor.input.right = false;
+  addEvent(game, "hooked", { x: hook.x, y: hook.y, survivorId: survivor.id, hookId: hook.id, hookCount: survivor.hookCount });
+}
+
+function executeSurvivor(game, survivor) {
+  const oldHook = survivor.hookId ? game.map.hooks.find((h) => h.id === survivor.hookId) : null;
+  if (oldHook) oldHook.active = false;
+  survivor.dead = true;
+  survivor.downed = false;
+  survivor.hooked = false;
+  survivor.hookId = null;
+  survivor.health = 0;
+  survivor.injured = true;
+  survivor.invuln = 0;
+  survivor.hitBoost = 0;
+  survivor.healProgress = 0;
   survivor.hookProgress = 0;
   survivor.unhookProgress = 0;
   survivor.activeHealers = [];
   survivor.healingTargetId = null;
   survivor.input.up = survivor.input.down = survivor.input.left = survivor.input.right = false;
-  addEvent(game, "hooked", { x: hook.x, y: hook.y, survivorId: survivor.id, hookId: hook.id });
+  addEvent(game, "execute", { x: survivor.x, y: survivor.y, survivorId: survivor.id });
 }
 
 function freeSurvivorFromHook(game, survivor) {
@@ -1073,6 +1121,7 @@ function freeSurvivorFromHook(game, survivor) {
 function updateHookInteractions(game, dt) {
   for (const actor of game.actors.values()) {
     actor.hookActionTargetId = null;
+    actor.hookActionType = null;
     actor.unhookTargetId = null;
   }
 
@@ -1093,9 +1142,15 @@ function updateHookInteractions(game, dt) {
       target.input.up = target.input.down = target.input.left = target.input.right = false;
       target.input.sprint = false;
 
-      target.hookProgress = clamp((target.hookProgress || 0) + dt / HOOK_CHANNEL_TIME, 0, 1);
+      const shouldExecute = (target.hookCount || 0) >= HOOKS_BEFORE_EXECUTION;
+      killer.hookActionType = shouldExecute ? "execute" : "hook";
+      const channelTime = shouldExecute ? EXECUTE_CHANNEL_TIME : HOOK_CHANNEL_TIME;
+      target.hookProgress = clamp((target.hookProgress || 0) + dt / channelTime, 0, 1);
       activeHookTargets.add(target.id);
-      if (target.hookProgress >= 1) sendSurvivorToHook(game, target);
+      if (target.hookProgress >= 1) {
+        if (shouldExecute) executeSurvivor(game, target);
+        else sendSurvivorToHook(game, target);
+      }
     }
   }
 
@@ -1124,8 +1179,10 @@ function updateHookInteractions(game, dt) {
 function nearestHealTarget(game, healer) {
   if (!healer || healer.role !== "survivor" || healer.dead || healer.escaped || healer.downed || healer.hooked) return null;
   return [...game.actors.values()]
-    .filter((target) => target.id !== healer.id && target.role === "survivor" && !target.dead && !target.escaped && !target.hooked && !target.downed)
-    .filter((target) => target.health === 1 && target.injured && !target.vault && !target.input.sprint)
+    .filter((target) => target.id !== healer.id && target.role === "survivor" && !target.dead && !target.escaped && !target.hooked)
+    .filter((target) => !target.healingTargetId)
+    .filter((target) => target.health === 1 && target.injured || (target.downed && target.health <= 0))
+    .filter((target) => !target.vault && !target.input.sprint)
     .filter((target) => dist(healer.x, healer.y, target.x, target.y) <= HEAL_DISTANCE)
     .filter((target) => segmentClear(game, healer.x, healer.y, target.x, target.y))
     .sort((a, b) => dist(healer.x, healer.y, a.x, a.y) - dist(healer.x, healer.y, b.x, b.y))[0] || null;
@@ -1137,34 +1194,57 @@ function updateHealing(game, dt) {
     actor.healingTargetId = null;
   }
 
+  const activeHealTargets = new Set();
+
   for (const healer of game.actors.values()) {
     if (healer.role !== "survivor" || healer.dead || healer.escaped || healer.downed || healer.hooked) continue;
+    if (activeHealTargets.has(healer.id)) continue; // Being healed means no healing others this tick.
     if (!healer.input.repair || healer.input.sprint || healer.vault || healer.actionLock > 0) continue;
     const target = nearestHealTarget(game, healer);
-    if (!target) continue;
+    if (!target || activeHealTargets.has(target.id)) continue;
 
     healer.healingTargetId = target.id;
     healer.input.up = false;
     healer.input.down = false;
     healer.input.left = false;
     healer.input.right = false;
+    healer.input.sprint = false;
     healer.input.angle = Math.atan2(target.y - healer.y, target.x - healer.x);
+
+    // A survivor being healed cannot simultaneously repair or heal someone else.
+    target.input.repair = false;
+    target.input.sprint = false;
+    target.healingTargetId = null;
     target.activeHealers.push(healer.id);
+    activeHealTargets.add(target.id);
+
     target.healProgress = clamp((target.healProgress || 0) + dt / HEAL_TIME, 0, 1);
   }
 
   for (const target of game.actors.values()) {
     if (target.role !== "survivor") continue;
-    if (target.health >= 2 || target.dead || target.escaped || target.downed || target.hooked) {
+    const canBeHealed = !target.dead && !target.escaped && !target.hooked && ((target.downed && target.health <= 0) || (target.health === 1 && target.injured));
+    if (!canBeHealed) {
       target.healProgress = 0;
       target.activeHealers = [];
       continue;
     }
+
     if (target.activeHealers.length > 0 && target.healProgress >= 1) {
-      target.health = 2;
-      target.injured = false;
+      if (target.downed) {
+        target.downed = false;
+        target.health = 1;
+        target.injured = true;
+        target.invuln = Math.max(target.invuln || 0, SURVIVOR_INVULN * 0.65);
+        target.hitBoost = Math.max(target.hitBoost || 0, SURVIVOR_HIT_BOOST * 0.55);
+        target.hookProgress = 0;
+      } else {
+        target.health = 2;
+        target.injured = false;
+        target.invuln = 0;
+      }
       target.healProgress = 0;
-      target.invuln = 0;
+      target.activeHealers = [];
       addEvent(game, "healDone", { x: target.x, y: target.y, survivorId: target.id });
     } else if (target.activeHealers.length === 0) {
       target.healProgress = Math.max(0, (target.healProgress || 0) - dt * 0.08);
@@ -1177,7 +1257,7 @@ function updateGeneratorsAndGates(game, dt) {
 
   for (const actor of game.actors.values()) {
     if (actor.role !== "survivor" || actor.dead || actor.escaped || actor.downed || actor.hooked) continue;
-    if (actor.healingTargetId || actor.unhookTargetId) continue;
+    if (actor.healingTargetId || actor.unhookTargetId || (actor.activeHealers && actor.activeHealers.length > 0)) continue;
     if (!actor.input.repair || actor.input.sprint) continue;
     const gen = game.map.generators
       .filter((g) => !g.done)
@@ -1200,7 +1280,7 @@ function updateGeneratorsAndGates(game, dt) {
 
   for (const actor of game.actors.values()) {
     if (actor.role !== "survivor" || actor.dead || actor.escaped || actor.downed || actor.hooked || !game.escapeOpen) continue;
-    if (actor.healingTargetId || actor.unhookTargetId) continue;
+    if (actor.healingTargetId || actor.unhookTargetId || (actor.activeHealers && actor.activeHealers.length > 0)) continue;
     const gate = game.map.gates.find((g) => dist(actor.x, actor.y, g.x, g.y) < INTERACT_DISTANCE);
     if (gate && actor.input.repair) {
       actor.escapeProgress = (actor.escapeProgress || 0) + dt;
@@ -1558,7 +1638,7 @@ function botMoveToObjective(game, actor) {
   }
 
   const injuredAlly = [...game.actors.values()]
-    .filter((p) => p.id !== actor.id && p.role === "survivor" && !p.dead && !p.escaped && !p.hooked && !p.downed && p.health === 1 && p.injured)
+    .filter((p) => p.id !== actor.id && p.role === "survivor" && !p.dead && !p.escaped && !p.hooked && ((p.downed && p.health <= 0) || (!p.downed && p.health === 1 && p.injured)))
     .sort((a, b) => dist(actor.x, actor.y, a.x, a.y) - dist(actor.x, actor.y, b.x, b.y))[0];
   if (injuredAlly && dist(actor.x, actor.y, injuredAlly.x, injuredAlly.y) < 620) {
     if (dist(actor.x, actor.y, injuredAlly.x, injuredAlly.y) <= HEAL_DISTANCE && segmentClear(game, actor.x, actor.y, injuredAlly.x, injuredAlly.y)) {
@@ -1725,9 +1805,11 @@ function serializeActor(game, actor, visible = true) {
     downed: actor.downed,
     hooked: actor.hooked,
     hookId: actor.hookId,
+    hookCount: actor.hookCount || 0,
     hookProgress: actor.hookProgress || 0,
     unhookProgress: actor.unhookProgress || 0,
     hookActionTargetId: actor.hookActionTargetId || null,
+    hookActionType: actor.hookActionType || null,
     hookReadyTargetId: actor.role === "killer" ? (nearestDownedSurvivorForHook(game, actor)?.id || null) : null,
     unhookTargetId: actor.unhookTargetId || null,
     recovery: actor.recovery,
