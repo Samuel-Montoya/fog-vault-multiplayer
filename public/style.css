@@ -363,6 +363,59 @@ button.selected {
   letter-spacing: .1em;
 }
 
+
+.big-gen-counter {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 13;
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  min-width: 178px;
+  padding: 12px 16px 12px 12px;
+  border: 1px solid rgba(216, 168, 79, 0.38);
+  border-radius: 22px;
+  background:
+    linear-gradient(135deg, rgba(12, 11, 10, 0.82), rgba(30, 20, 14, 0.76)),
+    repeating-linear-gradient(45deg, rgba(255,255,255,0.03) 0 2px, transparent 2px 8px);
+  box-shadow: 0 20px 70px rgba(0, 0, 0, 0.5), inset 0 0 34px rgba(216, 168, 79, 0.08);
+  backdrop-filter: blur(12px);
+  pointer-events: none;
+}
+.big-gen-counter.is-complete {
+  border-color: rgba(118, 255, 114, 0.5);
+  box-shadow: 0 20px 70px rgba(0, 0, 0, 0.5), 0 0 36px rgba(118, 255, 114, 0.14);
+}
+.big-gen-icon {
+  width: 52px;
+  height: 52px;
+  object-fit: contain;
+  filter: drop-shadow(0 4px 14px rgba(0,0,0,0.72));
+}
+.big-gen-copy {
+  display: grid;
+  gap: 1px;
+}
+.big-gen-copy span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.big-gen-copy strong {
+  color: #fff6d8;
+  font-size: clamp(32px, 5vw, 48px);
+  line-height: 0.92;
+  letter-spacing: -0.06em;
+  text-shadow: 0 0 22px rgba(216, 168, 79, 0.22);
+}
+.big-gen-counter.is-complete .big-gen-copy strong {
+  color: #bcffb8;
+  text-shadow: 0 0 22px rgba(118, 255, 114, 0.28);
+}
+
 .horror-fx {
   --terror: 0;
   --blood: 0;
@@ -507,4 +560,33 @@ body.in-chase.is-injured #gameWrap canvas {
 @keyframes hookPulse {
   from { filter: saturate(1) brightness(1); }
   to { filter: saturate(1.35) brightness(1.12); }
+}
+
+
+/* v35: gentler chase immersion. Less camera shake, more pressure around the edges. */
+.horror-fx .fx-focus {
+  background:
+    radial-gradient(circle at center, transparent 46%, rgba(255, 40, 40, calc(var(--chase) * 0.08)) 72%, rgba(0,0,0, calc(var(--chase) * 0.22)) 100%);
+  opacity: calc(var(--chase) * 0.85 + var(--terror) * 0.22);
+  mix-blend-mode: screen;
+  animation: focusBreath calc(var(--pulse-speed) * 1.35) ease-in-out infinite;
+}
+body.in-chase #gameWrap canvas {
+  filter: contrast(1.055) saturate(0.88) brightness(0.98);
+}
+@keyframes focusBreath {
+  0%, 100% { transform: scale(1); opacity: calc(var(--chase) * 0.62 + var(--terror) * 0.18); }
+  45% { transform: scale(1.018); opacity: calc(var(--chase) * 0.9 + var(--terror) * 0.26); }
+}
+
+@media (max-width: 720px) {
+  .big-gen-counter {
+    right: 12px;
+    bottom: 12px;
+    min-width: 142px;
+    padding: 10px 12px 10px 10px;
+    gap: 9px;
+  }
+  .big-gen-icon { width: 40px; height: 40px; }
+  .big-gen-copy strong { font-size: 32px; }
 }

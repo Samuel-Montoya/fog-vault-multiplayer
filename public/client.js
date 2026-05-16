@@ -16,6 +16,9 @@
     CONE_BASE_HALF_ANGLE: Math.atan(0.52),
     AURA_ALPHA: 0.72,
     AURA_RADIUS: 145,
+    // Tiny flicker keeps the flashlight alive without turning it into a disco lawsuit.
+    FLICKER_STRENGTH: 0.055,
+    FLICKER_SPEED: 7.5,
     FOG_DEPTH: 900
   };
 
@@ -43,24 +46,43 @@
   // It just makes the camera and overlay behave like the chase is pulling you inward.
   const IMMERSION = {
     BASE_ZOOM: 1,
-    TERROR_ZOOM: 0.025,
-    CHASE_ZOOM: 0.105,
-    ZOOM_LERP: 0.065,
-    CHASE_IN_LERP: 0.085,
-    CHASE_OUT_LERP: 0.045,
-    TERROR_LERP: 0.075,
-    BREATH_SWAY: 8,
-    CHASE_SWAY: 14,
+    TERROR_ZOOM: 0.018,
+    CHASE_ZOOM: 0.075,
+    ZOOM_LERP: 0.055,
+    CHASE_IN_LERP: 0.075,
+    CHASE_OUT_LERP: 0.04,
+    TERROR_LERP: 0.07,
+    BREATH_SWAY: 5,
+    CHASE_SWAY: 7,
     HEARTBEAT_MIN_INTERVAL: 0.32,
     HEARTBEAT_MAX_INTERVAL: 0.88,
-    HEARTBEAT_SHAKE_BASE: 0.0014,
-    HEARTBEAT_SHAKE_CHASE: 0.0032,
-    TUNNEL_MAX: 0.85
+    // Chase shake tuned way down. Fear good. Nausea bad. Somehow this took versions to learn.
+    HEARTBEAT_SHAKE_BASE: 0.00045,
+    HEARTBEAT_SHAKE_CHASE: 0.00105,
+    CHASE_START_SHAKE_DURATION: 95,
+    CHASE_START_SHAKE_INTENSITY: 0.00135,
+    TUNNEL_MAX: 0.72
   };
 
   // Keep this matched with server.js. Client uses it only for local prediction
   // so walking into generators does not feel like rubber-band soup.
   const GENERATOR_COLLISION_SIZE = 54;
+
+  // Visual generator tuning. Put your actual SVG at public/gen.svg.
+  // The fallback canvas texture below keeps the game from collapsing if the file is missing,
+  // because browsers are apparently dramatic about absent art assets.
+  const GENERATOR_VISUAL = {
+    TEXTURE_KEY: "generatorSvg",
+    FALLBACK_KEY: "generatorFallback",
+    FILE: "/gen.svg",
+    SIZE: 76,
+    DONE_TINT: 0xb8ffae,
+    WORKING_TINT: 0xffffff,
+    BROKEN_TINT: 0xcfc6b7,
+    BAR_WIDTH: 68,
+    BAR_HEIGHT: 8,
+    BAR_Y_OFFSET: 48
+  };
 
   const LOCAL_SPEEDS = {
     survivorWalk: 170,
@@ -121,6 +143,8 @@
     roleLabel: document.getElementById("roleLabel"),
     controlsLabel: document.getElementById("controlsLabel"),
     genText: document.getElementById("genText"),
+    bigGenCounter: document.getElementById("bigGenCounter"),
+    bigGenText: document.getElementById("bigGenText"),
     gateText: document.getElementById("gateText"),
     healthText: document.getElementById("healthText"),
     audioText: document.getElementById("audioText"),
@@ -168,6 +192,7 @@
     ui.endScreen.classList.toggle("screen-open", name === "end");
     ui.hud.classList.toggle("hidden", name !== "game");
     ui.survivorStatusHud?.classList.toggle("hidden", name !== "game");
+    ui.bigGenCounter?.classList.toggle("hidden", name !== "game");
     ui.horrorFx?.classList.toggle("hidden", name !== "game");
   }
 
@@ -436,9 +461,11 @@
       this.lightAuraMask = null;
       this.particleGraphics = null;
       this.actors = new Map();
+      this.generatorSprites = new Map();
       this.localVisual = null;
       this.localServerTarget = null;
       this.particles = [];
+      this.shockwaves = [];
       this.inputTimer = 0;
       this.lastSnapshotAt = 0;
       this.renderedMapKey = "";
@@ -448,6 +475,16 @@
       this.heartbeatPulse = 0;
       this.breathPhase = 0;
       this.lastRawChase = false;
+      this.lightFlickerPhase = 0;
+    }
+
+    preload() {
+      // Phaser can load SVG directly. The game still creates a fallback texture in create(),
+      // so missing art will not break testing builds.
+      this.load.svg(GENERATOR_VISUAL.TEXTURE_KEY, GENERATOR_VISUAL.FILE, {
+        width: GENERATOR_VISUAL.SIZE,
+        height: GENERATOR_VISUAL.SIZE
+      });
     }
 
     create() {
@@ -460,6 +497,7 @@
       this.swipeGraphics = this.add.graphics().setDepth(22);
       this.particleGraphics = this.add.graphics().setDepth(30);
       this.swipes = [];
+      this.createGeneratorFallbackTexture();
       this.createLightTextures();
       this.lightConeMask = this.make.image({ x: 0, y: 0, key: "softFlashlightCone", add: false })
         .setOrigin(0, 0.5);
@@ -486,6 +524,59 @@
           sendInput({ attackReleased: true }, true);
         }
       });
+    }
+
+    createGeneratorFallbackTexture() {
+      if (this.textures.exists(GENERATOR_VISUAL.FALLBACK_KEY)) return;
+
+      const size = 96;
+      const tex = this.textures.createCanvas(GENERATOR_VISUAL.FALLBACK_KEY, size, size);
+      const canvas = tex.getSourceImage();
+      const ctx = canvas.getContext("2d");
+      ctx.clearRect(0, 0, size, size);
+
+      ctx.save();
+      ctx.translate(size / 2, size / 2);
+      ctx.fillStyle = "#b8b0a4";
+      ctx.strokeStyle = "#211b18";
+      ctx.lineWidth = 5;
+      roundRectPath(ctx, -30, -22, 60, 50, 10);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = "#26221f";
+      roundRectPath(ctx, -20, -10, 40, 14, 5);
+      ctx.fill();
+
+      ctx.strokeStyle = "#d8a84f";
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(-23, -24);
+      ctx.lineTo(-10, -42);
+      ctx.moveTo(10, -24);
+      ctx.lineTo(25, -43);
+      ctx.stroke();
+
+      ctx.fillStyle = "#55473b";
+      ctx.fillRect(-24, 24, 10, 18);
+      ctx.fillRect(14, 24, 10, 18);
+      ctx.restore();
+
+      tex.refresh();
+
+      function roundRectPath(context, x, y, w, h, r) {
+        context.beginPath();
+        context.moveTo(x + r, y);
+        context.lineTo(x + w - r, y);
+        context.quadraticCurveTo(x + w, y, x + w, y + r);
+        context.lineTo(x + w, y + h - r);
+        context.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+        context.lineTo(x + r, y + h);
+        context.quadraticCurveTo(x, y + h, x, y + h - r);
+        context.lineTo(x, y + r);
+        context.quadraticCurveTo(x, y, x + r, y);
+        context.closePath();
+      }
     }
 
     createLightTextures() {
@@ -549,6 +640,7 @@
       this.drawStaticWorld();
       this.drawDynamicWorld();
       this.rebuildFogTexture();
+      this.clearGeneratorSprites();
       this.clearActors();
       this.localVisual = null;
       this.localServerTarget = null;
@@ -565,6 +657,11 @@
         .setDepth(LIGHTING.FOG_DEPTH)
         .setScrollFactor(1, 1);
       this.fogRT.fill(0x000000, LIGHTING.MAP_DARKNESS);
+    }
+
+    clearGeneratorSprites() {
+      for (const sprite of this.generatorSprites.values()) sprite.destroy();
+      this.generatorSprites.clear();
     }
 
     clearActors() {
@@ -697,7 +794,9 @@
         }
       }
 
-      for (const gen of currentSnapshot.map?.generators || this.map.generators || []) this.drawGenerator(g, gen);
+      const generators = currentSnapshot.map?.generators || this.map.generators || [];
+      this.syncGeneratorSprites(generators);
+      for (const gen of generators) this.drawGenerator(g, gen);
       for (const gate of currentSnapshot.map?.gates || this.map.gates || []) this.drawGate(g, gate);
       for (const hook of currentSnapshot.map?.hooks || this.map.hooks || []) this.drawHook(g, hook);
     }
@@ -743,25 +842,63 @@
       g.strokeCircle(x, y + 36, 16);
     }
 
+    getGeneratorTextureKey() {
+      return this.textures.exists(GENERATOR_VISUAL.TEXTURE_KEY)
+        ? GENERATOR_VISUAL.TEXTURE_KEY
+        : GENERATOR_VISUAL.FALLBACK_KEY;
+    }
+
+    syncGeneratorSprites(generators) {
+      const currentIds = new Set(generators.map((gen) => String(gen.id)));
+      for (const [id, sprite] of this.generatorSprites.entries()) {
+        if (!currentIds.has(id)) {
+          sprite.destroy();
+          this.generatorSprites.delete(id);
+        }
+      }
+
+      const textureKey = this.getGeneratorTextureKey();
+      for (const gen of generators) {
+        const id = String(gen.id);
+        let sprite = this.generatorSprites.get(id);
+        if (!sprite) {
+          sprite = this.add.image(gen.x, gen.y, textureKey)
+            .setOrigin(0.5, 0.5)
+            .setDepth(2.75)
+            .setDisplaySize(GENERATOR_VISUAL.SIZE, GENERATOR_VISUAL.SIZE);
+          this.generatorSprites.set(id, sprite);
+        }
+
+        if (sprite.texture?.key !== textureKey) sprite.setTexture(textureKey);
+        sprite.setPosition(gen.x, gen.y);
+        sprite.setDisplaySize(GENERATOR_VISUAL.SIZE, GENERATOR_VISUAL.SIZE);
+        sprite.setAlpha(gen.done ? 1 : 0.95);
+        sprite.setTint(gen.done ? GENERATOR_VISUAL.DONE_TINT : GENERATOR_VISUAL.WORKING_TINT);
+      }
+    }
+
     drawGenerator(g, gen) {
       const progress = clamp(gen.progress || 0, 0, 1);
-      const x = gen.x - 27;
-      const y = gen.y - 22;
-      g.fillStyle(gen.done ? 0x91e690 : COLORS.gen, 1);
-      g.fillRoundedRect(x, y, 54, 44, 8);
-      g.fillStyle(0x1a1a16, 1);
-      g.fillRect(x + 8, y + 12, 38, 8);
-      g.fillStyle(gen.done ? 0x7cff70 : COLORS.gate, 0.95);
-      g.fillRect(x + 8, y + 12, 38 * progress, 8);
-      g.lineStyle(2, 0x000000, 0.6);
-      g.strokeRoundedRect(x, y, 54, 44, 8);
-      g.lineStyle(2, 0xded6b6, 0.45);
-      g.beginPath();
-      g.moveTo(gen.x - 20, gen.y - 25);
-      g.lineTo(gen.x - 7, gen.y - 39);
-      g.moveTo(gen.x + 9, gen.y - 24);
-      g.lineTo(gen.x + 24, gen.y - 37);
-      g.strokePath();
+      const barW = GENERATOR_VISUAL.BAR_WIDTH;
+      const barH = GENERATOR_VISUAL.BAR_HEIGHT;
+      const x = gen.x - barW / 2;
+      const y = gen.y + GENERATOR_VISUAL.BAR_Y_OFFSET;
+
+      // Small shadow/contact patch so the SVG feels planted on the map instead of floating.
+      g.fillStyle(0x000000, 0.28);
+      g.fillEllipse(gen.x, gen.y + 35, GENERATOR_VISUAL.SIZE * 0.78, 17);
+
+      g.fillStyle(0x0b0b0a, 0.84);
+      g.fillRoundedRect(x, y, barW, barH, 4);
+      g.fillStyle(gen.done ? 0x76ff72 : COLORS.gate, 0.98);
+      g.fillRoundedRect(x, y, Math.max(0, barW * progress), barH, 4);
+      g.lineStyle(2, gen.done ? 0xafffa9 : 0x000000, gen.done ? 0.65 : 0.55);
+      g.strokeRoundedRect(x, y, barW, barH, 4);
+
+      if (gen.done) {
+        g.lineStyle(3, 0x9eff93, 0.72);
+        g.strokeCircle(gen.x, gen.y, GENERATOR_VISUAL.SIZE * 0.49);
+      }
     }
 
     drawGate(g, gate) {
@@ -794,7 +931,13 @@
       ui.controlsLabel.textContent = me.role === "killer"
         ? "WASD move • Mouse aim • M1 attack/lunge • Space vault/break • hold E hook/execute downed survivor"
         : "WASD move • Shift sprint • Mouse flashlight • Space vault/drop • hold E heal/repair/escape";
-      ui.genText.textContent = `${snapshot.objective?.doneGenerators ?? 0} / ${snapshot.objective?.totalGenerators ?? 0}`;
+      const done = snapshot.objective?.doneGenerators ?? 0;
+      const required = snapshot.objective?.requiredGenerators ?? snapshot.objective?.totalGenerators ?? 0;
+      const total = snapshot.objective?.totalGenerators ?? required;
+      const shownDone = Math.min(done, required);
+      ui.genText.textContent = `${shownDone} / ${required}${total > required ? ` (${total} on map)` : ""}`;
+      if (ui.bigGenText) ui.bigGenText.textContent = `${shownDone} / ${required}`;
+      ui.bigGenCounter?.classList.toggle("is-complete", required > 0 && shownDone >= required);
       ui.gateText.textContent = snapshot.objective?.escapeOpen ? "Open" : "Closed";
       if (me.role === "killer") {
         const actors = snapshot.actors || [];
@@ -946,14 +1089,20 @@
           const color = event.type === "unhooked" ? 0x75d5ff : event.type === "hooked" ? COLORS.hook : COLORS.blood;
           const heavy = event.type === "death" || event.type === "execute" || event.type === "downed" || event.type === "hooked";
           this.burst(event.x, event.y, color, event.type === "hooked" ? 52 : event.type === "execute" || event.type === "death" ? 62 : 38, event.type === "unhooked" ? 140 : 220);
-          this.cameras.main.shake(heavy ? 260 : 150, heavy ? 0.008 : 0.005);
+          this.cameras.main.shake(heavy ? 210 : 110, heavy ? 0.0055 : 0.0032);
         }
-        if (event.type === "genDone") this.burst(event.x, event.y, COLORS.gen, 42, 170);
+        if (event.type === "genDone") {
+          this.burst(event.x, event.y, COLORS.gen, 58, 190);
+          this.addShockwave(event.x, event.y, COLORS.gen);
+        }
         if (event.type === "vault") this.burst(event.x, event.y, 0xd8d0bd, 12, 90);
         if (event.type === "palletDrop") this.burst(event.x, event.y, COLORS.pallet, 16, 130);
         if (event.type === "palletBreak" || event.type === "palletBreakStart") this.burst(event.x, event.y, 0xffc36a, 18, 150);
         if (event.type === "killerStun") this.burst(event.x, event.y, 0xfff1a8, 30, 110);
-        if (event.type === "escape") this.burst(event.x, event.y, 0x9eff91, 30, 130);
+        if (event.type === "escape") {
+          this.burst(event.x, event.y, 0x9eff91, 36, 150);
+          this.addShockwave(event.x, event.y, 0x9eff91);
+        }
         if (event.type === "healDone") this.burst(event.x, event.y, 0x8dff9a, 24, 120);
       }
     }
@@ -1049,6 +1198,11 @@
         }
         g.strokePath();
       }
+    }
+
+    addShockwave(x, y, color = 0xffffff) {
+      this.shockwaves.push({ x, y, color, life: 0, ttl: 0.72, radius: 8 });
+      if (this.shockwaves.length > 16) this.shockwaves.splice(0, this.shockwaves.length - 16);
     }
 
     burst(x, y, color, count, speed) {
@@ -1177,6 +1331,7 @@
       this.chaseBlend = lerp(this.chaseBlend, levels.chase, chaseRate);
       this.terrorBlend = lerp(this.terrorBlend, levels.terror, IMMERSION.TERROR_LERP);
       this.breathPhase += dt * (1.25 + this.terrorBlend * 2.1 + this.chaseBlend * 2.5);
+      this.lightFlickerPhase += dt * LIGHTING.FLICKER_SPEED;
       this.heartbeatPulse = Math.max(0, this.heartbeatPulse - dt * 3.8);
 
       const interval = lerp(IMMERSION.HEARTBEAT_MAX_INTERVAL, IMMERSION.HEARTBEAT_MIN_INTERVAL, clamp(this.terrorBlend + this.chaseBlend * 0.45, 0, 1));
@@ -1190,7 +1345,7 @@
 
       const rawChase = levels.chase > 0;
       if (rawChase && !this.lastRawChase) {
-        this.cameras.main.shake(180, 0.0042);
+        this.cameras.main.shake(IMMERSION.CHASE_START_SHAKE_DURATION, IMMERSION.CHASE_START_SHAKE_INTENSITY);
       }
       this.lastRawChase = rawChase;
 
@@ -1241,20 +1396,23 @@
       const y = me.container.y;
       const facing = me.container.rotation || 0;
 
-      const xScale = length / LIGHTING.CONE_TEXTURE_WIDTH;
+      const flicker = 1 - LIGHTING.FLICKER_STRENGTH * 0.5
+        + Math.sin(this.lightFlickerPhase) * LIGHTING.FLICKER_STRENGTH * 0.35
+        + Math.sin(this.lightFlickerPhase * 2.37) * LIGHTING.FLICKER_STRENGTH * 0.15;
+      const xScale = (length * flicker) / LIGHTING.CONE_TEXTURE_WIDTH;
       const angleScale = Math.tan(angle / 2) / Math.tan(LIGHTING.CONE_BASE_HALF_ANGLE);
 
       this.lightAuraMask
         .setPosition(x, y)
         .setRotation(0)
-        .setScale((LIGHTING.AURA_RADIUS * 2) / 512)
+        .setScale((LIGHTING.AURA_RADIUS * 2 * (0.96 + flicker * 0.04)) / 512)
         .setAlpha(LIGHTING.AURA_ALPHA);
 
       this.lightConeMask
         .setPosition(x, y)
         .setRotation(facing)
         .setScale(xScale, xScale * angleScale)
-        .setAlpha(1);
+        .setAlpha(clamp(0.94 + flicker * 0.06, 0.9, 1));
 
       // Erase darkness from the fog layer. This reveals the normally rendered map below.
       // That means the flashlight area is normal-bright, not painted white. Revolutionary, apparently.
@@ -1265,6 +1423,20 @@
     updateParticles(dt) {
       const g = this.particleGraphics;
       g.clear();
+      for (let i = this.shockwaves.length - 1; i >= 0; i--) {
+        const wave = this.shockwaves[i];
+        wave.life += dt;
+        if (wave.life >= wave.ttl) {
+          this.shockwaves.splice(i, 1);
+          continue;
+        }
+        const t = wave.life / wave.ttl;
+        const radius = wave.radius + t * 120;
+        g.lineStyle(3, wave.color, (1 - t) * 0.62);
+        g.strokeCircle(wave.x, wave.y, radius);
+        g.lineStyle(1, 0xffffff, (1 - t) * 0.24);
+        g.strokeCircle(wave.x, wave.y, radius * 0.68);
+      }
       for (let i = this.particles.length - 1; i >= 0; i--) {
         const p = this.particles[i];
         p.life += dt;
