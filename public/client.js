@@ -31,6 +31,7 @@
     survivorBoost: 350,
     killer: 310,
     killerRecoveryMult: 0.28,
+    killerLungeMult: 1.22,
     survivorSize: 30,
     killerSize: 38
   };
@@ -287,6 +288,7 @@
       this.worldGraphics = this.add.graphics().setDepth(1);
       this.dynamicGraphics = this.add.graphics().setDepth(3);
       this.scratchGraphics = this.add.graphics().setDepth(4);
+      this.chargeGraphics = this.add.graphics().setDepth(21);
       this.swipeGraphics = this.add.graphics().setDepth(22);
       this.particleGraphics = this.add.graphics().setDepth(30);
       this.swipes = [];
@@ -599,8 +601,8 @@
       if (!me) return;
       ui.roleLabel.textContent = me.role === "killer" ? "Killer" : "Survivor";
       ui.controlsLabel.textContent = me.role === "killer"
-        ? "WASD move • Mouse aim • tap M1 quick attack • hold M1 lunge • Space/E vault or break"
-        : "WASD move • Shift sprint • Mouse flashlight • Space action • E repair/escape";
+        ? "WASD move • Mouse aim • tap M1 quick attack • hold M1 lunge • Space vault/break"
+        : "WASD move • Shift sprint • Mouse flashlight • Space vault/drop • hold E heal/repair/escape";
       ui.genText.textContent = `${snapshot.objective?.doneGenerators ?? 0} / ${snapshot.objective?.totalGenerators ?? 0}`;
       ui.gateText.textContent = snapshot.objective?.escapeOpen ? "Open" : "Closed";
       if (me.role === "killer") ui.healthText.textContent = "Killer";
@@ -675,6 +677,8 @@
         ? this.add.circle(0, 0, 22).setStrokeStyle(2, 0xf7e5e5, 0.8)
         : this.add.rectangle(0, 0, 34, 34).setStrokeStyle(2, 0xf7fbff, 0.75);
       const facing = this.add.rectangle(isKiller ? 24 : 21, 0, isKiller ? 22 : 18, isKiller ? 7 : 5, 0xffffff, 0.42).setOrigin(0, 0.5);
+      const healBarBg = this.add.rectangle(0, -29, 38, 5, 0x000000, 0.55).setVisible(false);
+      const healBar = this.add.rectangle(-19, -29, 0, 5, 0x8dff9a, 0.95).setOrigin(0, 0.5).setVisible(false);
       const nameText = this.add.text(0, 34, data.name || "", {
         fontFamily: "system-ui, sans-serif",
         fontSize: "12px",
@@ -683,13 +687,15 @@
         stroke: "#000000",
         strokeThickness: 3
       }).setOrigin(0.5, 0);
-      container.add([body, outline, facing, nameText]);
+      container.add([body, outline, facing, healBarBg, healBar, nameText]);
       return {
         role: data.role,
         container,
         body,
         outline,
         facing,
+        healBarBg,
+        healBar,
         nameText,
         data,
         current: { x: data.x || 0, y: data.y || 0, angle: data.angle || 0 },
@@ -707,8 +713,14 @@
       } else {
         const color = data.health <= 1 || data.injured ? COLORS.survivorInjured : COLORS.survivor;
         item.body.setFillStyle(data.dead ? 0x555555 : color, data.dead || data.escaped ? 0.45 : 1);
-        item.outline.setStrokeStyle(2, data.invuln > 0 ? 0xffffff : 0xf7fbff, data.invuln > 0 ? 1 : 0.75);
+        const beingHealed = (data.healProgress || 0) > 0 && data.health === 1;
+        item.outline.setStrokeStyle(2, beingHealed ? 0x8dff9a : data.invuln > 0 ? 0xffffff : 0xf7fbff, beingHealed || data.invuln > 0 ? 1 : 0.75);
         item.facing.setFillStyle(0xffffff, data.dead || data.escaped ? 0.15 : 0.42);
+        if (item.healBarBg && item.healBar) {
+          item.healBarBg.setVisible(beingHealed);
+          item.healBar.setVisible(beingHealed);
+          item.healBar.width = 38 * clamp(data.healProgress || 0, 0, 1);
+        }
       }
     }
 
@@ -723,6 +735,41 @@
         if (event.type === "palletBreak" || event.type === "palletBreakStart") this.burst(event.x, event.y, 0xffc36a, 18, 150);
         if (event.type === "killerStun") this.burst(event.x, event.y, 0xfff1a8, 30, 110);
         if (event.type === "escape") this.burst(event.x, event.y, 0x9eff91, 30, 130);
+        if (event.type === "healDone") this.burst(event.x, event.y, 0x8dff9a, 24, 120);
+      }
+    }
+
+    drawChargeIndicators(dt) {
+      const g = this.chargeGraphics;
+      if (!g) return;
+      g.clear();
+      for (const [id, item] of this.actors.entries()) {
+        const data = item.data || {};
+        if (data.role !== "killer" || data.attackState !== "charging") continue;
+        const isVisible = item.container.alpha > 0.05 || id === myId;
+        if (!isVisible) continue;
+
+        const charge = clamp(data.attackCharge || 0, 0, 0.32);
+        const t = clamp(charge / 0.32, 0, 1);
+        const range = 58 + 40 * t;
+        const arc = Math.PI * 0.42;
+        const angle = item.current.angle || item.target.angle || 0;
+        const x = item.current.x;
+        const y = item.current.y;
+        const pulse = 0.65 + Math.sin(performance.now() * 0.018) * 0.25;
+
+        const points = [{ x, y }];
+        const steps = 16;
+        for (let n = 0; n <= steps; n++) {
+          const a = angle - arc / 2 + (arc * n) / steps;
+          points.push({ x: x + Math.cos(a) * range, y: y + Math.sin(a) * range });
+        }
+        g.fillStyle(0xffb36b, 0.10 + 0.16 * t);
+        g.fillPoints(points, true, true);
+        g.lineStyle(2 + 2 * t, 0xffe2b9, 0.35 + 0.35 * pulse);
+        g.beginPath();
+        g.arc(x, y, 25 + t * 12, 0, Math.PI * 2);
+        g.strokePath();
       }
     }
 
@@ -740,6 +787,7 @@
         range: event.range || 82,
         arc: event.arc || Math.PI * 0.58,
         ttl: Math.max(0.12, event.duration || 0.24),
+        startup: event.startup || 0,
         life: 0,
         type: event.type || "quick"
       });
@@ -755,7 +803,11 @@
           this.swipes.splice(i, 1);
           continue;
         }
-        const alpha = (1 - s.life / s.ttl) * (s.type === "lunge" ? 0.42 : 0.34);
+        const activeT = s.startup > 0 ? clamp((s.life - s.startup) / Math.max(0.001, s.ttl - s.startup), 0, 1) : clamp(s.life / s.ttl, 0, 1);
+        const windup = s.life < s.startup;
+        const alpha = windup
+          ? (0.16 + 0.20 * (s.life / Math.max(0.001, s.startup)))
+          : (1 - activeT) * (s.type === "lunge" ? 0.50 : 0.40);
         const points = [{ x: s.x, y: s.y }];
         const steps = 18;
         for (let n = 0; n <= steps; n++) {
@@ -768,9 +820,9 @@
             y: s.y + Math.sin(a) * s.range * edgePulse
           });
         }
-        g.fillStyle(0xffd7bd, alpha * 0.45);
+        g.fillStyle(windup ? 0xff9f57 : 0xffd7bd, alpha * (windup ? 0.22 : 0.45));
         g.fillPoints(points, true, true);
-        g.lineStyle(3, 0xfff0df, alpha);
+        g.lineStyle(windup ? 2 : 4, windup ? 0xffbd7a : 0xfff0df, alpha);
         g.beginPath();
         for (let n = 1; n < points.length; n++) {
           if (n === 1) g.moveTo(points[n].x, points[n].y);
@@ -805,6 +857,7 @@
       this.updateActorDisplays(dt);
       this.updateCamera();
       this.drawLighting();
+      this.drawChargeIndicators(dt);
       this.drawSwipes(dt);
       this.updateParticles(dt);
 
@@ -849,7 +902,7 @@
       if (data.role === "killer" && data.attackState === "lunge") {
         dx = Math.cos(input.angle);
         dy = Math.sin(input.angle);
-        speed = LOCAL_SPEEDS.killer * 1.55;
+        speed = LOCAL_SPEEDS.killer * LOCAL_SPEEDS.killerLungeMult;
       } else if (data.role === "killer" && data.attackState === "quick") {
         speed = 0;
       } else if (data.role === "killer" && data.recovery > 0) speed *= LOCAL_SPEEDS.killerRecoveryMult;
@@ -1078,7 +1131,6 @@
       if (e.code === "ShiftLeft" || e.code === "ShiftRight") input.sprint = true;
       if (e.code === "KeyE") input.repair = true;
       if (e.code === "Space" && !e.repeat) sendInput({ action: true }, true);
-      if (e.code === "KeyE" && !e.repeat) sendInput({ action: true }, true);
       if (was !== JSON.stringify(inputPayload())) sendInput({}, true);
     }, { passive: false });
 

@@ -24,15 +24,17 @@ const MAX_SURVIVORS = 4;
 const PLAYER_SIZE = 30;
 const KILLER_SIZE = 38;
 const INTERACT_DISTANCE = 74;
-const QUICK_ATTACK_RANGE = 74;
-const LUNGE_ATTACK_RANGE = 118;
-const ATTACK_ARC = Math.PI * 0.58;
-const ATTACK_SIDE_RADIUS = 34;
+const QUICK_ATTACK_RANGE = 62;
+const LUNGE_ATTACK_RANGE = 98;
+const ATTACK_ARC = Math.PI * 0.44;
+const ATTACK_SIDE_RADIUS = 24;
 const ATTACK_TAP_MAX = 0.18;
-const LUNGE_CHARGE_TIME = 0.24;
-const QUICK_ATTACK_ACTIVE = 0.22;
-const LUNGE_ATTACK_ACTIVE = 0.44;
-const LUNGE_SPEED_MULT = 1.55;
+const LUNGE_CHARGE_TIME = 0.32;
+const QUICK_ATTACK_ACTIVE = 0.20;
+const LUNGE_ATTACK_ACTIVE = 0.34;
+const QUICK_ATTACK_STARTUP = 0.075;
+const LUNGE_ATTACK_STARTUP = 0.095;
+const LUNGE_SPEED_MULT = 1.22;
 const SURVIVOR_WALK_SPEED = 170;
 const SURVIVOR_SPRINT_SPEED = 285;
 const SURVIVOR_HIT_BURST_SPEED = 350;
@@ -42,7 +44,7 @@ const KILLER_QUICK_MISS_RECOVERY = 1.05;
 const KILLER_QUICK_HIT_RECOVERY = 1.55;
 const KILLER_LUNGE_MISS_RECOVERY = 1.35;
 const KILLER_LUNGE_HIT_RECOVERY = 1.85;
-const KILLER_ATTACK_COOLDOWN = 0.18;
+const KILLER_ATTACK_COOLDOWN = 0.24;
 const SURVIVOR_INVULN = 1.45;
 const SURVIVOR_HIT_BOOST = 1.0;
 const SURVIVOR_VAULT_TIME = 0.38;
@@ -50,6 +52,8 @@ const KILLER_VAULT_TIME = 1.05;
 const KILLER_BREAK_TIME = 1.25;
 const GENERATOR_REPAIR_TIME = 12.0;
 const GATE_ESCAPE_TIME = 0.75;
+const HEAL_TIME = 6.0;
+const HEAL_DISTANCE = 82;
 const TERROR_RADIUS = 760;
 const CHASE_START_RADIUS = 520;
 const CHASE_HOLD_SECONDS = 3;
@@ -272,6 +276,9 @@ function makePlayer(socket, role, name, options = {}) {
     injured: false,
     invuln: 0,
     hitBoost: 0,
+    healProgress: 0,
+    activeHealers: [],
+    healingTargetId: null,
     recovery: 0,
     actionLock: 0,
     vault: null,
@@ -284,6 +291,9 @@ function makePlayer(socket, role, name, options = {}) {
     attackCharge: 0,
     attackHasHit: false,
     attackNeedsRelease: false,
+    attackStartup: 0,
+    attackSweepStartX: 0,
+    attackSweepStartY: 0,
     swingTime: 0,
     chaseHold: 0,
     palletGraceId: null,
@@ -747,6 +757,8 @@ function damageSurvivor(game, killer, survivor) {
   if (!survivor || survivor.dead || survivor.escaped || survivor.invuln > 0) return false;
   survivor.health -= 1;
   survivor.injured = survivor.health === 1;
+  survivor.healProgress = 0;
+  survivor.activeHealers = [];
   survivor.invuln = SURVIVOR_INVULN;
   survivor.hitBoost = SURVIVOR_HIT_BOOST;
   if (killer && killer.attackState) killer.attackHasHit = true;
@@ -771,6 +783,7 @@ function attackProfile(type) {
     range: lunge ? LUNGE_ATTACK_RANGE : QUICK_ATTACK_RANGE,
     arc: ATTACK_ARC,
     duration: lunge ? LUNGE_ATTACK_ACTIVE : QUICK_ATTACK_ACTIVE,
+    startup: lunge ? LUNGE_ATTACK_STARTUP : QUICK_ATTACK_STARTUP,
     hitRecovery: lunge ? KILLER_LUNGE_HIT_RECOVERY : KILLER_QUICK_HIT_RECOVERY,
     missRecovery: lunge ? KILLER_LUNGE_MISS_RECOVERY : KILLER_QUICK_MISS_RECOVERY
   };
@@ -782,6 +795,9 @@ function startKillerAttack(game, killer, type) {
   killer.attackType = profile.type;
   killer.attackTimer = 0;
   killer.attackDuration = profile.duration;
+  killer.attackStartup = profile.startup;
+  killer.attackSweepStartX = killer.x;
+  killer.attackSweepStartY = killer.y;
   killer.attackHasHit = false;
   killer.attackCharge = 0;
   killer.attackNeedsRelease = true;
@@ -793,7 +809,8 @@ function startKillerAttack(game, killer, type) {
     type: profile.type,
     range: profile.range,
     arc: profile.arc,
-    duration: profile.duration
+    duration: profile.duration,
+    startup: profile.startup
   });
 }
 
@@ -805,26 +822,42 @@ function finishKillerAttack(killer) {
   killer.attackType = null;
   killer.attackTimer = 0;
   killer.attackDuration = 0;
+  killer.attackStartup = 0;
   killer.attackCharge = 0;
   killer.attackHasHit = false;
 }
 
-function survivorInAttackSwipe(killer, survivor, profile) {
-  const dx = survivor.x - killer.x;
-  const dy = survivor.y - killer.y;
+function pointInAttackSwipe(originX, originY, angle, survivor, profile) {
+  const dx = survivor.x - originX;
+  const dy = survivor.y - originY;
   const d = Math.hypot(dx, dy);
   if (d > profile.range + PLAYER_SIZE / 2) return false;
 
-  const facingX = Math.cos(killer.angle || 0);
-  const facingY = Math.sin(killer.angle || 0);
+  const facingX = Math.cos(angle || 0);
+  const facingY = Math.sin(angle || 0);
   const forward = dx * facingX + dy * facingY;
-  if (forward < -PLAYER_SIZE / 2 || forward > profile.range + PLAYER_SIZE / 2) return false;
+  if (forward < 0 || forward > profile.range + PLAYER_SIZE / 2) return false;
 
   const perp = Math.abs(dx * facingY - dy * facingX);
   const targetAngle = Math.atan2(dy, dx);
-  const inCone = angleDiff(targetAngle, killer.angle || 0) <= profile.arc / 2;
-  const inFrontRadius = forward > 0 && forward <= profile.range && perp <= ATTACK_SIDE_RADIUS + PLAYER_SIZE / 2;
-  return inCone || inFrontRadius;
+  const inCone = angleDiff(targetAngle, angle || 0) <= profile.arc / 2;
+  const inCapsule = perp <= ATTACK_SIDE_RADIUS + PLAYER_SIZE / 2;
+
+  // Tone-down from the old giga-hitbox: the target must be inside the front cone
+  // AND inside the narrow swipe capsule. No more "barely in the wedge so I die" nonsense.
+  return inCone && inCapsule;
+}
+
+function survivorInAttackSwipe(killer, survivor, profile) {
+  const samples = killer.attackType === "lunge"
+    ? [
+        { x: killer.attackSweepStartX || killer.x, y: killer.attackSweepStartY || killer.y },
+        { x: (killer.x + (killer.attackSweepStartX || killer.x)) / 2, y: (killer.y + (killer.attackSweepStartY || killer.y)) / 2 },
+        { x: killer.x, y: killer.y }
+      ]
+    : [{ x: killer.x, y: killer.y }];
+
+  return samples.some((p) => pointInAttackSwipe(p.x, p.y, killer.angle || 0, survivor, profile));
 }
 
 function resolveKillerAttackHit(game, killer) {
@@ -859,7 +892,7 @@ function updateKillerAttack(game, killer, dt) {
 
   if (killer.attackState === "quick" || killer.attackState === "lunge") {
     killer.attackTimer += dt;
-    resolveKillerAttackHit(game, killer);
+    if (killer.attackTimer >= (killer.attackStartup || 0)) resolveKillerAttackHit(game, killer);
     if (killer.attackState && killer.attackTimer >= killer.attackDuration) finishKillerAttack(killer);
     return;
   }
@@ -885,7 +918,6 @@ function updateKillerAttack(game, killer, dt) {
 
   if (killer.input.attackReleased || killer.input.attack) {
     startKillerAttack(game, killer, "quick");
-    resolveKillerAttackHit(game, killer);
     return;
   }
 
@@ -907,11 +939,63 @@ function updateTimers(game, dt) {
   game.scratchMarks = game.scratchMarks.filter((s) => s.ttl > 0);
 }
 
+function nearestHealTarget(game, healer) {
+  if (!healer || healer.role !== "survivor" || healer.dead || healer.escaped) return null;
+  return [...game.actors.values()]
+    .filter((target) => target.id !== healer.id && target.role === "survivor" && !target.dead && !target.escaped)
+    .filter((target) => target.health === 1 && target.injured && !target.vault && !target.input.sprint)
+    .filter((target) => dist(healer.x, healer.y, target.x, target.y) <= HEAL_DISTANCE)
+    .filter((target) => segmentClear(game, healer.x, healer.y, target.x, target.y))
+    .sort((a, b) => dist(healer.x, healer.y, a.x, a.y) - dist(healer.x, healer.y, b.x, b.y))[0] || null;
+}
+
+function updateHealing(game, dt) {
+  for (const actor of game.actors.values()) {
+    actor.activeHealers = [];
+    actor.healingTargetId = null;
+  }
+
+  for (const healer of game.actors.values()) {
+    if (healer.role !== "survivor" || healer.dead || healer.escaped) continue;
+    if (!healer.input.repair || healer.input.sprint || healer.vault || healer.actionLock > 0) continue;
+    const target = nearestHealTarget(game, healer);
+    if (!target) continue;
+
+    healer.healingTargetId = target.id;
+    healer.input.up = false;
+    healer.input.down = false;
+    healer.input.left = false;
+    healer.input.right = false;
+    healer.input.angle = Math.atan2(target.y - healer.y, target.x - healer.x);
+    target.activeHealers.push(healer.id);
+    target.healProgress = clamp((target.healProgress || 0) + dt / HEAL_TIME, 0, 1);
+  }
+
+  for (const target of game.actors.values()) {
+    if (target.role !== "survivor") continue;
+    if (target.health >= 2 || target.dead || target.escaped) {
+      target.healProgress = 0;
+      target.activeHealers = [];
+      continue;
+    }
+    if (target.activeHealers.length > 0 && target.healProgress >= 1) {
+      target.health = 2;
+      target.injured = false;
+      target.healProgress = 0;
+      target.invuln = 0;
+      addEvent(game, "healDone", { x: target.x, y: target.y, survivorId: target.id });
+    } else if (target.activeHealers.length === 0) {
+      target.healProgress = Math.max(0, (target.healProgress || 0) - dt * 0.08);
+    }
+  }
+}
+
 function updateGeneratorsAndGates(game, dt) {
   for (const gen of game.map.generators) gen.activeRepairers = [];
 
   for (const actor of game.actors.values()) {
     if (actor.role !== "survivor" || actor.dead || actor.escaped) continue;
+    if (actor.healingTargetId) continue;
     if (!actor.input.repair || actor.input.sprint) continue;
     const gen = game.map.generators
       .filter((g) => !g.done)
@@ -934,6 +1018,7 @@ function updateGeneratorsAndGates(game, dt) {
 
   for (const actor of game.actors.values()) {
     if (actor.role !== "survivor" || actor.dead || actor.escaped || !game.escapeOpen) continue;
+    if (actor.healingTargetId) continue;
     const gate = game.map.gates.find((g) => dist(actor.x, actor.y, g.x, g.y) < INTERACT_DISTANCE);
     if (gate && actor.input.repair) {
       actor.escapeProgress = (actor.escapeProgress || 0) + dt;
@@ -1277,6 +1362,20 @@ function botMoveToObjective(game, actor) {
     return;
   }
 
+
+  const injuredAlly = [...game.actors.values()]
+    .filter((p) => p.id !== actor.id && p.role === "survivor" && !p.dead && !p.escaped && p.health === 1 && p.injured)
+    .sort((a, b) => dist(actor.x, actor.y, a.x, a.y) - dist(actor.x, actor.y, b.x, b.y))[0];
+  if (injuredAlly && dist(actor.x, actor.y, injuredAlly.x, injuredAlly.y) < 620) {
+    if (dist(actor.x, actor.y, injuredAlly.x, injuredAlly.y) <= HEAL_DISTANCE && segmentClear(game, actor.x, actor.y, injuredAlly.x, injuredAlly.y)) {
+      actor.input.repair = true;
+      actor.input.angle = Math.atan2(injuredAlly.y - actor.y, injuredAlly.x - actor.x);
+    } else {
+      followPath(game, actor, injuredAlly.x, injuredAlly.y, false);
+    }
+    return;
+  }
+
   const gen = game.map.generators
     .filter((g) => !g.done)
     .sort((a, b) => dist(actor.x, actor.y, a.x, a.y) - dist(actor.x, actor.y, b.x, b.y))[0];
@@ -1310,9 +1409,9 @@ function updateBotInputs(game, dt) {
       const targetDistance = dist(actor.x, actor.y, target.x, target.y);
       const hasClearAttack = target.actor && attackSegmentClear(game, actor.x, actor.y, target.actor.x, target.actor.y);
 
-      if (target.actor && targetDistance <= QUICK_ATTACK_RANGE * 0.95 && hasClearAttack && actor.attackCooldown <= 0 && actor.recovery <= 0 && !actor.attackState) {
+      if (target.actor && targetDistance <= QUICK_ATTACK_RANGE * 0.92 && hasClearAttack && actor.attackCooldown <= 0 && actor.recovery <= 0 && !actor.attackState) {
         actor.input.attackReleased = true;
-      } else if (target.actor && targetDistance <= LUNGE_ATTACK_RANGE * 1.25 && hasClearAttack && actor.attackCooldown <= 0 && actor.recovery <= 0 && !actor.attackState) {
+      } else if (target.actor && targetDistance <= LUNGE_ATTACK_RANGE * 1.08 && hasClearAttack && actor.attackCooldown <= 0 && actor.recovery <= 0 && !actor.attackState) {
         actor.input.attackHeld = true;
       } else {
         followPath(game, actor, target.x, target.y, false);
@@ -1359,6 +1458,7 @@ function updateGame(lobby, dt) {
   for (const actor of game.actors.values()) {
     if (actor.input.action) handleAction(game, actor);
   }
+  updateHealing(game, dt);
   updateGeneratorsAndGates(game, dt);
   updateChaseState(game, dt);
   checkWinConditions(lobby);
@@ -1418,11 +1518,17 @@ function serializeActor(actor, visible = true) {
     attackState: actor.attackState,
     attackType: actor.attackType,
     attackCharge: actor.attackCharge,
+    attackTimer: actor.attackTimer,
+    attackDuration: actor.attackDuration,
+    attackStartup: actor.attackStartup,
     attacking: actor.attackState === "quick" || actor.attackState === "lunge",
     vaulting: !!actor.vault,
     breaking: !!actor.breakTarget,
     invuln: actor.invuln,
     hitBoost: actor.hitBoost,
+    healProgress: actor.healProgress || 0,
+    activeHealers: actor.activeHealers || [],
+    healingTargetId: actor.healingTargetId || null,
     chase: actor.chaseHold > 0
   };
 }
