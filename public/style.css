@@ -475,3 +475,36 @@ body.in-chase.is-injured #gameWrap canvas {
   .survivor-status-card { grid-template-columns: 46px 1fr auto; min-height: 56px; padding: 7px 8px; }
   .survivor-portrait { width: 42px; height: 42px; }
 }
+
+
+.survivor-status-card.downed {
+  border-color: rgba(255, 79, 79, 0.52);
+  background: linear-gradient(90deg, rgba(88, 14, 14, 0.82), rgba(12, 12, 14, 0.68));
+}
+
+.survivor-status-card.downed .survivor-portrait {
+  background: radial-gradient(circle, #ff6969 0%, #7c1515 62%, #1d0c0c 100%);
+  box-shadow: 0 0 16px rgba(255, 35, 35, 0.36);
+}
+
+.survivor-status-card.hooked {
+  border-color: rgba(255, 157, 72, 0.62);
+  background: linear-gradient(90deg, rgba(90, 48, 19, 0.86), rgba(13, 10, 8, 0.72));
+  animation: hookPulse 1.2s ease-in-out infinite alternate;
+}
+
+.survivor-status-card.hooked .survivor-portrait {
+  background: radial-gradient(circle, #ffc06a 0%, #8c4d1f 58%, #190f09 100%);
+  box-shadow: 0 0 18px rgba(255, 152, 49, 0.42);
+}
+
+.survivor-status-card.hooked .survivor-health-fill,
+.survivor-status-card.downed .survivor-health-fill {
+  width: 100%;
+  background: linear-gradient(90deg, #7c1717, #ffb36b);
+}
+
+@keyframes hookPulse {
+  from { filter: saturate(1) brightness(1); }
+  to { filter: saturate(1.35) brightness(1.12); }
+}

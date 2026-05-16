@@ -54,6 +54,11 @@ const GENERATOR_REPAIR_TIME = 12.0;
 const GATE_ESCAPE_TIME = 0.75;
 const HEAL_TIME = 6.0;
 const HEAL_DISTANCE = 82;
+const DOWNED_CRAWL_SPEED = 62;
+const HOOK_CHANNEL_TIME = 1.35;
+const UNHOOK_TIME = 3.25;
+const HOOK_INTERACT_DISTANCE = 128;
+const HOOK_RESCUE_DISTANCE = 108;
 const TERROR_RADIUS = 760;
 const CHASE_START_RADIUS = 520;
 const CHASE_HOLD_SECONDS = 3;
@@ -149,6 +154,7 @@ function parseMap(mapDef) {
     pallets: [],
     generators: [],
     gates: [],
+    hooks: [],
     survivorSpawns: [],
     killerSpawns: []
   };
@@ -273,6 +279,13 @@ function makePlayer(socket, role, name, options = {}) {
     health: role === "survivor" ? 2 : 999,
     dead: false,
     escaped: false,
+    downed: false,
+    hooked: false,
+    hookId: null,
+    hookProgress: 0,
+    unhookProgress: 0,
+    hookActionTargetId: null,
+    unhookTargetId: null,
     injured: false,
     invuln: 0,
     hitBoost: 0,
@@ -507,7 +520,8 @@ function serializeMapForClient(map) {
     windows: map.windows.map((w) => ({ ...stripRect(w), orientation: w.orientation })),
     pallets: map.pallets.map((p) => ({ ...stripRect(p), orientation: p.orientation, state: p.state, broken: p.broken })),
     generators: map.generators.map((g) => ({ id: g.id, x: g.x, y: g.y, progress: g.progress, done: g.done })),
-    gates: map.gates.map((g) => ({ id: g.id, x: g.x, y: g.y, open: g.open }))
+    gates: map.gates.map((g) => ({ id: g.id, x: g.x, y: g.y, open: g.open })),
+    hooks: (map.hooks || []).map((h) => ({ id: h.id, x: h.x, y: h.y, survivorId: h.survivorId, active: h.active }))
   };
 }
 
@@ -526,9 +540,14 @@ function addScratch(game, actor) {
 }
 
 function moveActor(game, actor, dt) {
-  if (actor.dead || actor.escaped) return;
+  if (actor.dead || actor.escaped || actor.hooked) return;
 
   actor.angle = Number.isFinite(actor.input.angle) ? actor.input.angle : actor.angle;
+
+  if (actor.role === "survivor" && actor.downed) {
+    actor.input.sprint = false;
+    actor.input.action = false;
+  }
 
   if (actor.vault) {
     actor.vault.t += dt;
@@ -587,7 +606,8 @@ function moveActor(game, actor, dt) {
   if (actor.role === "killer" && actor.attackState === "quick") return;
 
   let speed = actor.role === "killer" ? KILLER_SPEED : (actor.input.sprint ? SURVIVOR_SPRINT_SPEED : SURVIVOR_WALK_SPEED);
-  if (actor.role === "survivor" && actor.hitBoost > 0) speed = SURVIVOR_HIT_BURST_SPEED;
+  if (actor.role === "survivor" && actor.downed) speed = DOWNED_CRAWL_SPEED;
+  else if (actor.role === "survivor" && actor.hitBoost > 0) speed = SURVIVOR_HIT_BURST_SPEED;
   if (actor.role === "killer" && actor.recovery > 0) speed *= KILLER_RECOVERY_SPEED_MULT;
 
   const nextX = clamp(actor.x + dx * speed * dt, 36, game.map.width - 36);
@@ -596,7 +616,7 @@ function moveActor(game, actor, dt) {
   if (!wouldCollide(game, actor, nextX, actor.y)) actor.x = nextX;
   if (!wouldCollide(game, actor, actor.x, nextY)) actor.y = nextY;
 
-  if (actor.role === "survivor" && actor.input.sprint && (Math.abs(dx) + Math.abs(dy) > 0.05)) {
+  if (actor.role === "survivor" && !actor.downed && actor.input.sprint && (Math.abs(dx) + Math.abs(dy) > 0.05)) {
     if (Math.random() < 0.45) addScratch(game, actor);
   }
 }
@@ -724,7 +744,7 @@ function moveToPalletSideByInput(game, actor, pallet) {
 }
 
 function handleAction(game, actor) {
-  if (actor.dead || actor.escaped || actor.vault || actor.breakTarget || actor.actionLock > 0) return;
+  if (actor.dead || actor.escaped || actor.hooked || actor.downed || actor.vault || actor.breakTarget || actor.actionLock > 0) return;
   const hit = nearestInteractable(game, actor, actor.role === "survivor");
   if (!hit) return;
 
@@ -754,24 +774,33 @@ function circleNearRect(cx, cy, r, rect) {
 }
 
 function damageSurvivor(game, killer, survivor) {
-  if (!survivor || survivor.dead || survivor.escaped || survivor.invuln > 0) return false;
+  if (!survivor || survivor.dead || survivor.escaped || survivor.hooked || survivor.downed || survivor.invuln > 0) return false;
   survivor.health -= 1;
-  survivor.injured = survivor.health === 1;
   survivor.healProgress = 0;
   survivor.activeHealers = [];
-  survivor.invuln = SURVIVOR_INVULN;
-  survivor.hitBoost = SURVIVOR_HIT_BOOST;
+  survivor.hookProgress = 0;
+  survivor.unhookProgress = 0;
+
+  if (survivor.health <= 0) {
+    survivor.health = 0;
+    survivor.injured = true;
+    survivor.downed = true;
+    survivor.hitBoost = 0;
+    survivor.invuln = 0;
+    survivor.chaseHold = 0;
+    survivor.input.sprint = false;
+    addEvent(game, "downed", { x: survivor.x, y: survivor.y, survivorId: survivor.id });
+  } else {
+    survivor.injured = true;
+    survivor.invuln = SURVIVOR_INVULN;
+    survivor.hitBoost = SURVIVOR_HIT_BOOST;
+    addEvent(game, "hit", { x: survivor.x, y: survivor.y, survivorId: survivor.id, health: survivor.health });
+  }
+
   if (killer && killer.attackState) killer.attackHasHit = true;
   else if (killer) {
     killer.recovery = Math.max(killer.recovery, KILLER_QUICK_HIT_RECOVERY);
     killer.attackCooldown = Math.max(killer.attackCooldown, KILLER_ATTACK_COOLDOWN);
-  }
-  addEvent(game, "hit", { x: survivor.x, y: survivor.y, survivorId: survivor.id, health: survivor.health });
-
-  if (survivor.health <= 0) {
-    survivor.dead = true;
-    survivor.health = 0;
-    addEvent(game, "death", { x: survivor.x, y: survivor.y, survivorId: survivor.id });
   }
   return true;
 }
@@ -864,7 +893,7 @@ function resolveKillerAttackHit(game, killer) {
   if (!killer.attackState || killer.attackHasHit) return;
   const profile = attackProfile(killer.attackType || killer.attackState);
   const survivors = [...game.actors.values()]
-    .filter((p) => p.role === "survivor" && !p.dead && !p.escaped && p.invuln <= 0)
+    .filter((p) => p.role === "survivor" && !p.dead && !p.escaped && !p.hooked && !p.downed && p.invuln <= 0)
     .sort((a, b) => dist(killer.x, killer.y, a.x, a.y) - dist(killer.x, killer.y, b.x, b.y));
 
   for (const survivor of survivors) {
@@ -939,10 +968,163 @@ function updateTimers(game, dt) {
   game.scratchMarks = game.scratchMarks.filter((s) => s.ttl > 0);
 }
 
-function nearestHealTarget(game, healer) {
-  if (!healer || healer.role !== "survivor" || healer.dead || healer.escaped) return null;
+
+function randomFloorHookSpot(game) {
+  const tile = game.map.tile;
+  const candidates = [];
+  for (let y = 1; y < game.map.rows - 1; y++) {
+    for (let x = 1; x < game.map.cols - 1; x++) {
+      if (game.map.rawRows[y]?.[x] !== ".") continue;
+      const p = tileCenter(game, x, y);
+      const tooCloseToExisting = (game.map.hooks || []).some((h) => h.active && dist(h.x, h.y, p.x, p.y) < tile * 3);
+      if (tooCloseToExisting) continue;
+      const nearObjective = [...game.map.generators, ...game.map.gates].some((o) => dist(o.x, o.y, p.x, p.y) < tile * 1.4);
+      if (nearObjective) continue;
+      candidates.push(p);
+    }
+  }
+  const list = candidates.length ? candidates : [{ x: game.map.width / 2, y: game.map.height / 2 }];
+  return list[Math.floor(Math.random() * list.length)];
+}
+
+function releasePositionNearHook(game, hook, survivor) {
+  const tile = game.map.tile;
+  const offsets = [
+    { x: tile * 0.72, y: 0 },
+    { x: -tile * 0.72, y: 0 },
+    { x: 0, y: tile * 0.72 },
+    { x: 0, y: -tile * 0.72 },
+    { x: tile * 0.72, y: tile * 0.72 },
+    { x: -tile * 0.72, y: tile * 0.72 },
+    { x: tile * 0.72, y: -tile * 0.72 },
+    { x: -tile * 0.72, y: -tile * 0.72 }
+  ];
+  for (const o of offsets) {
+    const x = clamp(hook.x + o.x, 44, game.map.width - 44);
+    const y = clamp(hook.y + o.y, 44, game.map.height - 44);
+    if (!wouldCollide(game, survivor, x, y)) return { x, y };
+  }
+  return { x: hook.x, y: hook.y };
+}
+
+function nearestDownedSurvivorForHook(game, killer) {
+  if (!killer || killer.role !== "killer" || killer.dead || killer.escaped) return null;
+
   return [...game.actors.values()]
-    .filter((target) => target.id !== healer.id && target.role === "survivor" && !target.dead && !target.escaped)
+    .filter((target) => target.role === "survivor" && target.downed && !target.hooked && !target.dead && !target.escaped && target.health <= 0)
+    .filter((target) => dist(killer.x, killer.y, target.x, target.y) <= HOOK_INTERACT_DISTANCE)
+    // Hooking is a pickup/channel interaction, not an attack. Walls should block it,
+    // but dropped pallets and windows should not silently cancel it when the killer is standing on the body.
+    .filter((target) => segmentClear(game, killer.x, killer.y, target.x, target.y))
+    .sort((a, b) => dist(killer.x, killer.y, a.x, a.y) - dist(killer.x, killer.y, b.x, b.y))[0] || null;
+}
+
+function nearestHookedSurvivorForRescue(game, healer) {
+  if (!healer || healer.role !== "survivor" || healer.dead || healer.escaped || healer.downed || healer.hooked) return null;
+  return [...game.actors.values()]
+    .filter((target) => target.id !== healer.id && target.role === "survivor" && target.hooked && !target.dead && !target.escaped)
+    .filter((target) => dist(healer.x, healer.y, target.x, target.y) <= HOOK_RESCUE_DISTANCE)
+    .filter((target) => segmentClear(game, healer.x, healer.y, target.x, target.y))
+    .sort((a, b) => dist(healer.x, healer.y, a.x, a.y) - dist(healer.x, healer.y, b.x, b.y))[0] || null;
+}
+
+function sendSurvivorToHook(game, survivor) {
+  const spot = randomFloorHookSpot(game);
+  const hook = {
+    id: uid("hook"),
+    x: spot.x,
+    y: spot.y,
+    survivorId: survivor.id,
+    active: true
+  };
+  game.map.hooks.push(hook);
+  survivor.x = hook.x;
+  survivor.y = hook.y;
+  survivor.hooked = true;
+  survivor.downed = true;
+  survivor.hookId = hook.id;
+  survivor.hookProgress = 0;
+  survivor.unhookProgress = 0;
+  survivor.activeHealers = [];
+  survivor.healingTargetId = null;
+  survivor.input.up = survivor.input.down = survivor.input.left = survivor.input.right = false;
+  addEvent(game, "hooked", { x: hook.x, y: hook.y, survivorId: survivor.id, hookId: hook.id });
+}
+
+function freeSurvivorFromHook(game, survivor) {
+  const hook = game.map.hooks.find((h) => h.id === survivor.hookId);
+  if (hook) hook.active = false;
+  const pos = hook ? releasePositionNearHook(game, hook, survivor) : { x: survivor.x, y: survivor.y };
+  survivor.x = pos.x;
+  survivor.y = pos.y;
+  survivor.hooked = false;
+  survivor.downed = false;
+  survivor.hookId = null;
+  survivor.health = 1;
+  survivor.injured = true;
+  survivor.invuln = SURVIVOR_INVULN;
+  survivor.hitBoost = SURVIVOR_HIT_BOOST * 0.55;
+  survivor.hookProgress = 0;
+  survivor.unhookProgress = 0;
+  survivor.activeHealers = [];
+  addEvent(game, "unhooked", { x: survivor.x, y: survivor.y, survivorId: survivor.id });
+}
+
+function updateHookInteractions(game, dt) {
+  for (const actor of game.actors.values()) {
+    actor.hookActionTargetId = null;
+    actor.unhookTargetId = null;
+  }
+
+  const activeHookTargets = new Set();
+  const activeUnhookTargets = new Set();
+  const killer = [...game.actors.values()].find((p) => p.role === "killer" && !p.dead);
+
+  if (killer && killer.input.repair && !killer.vault && !killer.breakTarget && !killer.attackState && killer.actionLock <= 0) {
+    const target = nearestDownedSurvivorForHook(game, killer);
+    if (target) {
+      killer.hookActionTargetId = target.id;
+      killer.input.up = killer.input.down = killer.input.left = killer.input.right = false;
+      killer.input.sprint = false;
+      killer.input.angle = Math.atan2(target.y - killer.y, target.x - killer.x);
+
+      // Keep the downed survivor from crawling out of the pickup channel. Without this,
+      // bots can inch away during the hold and make E feel like it is doing nothing.
+      target.input.up = target.input.down = target.input.left = target.input.right = false;
+      target.input.sprint = false;
+
+      target.hookProgress = clamp((target.hookProgress || 0) + dt / HOOK_CHANNEL_TIME, 0, 1);
+      activeHookTargets.add(target.id);
+      if (target.hookProgress >= 1) sendSurvivorToHook(game, target);
+    }
+  }
+
+  for (const healer of game.actors.values()) {
+    if (healer.role !== "survivor" || healer.dead || healer.escaped || healer.downed || healer.hooked) continue;
+    if (!healer.input.repair || healer.input.sprint || healer.vault || healer.actionLock > 0) continue;
+    const target = nearestHookedSurvivorForRescue(game, healer);
+    if (!target) continue;
+    healer.unhookTargetId = target.id;
+    healer.input.up = healer.input.down = healer.input.left = healer.input.right = false;
+    healer.input.angle = Math.atan2(target.y - healer.y, target.x - healer.x);
+    target.unhookProgress = clamp((target.unhookProgress || 0) + dt / UNHOOK_TIME, 0, 1);
+    activeUnhookTargets.add(target.id);
+    if (target.unhookProgress >= 1) freeSurvivorFromHook(game, target);
+  }
+
+  for (const target of game.actors.values()) {
+    if (target.role !== "survivor") continue;
+    if (target.downed && !target.hooked && !activeHookTargets.has(target.id)) target.hookProgress = Math.max(0, (target.hookProgress || 0) - dt * 0.45);
+    if (target.hooked && !activeUnhookTargets.has(target.id)) target.unhookProgress = Math.max(0, (target.unhookProgress || 0) - dt * 0.35);
+    if (!target.downed) target.hookProgress = 0;
+    if (!target.hooked) target.unhookProgress = 0;
+  }
+}
+
+function nearestHealTarget(game, healer) {
+  if (!healer || healer.role !== "survivor" || healer.dead || healer.escaped || healer.downed || healer.hooked) return null;
+  return [...game.actors.values()]
+    .filter((target) => target.id !== healer.id && target.role === "survivor" && !target.dead && !target.escaped && !target.hooked && !target.downed)
     .filter((target) => target.health === 1 && target.injured && !target.vault && !target.input.sprint)
     .filter((target) => dist(healer.x, healer.y, target.x, target.y) <= HEAL_DISTANCE)
     .filter((target) => segmentClear(game, healer.x, healer.y, target.x, target.y))
@@ -956,7 +1138,7 @@ function updateHealing(game, dt) {
   }
 
   for (const healer of game.actors.values()) {
-    if (healer.role !== "survivor" || healer.dead || healer.escaped) continue;
+    if (healer.role !== "survivor" || healer.dead || healer.escaped || healer.downed || healer.hooked) continue;
     if (!healer.input.repair || healer.input.sprint || healer.vault || healer.actionLock > 0) continue;
     const target = nearestHealTarget(game, healer);
     if (!target) continue;
@@ -973,7 +1155,7 @@ function updateHealing(game, dt) {
 
   for (const target of game.actors.values()) {
     if (target.role !== "survivor") continue;
-    if (target.health >= 2 || target.dead || target.escaped) {
+    if (target.health >= 2 || target.dead || target.escaped || target.downed || target.hooked) {
       target.healProgress = 0;
       target.activeHealers = [];
       continue;
@@ -994,8 +1176,8 @@ function updateGeneratorsAndGates(game, dt) {
   for (const gen of game.map.generators) gen.activeRepairers = [];
 
   for (const actor of game.actors.values()) {
-    if (actor.role !== "survivor" || actor.dead || actor.escaped) continue;
-    if (actor.healingTargetId) continue;
+    if (actor.role !== "survivor" || actor.dead || actor.escaped || actor.downed || actor.hooked) continue;
+    if (actor.healingTargetId || actor.unhookTargetId) continue;
     if (!actor.input.repair || actor.input.sprint) continue;
     const gen = game.map.generators
       .filter((g) => !g.done)
@@ -1017,8 +1199,8 @@ function updateGeneratorsAndGates(game, dt) {
   }
 
   for (const actor of game.actors.values()) {
-    if (actor.role !== "survivor" || actor.dead || actor.escaped || !game.escapeOpen) continue;
-    if (actor.healingTargetId) continue;
+    if (actor.role !== "survivor" || actor.dead || actor.escaped || actor.downed || actor.hooked || !game.escapeOpen) continue;
+    if (actor.healingTargetId || actor.unhookTargetId) continue;
     const gate = game.map.gates.find((g) => dist(actor.x, actor.y, g.x, g.y) < INTERACT_DISTANCE);
     if (gate && actor.input.repair) {
       actor.escapeProgress = (actor.escapeProgress || 0) + dt;
@@ -1037,7 +1219,7 @@ function updateChaseState(game, dt) {
   if (!killer) return;
 
   for (const survivor of game.actors.values()) {
-    if (survivor.role !== "survivor" || survivor.dead || survivor.escaped) continue;
+    if (survivor.role !== "survivor" || survivor.dead || survivor.escaped || survivor.downed || survivor.hooked) continue;
 
     const d = dist(killer.x, killer.y, survivor.x, survivor.y);
     const los = segmentClear(game, killer.x, killer.y, survivor.x, survivor.y);
@@ -1063,16 +1245,15 @@ function checkWinConditions(lobby) {
   const game = lobby.game;
   if (!game || game.phase !== "game") return;
   const survivors = [...game.actors.values()].filter((p) => p.role === "survivor");
-  const activeSurvivors = survivors.filter((p) => !p.dead && !p.escaped);
   const doneGens = game.map.generators.filter((g) => g.done).length;
 
-  if (survivors.length && survivors.every((p) => p.dead)) {
-    endGame(lobby, "killer", "All survivors are dead.");
+  if (survivors.length && survivors.every((p) => p.escaped)) {
+    endGame(lobby, "survivors", "All survivors escaped.");
     return;
   }
 
-  if (survivors.length && activeSurvivors.length === 0 && survivors.some((p) => p.escaped)) {
-    endGame(lobby, "survivors", "All remaining survivors escaped.");
+  if (survivors.length && survivors.every((p) => p.dead || p.hooked || p.escaped) && survivors.some((p) => p.dead || p.hooked)) {
+    endGame(lobby, "killer", "All remaining survivors are hooked or dead.");
     return;
   }
 
@@ -1260,13 +1441,13 @@ function followPath(game, actor, targetX, targetY, sprint = false) {
 
 function nearestLivingSurvivor(game, actor) {
   return [...game.actors.values()]
-    .filter((p) => p.role === "survivor" && !p.dead && !p.escaped)
+    .filter((p) => p.role === "survivor" && !p.dead && !p.escaped && !p.hooked)
     .sort((a, b) => dist(actor.x, actor.y, a.x, a.y) - dist(actor.x, actor.y, b.x, b.y))[0];
 }
 
 function visibleSurvivorsForKiller(game, killer) {
   return [...game.actors.values()]
-    .filter((p) => p.role === "survivor" && !p.dead && !p.escaped)
+    .filter((p) => p.role === "survivor" && !p.dead && !p.escaped && !p.hooked)
     .filter((p) => {
       const d = dist(killer.x, killer.y, p.x, p.y);
       const los = segmentClear(game, killer.x, killer.y, p.x, p.y);
@@ -1290,7 +1471,7 @@ function chooseKillerTarget(game, killer) {
   }
 
   const remembered = killer.bot.targetId ? game.actors.get(killer.bot.targetId) : null;
-  if (remembered && !remembered.dead && !remembered.escaped && game.time - killer.bot.lastSeenTime < BOT_KILLER_MEMORY_SECONDS) {
+  if (remembered && !remembered.dead && !remembered.escaped && !remembered.hooked && game.time - killer.bot.lastSeenTime < BOT_KILLER_MEMORY_SECONDS) {
     return { actor: remembered, x: killer.bot.lastSeenX, y: killer.bot.lastSeenY, visible: false };
   }
 
@@ -1363,8 +1544,21 @@ function botMoveToObjective(game, actor) {
   }
 
 
+  const hookedAlly = [...game.actors.values()]
+    .filter((p) => p.id !== actor.id && p.role === "survivor" && !p.dead && !p.escaped && p.hooked)
+    .sort((a, b) => dist(actor.x, actor.y, a.x, a.y) - dist(actor.x, actor.y, b.x, b.y))[0];
+  if (hookedAlly) {
+    if (dist(actor.x, actor.y, hookedAlly.x, hookedAlly.y) <= HOOK_RESCUE_DISTANCE && segmentClear(game, actor.x, actor.y, hookedAlly.x, hookedAlly.y)) {
+      actor.input.repair = true;
+      actor.input.angle = Math.atan2(hookedAlly.y - actor.y, hookedAlly.x - actor.x);
+    } else {
+      followPath(game, actor, hookedAlly.x, hookedAlly.y, true);
+    }
+    return;
+  }
+
   const injuredAlly = [...game.actors.values()]
-    .filter((p) => p.id !== actor.id && p.role === "survivor" && !p.dead && !p.escaped && p.health === 1 && p.injured)
+    .filter((p) => p.id !== actor.id && p.role === "survivor" && !p.dead && !p.escaped && !p.hooked && !p.downed && p.health === 1 && p.injured)
     .sort((a, b) => dist(actor.x, actor.y, a.x, a.y) - dist(actor.x, actor.y, b.x, b.y))[0];
   if (injuredAlly && dist(actor.x, actor.y, injuredAlly.x, injuredAlly.y) < 620) {
     if (dist(actor.x, actor.y, injuredAlly.x, injuredAlly.y) <= HEAL_DISTANCE && segmentClear(game, actor.x, actor.y, injuredAlly.x, injuredAlly.y)) {
@@ -1394,13 +1588,26 @@ function updateBotInputs(game, dt) {
   const killer = [...game.actors.values()].find((p) => p.role === "killer" && !p.dead);
 
   for (const actor of game.actors.values()) {
-    if (!actor.isBot || actor.dead || actor.escaped) continue;
+    if (!actor.isBot || actor.dead || actor.escaped || actor.hooked || actor.downed) continue;
     resetInput(actor.input);
     actor.bot.actionCooldown = Math.max(0, actor.bot.actionCooldown - dt);
 
     if (actor.role === "killer") {
+      const downedTarget = nearestDownedSurvivorForHook(game, actor);
+      if (downedTarget) {
+        actor.input.repair = true;
+        actor.input.angle = Math.atan2(downedTarget.y - actor.y, downedTarget.x - actor.x);
+        continue;
+      }
+
       const target = chooseKillerTarget(game, actor);
       if (!target) continue;
+
+      if (target.actor && target.actor.downed && !target.actor.hooked) {
+        followPath(game, actor, target.actor.x, target.actor.y, false);
+        if (dist(actor.x, actor.y, target.actor.x, target.actor.y) <= HOOK_INTERACT_DISTANCE) actor.input.repair = true;
+        continue;
+      }
 
       if (target.actor) actor.input.angle = Math.atan2(target.actor.y - actor.y, target.actor.x - actor.x);
       else actor.input.angle = Math.atan2(target.y - actor.y, target.x - actor.x);
@@ -1452,6 +1659,7 @@ function updateGame(lobby, dt) {
   game.time = (game.time || 0) + dt;
   updateBotInputs(game, dt);
   updateTimers(game, dt);
+  updateHookInteractions(game, dt);
   const killer = [...game.actors.values()].find((p) => p.role === "killer");
   for (const actor of game.actors.values()) moveActor(game, actor, dt);
   updateKillerAttack(game, killer, dt);
@@ -1498,7 +1706,7 @@ function isActorVisibleToViewer(game, viewer, actor) {
   return true;
 }
 
-function serializeActor(actor, visible = true) {
+function serializeActor(game, actor, visible = true) {
   // Always send position and angle, even when the viewer cannot see this actor.
   // The client hides the sprite locally but keeps interpolating it, so reappearing actors
   // do not teleport from an old stale position. The fog may lie, the server does not.
@@ -1514,6 +1722,14 @@ function serializeActor(actor, visible = true) {
     injured: actor.injured,
     dead: actor.dead,
     escaped: actor.escaped,
+    downed: actor.downed,
+    hooked: actor.hooked,
+    hookId: actor.hookId,
+    hookProgress: actor.hookProgress || 0,
+    unhookProgress: actor.unhookProgress || 0,
+    hookActionTargetId: actor.hookActionTargetId || null,
+    hookReadyTargetId: actor.role === "killer" ? (nearestDownedSurvivorForHook(game, actor)?.id || null) : null,
+    unhookTargetId: actor.unhookTargetId || null,
     recovery: actor.recovery,
     attackState: actor.attackState,
     attackType: actor.attackType,
@@ -1539,7 +1755,7 @@ function buildSnapshotFor(lobby, socketId) {
   const map = game.map;
   const actors = [];
   for (const actor of game.actors.values()) {
-    actors.push(serializeActor(actor, isActorVisibleToViewer(game, viewer, actor)));
+    actors.push(serializeActor(game, actor, isActorVisibleToViewer(game, viewer, actor)));
   }
 
   const killer = [...game.actors.values()].find((p) => p.role === "killer");
@@ -1576,7 +1792,8 @@ function buildSnapshotFor(lobby, socketId) {
       tile: map.tile,
       pallets: map.pallets.map((p) => ({ id: p.id, x: p.x, y: p.y, w: p.w, h: p.h, orientation: p.orientation, state: p.state, broken: p.broken })),
       generators: map.generators.map((g) => ({ id: g.id, x: g.x, y: g.y, progress: g.progress, done: g.done, activeRepairers: g.activeRepairers })),
-      gates: map.gates.map((g) => ({ id: g.id, x: g.x, y: g.y, open: g.open }))
+      gates: map.gates.map((g) => ({ id: g.id, x: g.x, y: g.y, open: g.open })),
+      hooks: (map.hooks || []).filter((h) => h.active).map((h) => ({ id: h.id, x: h.x, y: h.y, survivorId: h.survivorId, active: h.active }))
     },
     phase: game.phase,
     winner: game.winner,
@@ -1696,7 +1913,7 @@ io.on("connection", (socket) => {
     actor.input.left = !!input.left;
     actor.input.right = !!input.right;
     actor.input.sprint = actor.role === "survivor" && !!input.sprint;
-    actor.input.repair = actor.role === "survivor" && !!input.repair;
+    actor.input.repair = !!input.repair;
     actor.input.action = actor.input.action || !!input.action;
     if (["up", "down", "left", "right"].includes(input.actionDir)) actor.input.actionDir = input.actionDir;
     if (actor.role === "killer") {
