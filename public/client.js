@@ -25,6 +25,25 @@
     LAYERS: ["/layer_1.mp3", "/layer_2.mp3", "/layer_3.mp3"]
   };
 
+  // Client-only fear tuning. This does not change hitboxes or movement on the server.
+  // It just makes the camera and overlay behave like the chase is pulling you inward.
+  const IMMERSION = {
+    BASE_ZOOM: 1,
+    TERROR_ZOOM: 0.025,
+    CHASE_ZOOM: 0.105,
+    ZOOM_LERP: 0.065,
+    CHASE_IN_LERP: 0.085,
+    CHASE_OUT_LERP: 0.045,
+    TERROR_LERP: 0.075,
+    BREATH_SWAY: 8,
+    CHASE_SWAY: 14,
+    HEARTBEAT_MIN_INTERVAL: 0.0,
+    HEARTBEAT_MAX_INTERVAL: 0.0,
+    HEARTBEAT_SHAKE_BASE: 0.0,
+    HEARTBEAT_SHAKE_CHASE: 0.0,
+    TUNNEL_MAX: 0.85
+  };
+
   const LOCAL_SPEEDS = {
     survivorWalk: 170,
     survivorSprint: 285,
@@ -320,19 +339,31 @@
     }).join("") || '<div class="survivor-status-card dead"><div class="survivor-portrait"></div><div class="survivor-meta"><div class="survivor-name">No survivors</div><div class="survivor-state">Empty trial</div></div><div class="survivor-action">void</div></div>';
   }
 
-  function updateHorrorFx(snapshot, me) {
-    if (!ui.horrorFx) return;
-    const music = snapshot.music || {};
+  function getThreatLevels(snapshot, me) {
+    const music = snapshot?.music || {};
     const terror = clamp(Number(music.terror || 0), 0, 1);
     const chase = (music.chase || me?.chase) ? 1 : 0;
     const injured = me?.role === "survivor" && !me.dead && !me.escaped && (me.health <= 1 || me.injured);
     const blood = injured ? 0.82 : me?.dead ? 1 : 0;
+    return { terror, chase, blood, injured };
+  }
+
+  function updateHorrorFx(snapshot, me, smoothed = null) {
+    if (!ui.horrorFx) return;
+    const raw = getThreatLevels(snapshot, me);
+    const terror = smoothed?.terror ?? raw.terror;
+    const chase = smoothed?.chase ?? raw.chase;
+    const blood = raw.blood;
+    const tunnel = clamp(chase * IMMERSION.TUNNEL_MAX + terror * 0.22 + blood * 0.18, 0, 1);
+    const pulseSpeed = `${Math.round(980 - terror * 330 - chase * 210)}ms`;
 
     ui.horrorFx.style.setProperty("--terror", terror.toFixed(3));
     ui.horrorFx.style.setProperty("--chase", chase.toFixed(3));
     ui.horrorFx.style.setProperty("--blood", blood.toFixed(3));
-    document.body.classList.toggle("in-chase", !!chase);
-    document.body.classList.toggle("is-injured", !!injured);
+    ui.horrorFx.style.setProperty("--tunnel", tunnel.toFixed(3));
+    ui.horrorFx.style.setProperty("--pulse-speed", pulseSpeed);
+    document.body.classList.toggle("in-chase", raw.chase > 0);
+    document.body.classList.toggle("is-injured", !!raw.injured);
   }
 
   class GameScene extends Phaser.Scene {
@@ -353,6 +384,12 @@
       this.inputTimer = 0;
       this.lastSnapshotAt = 0;
       this.renderedMapKey = "";
+      this.chaseBlend = 0;
+      this.terrorBlend = 0;
+      this.heartbeatTimer = 0;
+      this.heartbeatPulse = 0;
+      this.breathPhase = 0;
+      this.lastRawChase = false;
     }
 
     create() {
@@ -681,7 +718,7 @@
       ui.gateText.textContent = snapshot.objective?.escapeOpen ? "Open" : "Closed";
       if (me.role === "killer") ui.healthText.textContent = "Killer";
       else ui.healthText.textContent = survivorStateLabel(me);
-      updateHorrorFx(snapshot, me);
+      updateHorrorFx(snapshot, me, { terror: this.terrorBlend, chase: this.chaseBlend });
     }
 
     updateScratchGraphics(marks) {
@@ -931,7 +968,8 @@
       this.updateAimAngle();
       this.predictLocal(dt);
       this.updateActorDisplays(dt);
-      this.updateCamera();
+      this.updateImmersion(dt);
+      this.updateCamera(dt);
       this.drawLighting();
       this.drawChargeIndicators(dt);
       this.drawSwipes(dt);
@@ -1019,17 +1057,59 @@
       }
     }
 
-    updateCamera() {
+    updateImmersion(dt) {
+      const me = this.localServerTarget?.data || this.actors.get(myId)?.data;
+      const levels = getThreatLevels(currentSnapshot, me);
+      const chaseRate = levels.chase ? IMMERSION.CHASE_IN_LERP : IMMERSION.CHASE_OUT_LERP;
+      this.chaseBlend = lerp(this.chaseBlend, levels.chase, chaseRate);
+      this.terrorBlend = lerp(this.terrorBlend, levels.terror, IMMERSION.TERROR_LERP);
+      this.breathPhase += dt * (1.25 + this.terrorBlend * 2.1 + this.chaseBlend * 2.5);
+      this.heartbeatPulse = Math.max(0, this.heartbeatPulse - dt * 3.8);
+
+      const interval = lerp(IMMERSION.HEARTBEAT_MAX_INTERVAL, IMMERSION.HEARTBEAT_MIN_INTERVAL, clamp(this.terrorBlend + this.chaseBlend * 0.45, 0, 1));
+      this.heartbeatTimer += dt;
+      if ((this.terrorBlend > 0.08 || this.chaseBlend > 0.05) && this.heartbeatTimer >= interval) {
+        this.heartbeatTimer = 0;
+        this.heartbeatPulse = 1;
+        const intensity = IMMERSION.HEARTBEAT_SHAKE_BASE * this.terrorBlend + IMMERSION.HEARTBEAT_SHAKE_CHASE * this.chaseBlend;
+        if (intensity > 0.0005) this.cameras.main.shake(90, intensity);
+      }
+
+      const rawChase = levels.chase > 0;
+      if (rawChase && !this.lastRawChase) {
+        this.cameras.main.shake(180, 0.0042);
+      }
+      this.lastRawChase = rawChase;
+
+      const currentMe = this.actors.get(myId)?.data;
+      updateHorrorFx(currentSnapshot, currentMe, { terror: this.terrorBlend, chase: this.chaseBlend });
+    }
+
+    updateCamera(dt = 0) {
       const item = this.actors.get(myId);
       if (!item) return;
       const cam = this.cameras.main;
       const x = item.container.x;
       const y = item.container.y;
       if (!Number.isFinite(x) || !Number.isFinite(y)) return;
-      cam.scrollX = lerp(cam.scrollX, x - cam.width / 2, 0.16);
-      cam.scrollY = lerp(cam.scrollY, y - cam.height / 2, 0.16);
-      cam.scrollX = clamp(cam.scrollX, 0, Math.max(0, (this.map?.width || cam.width) - cam.width));
-      cam.scrollY = clamp(cam.scrollY, 0, Math.max(0, (this.map?.height || cam.height) - cam.height));
+
+      const targetZoom = IMMERSION.BASE_ZOOM + this.terrorBlend * IMMERSION.TERROR_ZOOM + this.chaseBlend * IMMERSION.CHASE_ZOOM + this.heartbeatPulse * 0.018;
+      cam.setZoom(lerp(cam.zoom || 1, targetZoom, IMMERSION.ZOOM_LERP));
+
+      const zoom = cam.zoom || 1;
+      const viewportW = cam.width / zoom;
+      const viewportH = cam.height / zoom;
+      const swayPower = this.terrorBlend * IMMERSION.BREATH_SWAY + this.chaseBlend * IMMERSION.CHASE_SWAY;
+      const swayX = Math.sin(this.breathPhase * 1.7) * swayPower + Math.sin(this.breathPhase * 3.1) * swayPower * 0.28;
+      const swayY = Math.cos(this.breathPhase * 1.35) * swayPower * 0.7 + this.heartbeatPulse * (6 + this.chaseBlend * 8);
+
+      const targetX = x - viewportW / 2 + swayX;
+      const targetY = y - viewportH / 2 + swayY;
+      const follow = 0.15 + this.chaseBlend * 0.035;
+      cam.scrollX = lerp(cam.scrollX, targetX, follow);
+      cam.scrollY = lerp(cam.scrollY, targetY, follow);
+      cam.scrollX = clamp(cam.scrollX, 0, Math.max(0, (this.map?.width || cam.width) - viewportW));
+      cam.scrollY = clamp(cam.scrollY, 0, Math.max(0, (this.map?.height || cam.height) - viewportH));
     }
 
     drawLighting() {

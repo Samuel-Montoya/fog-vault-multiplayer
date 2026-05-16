@@ -367,6 +367,8 @@ button.selected {
   --terror: 0;
   --blood: 0;
   --chase: 0;
+  --tunnel: 0;
+  --pulse-speed: 760ms;
   position: fixed;
   inset: 0;
   z-index: 9;
@@ -376,15 +378,38 @@ button.selected {
 .fx-vignette,
 .fx-blood,
 .fx-terror,
+.fx-focus,
 .fx-grain {
   position: absolute;
   inset: 0;
 }
 .fx-vignette {
   background:
-    radial-gradient(circle at center, transparent 42%, rgba(0,0,0, calc(0.24 + var(--terror) * 0.28)) 100%),
-    linear-gradient(180deg, rgba(0,0,0,0.18), transparent 34%, rgba(0,0,0,0.24));
-  opacity: 0.8;
+    radial-gradient(circle at center, transparent calc(44% - var(--tunnel) * 10%), rgba(0,0,0, calc(0.24 + var(--terror) * 0.2 + var(--chase) * 0.22)) 100%),
+    linear-gradient(180deg, rgba(0,0,0,0.18), transparent 34%, rgba(0,0,0,0.28));
+  opacity: calc(0.68 + var(--tunnel) * 0.25);
+  transform: scale(calc(1 + var(--chase) * 0.018));
+  transition: opacity 180ms ease;
+}
+.horror-fx::before {
+  content: "";
+  position: absolute;
+  inset: -5%;
+  background:
+    radial-gradient(circle at center, transparent calc(30% - var(--tunnel) * 4%), rgba(0,0,0, calc(var(--tunnel) * 0.5)) 72%, rgba(0,0,0, calc(var(--tunnel) * 0.76)) 100%);
+  opacity: calc(var(--tunnel) * 0.95);
+  transform: scale(calc(1 + var(--chase) * 0.035));
+  mix-blend-mode: multiply;
+}
+.horror-fx::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, rgba(110,0,0, calc(var(--chase) * 0.12)), transparent 18% 82%, rgba(110,0,0, calc(var(--chase) * 0.12))),
+    radial-gradient(circle at center, transparent 62%, rgba(140,0,0, calc(var(--chase) * 0.22)) 100%);
+  opacity: calc(var(--chase) * 0.92);
+  animation: chaseTunnel var(--pulse-speed) ease-in-out infinite;
 }
 .fx-blood {
   background:
@@ -394,8 +419,8 @@ button.selected {
 }
 .fx-terror {
   background: radial-gradient(circle at center, transparent 55%, rgba(210,30,30, calc(var(--chase) * 0.24)) 100%);
-  animation: terrorHeartbeat calc(980ms - var(--terror) * 360ms) ease-in-out infinite;
-  opacity: calc(var(--terror) * 0.75 + var(--chase) * 0.35);
+  animation: terrorHeartbeat var(--pulse-speed) ease-in-out infinite;
+  opacity: calc(var(--terror) * 0.68 + var(--chase) * 0.42);
 }
 .fx-grain {
   opacity: .11;
@@ -421,6 +446,26 @@ button.selected {
 @keyframes hudChasePulse {
   from { transform: translateX(0); box-shadow: 0 12px 40px rgba(0,0,0,0.45); }
   to { transform: translateX(5px); box-shadow: 0 0 0 1px rgba(215,53,53,0.55), 0 16px 48px rgba(215,53,53,0.18); }
+}
+
+
+body.in-chase #gameWrap canvas {
+  filter: contrast(1.08) saturate(0.9);
+}
+
+body.is-injured #gameWrap canvas {
+  filter: contrast(1.05) saturate(0.78);
+}
+
+body.in-chase.is-injured #gameWrap canvas {
+  filter: contrast(1.12) saturate(0.72);
+}
+
+@keyframes chaseTunnel {
+  0%, 100% { transform: scale(1); filter: blur(0px); }
+  18% { transform: scale(1.018); filter: blur(0.2px); }
+  32% { transform: scale(1.004); }
+  48% { transform: scale(1.012); }
 }
 
 @media (max-width: 720px) {
