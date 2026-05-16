@@ -75,6 +75,8 @@
     startBtn: document.getElementById("startBtn"),
     leaveBtn: document.getElementById("leaveBtn"),
     hud: document.getElementById("hud"),
+    survivorStatusHud: document.getElementById("survivorStatusHud"),
+    horrorFx: document.getElementById("horrorFx"),
     roleLabel: document.getElementById("roleLabel"),
     controlsLabel: document.getElementById("controlsLabel"),
     genText: document.getElementById("genText"),
@@ -123,6 +125,8 @@
     ui.lobbyScreen.classList.toggle("screen-open", name === "lobby");
     ui.endScreen.classList.toggle("screen-open", name === "end");
     ui.hud.classList.toggle("hidden", name !== "game");
+    ui.survivorStatusHud?.classList.toggle("hidden", name !== "game");
+    ui.horrorFx?.classList.toggle("hidden", name !== "game");
   }
 
   function getName() {
@@ -260,6 +264,75 @@
       audio.volumes[i] += (audio.targets[i] - audio.volumes[i]) * MUSIC.FADE;
       if (Number.isFinite(audio.volumes[i])) audio.layers[i].volume = clamp(audio.volumes[i], 0, 1);
     }
+  }
+
+  function survivorStateLabel(actor) {
+    if (actor.dead) return "Dead";
+    if (actor.escaped) return "Escaped";
+    if (actor.health <= 1 || actor.injured) return actor.healProgress > 0 ? "Being Healed" : "Injured";
+    return actor.chase ? "Chased" : "Healthy";
+  }
+
+  function survivorCardClass(actor) {
+    const classes = ["survivor-status-card"];
+    if (actor.id === myId) classes.push("self");
+    if (actor.dead) classes.push("dead");
+    else if (actor.escaped) classes.push("escaped");
+    else if (actor.health <= 1 || actor.injured) classes.push("injured");
+    else classes.push("healthy");
+    if (actor.chase && !actor.dead && !actor.escaped) classes.push("chased");
+    return classes.join(" ");
+  }
+
+  function actionLabel(actor) {
+    if (actor.dead) return "skull";
+    if (actor.escaped) return "out";
+    if (actor.chase) return "chase";
+    if (actor.healProgress > 0) return "heal";
+    if (actor.health <= 1 || actor.injured) return "hurt";
+    return "safe";
+  }
+
+  function renderSurvivorStatusHud(snapshot) {
+    if (!ui.survivorStatusHud) return;
+    const survivors = (snapshot.actors || [])
+      .filter((actor) => actor.role === "survivor")
+      .sort((a, b) => {
+        if (a.id === myId) return -1;
+        if (b.id === myId) return 1;
+        return String(a.name || "").localeCompare(String(b.name || ""));
+      });
+
+    ui.survivorStatusHud.innerHTML = survivors.map((actor) => {
+      const state = survivorStateLabel(actor);
+      const name = escapeHtml(actor.name || "Survivor");
+      const you = actor.id === myId ? '<span class="survivor-you">You</span>' : "";
+      return `
+        <div class="${survivorCardClass(actor)}">
+          <div class="survivor-portrait" aria-hidden="true"></div>
+          <div class="survivor-meta">
+            <div class="survivor-name-row"><span class="survivor-name">${name}</span>${you}</div>
+            <div class="survivor-state">${escapeHtml(state)}</div>
+            <div class="survivor-health-line"><span class="survivor-health-fill"></span></div>
+          </div>
+          <div class="survivor-action">${escapeHtml(actionLabel(actor))}</div>
+        </div>`;
+    }).join("") || '<div class="survivor-status-card dead"><div class="survivor-portrait"></div><div class="survivor-meta"><div class="survivor-name">No survivors</div><div class="survivor-state">Empty trial</div></div><div class="survivor-action">void</div></div>';
+  }
+
+  function updateHorrorFx(snapshot, me) {
+    if (!ui.horrorFx) return;
+    const music = snapshot.music || {};
+    const terror = clamp(Number(music.terror || 0), 0, 1);
+    const chase = (music.chase || me?.chase) ? 1 : 0;
+    const injured = me?.role === "survivor" && !me.dead && !me.escaped && (me.health <= 1 || me.injured);
+    const blood = injured ? 0.82 : me?.dead ? 1 : 0;
+
+    ui.horrorFx.style.setProperty("--terror", terror.toFixed(3));
+    ui.horrorFx.style.setProperty("--chase", chase.toFixed(3));
+    ui.horrorFx.style.setProperty("--blood", blood.toFixed(3));
+    document.body.classList.toggle("in-chase", !!chase);
+    document.body.classList.toggle("is-injured", !!injured);
   }
 
   class GameScene extends Phaser.Scene {
@@ -598,6 +671,7 @@
 
     updateHud(snapshot) {
       const me = (snapshot.actors || []).find((a) => a.id === myId);
+      renderSurvivorStatusHud(snapshot);
       if (!me) return;
       ui.roleLabel.textContent = me.role === "killer" ? "Killer" : "Survivor";
       ui.controlsLabel.textContent = me.role === "killer"
@@ -606,9 +680,8 @@
       ui.genText.textContent = `${snapshot.objective?.doneGenerators ?? 0} / ${snapshot.objective?.totalGenerators ?? 0}`;
       ui.gateText.textContent = snapshot.objective?.escapeOpen ? "Open" : "Closed";
       if (me.role === "killer") ui.healthText.textContent = "Killer";
-      else if (me.dead) ui.healthText.textContent = "Dead";
-      else if (me.escaped) ui.healthText.textContent = "Escaped";
-      else ui.healthText.textContent = me.health >= 2 ? "Healthy" : "Injured";
+      else ui.healthText.textContent = survivorStateLabel(me);
+      updateHorrorFx(snapshot, me);
     }
 
     updateScratchGraphics(marks) {
@@ -729,7 +802,10 @@
         if (this[`seen_${event.id}`]) continue;
         this[`seen_${event.id}`] = true;
         if (event.type === "swipe" || event.type === "swing") this.addSwipeIndicator(event);
-        if (event.type === "hit" || event.type === "death") this.burst(event.x, event.y, COLORS.blood, 28, 180);
+        if (event.type === "hit" || event.type === "death") {
+          this.burst(event.x, event.y, COLORS.blood, 38, 220);
+          this.cameras.main.shake(event.type === "death" ? 260 : 150, event.type === "death" ? 0.008 : 0.005);
+        }
         if (event.type === "vault") this.burst(event.x, event.y, 0xd8d0bd, 12, 90);
         if (event.type === "palletDrop") this.burst(event.x, event.y, COLORS.pallet, 16, 130);
         if (event.type === "palletBreak" || event.type === "palletBreakStart") this.burst(event.x, event.y, 0xffc36a, 18, 150);

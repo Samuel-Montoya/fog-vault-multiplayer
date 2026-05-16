@@ -200,3 +200,233 @@ button.selected {
   .hud { right: 10px; left: 10px; top: 10px; }
   .hud-card { min-width: 0; width: 100%; }
 }
+
+/* DBD-style survivor status stack + horror presentation */
+.hud {
+  inset: 14px 14px auto auto;
+  justify-content: flex-end;
+}
+.hud-card.compact-card {
+  min-width: 190px;
+  max-width: 310px;
+  background: rgba(3, 3, 4, 0.48);
+  border-color: rgba(255,255,255,0.1);
+}
+.hud-card.compact-card h2 {
+  font-size: 15px;
+}
+.hud-card.compact-card p,
+.objective-card div {
+  font-size: 12px;
+}
+
+.survivor-status-list {
+  position: fixed;
+  left: 18px;
+  bottom: 24px;
+  z-index: 12;
+  display: grid;
+  gap: 10px;
+  width: min(360px, calc(100vw - 36px));
+  pointer-events: none;
+}
+.survivor-status-card {
+  --status-color: #d8d0bd;
+  display: grid;
+  grid-template-columns: 54px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 62px;
+  padding: 8px 10px;
+  border-left: 4px solid var(--status-color);
+  border-radius: 8px 16px 16px 8px;
+  background:
+    linear-gradient(90deg, rgba(0,0,0,0.78), rgba(12,9,10,0.54)),
+    repeating-linear-gradient(135deg, rgba(255,255,255,0.035) 0 1px, transparent 1px 7px);
+  border-top: 1px solid rgba(255,255,255,0.09);
+  border-right: 1px solid rgba(255,255,255,0.08);
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.45);
+  backdrop-filter: blur(8px);
+  transform-origin: left center;
+}
+.survivor-status-card.self {
+  box-shadow: 0 0 0 1px rgba(216,168,79,0.36), 0 14px 50px rgba(0,0,0,0.5);
+}
+.survivor-status-card.healthy { --status-color: #d8d0bd; }
+.survivor-status-card.injured { --status-color: #d73535; }
+.survivor-status-card.dead { --status-color: #707070; filter: grayscale(0.8); opacity: 0.72; }
+.survivor-status-card.escaped { --status-color: #86ff76; }
+.survivor-status-card.chased {
+  animation: hudChasePulse 720ms ease-in-out infinite alternate;
+}
+.survivor-portrait {
+  position: relative;
+  width: 50px;
+  height: 50px;
+  border-radius: 10px;
+  background:
+    radial-gradient(circle at 50% 35%, rgba(255,255,255,0.16), transparent 40%),
+    linear-gradient(135deg, rgba(82,76,70,0.95), rgba(18,16,17,0.96));
+  border: 1px solid rgba(255,255,255,0.16);
+  overflow: hidden;
+}
+.survivor-portrait::before {
+  content: "";
+  position: absolute;
+  left: 15px;
+  top: 9px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: rgba(230,224,215,0.72);
+  box-shadow: 0 22px 0 9px rgba(230,224,215,0.38);
+}
+.survivor-status-card.injured .survivor-portrait::after,
+.survivor-status-card.dead .survivor-portrait::after {
+  content: "";
+  position: absolute;
+  inset: -8px;
+  background: repeating-linear-gradient(45deg, transparent 0 7px, rgba(215,53,53,0.74) 7px 11px);
+  opacity: 0.78;
+}
+.survivor-status-card.escaped .survivor-portrait::after {
+  content: "✓";
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: #9dff88;
+  font-size: 28px;
+  font-weight: 1000;
+  text-shadow: 0 0 10px rgba(100,255,100,0.45);
+}
+.survivor-meta { min-width: 0; }
+.survivor-name-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.survivor-name {
+  color: #f7f2ea;
+  font-size: 14px;
+  font-weight: 950;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-shadow: 0 2px 8px #000;
+}
+.survivor-you {
+  color: var(--gold);
+  font-size: 10px;
+  font-weight: 1000;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+.survivor-state {
+  margin-top: 2px;
+  color: #bdb4ad;
+  font-size: 11px;
+  font-weight: 850;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+}
+.survivor-health-line {
+  position: relative;
+  height: 4px;
+  margin-top: 8px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.12);
+  overflow: hidden;
+}
+.survivor-health-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 100%;
+  border-radius: inherit;
+  background: var(--status-color);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--status-color), transparent 25%);
+}
+.survivor-status-card.injured .survivor-health-fill { width: 50%; }
+.survivor-status-card.dead .survivor-health-fill { width: 0%; }
+.survivor-status-card.escaped .survivor-health-fill { width: 100%; }
+.survivor-action {
+  align-self: stretch;
+  display: grid;
+  place-items: center;
+  min-width: 42px;
+  color: var(--status-color);
+  font-size: 10px;
+  font-weight: 1000;
+  text-transform: uppercase;
+  letter-spacing: .1em;
+}
+
+.horror-fx {
+  --terror: 0;
+  --blood: 0;
+  --chase: 0;
+  position: fixed;
+  inset: 0;
+  z-index: 9;
+  pointer-events: none;
+  overflow: hidden;
+}
+.fx-vignette,
+.fx-blood,
+.fx-terror,
+.fx-grain {
+  position: absolute;
+  inset: 0;
+}
+.fx-vignette {
+  background:
+    radial-gradient(circle at center, transparent 42%, rgba(0,0,0, calc(0.24 + var(--terror) * 0.28)) 100%),
+    linear-gradient(180deg, rgba(0,0,0,0.18), transparent 34%, rgba(0,0,0,0.24));
+  opacity: 0.8;
+}
+.fx-blood {
+  background:
+    radial-gradient(circle at center, transparent 52%, rgba(130,0,0, calc(var(--blood) * 0.42)) 100%),
+    linear-gradient(90deg, rgba(160,0,0, calc(var(--blood) * 0.2)), transparent 20% 80%, rgba(160,0,0, calc(var(--blood) * 0.2)));
+  opacity: calc(0.22 + var(--blood) * 0.78);
+}
+.fx-terror {
+  background: radial-gradient(circle at center, transparent 55%, rgba(210,30,30, calc(var(--chase) * 0.24)) 100%);
+  animation: terrorHeartbeat calc(980ms - var(--terror) * 360ms) ease-in-out infinite;
+  opacity: calc(var(--terror) * 0.75 + var(--chase) * 0.35);
+}
+.fx-grain {
+  opacity: .11;
+  background-image:
+    radial-gradient(circle at 20% 30%, rgba(255,255,255,.25) 0 1px, transparent 1px),
+    radial-gradient(circle at 70% 60%, rgba(255,255,255,.15) 0 1px, transparent 1px),
+    radial-gradient(circle at 40% 80%, rgba(0,0,0,.35) 0 1px, transparent 1px);
+  background-size: 7px 7px, 11px 11px, 13px 13px;
+  mix-blend-mode: overlay;
+  animation: grainDrift 420ms steps(2) infinite;
+}
+@keyframes terrorHeartbeat {
+  0%, 100% { transform: scale(1); filter: saturate(1); }
+  18% { transform: scale(1.015); filter: saturate(1.22); }
+  28% { transform: scale(1); }
+  42% { transform: scale(1.009); }
+}
+@keyframes grainDrift {
+  0% { transform: translate(0, 0); }
+  50% { transform: translate(-3px, 2px); }
+  100% { transform: translate(2px, -1px); }
+}
+@keyframes hudChasePulse {
+  from { transform: translateX(0); box-shadow: 0 12px 40px rgba(0,0,0,0.45); }
+  to { transform: translateX(5px); box-shadow: 0 0 0 1px rgba(215,53,53,0.55), 0 16px 48px rgba(215,53,53,0.18); }
+}
+
+@media (max-width: 720px) {
+  .hud { left: 10px; right: 10px; top: 10px; justify-content: stretch; }
+  .hud-card.compact-card { width: 100%; max-width: none; }
+  .survivor-status-list { left: 10px; bottom: 14px; width: min(330px, calc(100vw - 20px)); }
+  .survivor-status-card { grid-template-columns: 46px 1fr auto; min-height: 56px; padding: 7px 8px; }
+  .survivor-portrait { width: 42px; height: 42px; }
+}

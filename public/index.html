@@ -55,16 +55,25 @@
   </div>
 
   <div id="hud" class="hud hidden">
-    <div class="hud-card">
+    <div class="hud-card compact-card">
       <h2 id="roleLabel">Role</h2>
       <p id="controlsLabel">Controls</p>
     </div>
-    <div class="hud-card objective-card">
+    <div class="hud-card objective-card compact-card">
       <div><span>Generators</span><b id="genText">0 / 0</b></div>
       <div><span>Gate</span><b id="gateText">Closed</b></div>
       <div><span>Health</span><b id="healthText">Healthy</b></div>
       <div><span>Audio</span><b id="audioText">Press any key</b></div>
     </div>
+  </div>
+
+  <div id="survivorStatusHud" class="survivor-status-list hidden" aria-live="polite"></div>
+
+  <div id="horrorFx" class="horror-fx hidden" aria-hidden="true">
+    <div class="fx-vignette"></div>
+    <div class="fx-blood"></div>
+    <div class="fx-terror"></div>
+    <div class="fx-grain"></div>
   </div>
 
   <div id="toast" class="toast hidden"></div>
