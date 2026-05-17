@@ -61,7 +61,7 @@
       hooked: 0.82,
       dead: 0.9,
       gen: 0.76,
-      swing: 0.72,
+      swing: 0.42,
       windowVault: 0.34,
       palletVault: 0.76,
       injured: 0.8
@@ -72,12 +72,11 @@
   // It just makes the camera and overlay behave like the chase is pulling you inward.
   const IMMERSION = {
     BASE_ZOOM: 1,
-    // Real camera zoom is intentionally disabled. It caused expensive Phaser camera/fog
-    // rescaling during chase on Chrome/mobile. Chase pressure now comes from overlays,
-    // sound, vignette, and subtle shake instead of scaling the whole world every frame.
-    TERROR_ZOOM: 0,
-    CHASE_ZOOM: 0,
-    ZOOM_LERP: 0,
+    // Camera zoom is back, but kept small and smoothed so chase feels intense
+    // without forcing Phaser to violently rescale the whole scene in one frame.
+    TERROR_ZOOM: LOW_POWER_MODE ? 0.025 : 0.04,
+    CHASE_ZOOM: LOW_POWER_MODE ? 0.07 : 0.11,
+    ZOOM_SMOOTHING: LOW_POWER_MODE ? 4.8 : 6.8,
     CHASE_IN_LERP: 0.055,
     CHASE_OUT_LERP: 0.04,
     TERROR_LERP: 0.07,
@@ -1670,7 +1669,7 @@
         }
         if (event.type === "execute" || event.type === "death") playSfx("dead");
         if (event.type === "genDone") playSfx("gen");
-        if (event.type === "hit") playSfx("injured");
+        if (event.type === "hit" || event.type === "downed") playSfx("injured");
         if (event.type === "vault" && event.actorId === myId) playSfx(event.vaultType === "pallet" ? "palletVault" : "windowVault");
         if (["hit", "death", "execute", "downed", "hooked", "unhooked"].includes(event.type)) {
           const color = event.type === "unhooked" ? 0x75d5ff : event.type === "hooked" ? COLORS.hook : COLORS.blood;
@@ -1981,11 +1980,17 @@
       const y = item.container.y;
       if (!Number.isFinite(x) || !Number.isFinite(y)) return;
 
-      // Keep the camera zoom fixed at 1. Dynamic camera zoom was the source of the
-      // chase hitch because Phaser had to rescale the camera, fog window, and world
-      // transforms right as chase began. A steady zoom keeps rendering cheap and stable.
-      if (Math.abs((cam.zoom || 1) - IMMERSION.BASE_ZOOM) > 0.0005) {
-        cam.setZoom(IMMERSION.BASE_ZOOM);
+      const targetZoom = clamp(
+        IMMERSION.BASE_ZOOM
+          + this.terrorBlend * IMMERSION.TERROR_ZOOM
+          + this.chaseBlend * IMMERSION.CHASE_ZOOM,
+        IMMERSION.BASE_ZOOM,
+        IMMERSION.BASE_ZOOM + IMMERSION.TERROR_ZOOM + IMMERSION.CHASE_ZOOM
+      );
+      const zoomAlpha = dampAlpha(IMMERSION.ZOOM_SMOOTHING, dt);
+      const nextZoom = lerp(cam.zoom || IMMERSION.BASE_ZOOM, targetZoom, zoomAlpha);
+      if (Math.abs((cam.zoom || IMMERSION.BASE_ZOOM) - nextZoom) > 0.0004) {
+        cam.setZoom(nextZoom);
       }
 
       const moveX = (input.right ? 1 : 0) - (input.left ? 1 : 0);

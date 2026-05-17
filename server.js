@@ -34,7 +34,7 @@ const PLAYER_SIZE = 30;
 const KILLER_SIZE = 38;
 const INTERACT_DISTANCE = 74;
 const QUICK_ATTACK_RANGE = 62;
-const LUNGE_ATTACK_RANGE = 98;
+const LUNGE_ATTACK_RANGE = 118;
 const ATTACK_ARC = Math.PI * 0.44;
 const ATTACK_SIDE_RADIUS = 24;
 // Tiny "standing on top of them" AOE so an M1 still connects when survivors are hugging the killer.
@@ -42,10 +42,10 @@ const ATTACK_CLOSE_AOE_RADIUS = 26;
 const ATTACK_TAP_MAX = 0.18;
 const LUNGE_CHARGE_TIME = 0.32;
 const QUICK_ATTACK_ACTIVE = 0.20;
-const LUNGE_ATTACK_ACTIVE = 0.34;
+const LUNGE_ATTACK_ACTIVE = 0.42;
 const QUICK_ATTACK_STARTUP = 0.075;
-const LUNGE_ATTACK_STARTUP = 0.095;
-const LUNGE_SPEED_MULT = 1.22;
+const LUNGE_ATTACK_STARTUP = 0.075;
+const LUNGE_SPEED_MULT = 1.42;
 const SURVIVOR_WALK_SPEED = 170;
 const SURVIVOR_SPRINT_SPEED = 285;
 const SURVIVOR_HIT_BURST_SPEED = 350;
@@ -92,15 +92,15 @@ const KILLER_SCRATCH_MARK_VISIBILITY_RANGE = 520;
 const MUSIC_LAYER_1_VOLUME = 0.12;
 const MUSIC_LAYER_2_MAX_VOLUME = 0.30;
 const MUSIC_LAYER_3_VOLUME = 0.30;
-const BOT_REPATH_MIN = 0.58;
-const BOT_REPATH_MAX = 1.15;
+const BOT_REPATH_MIN = 0.32;
+const BOT_REPATH_MAX = 0.68;
 const BOT_SURVIVOR_THREAT_RADIUS = 640;
 const BOT_SURVIVOR_PANIC_RADIUS = 285;
 const BOT_SURVIVOR_LOOP_RADIUS = 430;
 const BOT_KILLER_MEMORY_SECONDS = 6.0;
 const BOT_KILLER_SCRATCH_MEMORY_SECONDS = 2.5;
 const BOT_KILLER_INTERACT_COOLDOWN = 1.25;
-const BOT_KILLER_WINDOW_REUSE_COOLDOWN = 2.2;
+const BOT_KILLER_WINDOW_REUSE_COOLDOWN = 0.95;
 const BOT_KILLER_STUCK_SECONDS = 0.85;
 
 const CHAT_MESSAGE_DURATION = 3.0;
@@ -884,7 +884,7 @@ function damageSurvivor(game, killer, survivor) {
     survivor.invuln = 0;
     survivor.chaseHold = 0;
     survivor.input.sprint = false;
-    addEvent(game, "downed", { x: survivor.x, y: survivor.y, survivorId: survivor.id });
+    addEvent(game, "downed", { x: survivor.x, y: survivor.y, survivorId: survivor.id, health: survivor.health, impact: true });
   } else {
     survivor.injured = true;
     survivor.invuln = SURVIVOR_INVULN;
@@ -905,7 +905,10 @@ function attackProfile(type) {
   return {
     type: lunge ? "lunge" : "quick",
     range: lunge ? LUNGE_ATTACK_RANGE : QUICK_ATTACK_RANGE,
-    arc: ATTACK_ARC,
+    // Lunges need a little forgiveness because the killer is moving during the active frames.
+    // Quick swings stay tighter so basic M1s do not become a portable lawn mower.
+    arc: lunge ? ATTACK_ARC * 1.12 : ATTACK_ARC,
+    sideRadius: lunge ? ATTACK_SIDE_RADIUS * 1.35 : ATTACK_SIDE_RADIUS,
     duration: lunge ? LUNGE_ATTACK_ACTIVE : QUICK_ATTACK_ACTIVE,
     startup: lunge ? LUNGE_ATTACK_STARTUP : QUICK_ATTACK_STARTUP,
     hitRecovery: lunge ? KILLER_LUNGE_HIT_RECOVERY : KILLER_QUICK_HIT_RECOVERY,
@@ -970,7 +973,7 @@ function pointInAttackSwipe(originX, originY, angle, survivor, profile) {
   const perp = Math.abs(dx * facingY - dy * facingX);
   const targetAngle = Math.atan2(dy, dx);
   const inCone = angleDiff(targetAngle, angle || 0) <= profile.arc / 2;
-  const inCapsule = perp <= ATTACK_SIDE_RADIUS + PLAYER_SIZE / 2;
+  const inCapsule = perp <= (profile.sideRadius || ATTACK_SIDE_RADIUS) + PLAYER_SIZE / 2;
 
   // Tone-down from the old giga-hitbox: the target must be inside the front cone
   // AND inside the narrow swipe capsule. No more "barely in the wedge so I die" nonsense.
@@ -978,12 +981,13 @@ function pointInAttackSwipe(originX, originY, angle, survivor, profile) {
 }
 
 function survivorInAttackSwipe(killer, survivor, profile) {
+  const startX = killer.attackSweepStartX || killer.x;
+  const startY = killer.attackSweepStartY || killer.y;
   const samples = killer.attackType === "lunge"
-    ? [
-        { x: killer.attackSweepStartX || killer.x, y: killer.attackSweepStartY || killer.y },
-        { x: (killer.x + (killer.attackSweepStartX || killer.x)) / 2, y: (killer.y + (killer.attackSweepStartY || killer.y)) / 2 },
-        { x: killer.x, y: killer.y }
-      ]
+    ? [0, 0.25, 0.5, 0.75, 1].map((t) => ({
+        x: startX + (killer.x - startX) * t,
+        y: startY + (killer.y - startY) * t
+      }))
     : [{ x: killer.x, y: killer.y }];
 
   return samples.some((p) => pointInAttackSwipe(p.x, p.y, killer.angle || 0, survivor, profile));
@@ -1809,21 +1813,22 @@ function botFaceTarget(killer, target) {
 
 function botShouldVaultWindow(game, killer, target, hit, hasClearAttack, targetDistance) {
   if (!hit || hit.type !== "window" || !target) return false;
-  if (targetDistance < QUICK_ATTACK_RANGE * 1.15 && hasClearAttack) return false;
+  if (targetDistance < QUICK_ATTACK_RANGE * 1.2 && hasClearAttack) return false;
 
   const objectId = hit.object?.id || `window:${hit.object?.x}:${hit.object?.y}`;
   if (killer.bot.lastInteractableId === objectId && game.time < (killer.bot.lastInteractableUntil || 0)) return false;
 
   const c = centerOf(hit.object);
-  if (dist(killer.x, killer.y, c.x, c.y) > INTERACT_DISTANCE) return false;
+  if (dist(killer.x, killer.y, c.x, c.y) > INTERACT_DISTANCE + 8) return false;
 
   const windowBetweenKillerAndTarget = segmentClearAgainst([hit.object], killer.x, killer.y, target.x, target.y) === false;
-  const targetNearWindow = dist(target.x, target.y, c.x, c.y) < game.map.tile * 1.7;
-  const attackBlockedAndClose = !hasClearAttack && targetDistance < 360;
+  const targetNearWindow = dist(target.x, target.y, c.x, c.y) < game.map.tile * 2.25;
+  const attackBlockedAndClose = !hasClearAttack && targetDistance < 500;
+  const chasingThroughLoop = targetDistance < 620 && (targetNearWindow || windowBetweenKillerAndTarget);
 
-  // Only vault when the survivor is actually using the window/loop or the window is
-  // what blocks a near attack. Otherwise keep pathing around and committing to chase.
-  return (windowBetweenKillerAndTarget && targetNearWindow) || attackBlockedAndClose;
+  // Vault when the window is part of the current chase lane. The old version waited
+  // for a nearly perfect setup, so the bot stared at windows like it was reading terms of service.
+  return attackBlockedAndClose || chasingThroughLoop;
 }
 
 function botUseKillerObstacle(game, killer, target, hit, hasClearAttack, targetDistance) {
@@ -1860,9 +1865,10 @@ function botSetAttackIntent(game, killer, target, targetDistance, hasClearAttack
   if (!target || !hasClearAttack) return false;
 
   // Finish an existing charge/lunge instead of releasing and re-pressing every bot tick.
+  // Holding lets updateKillerAttack promote the charge into a real lunge at the exact server tick.
   if (killer.attackState === "charging") {
-    killer.input.attackHeld = true;
     botFaceTarget(killer, target);
+    killer.input.attackHeld = true;
     return true;
   }
 
@@ -1870,15 +1876,15 @@ function botSetAttackIntent(game, killer, target, targetDistance, hasClearAttack
 
   botFaceTarget(killer, target);
 
-  const targetInFront = botTargetIsInFacingArc(killer, target, ATTACK_ARC * 1.08);
-  const huggingTarget = targetDistance <= ATTACK_CLOSE_AOE_RADIUS + PLAYER_SIZE * 0.55;
+  const targetInFront = botTargetIsInFacingArc(killer, target, ATTACK_ARC * 1.2);
+  const huggingTarget = targetDistance <= ATTACK_CLOSE_AOE_RADIUS + PLAYER_SIZE * 0.65;
   if (!targetInFront && !huggingTarget) return false;
 
-  // Only quick swing when the survivor is truly close. Otherwise hold M1 for lunge
-  // when the distance is appropriate. This prevents the bot from spamming tiny whiffs.
-  const quickRange = QUICK_ATTACK_RANGE * 0.62;
-  const lungeMin = QUICK_ATTACK_RANGE * 0.72;
-  const lungeMax = LUNGE_ATTACK_RANGE * 0.92;
+  // Quick swing only when the survivor is basically in the killer's lap.
+  // Use lunge for the medium gap so the bot actually commits instead of tiny-whiffing forever.
+  const quickRange = QUICK_ATTACK_RANGE * 0.72;
+  const lungeMin = QUICK_ATTACK_RANGE * 0.62;
+  const lungeMax = LUNGE_ATTACK_RANGE * 1.06;
 
   if (targetDistance <= quickRange || huggingTarget) {
     killer.input.attackReleased = true;
@@ -2024,13 +2030,18 @@ function updateBotInputs(game, dt) {
       const hasClearAttack = target.actor && attackSegmentClear(game, actor.x, actor.y, target.actor.x, target.actor.y);
       const attacking = target.actor && botSetAttackIntent(game, actor, target.actor, targetDistance, hasClearAttack);
 
-      if (!attacking) {
-        followPath(game, actor, target.x, target.y, false, { allowKillerInteract: false });
+      const hitBeforeMove = target.actor ? nearestInteractable(game, actor, false) : null;
+      if (target.actor && !attacking && botUseKillerObstacle(game, actor, target.actor, hitBeforeMove, hasClearAttack, targetDistance)) {
+        continue;
       }
 
-      const hit = target.actor ? nearestInteractable(game, actor, false) : null;
+      if (!attacking) {
+        followPath(game, actor, target.x, target.y, false, { allowKillerInteract: true });
+      }
+
+      const hitAfterMoveIntent = target.actor ? nearestInteractable(game, actor, false) : null;
       if (target.actor && !attacking) {
-        botUseKillerObstacle(game, actor, target.actor, hit, hasClearAttack, targetDistance);
+        botUseKillerObstacle(game, actor, target.actor, hitAfterMoveIntent, hasClearAttack, targetDistance);
       }
       continue;
     }

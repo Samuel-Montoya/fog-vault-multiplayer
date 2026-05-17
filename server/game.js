@@ -215,7 +215,7 @@ class Game {
 
   updateMovement(actor, dt) {
     if (actor.attack?.phase === "active" && actor.attack.type === "lunge") {
-      const speed = CONFIG.killer.speed * CONFIG.attack.lungeSpeedMultiplier;
+      const speed = CONFIG.killer.speed * Math.max(CONFIG.attack.lungeSpeedMultiplier || 1, 1.42);
       this.moveActor(actor, Math.cos(actor.angle) * speed * dt, Math.sin(actor.angle) * speed * dt);
       return;
     }
@@ -323,7 +323,7 @@ class Game {
   beginAttack(actor, type) {
     actor.attack = { phase: "windup", t: 0, held: actor.attack?.held || 0, type, hitIds: new Set(), landed: false };
     actor.attackCooldown = CONFIG.attack.cooldownSeconds;
-    this.emitEvent({ type: "swing", actorId: actor.id, x: actor.x, y: actor.y, attackType: type });
+    this.emitEvent({ type: "swing", actorId: actor.id, x: actor.x, y: actor.y, attackType: type, range: type === "lunge" ? Math.max(CONFIG.attack.lungeRange, 118) : CONFIG.attack.quickRange });
   }
 
   finishAttack(actor) {
@@ -336,7 +336,7 @@ class Game {
   }
 
   checkAttackHits(killer) {
-    const range = killer.attack.type === "lunge" ? CONFIG.attack.lungeRange : CONFIG.attack.quickRange;
+    const range = killer.attack.type === "lunge" ? Math.max(CONFIG.attack.lungeRange, 118) : CONFIG.attack.quickRange;
     for (const survivor of this.survivors()) {
       if (killer.attack.hitIds.has(survivor.id)) continue;
       if (![HEALTH.HEALTHY, HEALTH.INJURED].includes(survivor.healthState)) continue;
@@ -344,7 +344,8 @@ class Game {
 
       const d = dist(killer.x, killer.y, survivor.x, survivor.y);
       const toTarget = Math.atan2(survivor.y - killer.y, survivor.x - killer.x);
-      const insideCone = d <= range && angleDiff(killer.angle, toTarget) <= CONFIG.attack.arcRadians / 2;
+      const arc = killer.attack.type === "lunge" ? CONFIG.attack.arcRadians * 1.12 : CONFIG.attack.arcRadians;
+      const insideCone = d <= range && angleDiff(killer.angle, toTarget) <= arc / 2;
       const closeAoe = d <= CONFIG.attack.closeAoeRadius;
       const clear = hasLineOfSight(this, killer.x, killer.y, survivor.x, survivor.y, attackBlockingRects(this));
       if ((insideCone || closeAoe) && clear) {
@@ -365,7 +366,7 @@ class Game {
       this.emitEvent({ type: "hit", x: survivor.x, y: survivor.y, survivorId: survivor.id, healthState: survivor.healthState });
     } else if (survivor.healthState === HEALTH.INJURED) {
       survivor.healthState = HEALTH.DOWNED;
-      this.emitEvent({ type: "downed", x: survivor.x, y: survivor.y, survivorId: survivor.id });
+      this.emitEvent({ type: "downed", x: survivor.x, y: survivor.y, survivorId: survivor.id, healthState: survivor.healthState, impact: true });
     }
   }
 
@@ -682,7 +683,7 @@ class Game {
       const away = normalize(bot.x - killer.x, bot.y - killer.y);
       this.applyBotDirection(bot, away.x, away.y);
       bot.input.sprint = bot.healthState !== HEALTH.DOWNED;
-      if (threat < CONFIG.bot.survivorPanicRadius && bot.healthState !== HEALTH.DOWNED) bot.input.special = Math.random() < 0.55;
+      if (threat < CONFIG.bot.survivorPanicRadius && bot.healthState !== HEALTH.DOWNED) bot.input.special = !!this.nearestVaultable(bot, CONFIG.actor.interactDistance) || Math.random() < 0.35;
       return;
     }
 
@@ -704,20 +705,29 @@ class Game {
       .filter((g) => !g.done && (g.progress || 0) > 0.18)
       .sort((a, b) => dist(bot.x, bot.y, a.x, a.y) - dist(bot.x, bot.y, b.x, b.y))[0];
     const targets = this.survivors().filter((s) => [HEALTH.HEALTHY, HEALTH.INJURED].includes(s.healthState));
-    if (kickable && (!targets.length || dist(bot.x, bot.y, kickable.x, kickable.y) < 155)) {
+    if (kickable && (!targets.length || dist(bot.x, bot.y, kickable.x, kickable.y) < 135)) {
       return this.botMoveAndAction(bot, kickable.x, kickable.y, CONFIG.actor.interactDistance, true);
     }
 
-    
     if (!targets.length) return;
     targets.sort((a, b) => dist(bot.x, bot.y, a.x, a.y) - dist(bot.x, bot.y, b.x, b.y));
     const target = targets[0];
-    this.botMoveAndAction(bot, target.x, target.y, CONFIG.attack.lungeRange, false);
-    bot.input.special = Math.random() < 0.08;
-    if (dist(bot.x, bot.y, target.x, target.y) <= CONFIG.attack.lungeRange + 20 && hasLineOfSight(this, bot.x, bot.y, target.x, target.y)) {
+    const targetDistance = dist(bot.x, bot.y, target.x, target.y);
+    const clear = hasLineOfSight(this, bot.x, bot.y, target.x, target.y, attackBlockingRects(this));
+
+    bot.input.mouseX = target.x;
+    bot.input.mouseY = target.y;
+
+    const vaultable = this.nearestVaultable(bot, CONFIG.actor.interactDistance + 10);
+    if (vaultable && (!clear || dist(target.x, target.y, vaultable.x + vaultable.w / 2, vaultable.y + vaultable.h / 2) < CONFIG.actor.interactDistance * 2.2)) {
+      bot.input.special = true;
+      return;
+    }
+
+    this.botMoveAndAction(bot, target.x, target.y, Math.max(CONFIG.attack.lungeRange, 118), false);
+
+    if (clear && targetDistance <= Math.max(CONFIG.attack.lungeRange, 118) + 18) {
       bot.input.attack = true;
-      bot.input.mouseX = target.x;
-      bot.input.mouseY = target.y;
     }
   }
 
