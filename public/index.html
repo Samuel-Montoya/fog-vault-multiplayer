@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Fog Vault Multiplayer - Phaser</title>
+  <title>survive.io</title>
   <link rel="stylesheet" href="/style.css" />
 </head>
 <body>
@@ -34,7 +34,7 @@
     </div>
     <div class="panel title-panel campfire-panel">
       <div class="eyebrow">gather at the fire</div>
-      <h1>Fog Vault</h1>
+      <h1>survive.io</h1>
       <p>Choose a role, pick a survivor shape, and step into an open trial. One killer, up to four survivors, generators, pallets, hooks, and just enough darkness to make everyone behave badly.</p>
 
       <label class="field-label" for="playerName">Name</label>
@@ -131,14 +131,14 @@
   </div>
 
   <div id="hud" class="hud hidden">
-    <div class="hud-card compact-card">
+    <div class="hud-card compact-card hud-help-card">
       <h2 id="roleLabel">Role</h2>
       <p id="controlsLabel">Controls</p>
     </div>
     <div class="hud-card objective-card compact-card">
       <div><span>Generators</span><b id="genText">0 / 0</b></div>
       <div><span>Gate</span><b id="gateText">Closed</b></div>
-      <div><span>Health</span><b id="healthText">Healthy</b></div>
+      <div><span>Status</span><b id="healthText">Healthy</b></div>
       <div><span>Audio</span><b id="audioText">Press any key</b></div>
     </div>
   </div>
@@ -161,6 +161,19 @@
   </div>
 
   <div id="toast" class="toast hidden"></div>
+
+  <div id="mobileControls" class="mobile-controls hidden" aria-label="Touch controls">
+    <div class="mobile-stick-base" aria-label="Move">
+      <div class="mobile-stick-knob"></div>
+    </div>
+    <div class="mobile-button-cluster">
+      <button class="mobile-btn small" data-mobile-action="chat" type="button">R</button>
+      <button class="mobile-btn" data-mobile-action="interact" type="button">E</button>
+      <button class="mobile-btn primary" data-mobile-action="action" type="button">SPACE</button>
+      <button class="mobile-btn killer" data-mobile-action="attack" type="button">M1</button>
+      <button class="mobile-btn small" data-mobile-action="sprint" type="button">RUN</button>
+    </div>
+  </div>
 
   <div id="endScreen" class="screen">
     <div class="panel end-panel">

@@ -2,6 +2,20 @@
 (() => {
   "use strict";
 
+  const IS_TOUCH_DEVICE = Boolean(
+    (navigator.maxTouchPoints && navigator.maxTouchPoints > 0)
+    || window.matchMedia?.("(pointer: coarse)")?.matches
+  );
+  const LOW_POWER_MODE = Boolean(
+    IS_TOUCH_DEVICE
+    || (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4)
+    || window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches
+  );
+  const RENDER_RESOLUTION = Math.max(1, Math.min(window.devicePixelRatio || 1, LOW_POWER_MODE ? 1 : 1.5));
+
+  document.documentElement.classList.toggle("touch-device", IS_TOUCH_DEVICE);
+  document.documentElement.classList.toggle("low-power", LOW_POWER_MODE);
+
   // Lighting knobs. The map is drawn at normal readable brightness. A black fog
   // RenderTexture sits above it, then the local player's flashlight erases that fog.
   // Inside the cone you see the real map, not a white overlay and not a black void.
@@ -11,15 +25,19 @@
     SURVIVOR_ANGLE: Math.PI / 2.25,
     KILLER_LENGTH: 980,
     KILLER_ANGLE: Math.PI / 1.7,
-    CONE_TEXTURE_WIDTH: 1024,
-    CONE_TEXTURE_HEIGHT: 1024,
+    CONE_TEXTURE_WIDTH: LOW_POWER_MODE ? 512 : 768,
+    CONE_TEXTURE_HEIGHT: LOW_POWER_MODE ? 512 : 768,
     CONE_BASE_HALF_ANGLE: Math.atan(0.52),
     AURA_ALPHA: 0.72,
     AURA_RADIUS: 145,
     // Tiny flicker keeps the flashlight alive without turning it into a disco lawsuit.
-    FLICKER_STRENGTH: 0.055,
-    FLICKER_SPEED: 7.5,
-    FOG_DEPTH: 900
+    FLICKER_STRENGTH: LOW_POWER_MODE ? 0.025 : 0.055,
+    FLICKER_SPEED: LOW_POWER_MODE ? 5.0 : 7.5,
+    FOG_DEPTH: 900,
+    // World-space padding around the current camera view. The fog layer is
+    // bigger than the viewport so zooming in/out does not require resizing it
+    // every frame, which was causing the flashlight to drift and the client to hitch.
+    FOG_VIEW_PADDING: 240
   };
 
   const MUSIC = {
@@ -44,7 +62,7 @@
       dead: 0.9,
       gen: 0.76,
       swing: 0.72,
-      windowVault: 0.72,
+      windowVault: 0.34,
       palletVault: 0.76,
       injured: 0.8
     }
@@ -54,14 +72,17 @@
   // It just makes the camera and overlay behave like the chase is pulling you inward.
   const IMMERSION = {
     BASE_ZOOM: 1,
-    TERROR_ZOOM: 0.018,
-    CHASE_ZOOM: 0.425,
-    ZOOM_LERP: 0.055,
-    CHASE_IN_LERP: 0.075,
+    // Real camera zoom is intentionally disabled. It caused expensive Phaser camera/fog
+    // rescaling during chase on Chrome/mobile. Chase pressure now comes from overlays,
+    // sound, vignette, and subtle shake instead of scaling the whole world every frame.
+    TERROR_ZOOM: 0,
+    CHASE_ZOOM: 0,
+    ZOOM_LERP: 0,
+    CHASE_IN_LERP: 0.055,
     CHASE_OUT_LERP: 0.04,
     TERROR_LERP: 0.07,
     BREATH_SWAY: 4,
-    CHASE_SWAY: 2,
+    CHASE_SWAY: 5,
     // Direction-change camera sway. No constant running bob. The camera only leans
     // when the player changes movement direction, then smoothly settles back.
     // Smooth direction-change camera sway. The old impulse added pixels instantly,
@@ -76,10 +97,10 @@
     HEARTBEAT_MIN_INTERVAL: 0.32,
     HEARTBEAT_MAX_INTERVAL: 0.88,
     // Keep the pulse readable, not nauseating. We already made a horror game; no need to attack the monitor.
-    HEARTBEAT_SHAKE_BASE: 0.00032,
-    HEARTBEAT_SHAKE_CHASE: 0.00072,
-    CHASE_START_SHAKE_DURATION: 70,
-    CHASE_START_SHAKE_INTENSITY: 0.0009,
+    HEARTBEAT_SHAKE_BASE: 0.00018,
+    HEARTBEAT_SHAKE_CHASE: 0.00022,
+    CHASE_START_SHAKE_DURATION: 26,
+    CHASE_START_SHAKE_INTENSITY: 0.00020,
     TUNNEL_MAX: 0.68
   };
 
@@ -97,6 +118,16 @@
   // Keep this matched with server.js. Client uses it only for local prediction
   // so walking into generators does not feel like rubber-band soup.
   const GENERATOR_COLLISION_SIZE = 54;
+
+  const PERFORMANCE = {
+    // Expensive world UI is redrawn at fixed rates instead of every network snapshot.
+    // Lower these if a very weak laptop is still wheezing. Raise them if you want
+    // smoother generator bars / scratch marks at the cost of more Graphics work.
+    DYNAMIC_WORLD_FPS: LOW_POWER_MODE ? 8 : 12,
+    SCRATCH_DRAW_FPS: LOW_POWER_MODE ? 8 : 12,
+    MAX_PARTICLES: LOW_POWER_MODE ? 28 : 58,
+    MAX_SHOCKWAVES: LOW_POWER_MODE ? 3 : 6
+  };
 
   // Visual generator tuning. Put your actual SVG at public/gen.svg.
   // The fallback canvas texture below keeps the game from collapsing if the file is missing,
@@ -192,6 +223,28 @@
     purplePentagon: { id: "purplePentagon", label: "Purple Pentagon", shape: "pentagon", color: 0x9b6dff, outline: 0xe7d9ff }
   };
 
+  // In-match radial chat. Hold R, aim with the mouse, release R to send.
+  const CHAT_WHEEL = {
+    RADIUS: 126,
+    INNER_RADIUS: 34,
+    LABEL_RADIUS: 100,
+    CENTER_ALPHA: 0.76,
+    SEGMENT_ALPHA: 0.58,
+    SELECTED_ALPHA: 0.88,
+    DIM_ALPHA: 0.30,
+    TEXT_SIZE: "13px",
+    MESSAGES: {
+      survivor: {
+        normal: ["Let's do a generator.", "I'm so scared...", "Here he comes!", "What was that?!"],
+        chase: ["He's on me...!", "Leave me alone!", "I'm so scared!", "AHHHH!"],
+        injured: ["I need healing...", "Please, help me...", "I need to hide.", "Over here..."],
+        downed: ["Pick me up!", "Help, please...", "I don't wanna die...", "I'm down...!"],
+        hooked: ["Save me!", "Unhook me!", "Grab me!", "He's here..."]
+      },
+      killer: ["Im going to get you", "You cant hide forever", "Ill be back...", "What the...?!"]
+    }
+  };
+
   function getSurvivorSkin(id) {
     return SURVIVOR_SKINS[id] || SURVIVOR_SKINS.blueSquare;
   }
@@ -230,7 +283,8 @@
     winnerText: document.getElementById("winnerText"),
     reasonText: document.getElementById("reasonText"),
     backToLobbyBtn: document.getElementById("backToLobbyBtn"),
-    mainMenuBtn: document.getElementById("mainMenuBtn")
+    mainMenuBtn: document.getElementById("mainMenuBtn"),
+    mobileControls: document.getElementById("mobileControls")
   };
 
   const fxState = {
@@ -271,13 +325,37 @@
   const audio = {
     ready: false,
     tried: false,
+    gameActive: false,
+    lastTryAt: 0,
     layers: [],
     sfx: {},
     targets: [0, 0, 0],
     volumes: [0, 0, 0]
   };
 
+  function setGameplayAudioActive(active) {
+    audio.gameActive = !!active;
+    if (!audio.gameActive) {
+      audio.targets = [0, 0, 0];
+      audio.volumes = [0, 0, 0];
+      for (const layer of audio.layers || []) {
+        layer.volume = 0;
+        if (!layer.paused) layer.pause();
+      }
+      return;
+    }
+
+    // Resume synced layers when entering a match. Browser autoplay can still block
+    // until a user input happens, so ensureAudioStarted() keeps the polite retry path.
+    if (audio.ready) {
+      for (const layer of audio.layers || []) {
+        if (layer.paused) layer.play().catch(() => null);
+      }
+    }
+  }
+
   function showScreen(name) {
+    setGameplayAudioActive(name === "game");
     ui.menu.classList.toggle("screen-open", name === "menu");
     ui.lobbyScreen.classList.toggle("screen-open", name === "lobby");
     ui.endScreen.classList.toggle("screen-open", name === "end");
@@ -285,6 +363,7 @@
     ui.survivorStatusHud?.classList.toggle("hidden", name !== "game");
     ui.bigGenCounter?.classList.toggle("hidden", name !== "game");
     ui.horrorFx?.classList.toggle("hidden", name !== "game");
+    ui.mobileControls?.classList.toggle("hidden", name !== "game" || !IS_TOUCH_DEVICE);
   }
 
   function getName() {
@@ -413,10 +492,22 @@
   }
 
   function ensureAudioStarted() {
-    if (audio.ready || audio.tried) return;
+    if (!audio.gameActive) return;
+
+    if (audio.ready) {
+      for (const a of audio.layers) {
+        if (a.paused) a.play().catch(() => null);
+      }
+      return;
+    }
+
+    const now = performance.now();
+    if (audio.tried && now - audio.lastTryAt < 900) return;
     audio.tried = true;
+    audio.lastTryAt = now;
+
     const plays = audio.layers.map((a) => {
-      a.currentTime = 0;
+      if (a.paused && a.currentTime === 0) a.currentTime = 0;
       return a.play().catch(() => null);
     });
     Promise.allSettled(plays).then(() => {
@@ -434,6 +525,22 @@
 
   function updateMusic() {
     if (!audio.layers.length) return;
+    if (!audio.gameActive) {
+      for (let i = 0; i < audio.layers.length; i++) {
+        audio.targets[i] = 0;
+        audio.volumes[i] = 0;
+        audio.layers[i].volume = 0;
+        if (!audio.layers[i].paused) audio.layers[i].pause();
+      }
+      return;
+    }
+
+    if (audio.ready) {
+      for (const layer of audio.layers) {
+        if (layer.paused) layer.play().catch(() => null);
+      }
+    }
+
     for (let i = 0; i < audio.layers.length; i++) {
       audio.volumes[i] += (audio.targets[i] - audio.volumes[i]) * MUSIC.FADE;
       if (Number.isFinite(audio.volumes[i])) audio.layers[i].volume = clamp(audio.volumes[i], 0, 1);
@@ -521,7 +628,6 @@
           <div class="survivor-meta">
             <div class="survivor-name-row"><span class="survivor-name">${name}</span>${you}</div>
             <div class="survivor-state">${escapeHtml(state)}</div>
-            <div class="survivor-health-line"><span class="survivor-health-fill"></span></div>
           </div>
           <div class="survivor-action">${escapeHtml(actionLabel(actor))}</div>
         </div>`;
@@ -619,6 +725,14 @@
       this.particles = [];
       this.shockwaves = [];
       this.inputTimer = 0;
+      this.dynamicRedrawTimer = 0;
+      this.scratchRedrawTimer = 0;
+      this.needsDynamicRedraw = false;
+      this.pendingScratchMarks = [];
+      this.needsScratchRedraw = false;
+      this.lastDynamicKey = "";
+      this.lastFogWidth = 0;
+      this.lastFogHeight = 0;
       this.lastSnapshotAt = 0;
       this.renderedMapKey = "";
       this.chaseBlend = 0;
@@ -648,6 +762,7 @@
     create() {
       phaserScene = this;
       this.cameras.main.setBackgroundColor("#050505");
+      this.scale.on("resize", () => this.rebuildFogTexture());
       this.grassLayer = null;
       this.worldGraphics = this.add.graphics().setDepth(1);
       this.dynamicGraphics = this.add.graphics().setDepth(3);
@@ -658,7 +773,21 @@
       this.hookIndicatorGraphics = this.add.graphics()
         .setDepth(2500)
         .setScrollFactor(0, 0);
+      this.chatWheelGraphics = this.add.graphics()
+        .setDepth(2700)
+        .setScrollFactor(0, 0);
+      this.chatWheelLabels = Array.from({ length: 4 }, () => this.add.text(0, 0, "", {
+        fontFamily: "system-ui, sans-serif",
+        fontSize: CHAT_WHEEL.TEXT_SIZE,
+        fontStyle: "900",
+        color: "#fff5e7",
+        align: "center",
+        stroke: "#000000",
+        strokeThickness: 4,
+        wordWrap: { width: 112 }
+      }).setOrigin(0.5).setDepth(2701).setScrollFactor(0, 0).setVisible(false));
       this.swipes = [];
+      this.recentHookIndicators = [];
       this.createGeneratorFallbackTexture();
       this.createLightTextures();
       this.lightConeMask = this.make.image({ x: 0, y: 0, key: "softFlashlightCone", add: false })
@@ -860,7 +989,18 @@
         this.fogRT = null;
       }
       if (!this.map) return;
-      this.fogRT = this.add.renderTexture(0, 0, this.map.width, this.map.height)
+
+      // The fog is a camera-window-sized world-space RenderTexture. It moves with
+      // the camera in world coordinates, while the cone/aura are erased using local
+      // positions inside that texture. That keeps the light anchored to the player
+      // during zoom without repainting a full-map texture every frame.
+      const cam = this.cameras.main;
+      const pad = LIGHTING.FOG_VIEW_PADDING;
+      const viewW = Math.ceil((cam.width || this.scale.width || window.innerWidth) + pad * 2);
+      const viewH = Math.ceil((cam.height || this.scale.height || window.innerHeight) + pad * 2);
+      this.lastFogWidth = viewW;
+      this.lastFogHeight = viewH;
+      this.fogRT = this.add.renderTexture(0, 0, viewW, viewH)
         .setOrigin(0, 0)
         .setDepth(LIGHTING.FOG_DEPTH)
         .setScrollFactor(1, 1);
@@ -1261,8 +1401,9 @@
       setMusicTargets(snapshot.music);
       if (!this.map && snapshot.map) this.loadMap(snapshot.map);
       if (this.map && snapshot.map) this.map = { ...this.map, ...snapshot.map, walls: this.map.walls, windows: this.map.windows };
-      this.drawDynamicWorld();
-      this.updateScratchGraphics(snapshot.scratchMarks || []);
+      this.needsDynamicRedraw = true;
+      this.pendingScratchMarks = snapshot.scratchMarks || [];
+      this.needsScratchRedraw = true;
       this.updateActorTargets(snapshot.actors || []);
       this.handleEvents(snapshot.events || []);
       this.updateHud(snapshot);
@@ -1275,8 +1416,8 @@
       if (!me) return;
       ui.roleLabel.textContent = me.role === "killer" ? "Killer" : "Survivor";
       ui.controlsLabel.textContent = me.role === "killer"
-        ? "WASD move • Mouse aim • M1 attack/lunge • Space vault/break • hold E hook/execute/kick gen"
-        : "WASD move • Shift sprint • Mouse flashlight • Space vault/drop • hold E heal/repair/escape";
+        ? "WASD move • Mouse aim • M1 attack/lunge • Space vault/break • hold E hook/execute/kick gen • hold R chat"
+        : "WASD move • Shift sprint • Mouse flashlight • Space vault/drop • hold E heal/repair/escape • hold R chat";
       const done = snapshot.objective?.doneGenerators ?? 0;
       const required = snapshot.objective?.requiredGenerators ?? snapshot.objective?.totalGenerators ?? 0;
       const total = snapshot.objective?.totalGenerators ?? required;
@@ -1326,7 +1467,10 @@
         seen.add(data.id);
         let item = this.actors.get(data.id);
         if (!item || item.role !== data.role) {
-          if (item) item.container.destroy();
+          if (item) {
+            item.container.destroy();
+            item.chatText?.destroy();
+          }
           item = this.createActorDisplay(data);
           this.actors.set(data.id, item);
         }
@@ -1344,6 +1488,10 @@
         item.container.setAlpha(isVisible ? 1 : 0);
         item.nameText.setText(data.name || "");
         item.nameText.setVisible(isVisible && data.id !== myId);
+        if (item.chatText) {
+          item.chatText.setText(data.chatText || "");
+          item.chatText.setVisible(isVisible && !!data.chatText);
+        }
         this.styleActor(item, data);
 
         if (data.id === myId) {
@@ -1361,6 +1509,7 @@
       for (const [id, item] of this.actors.entries()) {
         if (!seen.has(id)) {
           item.container.destroy();
+          item.chatText?.destroy();
           this.actors.delete(id);
         }
       }
@@ -1382,6 +1531,16 @@
         stroke: "#000000",
         strokeThickness: 3
       }).setOrigin(0.5, 0);
+      const chatText = this.add.text(data.x || 0, (data.y || 0) + 48, "", {
+        fontFamily: "system-ui, sans-serif",
+        fontSize: "14px",
+        fontStyle: "900",
+        color: "#fff3d8",
+        align: "center",
+        stroke: "#120807",
+        strokeThickness: 5,
+        wordWrap: { width: 180 }
+      }).setOrigin(0.5, 0).setDepth((data.role === "killer" ? 17 : 14)).setVisible(false);
       container.add([outline, body, facing, healBarBg, healBar, nameText]);
       return {
         role: data.role,
@@ -1393,6 +1552,7 @@
         healBarBg,
         healBar,
         nameText,
+        chatText,
         data,
         current: { x: data.x || 0, y: data.y || 0, angle: data.angle || 0 },
         target: { x: data.x || 0, y: data.y || 0, angle: data.angle || 0 }
@@ -1494,7 +1654,20 @@
           this.addSwipeIndicator(event);
           playLocalizedSwing(event);
         }
-        if (event.type === "hooked") playSfx("hooked");
+        if (event.type === "hooked") {
+          playSfx("hooked");
+          if (Number.isFinite(event.x) && Number.isFinite(event.y)) {
+            this.recentHookIndicators.push({
+              id: event.survivorId || event.hookId || event.id,
+              x: event.x,
+              y: event.y,
+              survivorId: event.survivorId || null,
+              hookCount: event.hookCount || 1,
+              until: performance.now() + 1500
+            });
+            if (this.recentHookIndicators.length > 8) this.recentHookIndicators.splice(0, this.recentHookIndicators.length - 8);
+          }
+        }
         if (event.type === "execute" || event.type === "death") playSfx("dead");
         if (event.type === "genDone") playSfx("gen");
         if (event.type === "hit") playSfx("injured");
@@ -1639,11 +1812,13 @@
 
     addShockwave(x, y, color = 0xffffff) {
       this.shockwaves.push({ x, y, color, life: 0, ttl: 0.72, radius: 8 });
-      if (this.shockwaves.length > 16) this.shockwaves.splice(0, this.shockwaves.length - 16);
+      if (this.shockwaves.length > PERFORMANCE.MAX_SHOCKWAVES) this.shockwaves.splice(0, this.shockwaves.length - PERFORMANCE.MAX_SHOCKWAVES);
     }
 
     burst(x, y, color, count, speed) {
-      for (let i = 0; i < count; i++) {
+      const room = Math.max(0, PERFORMANCE.MAX_PARTICLES - this.particles.length);
+      const actualCount = Math.min(count, room);
+      for (let i = 0; i < actualCount; i++) {
         const a = Math.random() * Math.PI * 2;
         const v = speed * (0.35 + Math.random() * 0.65);
         this.particles.push({
@@ -1667,8 +1842,11 @@
       this.updateActorDisplays(dt);
       this.updateImmersion(dt);
       this.updateCamera(dt);
+      this.maybeDrawDynamicWorld(dt);
+      this.maybeUpdateScratchGraphics(dt);
       this.drawLighting();
       this.drawHookIndicators();
+      this.drawChatWheel();
       this.drawChargeIndicators(dt);
       this.drawSwipes(dt);
       this.updateParticles(dt);
@@ -1758,6 +1936,11 @@
         }
         item.container.setPosition(item.current.x, item.current.y);
         item.container.rotation = item.current.angle || 0;
+        if (item.chatText) {
+          const isKiller = item.data?.role === "killer";
+          item.chatText.setPosition(item.current.x, item.current.y + (isKiller ? 47 : 43));
+          item.chatText.setRotation(0);
+        }
       }
     }
 
@@ -1798,8 +1981,12 @@
       const y = item.container.y;
       if (!Number.isFinite(x) || !Number.isFinite(y)) return;
 
-      const targetZoom = IMMERSION.BASE_ZOOM + this.terrorBlend * IMMERSION.TERROR_ZOOM + this.chaseBlend * IMMERSION.CHASE_ZOOM + this.heartbeatPulse * 0.008;
-      cam.setZoom(lerp(cam.zoom || 1, targetZoom, IMMERSION.ZOOM_LERP));
+      // Keep the camera zoom fixed at 1. Dynamic camera zoom was the source of the
+      // chase hitch because Phaser had to rescale the camera, fog window, and world
+      // transforms right as chase began. A steady zoom keeps rendering cheap and stable.
+      if (Math.abs((cam.zoom || 1) - IMMERSION.BASE_ZOOM) > 0.0005) {
+        cam.setZoom(IMMERSION.BASE_ZOOM);
+      }
 
       const moveX = (input.right ? 1 : 0) - (input.left ? 1 : 0);
       const moveY = (input.down ? 1 : 0) - (input.up ? 1 : 0);
@@ -1851,10 +2038,64 @@
       cam.centerOn(x + this.cameraSwayX, y + this.cameraSwayY);
     }
 
+    getDynamicWorldKey() {
+      const map = currentSnapshot?.map || this.map;
+      if (!map) return "";
+      const palletKey = (map.pallets || []).map((p) => `${p.id}:${p.state}:${p.broken ? 1 : 0}`).join("|");
+      // Keep this key coarse. Redrawing generator UI every tiny progress tick is a browser tax,
+      // especially when bots all start repairing at once. The bar still feels responsive at this granularity.
+      const genKey = (map.generators || []).map((g) => `${g.id}:${Math.round((g.progress || 0) * 20)}:${g.done ? 1 : 0}:${(g.activeRepairers?.length || 0) > 0 ? 1 : 0}:${g.beingKicked ? 1 : 0}:${Math.round((g.kickProgress || 0) * 5)}:${g.kickLocked ? 1 : 0}`).join("|");
+      const hookKey = (map.hooks || []).map((h) => `${h.id}:${h.active ? 1 : 0}:${h.survivorId || ""}`).join("|");
+      const gateKey = (map.gates || []).map((g) => `${g.id}:${g.open ? 1 : 0}`).join("|");
+      return `${palletKey}#${genKey}#${hookKey}#${gateKey}`;
+    }
+
+    maybeDrawDynamicWorld(dt) {
+      this.dynamicRedrawTimer += dt;
+      const interval = 1 / PERFORMANCE.DYNAMIC_WORLD_FPS;
+      if (!this.needsDynamicRedraw && this.dynamicRedrawTimer < interval) return;
+      if (this.dynamicRedrawTimer < interval) return;
+      const key = this.getDynamicWorldKey();
+      if (key !== this.lastDynamicKey || this.needsDynamicRedraw) {
+        this.lastDynamicKey = key;
+        this.drawDynamicWorld();
+      }
+      this.needsDynamicRedraw = false;
+      this.dynamicRedrawTimer = 0;
+    }
+
+    maybeUpdateScratchGraphics(dt) {
+      this.scratchRedrawTimer += dt;
+      if (!this.needsScratchRedraw || this.scratchRedrawTimer < 1 / PERFORMANCE.SCRATCH_DRAW_FPS) return;
+      this.updateScratchGraphics(this.pendingScratchMarks || []);
+      this.needsScratchRedraw = false;
+      this.scratchRedrawTimer = 0;
+    }
+
     drawLighting() {
       const me = this.actors.get(myId);
-      if (!this.map || !this.fogRT) return;
+      const cam = this.cameras.main;
+      const pad = LIGHTING.FOG_VIEW_PADDING;
+      const viewW = Math.ceil((cam.width || this.scale.width || window.innerWidth) + pad * 2);
+      const viewH = Math.ceil((cam.height || this.scale.height || window.innerHeight) + pad * 2);
 
+      if (!this.fogRT || this.lastFogWidth !== viewW || this.lastFogHeight !== viewH) {
+        this.rebuildFogTexture();
+        if (!this.fogRT) return;
+      }
+
+      // Anchor the fog layer in world space around the current camera viewport.
+      // Do not multiply by camera zoom here. Phaser applies the camera transform to
+      // the RenderTexture, so local fog coordinates stay in the same world units as
+      // actors, walls, windows, and pallets.
+      const zoom = Math.max(0.001, cam.zoom || 1);
+      const visibleW = (cam.width || this.scale.width || window.innerWidth) / zoom;
+      const visibleH = (cam.height || this.scale.height || window.innerHeight) / zoom;
+      const viewX = cam.scrollX;
+      const viewY = cam.scrollY;
+      const fogX = viewX - pad;
+      const fogY = viewY - pad;
+      this.fogRT.setPosition(fogX, fogY);
       this.fogRT.clear();
       this.fogRT.fill(0x000000, LIGHTING.MAP_DARKNESS);
 
@@ -1863,9 +2104,16 @@
       const role = me.data?.role || "survivor";
       const length = role === "killer" ? LIGHTING.KILLER_LENGTH : LIGHTING.SURVIVOR_LENGTH;
       const angle = role === "killer" ? LIGHTING.KILLER_ANGLE : LIGHTING.SURVIVOR_ANGLE;
-      const x = me.container.x;
-      const y = me.container.y;
+      const worldX = me.container.x;
+      const worldY = me.container.y;
       const facing = me.container.rotation || 0;
+      const localX = worldX - fogX;
+      const localY = worldY - fogY;
+
+      // If the player has somehow left the fog window, skip erasing this frame instead
+      // of drawing at a bad coordinate. The window is padded, so this should only happen
+      // during resize/camera edge cases.
+      if (localX < -64 || localY < -64 || localX > viewW + 64 || localY > viewH + 64) return;
 
       const flicker = 1 - LIGHTING.FLICKER_STRENGTH * 0.5
         + Math.sin(this.lightFlickerPhase) * LIGHTING.FLICKER_STRENGTH * 0.35
@@ -1874,19 +2122,17 @@
       const angleScale = Math.tan(angle / 2) / Math.tan(LIGHTING.CONE_BASE_HALF_ANGLE);
 
       this.lightAuraMask
-        .setPosition(x, y)
+        .setPosition(localX, localY)
         .setRotation(0)
         .setScale((LIGHTING.AURA_RADIUS * 2 * (0.96 + flicker * 0.04)) / 512)
         .setAlpha(LIGHTING.AURA_ALPHA);
 
       this.lightConeMask
-        .setPosition(x, y)
+        .setPosition(localX, localY)
         .setRotation(facing)
         .setScale(xScale, xScale * angleScale)
         .setAlpha(clamp(0.94 + flicker * 0.06, 0.9, 1));
 
-      // Erase darkness from the fog layer. This reveals the normally rendered map below.
-      // That means the flashlight area is normal-bright, not painted white. Revolutionary, apparently.
       this.fogRT.erase(this.lightAuraMask);
       this.fogRT.erase(this.lightConeMask);
     }
@@ -1901,15 +2147,26 @@
       const me = this.actors.get(myId)?.data;
       if (!me || me.role !== "survivor" || me.dead || me.escaped) return;
 
-      const hookedSurvivors = (currentSnapshot.actors || []).filter((actor) => {
-        return actor.role === "survivor"
-          && actor.id !== myId
-          && actor.hooked
-          && !actor.dead
-          && !actor.escaped
-          && Number.isFinite(actor.x)
-          && Number.isFinite(actor.y);
-      });
+      const now = performance.now();
+      this.recentHookIndicators = (this.recentHookIndicators || []).filter((h) => h.until > now);
+
+      const hookedSurvivors = (currentSnapshot.actors || [])
+        .filter((actor) => {
+          return actor.role === "survivor"
+            && actor.id !== myId
+            && actor.hooked
+            && !actor.dead
+            && !actor.escaped
+            && Number.isFinite(actor.x)
+            && Number.isFinite(actor.y);
+        })
+        .map((actor) => ({ ...actor, source: "snapshot" }));
+
+      const ids = new Set(hookedSurvivors.map((actor) => actor.id || actor.survivorId));
+      for (const recent of this.recentHookIndicators || []) {
+        if (recent.survivorId === myId || ids.has(recent.survivorId)) continue;
+        hookedSurvivors.push({ ...recent, role: "survivor", hooked: true, source: "event" });
+      }
 
       if (!hookedSurvivors.length) return;
 
@@ -1948,8 +2205,8 @@
         const x = centerX + dx * scale;
         const y = centerY + dy * scale;
         const danger = (actor.hookCount || 1) >= 2;
-        const mainColor = danger ? 0xff3d3d : COLORS.hook;
-        const ringAlpha = danger ? 0.78 : 0.62;
+        const mainColor = danger ? 0xff2222 : 0xff3030;
+        const ringAlpha = danger ? 0.82 : 0.68;
         const r = HOOK_INDICATOR.RADIUS + pulse * HOOK_INDICATOR.PULSE;
 
         // Direction pointer, slightly outside the bubble.
@@ -1974,24 +2231,152 @@
         g.lineStyle(1, 0xffffff, 0.22);
         g.strokeCircle(x, y, 15);
 
-        // Tiny hook glyph drawn with graphics, because adding a text pool for one icon is how madness starts.
-        g.lineStyle(4, mainColor, 0.95);
+        // Red exclamation marker. No hook glyph, no prop, just "someone is in trouble".
+        g.lineStyle(5, 0xff3030, 0.98);
         g.beginPath();
-        g.moveTo(x - 4, y + 9);
-        g.lineTo(x - 4, y - 10);
-        g.lineTo(x + 7, y - 15);
+        g.moveTo(x, y - 12);
+        g.lineTo(x, y + 4);
         g.strokePath();
-        g.lineStyle(3, 0xf7e7d6, 0.88);
-        g.beginPath();
-        g.arc(x + 7, y - 6, 8, Math.PI * 0.05, Math.PI * 1.36);
-        g.strokePath();
+        g.fillStyle(0xff3030, 0.98);
+        g.fillCircle(x, y + 12, 3.7);
+      }
+    }
 
-        // Small urgency pips for hook count.
-        const hookCount = clamp(actor.hookCount || 1, 1, 2);
-        for (let i = 0; i < hookCount; i++) {
-          g.fillStyle(mainColor, 0.92);
-          g.fillCircle(x - 5 + i * 10, y + 16, 2.5);
-        }
+    getChatWheelRole() {
+      const me = this.actors.get(myId)?.data;
+      return me?.role === "killer" ? "killer" : "survivor";
+    }
+
+    getChatWheelMessages() {
+      const me = this.actors.get(myId)?.data;
+      if (me?.role === "killer") return CHAT_WHEEL.MESSAGES.killer;
+
+      const survivorMessages = CHAT_WHEEL.MESSAGES.survivor;
+      const state = this.getSurvivorChatState(me);
+      return survivorMessages[state] || survivorMessages.normal;
+    }
+
+    getSurvivorChatState(actor) {
+      if (!actor || actor.role !== "survivor") return "normal";
+      if (actor.hooked) return "hooked";
+      if (actor.downed || actor.health <= 0) return "downed";
+      if (actor.chase) return "chase";
+      if (actor.injured || actor.health <= 1) return "injured";
+      return "normal";
+    }
+
+    openChatWheel() {
+      if (!currentSnapshot || !this.actors.has(myId)) return;
+      this.chatWheelOpen = true;
+      this.chatWheelSelected = -1;
+      this.updateChatWheelSelection();
+    }
+
+    closeChatWheel(submit = true) {
+      if (!this.chatWheelOpen) return;
+      this.updateChatWheelSelection();
+      const selected = this.chatWheelSelected;
+      this.chatWheelOpen = false;
+      this.chatWheelSelected = -1;
+      this.chatWheelGraphics?.clear();
+      for (const label of this.chatWheelLabels || []) label.setVisible(false);
+      if (submit && selected >= 0 && socket && currentSnapshot?.phase === "game") {
+        socket.emit("chatWheel", { index: selected });
+      }
+    }
+
+    updateChatWheelSelection() {
+      if (!this.chatWheelOpen) return -1;
+      const cam = this.cameras.main;
+      const pointer = this.input.activePointer;
+      const cx = cam.width / 2;
+      const cy = cam.height / 2;
+      const dx = pointer.x - cx;
+      const dy = pointer.y - cy;
+      const d = Math.hypot(dx, dy);
+      if (d < CHAT_WHEEL.INNER_RADIUS) {
+        this.chatWheelSelected = -1;
+        return -1;
+      }
+      const angle = Math.atan2(dy, dx);
+      // 0 = top, 1 = right, 2 = bottom, 3 = left.
+      let selected = 0;
+      if (angle >= -Math.PI * 0.25 && angle < Math.PI * 0.25) selected = 1;
+      else if (angle >= Math.PI * 0.25 && angle < Math.PI * 0.75) selected = 2;
+      else if (angle <= -Math.PI * 0.25 && angle > -Math.PI * 0.75) selected = 0;
+      else selected = 3;
+      this.chatWheelSelected = selected;
+      return selected;
+    }
+
+    drawChatWheel() {
+      const g = this.chatWheelGraphics;
+      if (!g) return;
+      if (!this.chatWheelOpen || !currentSnapshot || currentSnapshot.phase !== "game") {
+        g.clear();
+        for (const label of this.chatWheelLabels || []) label.setVisible(false);
+        return;
+      }
+
+      this.updateChatWheelSelection();
+      const messages = this.getChatWheelMessages();
+      const cam = this.cameras.main;
+      const cx = cam.width / 2;
+      const cy = cam.height / 2;
+      const r = CHAT_WHEEL.RADIUS;
+      const inner = CHAT_WHEEL.INNER_RADIUS;
+      const selected = this.chatWheelSelected;
+      const wheelColor = this.getChatWheelRole() === "killer" ? 0x7a1010 : 0x131927;
+      const selectedColor = this.getChatWheelRole() === "killer" ? 0xff3b3b : 0xffd15c;
+
+      g.clear();
+      g.fillStyle(0x050505, 0.34);
+      g.fillRect(0, 0, cam.width, cam.height);
+
+      // Segment order: top, right, bottom, left. Draw as fat pie slices.
+      const segments = [
+        { start: -Math.PI * 0.75, end: -Math.PI * 0.25, lx: 0, ly: -1 },
+        { start: -Math.PI * 0.25, end: Math.PI * 0.25, lx: 1, ly: 0 },
+        { start: Math.PI * 0.25, end: Math.PI * 0.75, lx: 0, ly: 1 },
+        { start: Math.PI * 0.75, end: Math.PI * 1.25, lx: -1, ly: 0 }
+      ];
+
+      segments.forEach((seg, i) => {
+        const isSelected = i === selected;
+        g.fillStyle(isSelected ? selectedColor : wheelColor, isSelected ? CHAT_WHEEL.SELECTED_ALPHA : CHAT_WHEEL.SEGMENT_ALPHA);
+        g.beginPath();
+        g.moveTo(cx, cy);
+        g.arc(cx, cy, r, seg.start, seg.end, false);
+        g.closePath();
+        g.fillPath();
+        g.lineStyle(2, isSelected ? 0xfff3d0 : 0xffffff, isSelected ? 0.74 : 0.15);
+        g.beginPath();
+        g.moveTo(cx, cy);
+        g.lineTo(cx + Math.cos(seg.start) * r, cy + Math.sin(seg.start) * r);
+        g.arc(cx, cy, r, seg.start, seg.end, false);
+        g.lineTo(cx, cy);
+        g.strokePath();
+      });
+
+      g.fillStyle(0x070707, CHAT_WHEEL.CENTER_ALPHA);
+      g.fillCircle(cx, cy, inner);
+      g.lineStyle(3, selected >= 0 ? selectedColor : 0xffffff, selected >= 0 ? 0.78 : 0.24);
+      g.strokeCircle(cx, cy, r);
+      g.lineStyle(2, 0xffffff, 0.18);
+      g.strokeCircle(cx, cy, inner);
+
+      const labelPositions = [
+        { x: cx, y: cy - CHAT_WHEEL.LABEL_RADIUS },
+        { x: cx + CHAT_WHEEL.LABEL_RADIUS, y: cy },
+        { x: cx, y: cy + CHAT_WHEEL.LABEL_RADIUS },
+        { x: cx - CHAT_WHEEL.LABEL_RADIUS, y: cy }
+      ];
+      for (let i = 0; i < 4; i++) {
+        const label = this.chatWheelLabels[i];
+        label.setText(messages[i] || "");
+        label.setPosition(labelPositions[i].x, labelPositions[i].y);
+        label.setAlpha(i === selected ? 1 : 0.66);
+        label.setVisible(true);
       }
     }
 
@@ -2043,7 +2428,7 @@
       return;
     }
     const game = new Phaser.Game({
-      type: Phaser.WEBGL,
+      type: Phaser.AUTO,
       parent: "gameWrap",
       backgroundColor: "#050505",
       scale: {
@@ -2052,14 +2437,23 @@
         width: window.innerWidth,
         height: window.innerHeight
       },
+      resolution: RENDER_RESOLUTION,
       render: {
-        antialias: true,
+        antialias: false,
         pixelArt: false,
-        roundPixels: false
+        roundPixels: LOW_POWER_MODE,
+        powerPreference: "high-performance",
+        preserveDrawingBuffer: false,
+        clearBeforeRender: true
+      },
+      fps: {
+        target: 60,
+        min: LOW_POWER_MODE ? 24 : 30,
+        forceSetTimeOut: false
       },
       scene: [GameScene]
     });
-    window.__fogVaultGame = game;
+    window.__surviveIoGame = game;
   }
 
   function setupUI() {
@@ -2163,6 +2557,7 @@
     input.sprint = false;
     input.repair = false;
     input.attackHeld = false;
+    phaserScene?.closeChatWheel(false);
   }
 
   function setupKeyboard() {
@@ -2177,6 +2572,11 @@
       if (isEditableTarget(e.target)) return;
       if (["KeyW", "KeyA", "KeyS", "KeyD", "ArrowUp", "ArrowLeft", "ArrowDown", "ArrowRight", "Space"].includes(e.code)) e.preventDefault();
       ensureAudioStarted();
+      if (e.code === "KeyR") {
+        e.preventDefault();
+        phaserScene?.openChatWheel();
+        return;
+      }
       const was = JSON.stringify(inputPayload());
       if (e.code === "KeyW" || e.code === "ArrowUp") input.up = true;
       if (e.code === "KeyS" || e.code === "ArrowDown") input.down = true;
@@ -2196,8 +2596,120 @@
       if (e.code === "KeyD" || e.code === "ArrowRight") input.right = false;
       if (e.code === "ShiftLeft" || e.code === "ShiftRight") input.sprint = false;
       if (e.code === "KeyE") input.repair = false;
+      if (e.code === "KeyR") {
+        e.preventDefault();
+        phaserScene?.closeChatWheel(true);
+        return;
+      }
       sendInput({}, true);
     });
+  }
+
+
+  function setupMobileControls() {
+    const controls = document.getElementById("mobileControls");
+    if (!controls) return;
+    controls.classList.toggle("hidden", !IS_TOUCH_DEVICE);
+
+    const stickBase = controls.querySelector(".mobile-stick-base");
+    const stickKnob = controls.querySelector(".mobile-stick-knob");
+    const buttons = [...controls.querySelectorAll("[data-mobile-action]")];
+    let stickPointerId = null;
+    let stickOrigin = { x: 0, y: 0 };
+
+    function sendTouchInput(immediate = true) {
+      ensureAudioStarted();
+      sendInput({}, immediate);
+    }
+
+    function resetStick() {
+      stickPointerId = null;
+      input.up = false;
+      input.down = false;
+      input.left = false;
+      input.right = false;
+      if (stickKnob) stickKnob.style.transform = "translate(-50%, -50%)";
+      sendTouchInput(true);
+    }
+
+    function updateStick(clientX, clientY) {
+      const dx = clientX - stickOrigin.x;
+      const dy = clientY - stickOrigin.y;
+      const max = 46;
+      const len = Math.hypot(dx, dy);
+      const dead = 10;
+      const nx = len > max ? (dx / len) * max : dx;
+      const ny = len > max ? (dy / len) * max : dy;
+
+      if (stickKnob) stickKnob.style.transform = `translate(calc(-50% + ${nx}px), calc(-50% + ${ny}px))`;
+
+      input.left = dx < -dead;
+      input.right = dx > dead;
+      input.up = dy < -dead;
+      input.down = dy > dead;
+      sendTouchInput(false);
+    }
+
+    if (stickBase) {
+      stickBase.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        stickPointerId = e.pointerId;
+        stickBase.setPointerCapture?.(e.pointerId);
+        const rect = stickBase.getBoundingClientRect();
+        stickOrigin = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+        updateStick(e.clientX, e.clientY);
+      }, { passive: false });
+
+      stickBase.addEventListener("pointermove", (e) => {
+        if (e.pointerId !== stickPointerId) return;
+        e.preventDefault();
+        updateStick(e.clientX, e.clientY);
+      }, { passive: false });
+
+      stickBase.addEventListener("pointerup", (e) => {
+        if (e.pointerId === stickPointerId) resetStick();
+      });
+      stickBase.addEventListener("pointercancel", (e) => {
+        if (e.pointerId === stickPointerId) resetStick();
+      });
+    }
+
+    for (const button of buttons) {
+      const action = button.dataset.mobileAction;
+      button.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        button.setPointerCapture?.(e.pointerId);
+        ensureAudioStarted();
+        if (action === "sprint") input.sprint = true;
+        if (action === "interact") input.repair = true;
+        if (action === "action") sendInput({ action: true }, true);
+        if (action === "attack") {
+          input.attackHeld = true;
+          sendInput({}, true);
+        }
+        if (action === "chat") phaserScene?.openChatWheel();
+        sendTouchInput(true);
+      }, { passive: false });
+
+      const release = (e) => {
+        e.preventDefault?.();
+        if (action === "sprint") input.sprint = false;
+        if (action === "interact") input.repair = false;
+        if (action === "attack" && input.attackHeld) {
+          input.attackHeld = false;
+          sendInput({ attackReleased: true }, true);
+          return;
+        }
+        if (action === "chat") {
+          phaserScene?.closeChatWheel(true);
+          return;
+        }
+        sendTouchInput(true);
+      };
+
+      button.addEventListener("pointerup", release, { passive: false });
+      button.addEventListener("pointercancel", release, { passive: false });
+    }
   }
 
   function setupSockets() {
@@ -2210,8 +2722,8 @@
     socket.on("gameStarted", (map) => {
       currentSnapshot = null;
       if (phaserScene) phaserScene.loadMap(map);
-      ensureAudioStarted();
       showScreen("game");
+      ensureAudioStarted();
     });
     socket.on("snapshot", (snapshot) => {
       currentSnapshot = snapshot;
@@ -2220,7 +2732,7 @@
     socket.on("matchEnded", ({ winner, reason }) => {
       ui.winnerText.textContent = winner === "killer" ? "Killer Wins" : "Survivors Win";
       ui.reasonText.textContent = reason || "Match ended.";
-      setMusicTargets({ layer1: 0.02, layer2: 0, layer3: 0 });
+      setMusicTargets({ layer1: 0, layer2: 0, layer3: 0 });
       showScreen("end");
     });
   }
@@ -2229,6 +2741,7 @@
     setupAudio();
     setupUI();
     setupKeyboard();
+    setupMobileControls();
     setupSockets();
     bootPhaser();
     document.addEventListener("pointerdown", ensureAudioStarted, { once: true });

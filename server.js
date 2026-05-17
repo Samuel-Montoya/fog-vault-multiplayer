@@ -22,8 +22,9 @@ app.use(express.static(PUBLIC_DIR));
 app.get("/", (req, res) => res.sendFile(path.join(PUBLIC_DIR, "index.html")));
 
 const TICK_RATE = 60;
-const SNAPSHOT_RATE = 30;
-const SCRATCH_MARK_MAX = 100;
+const SNAPSHOT_RATE = 24;
+const BOT_THINK_RATE = 8;
+const SCRATCH_MARK_MAX = 45;
 const MAX_SURVIVORS = 4;
 const SURVIVOR_SKINS = new Set(["blueSquare", "yellowStar", "purplePentagon"]);
 function sanitizeSkin(value) {
@@ -91,13 +92,43 @@ const KILLER_SCRATCH_MARK_VISIBILITY_RANGE = 520;
 const MUSIC_LAYER_1_VOLUME = 0.12;
 const MUSIC_LAYER_2_MAX_VOLUME = 0.30;
 const MUSIC_LAYER_3_VOLUME = 0.30;
-const BOT_REPATH_MIN = 0.16;
-const BOT_REPATH_MAX = 0.42;
+const BOT_REPATH_MIN = 0.58;
+const BOT_REPATH_MAX = 1.15;
 const BOT_SURVIVOR_THREAT_RADIUS = 640;
 const BOT_SURVIVOR_PANIC_RADIUS = 285;
 const BOT_SURVIVOR_LOOP_RADIUS = 430;
-const BOT_KILLER_MEMORY_SECONDS = 4.5;
-const BOT_KILLER_SCRATCH_MEMORY_SECONDS = 3.0;
+const BOT_KILLER_MEMORY_SECONDS = 6.0;
+const BOT_KILLER_SCRATCH_MEMORY_SECONDS = 2.5;
+const BOT_KILLER_INTERACT_COOLDOWN = 1.25;
+const BOT_KILLER_WINDOW_REUSE_COOLDOWN = 2.2;
+const BOT_KILLER_STUCK_SECONDS = 0.85;
+
+const CHAT_MESSAGE_DURATION = 3.0;
+const CHAT_WHEEL_MESSAGES = {
+  survivor: {
+    normal: ["Let's do a generator.", "I'm so scared...", "Here he comes!", "What was that?!"],
+    chase: ["He's on me...!", "Leave me alone!", "I'm so scared!", "AHHHH!"],
+    injured: ["I need healing...", "Please, help me...", "I need to hide.", "Over here..."],
+    downed: ["Pick me up!", "Help, please...", "I don't wanna die...", "I'm down...!"],
+    hooked: ["Save me!", "Unhook me!", "Grab me!", "He's here..."]
+  },
+  killer: ["Im going to get you", "You cant hide forever", "Ill be back...", "What the...?!"]
+};
+
+function getSurvivorChatState(actor) {
+  if (!actor || actor.role !== "survivor") return "normal";
+  if (actor.hooked) return "hooked";
+  if (actor.downed || actor.health <= 0) return "downed";
+  if (actor.chaseHold > 0) return "chase";
+  if (actor.injured || actor.health <= 1) return "injured";
+  return "normal";
+}
+
+function getChatWheelMessagesForActor(actor) {
+  if (actor?.role === "killer") return CHAT_WHEEL_MESSAGES.killer;
+  const survivorMessages = CHAT_WHEEL_MESSAGES.survivor;
+  return survivorMessages[getSurvivorChatState(actor)] || survivorMessages.normal;
+}
 
 let nextLobbyNumber = 1;
 const lobbies = new Map();
@@ -366,6 +397,8 @@ function makePlayer(socket, role, name, options = {}) {
     // For chase music: once the survivor sees the killer during chase, keep layer_3 alive briefly
     // after they look away. This avoids frantic on/off music when checking behind you.
     killerVisibleHold: 0,
+    chatText: null,
+    chatUntil: 0,
     palletGraceId: null,
     palletGraceTime: 0,
     bot: {
@@ -380,7 +413,10 @@ function makePlayer(socket, role, name, options = {}) {
       stuckTimer: 0,
       lastX: 0,
       lastY: 0,
-      actionCooldown: 0
+      actionCooldown: 0,
+      fleeTimer: 0,
+      fleeX: 0,
+      fleeY: 0
     },
     input: {
       up: false,
@@ -537,7 +573,8 @@ function startGame(lobby) {
     scratchMarks: [],
     requiredGenerators: Math.min(REQUIRED_GENERATORS_TO_COMPLETE, map.generators.length),
     escapeOpen: false,
-    time: 0
+    time: 0,
+    botThinkAccumulator: 0
   };
 
   let survivorSpawnIndex = 0;
@@ -1028,8 +1065,10 @@ function updateTimers(game, dt) {
     actor.palletGraceTime = Math.max(0, actor.palletGraceTime - dt);
     if (actor.palletGraceTime <= 0) actor.palletGraceId = null;
   }
-  for (const s of game.scratchMarks) s.ttl -= dt;
-  game.scratchMarks = game.scratchMarks.filter((s) => s.ttl > 0);
+  for (let i = game.scratchMarks.length - 1; i >= 0; i--) {
+    game.scratchMarks[i].ttl -= dt;
+    if (game.scratchMarks[i].ttl <= 0) game.scratchMarks.splice(i, 1);
+  }
 }
 
 
@@ -1293,11 +1332,21 @@ function updateHealing(game, dt) {
 
 function nearestKickableGenerator(game, killer) {
   if (!killer || killer.role !== "killer" || killer.dead || killer.escaped) return null;
-  return game.map.generators
-    .filter((gen) => !gen.done && gen.progress > 0.001 && !gen.kickLocked)
-    .filter((gen) => dist(killer.x, killer.y, gen.x, gen.y) <= INTERACT_DISTANCE + 10)
-    .filter((gen) => segmentClear(game, killer.x, killer.y, gen.x, gen.y))
-    .sort((a, b) => dist(killer.x, killer.y, a.x, a.y) - dist(killer.x, killer.y, b.x, b.y))[0] || null;
+  let best = null;
+  let bestD2 = Infinity;
+  const maxD = INTERACT_DISTANCE + 10;
+  const maxD2 = maxD * maxD;
+  for (const gen of game.map.generators) {
+    if (gen.done || gen.progress <= 0.001 || gen.kickLocked) continue;
+    const dx = killer.x - gen.x;
+    const dy = killer.y - gen.y;
+    const d2 = dx * dx + dy * dy;
+    if (d2 > maxD2 || d2 >= bestD2) continue;
+    if (!segmentClear(game, killer.x, killer.y, gen.x, gen.y)) continue;
+    best = gen;
+    bestD2 = d2;
+  }
+  return best;
 }
 
 function resetGeneratorKick(killer) {
@@ -1363,10 +1412,19 @@ function updateGeneratorsAndGates(game, dt) {
     if (actor.role !== "survivor" || actor.dead || actor.escaped || actor.downed || actor.hooked) continue;
     if (actor.healingTargetId || actor.unhookTargetId || (actor.activeHealers && actor.activeHealers.length > 0)) continue;
     if (!actor.input.repair || actor.input.sprint) continue;
-    const gen = game.map.generators
-      .filter((g) => !g.done)
-      .sort((a, b) => dist(actor.x, actor.y, a.x, a.y) - dist(actor.x, actor.y, b.x, b.y))[0];
-    if (gen && dist(actor.x, actor.y, gen.x, gen.y) < INTERACT_DISTANCE) {
+    let gen = null;
+    let bestD2 = INTERACT_DISTANCE * INTERACT_DISTANCE;
+    for (const candidate of game.map.generators) {
+      if (candidate.done) continue;
+      const dx = actor.x - candidate.x;
+      const dy = actor.y - candidate.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 < bestD2) {
+        gen = candidate;
+        bestD2 = d2;
+      }
+    }
+    if (gen) {
       const oldProgress = gen.progress;
       gen.progress = clamp(gen.progress + dt / GENERATOR_REPAIR_TIME, 0, 1);
       if (gen.progress > oldProgress) {
@@ -1443,7 +1501,7 @@ function checkWinConditions(lobby) {
   const game = lobby.game;
   if (!game || game.phase !== "game") return;
   const survivors = [...game.actors.values()].filter((p) => p.role === "survivor");
-  const doneGens = game.map.generators.filter((g) => g.done).length;
+  const doneGens = game.map.generators.reduce((count, g) => count + (g.done ? 1 : 0), 0);
 
   if (survivors.length && survivors.every((p) => p.escaped)) {
     endGame(lobby, "survivors", "All survivors escaped.");
@@ -1550,6 +1608,9 @@ function findPath(game, actor, targetX, targetY, options = {}) {
   const startKey = key(start.x, start.y);
   const goalKey = key(goal.x, goal.y);
   if (startKey === goalKey) return [tileCenter(game, goal.x, goal.y)];
+  if (dist(actor.x, actor.y, targetX, targetY) < game.map.tile * 6 && segmentClear(game, actor.x, actor.y, targetX, targetY)) {
+    return [{ x: targetX, y: targetY }];
+  }
 
   const open = [{ x: start.x, y: start.y, f: 0, g: 0 }];
   const cameFrom = new Map();
@@ -1561,9 +1622,16 @@ function findPath(game, actor, targetX, targetY, options = {}) {
     return Math.abs(x - goal.x) + Math.abs(y - goal.y);
   }
 
-  while (open.length && loops++ < 2500) {
-    open.sort((a, b) => a.f - b.f);
-    const current = open.shift();
+  while (open.length && loops++ < 950) {
+    let bestIndex = 0;
+    let bestF = open[0].f;
+    for (let i = 1; i < open.length; i++) {
+      if (open[i].f < bestF) {
+        bestF = open[i].f;
+        bestIndex = i;
+      }
+    }
+    const current = open.splice(bestIndex, 1)[0];
     const currentKey = key(current.x, current.y);
     if (seen.has(currentKey)) continue;
     seen.add(currentKey);
@@ -1603,7 +1671,7 @@ function findPath(game, actor, targetX, targetY, options = {}) {
   return [];
 }
 
-function followPath(game, actor, targetX, targetY, sprint = false) {
+function followPath(game, actor, targetX, targetY, sprint = false, options = {}) {
   const bot = actor.bot;
   bot.repath -= 1 / TICK_RATE;
   const targetChanged = dist(bot.goalX || 0, bot.goalY || 0, targetX, targetY) > game.map.tile * 0.6;
@@ -1627,40 +1695,65 @@ function followPath(game, actor, targetX, targetY, sprint = false) {
   setMoveToward(actor, next.x, next.y, sprint);
 
   // If the next node is a vault/window/pallet tile and we're close, interact with it.
+  // Killers do NOT auto-vault from generic pathing anymore. That caused bot killers
+  // to ping-pong between windows. Killer interaction is handled tactically in
+  // updateBotInputs() where we know whether the obstacle actually helps the chase.
+  const allowAutoInteract = actor.role === "survivor" || options.allowKillerInteract === true;
+  if (!allowAutoInteract) return;
+
   const hit = nearestInteractable(game, actor, actor.role === "survivor");
   if (hit && actor.bot.actionCooldown <= 0) {
     const tactical = hit.type === "window" || hit.type === "palletVault" || hit.type === "palletBreak";
-    if (tactical && dist(actor.x, actor.y, hit.object.x + hit.object.w / 2, hit.object.y + hit.object.h / 2) <= INTERACT_DISTANCE) {
+    const objectId = hit.object?.id || `${hit.type}:${hit.object?.x}:${hit.object?.y}`;
+    const recentlyUsed = actor.bot.lastInteractableId === objectId && game.time < (actor.bot.lastInteractableUntil || 0);
+    if (!recentlyUsed && tactical && dist(actor.x, actor.y, hit.object.x + hit.object.w / 2, hit.object.y + hit.object.h / 2) <= INTERACT_DISTANCE) {
       actor.input.action = true;
-      actor.bot.actionCooldown = 0.18;
+      actor.bot.actionCooldown = actor.role === "killer" ? BOT_KILLER_INTERACT_COOLDOWN : 0.18;
+      actor.bot.lastInteractableId = objectId;
+      actor.bot.lastInteractableUntil = game.time + (actor.role === "killer" ? BOT_KILLER_WINDOW_REUSE_COOLDOWN : 0.55);
     }
   }
 }
 
 function nearestLivingSurvivor(game, actor) {
-  return [...game.actors.values()]
-    .filter((p) => p.role === "survivor" && !p.dead && !p.escaped && !p.hooked)
-    .sort((a, b) => dist(actor.x, actor.y, a.x, a.y) - dist(actor.x, actor.y, b.x, b.y))[0];
+  let best = null;
+  let bestDist = Infinity;
+  for (const p of game.actors.values()) {
+    if (p.role !== "survivor" || p.dead || p.escaped || p.hooked) continue;
+    const d = dist(actor.x, actor.y, p.x, p.y);
+    if (d < bestDist) {
+      bestDist = d;
+      best = p;
+    }
+  }
+  return best;
 }
 
 function visibleSurvivorsForKiller(game, killer) {
-  return [...game.actors.values()]
-    .filter((p) => p.role === "survivor" && !p.dead && !p.escaped && !p.hooked)
-    .filter((p) => {
-      const d = dist(killer.x, killer.y, p.x, p.y);
-      const los = segmentClear(game, killer.x, killer.y, p.x, p.y);
-      if (!los) return false;
-      if (d <= CLOSE_REVEAL_RADIUS) return true;
-      return coneSees(killer, p, KILLER_CONE_LENGTH, KILLER_CONE_ANGLE);
-    });
+  const visible = [];
+  for (const p of game.actors.values()) {
+    if (p.role !== "survivor" || p.dead || p.escaped || p.hooked) continue;
+    const d = dist(killer.x, killer.y, p.x, p.y);
+    const los = segmentClear(game, killer.x, killer.y, p.x, p.y);
+    if (!los) continue;
+    if (d <= CLOSE_REVEAL_RADIUS || coneSees(killer, p, KILLER_CONE_LENGTH, KILLER_CONE_ANGLE)) {
+      visible.push({ survivor: p, d });
+    }
+  }
+  return visible;
 }
 
 function chooseKillerTarget(game, killer) {
-  const visible = visibleSurvivorsForKiller(game, killer)
-    .sort((a, b) => dist(killer.x, killer.y, a.x, a.y) - dist(killer.x, killer.y, b.x, b.y));
+  let target = null;
+  let bestDist = Infinity;
+  for (const item of visibleSurvivorsForKiller(game, killer)) {
+    if (item.d < bestDist) {
+      bestDist = item.d;
+      target = item.survivor;
+    }
+  }
 
-  if (visible.length) {
-    const target = visible[0];
+  if (target) {
     killer.bot.targetId = target.id;
     killer.bot.lastSeenX = target.x;
     killer.bot.lastSeenY = target.y;
@@ -1673,9 +1766,16 @@ function chooseKillerTarget(game, killer) {
     return { actor: remembered, x: killer.bot.lastSeenX, y: killer.bot.lastSeenY, visible: false };
   }
 
-  const scratch = game.scratchMarks
-    .filter((s) => s.ttl > 0 && game.time - (s.createdAt || 0) < BOT_KILLER_SCRATCH_MEMORY_SECONDS)
-    .sort((a, b) => dist(killer.x, killer.y, a.x, a.y) - dist(killer.x, killer.y, b.x, b.y))[0];
+  let scratch = null;
+  let scratchDist = Infinity;
+  for (const s of game.scratchMarks) {
+    if (s.ttl <= 0 || game.time - (s.createdAt || 0) >= BOT_KILLER_SCRATCH_MEMORY_SECONDS) continue;
+    const d = dist(killer.x, killer.y, s.x, s.y);
+    if (d < scratchDist) {
+      scratchDist = d;
+      scratch = s;
+    }
+  }
   if (scratch) return { actor: null, x: scratch.x, y: scratch.y, visible: false };
 
   const nearest = nearestLivingSurvivor(game, killer);
@@ -1683,10 +1783,120 @@ function chooseKillerTarget(game, killer) {
   return null;
 }
 
+
+function botKillerCanStartAttack(killer) {
+  return killer
+    && killer.attackCooldown <= 0
+    && killer.recovery <= 0
+    && !killer.attackState
+    && !killer.vault
+    && !killer.breakTarget
+    && killer.actionLock <= 0;
+}
+
+function botTargetIsInFacingArc(killer, target, arc = ATTACK_ARC * 1.15) {
+  if (!killer || !target) return false;
+  const angleToTarget = Math.atan2(target.y - killer.y, target.x - killer.x);
+  return angleDiff(angleToTarget, killer.angle || 0) <= arc / 2;
+}
+
+function botFaceTarget(killer, target) {
+  if (!killer || !target) return;
+  const angleToTarget = Math.atan2(target.y - killer.y, target.x - killer.x);
+  killer.input.angle = angleToTarget;
+  killer.angle = angleToTarget;
+}
+
+function botShouldVaultWindow(game, killer, target, hit, hasClearAttack, targetDistance) {
+  if (!hit || hit.type !== "window" || !target) return false;
+  if (targetDistance < QUICK_ATTACK_RANGE * 1.15 && hasClearAttack) return false;
+
+  const objectId = hit.object?.id || `window:${hit.object?.x}:${hit.object?.y}`;
+  if (killer.bot.lastInteractableId === objectId && game.time < (killer.bot.lastInteractableUntil || 0)) return false;
+
+  const c = centerOf(hit.object);
+  if (dist(killer.x, killer.y, c.x, c.y) > INTERACT_DISTANCE) return false;
+
+  const windowBetweenKillerAndTarget = segmentClearAgainst([hit.object], killer.x, killer.y, target.x, target.y) === false;
+  const targetNearWindow = dist(target.x, target.y, c.x, c.y) < game.map.tile * 1.7;
+  const attackBlockedAndClose = !hasClearAttack && targetDistance < 360;
+
+  // Only vault when the survivor is actually using the window/loop or the window is
+  // what blocks a near attack. Otherwise keep pathing around and committing to chase.
+  return (windowBetweenKillerAndTarget && targetNearWindow) || attackBlockedAndClose;
+}
+
+function botUseKillerObstacle(game, killer, target, hit, hasClearAttack, targetDistance) {
+  if (!hit || killer.bot.actionCooldown > 0) return false;
+  const objectId = hit.object?.id || `${hit.type}:${hit.object?.x}:${hit.object?.y}`;
+  if (killer.bot.lastInteractableId === objectId && game.time < (killer.bot.lastInteractableUntil || 0)) return false;
+
+  if (hit.type === "palletBreak") {
+    const c = centerOf(hit.object);
+    // Break pallets aggressively if they block a close chase or are directly in front
+    // of the target path. This gets the killer out of loop purgatory.
+    const shouldBreak = !hasClearAttack || targetDistance < 430 || dist(target.x, target.y, c.x, c.y) < game.map.tile * 2.4;
+    if (shouldBreak) {
+      killer.input.action = true;
+      killer.bot.actionCooldown = 1.0;
+      killer.bot.lastInteractableId = objectId;
+      killer.bot.lastInteractableUntil = game.time + 1.1;
+      return true;
+    }
+  }
+
+  if (botShouldVaultWindow(game, killer, target, hit, hasClearAttack, targetDistance)) {
+    killer.input.action = true;
+    killer.bot.actionCooldown = BOT_KILLER_INTERACT_COOLDOWN;
+    killer.bot.lastInteractableId = objectId;
+    killer.bot.lastInteractableUntil = game.time + BOT_KILLER_WINDOW_REUSE_COOLDOWN;
+    return true;
+  }
+
+  return false;
+}
+
+function botSetAttackIntent(game, killer, target, targetDistance, hasClearAttack) {
+  if (!target || !hasClearAttack) return false;
+
+  // Finish an existing charge/lunge instead of releasing and re-pressing every bot tick.
+  if (killer.attackState === "charging") {
+    killer.input.attackHeld = true;
+    botFaceTarget(killer, target);
+    return true;
+  }
+
+  if (!botKillerCanStartAttack(killer)) return false;
+
+  botFaceTarget(killer, target);
+
+  const targetInFront = botTargetIsInFacingArc(killer, target, ATTACK_ARC * 1.08);
+  const huggingTarget = targetDistance <= ATTACK_CLOSE_AOE_RADIUS + PLAYER_SIZE * 0.55;
+  if (!targetInFront && !huggingTarget) return false;
+
+  // Only quick swing when the survivor is truly close. Otherwise hold M1 for lunge
+  // when the distance is appropriate. This prevents the bot from spamming tiny whiffs.
+  const quickRange = QUICK_ATTACK_RANGE * 0.62;
+  const lungeMin = QUICK_ATTACK_RANGE * 0.72;
+  const lungeMax = LUNGE_ATTACK_RANGE * 0.92;
+
+  if (targetDistance <= quickRange || huggingTarget) {
+    killer.input.attackReleased = true;
+    return true;
+  }
+
+  if (targetDistance >= lungeMin && targetDistance <= lungeMax) {
+    killer.input.attackHeld = true;
+    return true;
+  }
+
+  return false;
+}
+
 function chooseFleePoint(game, survivor, killer) {
   const actorTile = tileAt(game, survivor.x, survivor.y);
   let best = { x: survivor.x, y: survivor.y, score: -Infinity };
-  const radius = 7;
+  const radius = 5;
 
   for (let ty = actorTile.y - radius; ty <= actorTile.y + radius; ty++) {
     for (let tx = actorTile.x - radius; tx <= actorTile.x + radius; tx++) {
@@ -1807,28 +2017,20 @@ function updateBotInputs(game, dt) {
         continue;
       }
 
-      if (target.actor) actor.input.angle = Math.atan2(target.actor.y - actor.y, target.actor.x - actor.x);
+      if (target.actor) botFaceTarget(actor, target.actor);
       else actor.input.angle = Math.atan2(target.y - actor.y, target.x - actor.x);
 
-      const hit = target.actor ? nearestInteractable(game, actor, false) : null;
       const targetDistance = dist(actor.x, actor.y, target.x, target.y);
       const hasClearAttack = target.actor && attackSegmentClear(game, actor.x, actor.y, target.actor.x, target.actor.y);
+      const attacking = target.actor && botSetAttackIntent(game, actor, target.actor, targetDistance, hasClearAttack);
 
-      if (target.actor && targetDistance <= QUICK_ATTACK_RANGE * 0.92 && hasClearAttack && actor.attackCooldown <= 0 && actor.recovery <= 0 && !actor.attackState) {
-        actor.input.attackReleased = true;
-      } else if (target.actor && targetDistance <= LUNGE_ATTACK_RANGE * 1.08 && hasClearAttack && actor.attackCooldown <= 0 && actor.recovery <= 0 && !actor.attackState) {
-        actor.input.attackHeld = true;
-      } else {
-        followPath(game, actor, target.x, target.y, false);
+      if (!attacking) {
+        followPath(game, actor, target.x, target.y, false, { allowKillerInteract: false });
       }
 
-      if (hit && actor.bot.actionCooldown <= 0) {
-        const usefulObstacle = hit.type === "window" || hit.type === "palletBreak";
-        const blockedAttack = target.actor && !hasClearAttack && targetDistance < 260;
-        if (usefulObstacle && (blockedAttack || targetDistance > QUICK_ATTACK_RANGE * 1.4)) {
-          actor.input.action = true;
-          actor.bot.actionCooldown = hit.type === "palletBreak" ? 0.8 : 0.25;
-        }
+      const hit = target.actor ? nearestInteractable(game, actor, false) : null;
+      if (target.actor && !attacking) {
+        botUseKillerObstacle(game, actor, target.actor, hit, hasClearAttack, targetDistance);
       }
       continue;
     }
@@ -1839,8 +2041,14 @@ function updateBotInputs(game, dt) {
       const threatened = killer && killerDistance < BOT_SURVIVOR_THREAT_RADIUS && (killerHasLos || actor.chaseHold > 0 || killerDistance < BOT_SURVIVOR_PANIC_RADIUS);
 
       if (threatened) {
-        const flee = chooseFleePoint(game, actor, killer);
-        followPath(game, actor, flee.x, flee.y, true);
+        actor.bot.fleeTimer = Math.max(0, (actor.bot.fleeTimer || 0) - dt);
+        if (actor.bot.fleeTimer <= 0 || !Number.isFinite(actor.bot.fleeX) || !Number.isFinite(actor.bot.fleeY)) {
+          const flee = chooseFleePoint(game, actor, killer);
+          actor.bot.fleeX = flee.x;
+          actor.bot.fleeY = flee.y;
+          actor.bot.fleeTimer = 0.34 + Math.random() * 0.16;
+        }
+        followPath(game, actor, actor.bot.fleeX, actor.bot.fleeY, true);
         botUseLoopObject(game, actor, killer);
         continue;
       }
@@ -1855,7 +2063,12 @@ function updateGame(lobby, dt) {
   if (!game || game.phase !== "game") return;
 
   game.time = (game.time || 0) + dt;
-  updateBotInputs(game, dt);
+  game.botThinkAccumulator = (game.botThinkAccumulator || 0) + dt;
+  if (game.botThinkAccumulator >= 1 / BOT_THINK_RATE) {
+    const botDt = game.botThinkAccumulator;
+    game.botThinkAccumulator = 0;
+    updateBotInputs(game, botDt);
+  }
   updateTimers(game, dt);
   updateHookInteractions(game, dt);
   updateGeneratorKicks(game, dt);
@@ -1951,7 +2164,8 @@ function serializeActor(game, actor, visible = true) {
     activeHealers: actor.activeHealers || [],
     healingTargetId: actor.healingTargetId || null,
     chase: actor.chaseHold > 0,
-    killerVisibleHold: actor.killerVisibleHold || 0
+    killerVisibleHold: actor.killerVisibleHold || 0,
+    chatText: actor.chatUntil > (game.time || 0) ? actor.chatText : null
   };
 }
 
@@ -2011,6 +2225,9 @@ function buildSnapshotFor(lobby, socketId) {
       })
     : game.scratchMarks.filter((s) => dist(viewer?.x || 0, viewer?.y || 0, s.x, s.y) < 180);
 
+  const doneGenerators = map.generators.reduce((count, g) => count + (g.done ? 1 : 0), 0);
+  const requiredGenerators = game.requiredGenerators;
+
   return {
     lobbyId: lobby.id,
     map: {
@@ -2030,10 +2247,10 @@ function buildSnapshotFor(lobby, socketId) {
     events: game.events.slice(),
     scratchMarks: visibleScratchMarks.map((s) => ({ id: s.id, x: s.x, y: s.y, angle: s.angle, ttl: s.ttl })),
     objective: {
-      doneGenerators: map.generators.filter((g) => g.done).length,
-      requiredGenerators: game.requiredGenerators,
+      doneGenerators,
+      requiredGenerators,
       totalGenerators: map.generators.length,
-      remainingGenerators: Math.max(0, game.requiredGenerators - map.generators.filter((g) => g.done).length),
+      remainingGenerators: Math.max(0, requiredGenerators - doneGenerators),
       escapeOpen: game.escapeOpen
     },
     music
@@ -2045,7 +2262,7 @@ function sendSnapshots() {
     if (!lobby.game) continue;
     for (const socketId of lobby.players.keys()) {
       const socket = io.sockets.sockets.get(socketId);
-      if (socket) socket.emit("snapshot", buildSnapshotFor(lobby, socketId));
+      if (socket) socket.compress(false).volatile.emit("snapshot", buildSnapshotFor(lobby, socketId));
     }
     if (lobby.game.events.length) lobby.game.events.length = 0;
   }
@@ -2166,6 +2383,18 @@ io.on("connection", (socket) => {
     if (Number.isFinite(input.angle)) actor.input.angle = input.angle;
   });
 
+  socket.on("chatWheel", (payload = {}) => {
+    const lobby = lobbies.get(socketToLobby.get(socket.id));
+    if (!lobby || !lobby.game || lobby.game.phase !== "game") return;
+    const actor = lobby.game.actors.get(socket.id);
+    if (!actor || actor.dead || actor.escaped) return;
+    const messages = getChatWheelMessagesForActor(actor);
+    const index = Number.isInteger(payload.index) ? payload.index : Math.floor(Number(payload.index));
+    if (!Number.isInteger(index) || index < 0 || index >= messages.length) return;
+    actor.chatText = messages[index];
+    actor.chatUntil = (lobby.game.time || 0) + CHAT_MESSAGE_DURATION;
+  });
+
   socket.on("backToLobby", () => {
     const lobby = lobbies.get(socketToLobby.get(socket.id));
     if (!lobby) return;
@@ -2182,5 +2411,5 @@ io.on("connection", (socket) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`Fog Vault Multiplayer running at http://localhost:${PORT}`);
+  console.log(`survive.io running at http://localhost:${PORT}`);
 });

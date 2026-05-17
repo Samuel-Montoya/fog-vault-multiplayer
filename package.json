@@ -1,5 +1,5 @@
 {
-  "name": "fog-vault-multiplayer-phaser",
+  "name": "survive-io",
   "version": "2.4.0",
   "description": "Server-authoritative top-down horror chase game rendered with Phaser 3 and Socket.IO.",
   "main": "server.js",

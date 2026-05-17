@@ -1116,3 +1116,189 @@ body.in-chase #gameWrap canvas {
   }
   .moon-haze { right: -18%; top: -4%; }
 }
+
+
+/* Mobile / low-power performance helpers */
+html,
+body,
+#gameWrap,
+canvas {
+  touch-action: none;
+  overscroll-behavior: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.low-power .fog-bank,
+.low-power .sparks,
+.low-power .fx-grain {
+  display: none !important;
+}
+
+.low-power .campfire-backdrop,
+.low-power .horror-fx {
+  animation: none !important;
+}
+
+.mobile-controls {
+  position: fixed;
+  inset: 0;
+  z-index: 3100;
+  pointer-events: none;
+  user-select: none;
+}
+
+.mobile-controls.hidden,
+.no-touch .mobile-controls {
+  display: none !important;
+}
+
+.touch-device .mobile-controls:not(.hidden) {
+  display: block;
+}
+
+.mobile-stick-base {
+  position: absolute;
+  left: max(18px, env(safe-area-inset-left));
+  bottom: max(22px, env(safe-area-inset-bottom));
+  width: 126px;
+  height: 126px;
+  border-radius: 999px;
+  pointer-events: auto;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.11), rgba(0, 0, 0, 0.36));
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45), inset 0 0 28px rgba(0, 0, 0, 0.32);
+  backdrop-filter: blur(7px);
+}
+
+.mobile-stick-knob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 54px;
+  height: 54px;
+  border-radius: 999px;
+  transform: translate(-50%, -50%);
+  background: rgba(255, 245, 221, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  box-shadow: inset 0 0 18px rgba(255, 255, 255, 0.08), 0 10px 24px rgba(0, 0, 0, 0.36);
+}
+
+.mobile-button-cluster {
+  position: absolute;
+  right: max(16px, env(safe-area-inset-right));
+  bottom: max(18px, env(safe-area-inset-bottom));
+  display: grid;
+  grid-template-columns: repeat(3, 64px);
+  grid-auto-rows: 56px;
+  gap: 10px;
+  pointer-events: auto;
+}
+
+.mobile-btn {
+  border: 1px solid rgba(255, 255, 255, 0.20);
+  border-radius: 18px;
+  color: #fff1dd;
+  background: rgba(12, 10, 10, 0.62);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.42), inset 0 0 18px rgba(255, 255, 255, 0.04);
+  font: 900 13px/1 system-ui, sans-serif;
+  letter-spacing: 0.04em;
+  backdrop-filter: blur(7px);
+}
+
+.mobile-btn:active {
+  transform: scale(0.96);
+  background: rgba(135, 34, 29, 0.7);
+}
+
+.mobile-btn.primary {
+  grid-column: span 2;
+  background: rgba(86, 27, 20, 0.78);
+}
+
+.mobile-btn.killer {
+  background: rgba(128, 17, 17, 0.72);
+}
+
+.mobile-btn.small {
+  font-size: 12px;
+}
+
+@media (max-width: 840px) {
+  .hud {
+    top: 10px;
+    right: 10px;
+    left: auto;
+    max-width: min(330px, calc(100vw - 20px));
+    transform: scale(0.92);
+    transform-origin: top right;
+  }
+
+  .survivor-status-list {
+    transform: scale(0.9);
+    transform-origin: bottom left;
+  }
+
+  .big-gen-counter {
+    right: 12px;
+    bottom: 164px;
+    transform: scale(0.88);
+    transform-origin: bottom right;
+  }
+
+  .panel {
+    max-height: calc(100vh - 28px);
+    overflow: auto;
+  }
+}
+
+@media (max-width: 620px) {
+  .mobile-stick-base {
+    width: 112px;
+    height: 112px;
+  }
+
+  .mobile-button-cluster {
+    grid-template-columns: repeat(3, 56px);
+    grid-auto-rows: 50px;
+    gap: 8px;
+  }
+
+  .mobile-btn {
+    border-radius: 15px;
+    font-size: 11px;
+  }
+}
+
+
+/* v62 minimal HUD + performance pass */
+.hud-help-card { display: none; }
+.objective-card.compact-card {
+  min-width: 170px;
+  padding: 9px 11px;
+  border-radius: 14px;
+  background: rgba(2, 2, 3, 0.42);
+  backdrop-filter: blur(6px);
+}
+.objective-card div { margin: 1px 0; font-size: 11px; }
+.survivor-status-list { gap: 7px; width: min(310px, calc(100vw - 32px)); }
+.survivor-status-card {
+  grid-template-columns: 42px 1fr auto;
+  min-height: 48px;
+  padding: 6px 8px;
+  border-radius: 7px 13px 13px 7px;
+  background: linear-gradient(90deg, rgba(0,0,0,0.68), rgba(12,9,10,0.42));
+  backdrop-filter: blur(5px);
+}
+.survivor-portrait { width: 38px; height: 38px; }
+.survivor-portrait::before { left: 11px; top: 7px; width: 16px; height: 16px; box-shadow: 0 18px 0 7px rgba(230,224,215,0.34); }
+.survivor-name { font-size: 13px; }
+.survivor-state { font-size: 10px; margin-top: 1px; }
+.survivor-action { min-width: 34px; font-size: 9px; }
+.survivor-health-line { display: none !important; }
+.fx-grain { opacity: .07; animation-duration: 900ms; }
+body.in-chase #gameWrap canvas { filter: contrast(1.035) saturate(0.92) brightness(0.99); }
+@media (max-width: 720px) {
+  .survivor-status-list { width: min(280px, calc(100vw - 20px)); gap: 6px; }
+  .survivor-status-card { grid-template-columns: 38px 1fr auto; min-height: 44px; }
+  .survivor-portrait { width: 34px; height: 34px; }
+}
