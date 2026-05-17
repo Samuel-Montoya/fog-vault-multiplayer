@@ -7,7 +7,10 @@ const GAME_MAPS = require("./public/maps.js");
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: { origin: "*" }
+  cors: { origin: "*" },
+  // Realtime games send lots of tiny snapshots. Compressing every message can
+  // cost more CPU than it saves here, especially on free hosts and laptops.
+  perMessageDeflate: false
 });
 
 const PORT = process.env.PORT || 3000;
@@ -19,7 +22,8 @@ app.use(express.static(PUBLIC_DIR));
 app.get("/", (req, res) => res.sendFile(path.join(PUBLIC_DIR, "index.html")));
 
 const TICK_RATE = 60;
-const SNAPSHOT_RATE = 60;
+const SNAPSHOT_RATE = 30;
+const SCRATCH_MARK_MAX = 100;
 const MAX_SURVIVORS = 4;
 const SURVIVOR_SKINS = new Set(["blueSquare", "yellowStar", "purplePentagon"]);
 function sanitizeSkin(value) {
@@ -589,7 +593,7 @@ function addEvent(game, type, data = {}) {
 
 function addScratch(game, actor) {
   game.scratchMarks.push({ id: uid("scratch"), x: actor.x, y: actor.y, angle: actor.angle + (Math.random() - 0.5), ttl: 4.0, createdAt: game.time || 0 });
-  if (game.scratchMarks.length > 180) game.scratchMarks.splice(0, game.scratchMarks.length - 180);
+  if (game.scratchMarks.length > SCRATCH_MARK_MAX) game.scratchMarks.splice(0, game.scratchMarks.length - SCRATCH_MARK_MAX);
 }
 
 function moveActor(game, actor, dt) {

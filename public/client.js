@@ -6,7 +6,7 @@
   // RenderTexture sits above it, then the local player's flashlight erases that fog.
   // Inside the cone you see the real map, not a white overlay and not a black void.
   const LIGHTING = {
-    MAP_DARKNESS: 0.8,          // 0 = no fog, 0.85 = very dark outside vision
+    MAP_DARKNESS: 0.62,          // 0 = no fog, 0.85 = very dark outside vision
     SURVIVOR_LENGTH: 700,
     SURVIVOR_ANGLE: Math.PI / 2.25,
     KILLER_LENGTH: 980,
@@ -55,21 +55,43 @@
   const IMMERSION = {
     BASE_ZOOM: 1,
     TERROR_ZOOM: 0.018,
-    CHASE_ZOOM: 0.3,
+    CHASE_ZOOM: 0.425,
     ZOOM_LERP: 0.055,
     CHASE_IN_LERP: 0.075,
     CHASE_OUT_LERP: 0.04,
     TERROR_LERP: 0.07,
-    BREATH_SWAY: 5,
-    CHASE_SWAY: 100,
+    BREATH_SWAY: 4,
+    CHASE_SWAY: 2,
+    // Direction-change camera sway. No constant running bob. The camera only leans
+    // when the player changes movement direction, then smoothly settles back.
+    // Smooth direction-change camera sway. The old impulse added pixels instantly,
+    // which made normal WASD movement feel jumpy. These values feed a soft spring:
+    // direction changes create a tiny target offset, then the camera eases into/out of it.
+    DIRECTION_SWAY_IMPULSE: 7,
+    DIRECTION_SWAY_MAX: 8,
+    DIRECTION_CHANGE_THRESHOLD: 0.45,
+    DIRECTION_SWAY_TARGET_DECAY: 8.5,
+    DIRECTION_SWAY_SMOOTHING: 14.0,
+    DIRECTION_SWAY_IDLE_SMOOTHING: 17.0,
     HEARTBEAT_MIN_INTERVAL: 0.32,
     HEARTBEAT_MAX_INTERVAL: 0.88,
-    // Chase shake tuned way down. Fear good. Nausea bad. Somehow this took versions to learn.
-    HEARTBEAT_SHAKE_BASE: 0.00045,
-    HEARTBEAT_SHAKE_CHASE: 0.00105,
-    CHASE_START_SHAKE_DURATION: 95,
-    CHASE_START_SHAKE_INTENSITY: 0.00135,
-    TUNNEL_MAX: 0.72
+    // Keep the pulse readable, not nauseating. We already made a horror game; no need to attack the monitor.
+    HEARTBEAT_SHAKE_BASE: 0.00032,
+    HEARTBEAT_SHAKE_CHASE: 0.00072,
+    CHASE_START_SHAKE_DURATION: 70,
+    CHASE_START_SHAKE_INTENSITY: 0.0009,
+    TUNNEL_MAX: 0.68
+  };
+
+  const FX_SMOOTHING = {
+    // Red vignette ramps quickly when you stare at the killer, then fades slowly when you look away.
+    // This prevents the on/off flash that made chase feel cheap and jittery.
+    RED_RISE_PER_SECOND: 5.8,
+    RED_FALL_PER_SECOND: 2.4,
+    TUNNEL_RISE_PER_SECOND: 4.5,
+    TUNNEL_FALL_PER_SECOND: 3.0,
+    BLOOD_RISE_PER_SECOND: 5.0,
+    BLOOD_FALL_PER_SECOND: 2.2
   };
 
   // Keep this matched with server.js. Client uses it only for local prediction
@@ -80,22 +102,26 @@
   // The fallback canvas texture below keeps the game from collapsing if the file is missing,
   // because browsers are apparently dramatic about absent art assets.
   const GROUND_VISUAL = {
-    TEXTURE_KEY: "grassTileTexture",
     TILE_SIZE: 72,
-    BASE: "#1f2f1d",
-    BASE_DARK: "#172416",
-    BLADE_A: "rgba(92, 132, 70, 0.34)",
-    BLADE_B: "rgba(47, 83, 43, 0.42)",
-    FLOWER: "rgba(180, 160, 95, 0.12)"
+    BASE: 0x22431f,
+    BASE_DARK: 0x163015,
+    BASE_LIGHT: 0x2e5528,
+    EDGE_GREEN: 0x315f2b,
+    PATCH_ALPHA: 0.16,
+    EDGE_ALPHA: 0.18
   };
 
   const WALL_VISUAL = {
-    BRICK_WIDTH: 54,
-    BRICK_HEIGHT: 24,
-    MORTAR: 0x211e1c,
-    MORTAR_ALPHA: 0.58,
-    EDGE_ALPHA: 0.34,
-    HIGHLIGHT_ALPHA: 0.12
+    PLANK_HEIGHT: 18,
+    PLANK_WIDTH: 44,
+    WOOD_BASE: 0x60412b,
+    WOOD_DARK: 0x2b1a11,
+    WOOD_LIGHT: 0x9b6a42,
+    WOOD_GRAIN: 0x3a2417,
+    EDGE_ALPHA: 0.42,
+    HIGHLIGHT_ALPHA: 0.17,
+    GRAIN_ALPHA: 0.30,
+    SEAM_ALPHA: 0.50
   };
 
   const GENERATOR_VISUAL = {
@@ -117,6 +143,7 @@
     // Survivor-only edge bubble that points toward hooked teammates.
     // Raise EDGE_PADDING if your HUD overlaps the screen border.
     EDGE_PADDING: 66,
+    ON_SCREEN_PADDING: 92,
     RADIUS: 27,
     PULSE: 3.5,
     LINE_ALPHA: 0.82,
@@ -144,12 +171,12 @@
     hook: 0x91613a,
     hookIron: 0x1b1512,
     downed: 0x8f2020,
-    wall: 0x5c4d43,
-    wallDark: 0x2b211d,
-    wallLight: 0x8a7569,
-    window: 0xd2d6ca,
-    pallet: 0xb57a3c,
-    palletDark: 0x5e321d,
+    wall: 0x60412b,
+    wallDark: 0x2b1a11,
+    wallLight: 0xa97a4b,
+    window: 0xd9edf3,
+    pallet: 0xb97835,
+    palletDark: 0x4a2917,
     gen: 0xb0b7a8,
     gate: 0xc2a055,
     survivor: 0x75d5ff,
@@ -204,6 +231,13 @@
     reasonText: document.getElementById("reasonText"),
     backToLobbyBtn: document.getElementById("backToLobbyBtn"),
     mainMenuBtn: document.getElementById("mainMenuBtn")
+  };
+
+  const fxState = {
+    redChase: 0,
+    tunnel: 0,
+    blood: 0,
+    lastUpdate: performance.now()
   };
 
   let socket = null;
@@ -271,6 +305,11 @@
 
   function lerp(a, b, t) {
     return a + (b - a) * t;
+  }
+
+  function dampAlpha(rate, dt) {
+    // Time-based smoothing so camera effects feel the same at 30, 60, or 144 FPS.
+    return 1 - Math.exp(-Math.max(0, rate) * clamp(dt || 0, 0, 0.05));
   }
 
   function dist(ax, ay, bx, by) {
@@ -498,21 +537,67 @@
     return { terror, chase, blood, injured };
   }
 
+  function isLookingAtKiller(snapshot, me) {
+    if (!snapshot || !me || me.role !== "survivor" || !me.chase || me.dead || me.escaped) return false;
+    // The server already computes killer visibility using the survivor's cone and line of sight.
+    // Use that instead of duplicating geometry here and inevitably summoning another bug gremlin.
+    if (snapshot.music?.killerVisible) return true;
+    const killer = (snapshot.actors || []).find((actor) => actor.role === "killer");
+    return !!killer?.visible;
+  }
+
+  function approachValue(current, target, dt, risePerSecond, fallPerSecond) {
+    const rate = target > current ? risePerSecond : fallPerSecond;
+    const alpha = 1 - Math.exp(-Math.max(0, dt) * rate);
+    return lerp(current, target, clamp(alpha, 0, 1));
+  }
+
   function updateHorrorFx(snapshot, me, smoothed = null) {
     if (!ui.horrorFx) return;
     const raw = getThreatLevels(snapshot, me);
+    const now = performance.now();
+    const dt = clamp((now - fxState.lastUpdate) / 1000, 0.001, 0.08);
+    fxState.lastUpdate = now;
+
     const terror = smoothed?.terror ?? raw.terror;
     const chase = smoothed?.chase ?? raw.chase;
-    const blood = raw.blood;
-    const tunnel = clamp(chase * IMMERSION.TUNNEL_MAX + terror * 0.22 + blood * 0.18, 0, 1);
-    const pulseSpeed = `${Math.round(980 - terror * 330 - chase * 210)}ms`;
+    const targetBlood = raw.blood;
+    const lookingAtKiller = isLookingAtKiller(snapshot, me);
+    const targetRedChase = lookingAtKiller ? chase : 0;
+    const targetTunnel = clamp(chase * IMMERSION.TUNNEL_MAX + terror * 0.18 + targetBlood * 0.16, 0, 1);
+
+    fxState.redChase = approachValue(
+      fxState.redChase,
+      targetRedChase,
+      dt,
+      FX_SMOOTHING.RED_RISE_PER_SECOND,
+      FX_SMOOTHING.RED_FALL_PER_SECOND
+    );
+    fxState.tunnel = approachValue(
+      fxState.tunnel,
+      targetTunnel,
+      dt,
+      FX_SMOOTHING.TUNNEL_RISE_PER_SECOND,
+      FX_SMOOTHING.TUNNEL_FALL_PER_SECOND
+    );
+    fxState.blood = approachValue(
+      fxState.blood,
+      targetBlood,
+      dt,
+      FX_SMOOTHING.BLOOD_RISE_PER_SECOND,
+      FX_SMOOTHING.BLOOD_FALL_PER_SECOND
+    );
+
+    const pulseSpeed = `${Math.round(980 - terror * 300 - chase * 170)}ms`;
 
     ui.horrorFx.style.setProperty("--terror", terror.toFixed(3));
     ui.horrorFx.style.setProperty("--chase", chase.toFixed(3));
-    ui.horrorFx.style.setProperty("--blood", blood.toFixed(3));
-    ui.horrorFx.style.setProperty("--tunnel", tunnel.toFixed(3));
+    ui.horrorFx.style.setProperty("--red-chase", fxState.redChase.toFixed(3));
+    ui.horrorFx.style.setProperty("--blood", fxState.blood.toFixed(3));
+    ui.horrorFx.style.setProperty("--tunnel", fxState.tunnel.toFixed(3));
     ui.horrorFx.style.setProperty("--pulse-speed", pulseSpeed);
     document.body.classList.toggle("in-chase", raw.chase > 0);
+    document.body.classList.toggle("is-looking-at-killer", fxState.redChase > 0.04);
     document.body.classList.toggle("is-injured", !!raw.injured);
   }
 
@@ -543,6 +628,12 @@
       this.breathPhase = 0;
       this.lastRawChase = false;
       this.lightFlickerPhase = 0;
+      this.cameraSwayX = 0;
+      this.cameraSwayY = 0;
+      this.cameraSwayTargetX = 0;
+      this.cameraSwayTargetY = 0;
+      this.lastMoveDirX = 0;
+      this.lastMoveDirY = 0;
     }
 
     preload() {
@@ -557,7 +648,6 @@
     create() {
       phaserScene = this;
       this.cameras.main.setBackgroundColor("#050505");
-      this.createGrassTexture();
       this.grassLayer = null;
       this.worldGraphics = this.add.graphics().setDepth(1);
       this.dynamicGraphics = this.add.graphics().setDepth(3);
@@ -599,55 +689,8 @@
     }
 
     createGrassTexture() {
-      if (this.textures.exists(GROUND_VISUAL.TEXTURE_KEY)) return;
-
-      const size = GROUND_VISUAL.TILE_SIZE;
-      const tex = this.textures.createCanvas(GROUND_VISUAL.TEXTURE_KEY, size, size);
-      const canvas = tex.getSourceImage();
-      const ctx = canvas.getContext("2d");
-      ctx.clearRect(0, 0, size, size);
-
-      const grad = ctx.createRadialGradient(size * 0.35, size * 0.25, 4, size / 2, size / 2, size * 0.78);
-      grad.addColorStop(0, GROUND_VISUAL.BASE);
-      grad.addColorStop(1, GROUND_VISUAL.BASE_DARK);
-      ctx.fillStyle = grad;
-      ctx.fillRect(0, 0, size, size);
-
-      // One texture tile equals one ASCII map tile. Draw blades across the full cell,
-      // including edges, so the ground reads as a continuous grass field instead of
-      // a tiny repeated postage stamp.
-      for (let i = 0; i < 150; i++) {
-        const x = Math.floor(hash2(i, 91) * (size + 14)) - 7;
-        const y = Math.floor(hash2(i, 143) * (size + 14)) - 7;
-        const len = 6 + hash2(i, 197) * 18;
-        const lean = -6 + hash2(i, 233) * 12;
-        ctx.strokeStyle = i % 3 === 0 ? GROUND_VISUAL.BLADE_A : GROUND_VISUAL.BLADE_B;
-        ctx.lineWidth = hash2(i, 271) > 0.82 ? 2 : 1;
-        ctx.beginPath();
-        ctx.moveTo(x, y);
-        ctx.quadraticCurveTo(x + lean * 0.45, y - len * 0.52, x + lean, y - len);
-        ctx.stroke();
-      }
-
-      ctx.strokeStyle = "rgba(255,255,255,0.035)";
-      ctx.lineWidth = 1;
-      ctx.strokeRect(0.5, 0.5, size - 1, size - 1);
-
-      for (let i = 0; i < 18; i++) {
-        const x = Math.floor(hash2(i, 401) * size);
-        const y = Math.floor(hash2(i, 433) * size);
-        ctx.fillStyle = GROUND_VISUAL.FLOWER;
-        ctx.beginPath();
-        ctx.arc(x, y, 1.3 + hash2(i, 467) * 1.8, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      // Soft vignette per tile avoids the repeating texture looking too sterile.
-      ctx.fillStyle = "rgba(0,0,0,0.08)";
-      ctx.fillRect(0, 0, size, 3);
-      ctx.fillRect(0, 0, 3, size);
-
-      tex.refresh();
+      // Legacy no-op. v51 uses a cheap solid/patch ground graphics layer for performance.
+      return null;
     }
 
     createGeneratorFallbackTexture() {
@@ -779,12 +822,36 @@
         this.grassLayer = null;
       }
       if (!this.map) return;
-      this.grassLayer = this.add.tileSprite(0, 0, this.map.width, this.map.height, GROUND_VISUAL.TEXTURE_KEY)
-        .setOrigin(0, 0)
+
+      // Performance pass: no procedural blade texture, no per-cell grass strokes.
+      // One cheap green field with a few broad patches is vastly smoother and still reads as grass.
+      const g = this.add.graphics()
         .setDepth(0)
         .setScrollFactor(1, 1);
-      this.grassLayer.tilePositionX = 0;
-      this.grassLayer.tilePositionY = 0;
+
+      this.grassLayer = g;
+      g.fillStyle(GROUND_VISUAL.BASE, 1);
+      g.fillRect(0, 0, this.map.width, this.map.height);
+
+      // Large, low-count color variation so the field is not a flat rectangle.
+      const patches = 18;
+      for (let i = 0; i < patches; i++) {
+        const x = hash2(i + 17, 101) * this.map.width;
+        const y = hash2(i + 29, 211) * this.map.height;
+        const w = 180 + hash2(i + 43, 307) * 420;
+        const h = 120 + hash2(i + 59, 409) * 320;
+        const color = hash2(i + 71, 503) > 0.5 ? GROUND_VISUAL.BASE_LIGHT : GROUND_VISUAL.BASE_DARK;
+        g.fillStyle(color, GROUND_VISUAL.PATCH_ALPHA);
+        g.fillEllipse(x, y, w, h);
+      }
+
+      // Slightly greener boundary wash around the playable map, cheap and readable.
+      const edge = Math.max(90, (this.map.tile || GROUND_VISUAL.TILE_SIZE) * 1.45);
+      g.fillStyle(GROUND_VISUAL.EDGE_GREEN, GROUND_VISUAL.EDGE_ALPHA);
+      g.fillRect(0, 0, this.map.width, edge);
+      g.fillRect(0, this.map.height - edge, this.map.width, edge);
+      g.fillRect(0, 0, edge, this.map.height);
+      g.fillRect(this.map.width - edge, 0, edge, this.map.height);
     }
 
     rebuildFogTexture() {
@@ -843,28 +910,23 @@
     }
 
     drawWall(g, wall) {
-      const base = COLORS.wall;
-      const dark = COLORS.wallDark;
-      const light = COLORS.wallLight;
-      const brickW = WALL_VISUAL.BRICK_WIDTH;
-      const brickH = WALL_VISUAL.BRICK_HEIGHT;
+      const base = WALL_VISUAL.WOOD_BASE;
+      const dark = WALL_VISUAL.WOOD_DARK;
+      const light = WALL_VISUAL.WOOD_LIGHT;
+      const grain = WALL_VISUAL.WOOD_GRAIN;
+      const plankH = WALL_VISUAL.PLANK_HEIGHT;
+      const plankW = WALL_VISUAL.PLANK_WIDTH;
 
-      // Fill every wall as part of one continuous masonry surface. No heavy per-tile
-      // outline, so adjacent X tiles read like connected ruins instead of Lego blocks.
-      const shade = 0.95 + hash2(Math.floor(wall.x / brickW), Math.floor(wall.y / brickH)) * 0.08;
-      g.fillStyle(shade > 1 ? brighten(base, 0.05) : base, 1);
+      // Uniform fill first. Adjacent X tiles share this fill and only outer edges
+      // get outlines, so wall runs read as connected wooden barricades.
+      g.fillStyle(base, 1);
       g.fillRect(wall.x, wall.y, wall.w, wall.h);
 
-      g.fillStyle(dark, 0.18);
-      g.fillRect(wall.x, wall.y + wall.h - 5, wall.w, 5);
-      g.fillStyle(light, WALL_VISUAL.HIGHLIGHT_ALPHA);
-      g.fillRect(wall.x, wall.y, wall.w, 4);
-
-      // Mortar lines are aligned to world coordinates, not to each tile. This makes
-      // brick seams continue across neighboring wall pieces.
-      g.lineStyle(1, WALL_VISUAL.MORTAR, WALL_VISUAL.MORTAR_ALPHA);
-      const yStart = Math.floor(wall.y / brickH) * brickH;
-      for (let yy = yStart; yy <= wall.y + wall.h; yy += brickH) {
+      // World-aligned plank seams. These continue across neighboring wall tiles,
+      // which stops the individual-block look. Tiny mercy.
+      g.lineStyle(1, dark, WALL_VISUAL.SEAM_ALPHA);
+      const yStart = Math.floor(wall.y / plankH) * plankH;
+      for (let yy = yStart; yy <= wall.y + wall.h; yy += plankH) {
         const y = clamp(yy, wall.y, wall.y + wall.h);
         g.beginPath();
         g.moveTo(wall.x, y);
@@ -872,14 +934,15 @@
         g.strokePath();
       }
 
-      const xStart = Math.floor(wall.x / brickW) * brickW;
-      for (let yy = yStart; yy < wall.y + wall.h; yy += brickH) {
-        const row = Math.floor(yy / brickH);
-        const offset = row % 2 ? brickW / 2 : 0;
-        for (let xx = xStart - offset; xx <= wall.x + wall.w; xx += brickW) {
+      // Short staggered vertical seams create board ends without drawing tile boxes.
+      const xStart = Math.floor(wall.x / plankW) * plankW;
+      for (let yy = yStart; yy < wall.y + wall.h; yy += plankH) {
+        const row = Math.floor(yy / plankH);
+        const offset = row % 2 ? plankW / 2 : 0;
+        for (let xx = xStart - offset; xx <= wall.x + wall.w; xx += plankW) {
           const x = clamp(xx, wall.x, wall.x + wall.w);
-          const y1 = clamp(yy, wall.y, wall.y + wall.h);
-          const y2 = clamp(yy + brickH, wall.y, wall.y + wall.h);
+          const y1 = clamp(yy + 2, wall.y, wall.y + wall.h);
+          const y2 = clamp(yy + plankH - 2, wall.y, wall.y + wall.h);
           if (y2 <= y1 + 2) continue;
           g.beginPath();
           g.moveTo(x, y1);
@@ -888,8 +951,28 @@
         }
       }
 
-      // Only a soft outer lip now, not a box around every single wall tile.
-      g.lineStyle(2, dark, WALL_VISUAL.EDGE_ALPHA);
+      // Grain lines. World-hashed so the pattern is stable when the camera moves.
+      g.lineStyle(1, grain, WALL_VISUAL.GRAIN_ALPHA);
+      const grainRows = Math.max(3, Math.floor(wall.h / 11));
+      for (let i = 0; i < grainRows; i++) {
+        const y = wall.y + 7 + i * 11 + hash2(Math.floor(wall.x / 17) + i, Math.floor(wall.y / 19)) * 4;
+        if (y > wall.y + wall.h - 5) continue;
+        g.beginPath();
+        g.moveTo(wall.x + 6, y);
+        const midX = wall.x + wall.w * 0.5;
+        g.lineTo(midX, y + Math.sin((wall.x + i * 31) * 0.025) * 2.5);
+        g.lineTo(wall.x + wall.w - 6, y + Math.cos((wall.y + i * 17) * 0.03) * 2.5);
+        g.strokePath();
+      }
+
+      // Top bevel and bottom shadow make the planks feel chunky without making each
+      // ASCII tile look boxed in.
+      g.fillStyle(light, WALL_VISUAL.HIGHLIGHT_ALPHA);
+      g.fillRect(wall.x, wall.y, wall.w, 5);
+      g.fillStyle(dark, 0.22);
+      g.fillRect(wall.x, wall.y + wall.h - 6, wall.w, 6);
+
+      g.lineStyle(3, dark, WALL_VISUAL.EDGE_ALPHA);
       if (!this.hasWallNeighbor(wall, -1, 0)) {
         g.beginPath(); g.moveTo(wall.x, wall.y); g.lineTo(wall.x, wall.y + wall.h); g.strokePath();
       }
@@ -905,35 +988,65 @@
     }
 
     hasWallNeighbor(wall, dx, dy) {
-      const pad = 2;
+      const tile = this.map?.tile || wall.w || 72;
+      const pad = 5;
       const probe = {
-        x: wall.x + dx * (wall.w / 2 + pad) + pad,
-        y: wall.y + dy * (wall.h / 2 + pad) + pad,
-        w: wall.w - pad * 2,
-        h: wall.h - pad * 2
+        x: wall.x + dx * tile + pad,
+        y: wall.y + dy * tile + pad,
+        w: Math.max(4, wall.w - pad * 2),
+        h: Math.max(4, wall.h - pad * 2)
       };
       return (this.map?.walls || []).some((other) => other !== wall && rectsOverlap(probe, other));
     }
 
     drawWindow(g, win) {
-      g.fillStyle(0x393a35, 1);
-      g.fillRect(win.x, win.y, win.w, win.h);
-      g.lineStyle(4, COLORS.window, 0.9);
       const cx = win.x + win.w / 2;
       const cy = win.y + win.h / 2;
+      const frame = COLORS.wallDark;
+      const wood = COLORS.wallLight;
+      const glass = COLORS.window;
+
+      // Dark opening first so it reads as a real vaultable gap.
+      g.fillStyle(0x101615, 0.96);
+      g.fillRoundedRect(win.x + 5, win.y + 5, win.w - 10, win.h - 10, 7);
+
       if (win.orientation === "horizontal") {
+        // Wooden frame above/below the opening.
+        g.fillStyle(frame, 1);
+        g.fillRoundedRect(win.x + 6, win.y + 7, win.w - 12, 9, 3);
+        g.fillRoundedRect(win.x + 6, win.y + win.h - 16, win.w - 12, 9, 3);
+        g.fillStyle(wood, 0.92);
+        g.fillRoundedRect(win.x + 12, cy - 8, win.w - 24, 16, 5);
+        g.lineStyle(3, glass, 0.82);
         g.beginPath();
-        g.moveTo(win.x + 10, cy);
-        g.lineTo(win.x + win.w - 10, cy);
+        g.moveTo(win.x + 16, cy);
+        g.lineTo(win.x + win.w - 16, cy);
         g.strokePath();
+        g.lineStyle(2, glass, 0.38);
+        for (let i = 1; i < 4; i++) {
+          const x = win.x + (win.w / 4) * i;
+          g.beginPath(); g.moveTo(x, cy - 8); g.lineTo(x, cy + 8); g.strokePath();
+        }
       } else {
+        g.fillStyle(frame, 1);
+        g.fillRoundedRect(win.x + 7, win.y + 6, 9, win.h - 12, 3);
+        g.fillRoundedRect(win.x + win.w - 16, win.y + 6, 9, win.h - 12, 3);
+        g.fillStyle(wood, 0.92);
+        g.fillRoundedRect(cx - 8, win.y + 12, 16, win.h - 24, 5);
+        g.lineStyle(3, glass, 0.82);
         g.beginPath();
-        g.moveTo(cx, win.y + 10);
-        g.lineTo(cx, win.y + win.h - 10);
+        g.moveTo(cx, win.y + 16);
+        g.lineTo(cx, win.y + win.h - 16);
         g.strokePath();
+        g.lineStyle(2, glass, 0.38);
+        for (let i = 1; i < 4; i++) {
+          const y = win.y + (win.h / 4) * i;
+          g.beginPath(); g.moveTo(cx - 8, y); g.lineTo(cx + 8, y); g.strokePath();
+        }
       }
-      g.fillStyle(0xeff6ff, 0.18);
-      g.fillRect(win.x + 8, win.y + 8, win.w - 16, win.h - 16);
+
+      g.fillStyle(0xffffff, 0.10);
+      g.fillRoundedRect(win.x + 11, win.y + 11, win.w - 22, win.h - 22, 5);
     }
 
     drawDynamicWorld() {
@@ -942,29 +1055,7 @@
       g.clear();
 
       for (const pallet of currentSnapshot.map?.pallets || this.map.pallets || []) {
-        if (pallet.broken || pallet.state === "broken") {
-          g.lineStyle(3, COLORS.palletDark, 0.5);
-          g.beginPath();
-          g.moveTo(pallet.x + 10, pallet.y + 12);
-          g.lineTo(pallet.x + pallet.w - 12, pallet.y + pallet.h - 9);
-          g.moveTo(pallet.x + 14, pallet.y + pallet.h - 12);
-          g.lineTo(pallet.x + pallet.w - 10, pallet.y + 11);
-          g.strokePath();
-          continue;
-        }
-        const dropped = pallet.state === "dropped";
-        g.fillStyle(dropped ? COLORS.palletDark : COLORS.pallet, 1);
-        if (pallet.orientation === "horizontal") {
-          const h = dropped ? pallet.h : pallet.h * 0.35;
-          const y = dropped ? pallet.y : pallet.y + pallet.h * 0.325;
-          g.fillRoundedRect(pallet.x + 4, y, pallet.w - 8, h, 5);
-          this.drawPalletSlats(g, pallet.x + 6, y + 4, pallet.w - 12, h - 8, true);
-        } else {
-          const w = dropped ? pallet.w : pallet.w * 0.35;
-          const x = dropped ? pallet.x : pallet.x + pallet.w * 0.325;
-          g.fillRoundedRect(x, pallet.y + 4, w, pallet.h - 8, 5);
-          this.drawPalletSlats(g, x + 4, pallet.y + 6, w - 8, pallet.h - 12, false);
-        }
+        this.drawPallet(g, pallet);
       }
 
       const generators = currentSnapshot.map?.generators || this.map.generators || [];
@@ -974,45 +1065,110 @@
       for (const hook of currentSnapshot.map?.hooks || this.map.hooks || []) this.drawHook(g, hook);
     }
 
-    drawPalletSlats(g, x, y, w, h, horizontal) {
-      g.lineStyle(2, 0x2b180f, 0.7);
-      const count = 4;
-      for (let i = 1; i < count; i++) {
-        if (horizontal) {
-          const xx = x + (w / count) * i;
-          g.beginPath();
-          g.moveTo(xx, y);
-          g.lineTo(xx, y + h);
-          g.strokePath();
-        } else {
-          const yy = y + (h / count) * i;
-          g.beginPath();
-          g.moveTo(x, yy);
-          g.lineTo(x + w, yy);
-          g.strokePath();
-        }
+    drawPallet(g, pallet) {
+      const broken = pallet.broken || pallet.state === "broken";
+      const dropped = pallet.state === "dropped";
+      const wood = COLORS.pallet;
+      const dark = COLORS.palletDark;
+      const light = 0xd3914a;
+
+      if (broken) {
+        g.lineStyle(5, dark, 0.72);
+        g.beginPath();
+        g.moveTo(pallet.x + 12, pallet.y + 13);
+        g.lineTo(pallet.x + pallet.w - 14, pallet.y + pallet.h - 11);
+        g.moveTo(pallet.x + 18, pallet.y + pallet.h - 13);
+        g.lineTo(pallet.x + pallet.w - 11, pallet.y + 12);
+        g.strokePath();
+        g.lineStyle(2, light, 0.35);
+        g.beginPath();
+        g.moveTo(pallet.x + 20, pallet.y + 18);
+        g.lineTo(pallet.x + pallet.w - 20, pallet.y + pallet.h - 16);
+        g.strokePath();
+        return;
+      }
+
+      if (pallet.orientation === "horizontal") {
+        const h = dropped ? pallet.h * 0.72 : pallet.h * 0.36;
+        const y = dropped ? pallet.y + pallet.h * 0.14 : pallet.y + pallet.h * 0.32;
+        this.drawWoodPalletBody(g, pallet.x + 5, y, pallet.w - 10, h, true, dropped);
+      } else {
+        const w = dropped ? pallet.w * 0.72 : pallet.w * 0.36;
+        const x = dropped ? pallet.x + pallet.w * 0.14 : pallet.x + pallet.w * 0.32;
+        this.drawWoodPalletBody(g, x, pallet.y + 5, w, pallet.h - 10, false, dropped);
       }
     }
 
+    drawWoodPalletBody(g, x, y, w, h, horizontal, dropped) {
+      const wood = dropped ? COLORS.palletDark : COLORS.pallet;
+      const dark = COLORS.palletDark;
+      const light = 0xd3914a;
+
+      g.fillStyle(0x140b07, 0.34);
+      g.fillRoundedRect(x + 3, y + 4, w, h, 6);
+
+      g.fillStyle(wood, 1);
+      g.fillRoundedRect(x, y, w, h, 6);
+      g.lineStyle(2, dark, 0.78);
+      g.strokeRoundedRect(x, y, w, h, 6);
+
+      const slats = 4;
+      if (horizontal) {
+        const slatW = w / slats;
+        for (let i = 0; i < slats; i++) {
+          const sx = x + i * slatW + 3;
+          g.fillStyle(i % 2 ? brighten(wood, 0.06) : wood, 1);
+          g.fillRoundedRect(sx, y + 3, slatW - 6, h - 6, 4);
+          g.lineStyle(1, dark, 0.48);
+          g.beginPath();
+          g.moveTo(sx + slatW - 7, y + 5);
+          g.lineTo(sx + slatW - 7, y + h - 5);
+          g.strokePath();
+        }
+        // Cross braces make the pallet read as wood, not a brown candy bar.
+        g.lineStyle(4, dark, 0.64);
+        g.beginPath(); g.moveTo(x + 8, y + h * 0.25); g.lineTo(x + w - 8, y + h * 0.75); g.strokePath();
+        g.beginPath(); g.moveTo(x + 8, y + h * 0.75); g.lineTo(x + w - 8, y + h * 0.25); g.strokePath();
+      } else {
+        const slatH = h / slats;
+        for (let i = 0; i < slats; i++) {
+          const sy = y + i * slatH + 3;
+          g.fillStyle(i % 2 ? brighten(wood, 0.06) : wood, 1);
+          g.fillRoundedRect(x + 3, sy, w - 6, slatH - 6, 4);
+          g.lineStyle(1, dark, 0.48);
+          g.beginPath();
+          g.moveTo(x + 5, sy + slatH - 7);
+          g.lineTo(x + w - 5, sy + slatH - 7);
+          g.strokePath();
+        }
+        g.lineStyle(4, dark, 0.64);
+        g.beginPath(); g.moveTo(x + w * 0.25, y + 8); g.lineTo(x + w * 0.75, y + h - 8); g.strokePath();
+        g.beginPath(); g.moveTo(x + w * 0.75, y + 8); g.lineTo(x + w * 0.25, y + h - 8); g.strokePath();
+      }
+
+      g.fillStyle(light, 0.42);
+      g.fillCircle(x + w * 0.22, y + h * 0.25, 2.2);
+      g.fillCircle(x + w * 0.78, y + h * 0.75, 2.2);
+      if (!dropped) {
+        g.lineStyle(2, 0xffd28a, 0.22);
+        g.strokeRoundedRect(x + 2, y + 2, w - 4, h - 4, 5);
+      }
+    }
 
     drawHook(g, hook) {
-      if (!hook || hook.active === false) return;
-      const x = hook.x;
-      const y = hook.y;
-      g.lineStyle(7, COLORS.hookIron, 0.95);
-      g.beginPath();
-      g.moveTo(x, y + 32);
-      g.lineTo(x, y - 34);
-      g.lineTo(x + 22, y - 50);
-      g.strokePath();
-      g.lineStyle(4, COLORS.hook, 0.98);
-      g.beginPath();
-      g.arc(x + 23, y - 39, 14, Math.PI * 0.15, Math.PI * 1.35);
-      g.strokePath();
-      g.fillStyle(COLORS.blood, 0.42);
-      g.fillCircle(x + 20, y - 21, 5);
-      g.lineStyle(2, 0x000000, 0.55);
-      g.strokeCircle(x, y + 36, 16);
+      if (!hook || hook.active === false || !this.map) return;
+      const tile = this.map.tile || 72;
+      const x = Math.round(((hook.x || 0) - tile / 2) / tile) * tile;
+      const y = Math.round(((hook.y || 0) - tile / 2) / tile) * tile;
+      const pulse = 0.5 + Math.sin((this.time?.now || performance.now()) * 0.007) * 0.5;
+
+      // Hook state is now a red outlined tile, no hook prop. The square is the danger.
+      g.fillStyle(0x7a0505, 0.10 + pulse * 0.06);
+      g.fillRect(x + 3, y + 3, tile - 6, tile - 6);
+      g.lineStyle(6, 0xff2e2e, 0.78 + pulse * 0.18);
+      g.strokeRect(x + 3, y + 3, tile - 6, tile - 6);
+      g.lineStyle(2, 0xffc0a8, 0.34 + pulse * 0.22);
+      g.strokeRect(x + 12, y + 12, tile - 24, tile - 24);
     }
 
     getGeneratorTextureKey() {
@@ -1645,9 +1801,54 @@
       const targetZoom = IMMERSION.BASE_ZOOM + this.terrorBlend * IMMERSION.TERROR_ZOOM + this.chaseBlend * IMMERSION.CHASE_ZOOM + this.heartbeatPulse * 0.008;
       cam.setZoom(lerp(cam.zoom || 1, targetZoom, IMMERSION.ZOOM_LERP));
 
-      // Hard-follow camera: always keep the local player dead-center, even at map corners.
-      // The camera is allowed to show outside the map; Phaser's black background fills that area.
-      cam.centerOn(x, y);
+      const moveX = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+      const moveY = (input.down ? 1 : 0) - (input.up ? 1 : 0);
+      const moveLen = Math.hypot(moveX, moveY);
+
+      if (moveLen > 0.001) {
+        const nx = moveX / moveLen;
+        const ny = moveY / moveLen;
+        const prevLen = Math.hypot(this.lastMoveDirX || 0, this.lastMoveDirY || 0);
+        const directionDelta = prevLen > 0.001
+          ? Math.hypot(nx - this.lastMoveDirX, ny - this.lastMoveDirY)
+          : 0;
+
+        // Direction changes create a small target offset, not an instant camera jump.
+        // The actual camera eases toward this target below, then the target fades out.
+        if (prevLen > 0.001 && directionDelta >= IMMERSION.DIRECTION_CHANGE_THRESHOLD) {
+          this.cameraSwayTargetX = nx * IMMERSION.DIRECTION_SWAY_IMPULSE;
+          this.cameraSwayTargetY = ny * IMMERSION.DIRECTION_SWAY_IMPULSE;
+          const targetLen = Math.hypot(this.cameraSwayTargetX, this.cameraSwayTargetY);
+          if (targetLen > IMMERSION.DIRECTION_SWAY_MAX) {
+            const scale = IMMERSION.DIRECTION_SWAY_MAX / targetLen;
+            this.cameraSwayTargetX *= scale;
+            this.cameraSwayTargetY *= scale;
+          }
+        }
+
+        this.lastMoveDirX = nx;
+        this.lastMoveDirY = ny;
+      } else {
+        this.lastMoveDirX = 0;
+        this.lastMoveDirY = 0;
+        this.cameraSwayTargetX = 0;
+        this.cameraSwayTargetY = 0;
+      }
+
+      const targetDecay = dampAlpha(IMMERSION.DIRECTION_SWAY_TARGET_DECAY, dt);
+      this.cameraSwayTargetX = lerp(this.cameraSwayTargetX || 0, 0, targetDecay);
+      this.cameraSwayTargetY = lerp(this.cameraSwayTargetY || 0, 0, targetDecay);
+
+      const smoothRate = moveLen > 0.001
+        ? IMMERSION.DIRECTION_SWAY_SMOOTHING
+        : IMMERSION.DIRECTION_SWAY_IDLE_SMOOTHING;
+      const smooth = dampAlpha(smoothRate, dt);
+      this.cameraSwayX = lerp(this.cameraSwayX || 0, this.cameraSwayTargetX || 0, smooth);
+      this.cameraSwayY = lerp(this.cameraSwayY || 0, this.cameraSwayTargetY || 0, smooth);
+
+      // Keep the local player centered even at map corners. Phaser's black
+      // background fills outside the map. Small direction-change sway is visual only.
+      cam.centerOn(x + this.cameraSwayX, y + this.cameraSwayY);
     }
 
     drawLighting() {
@@ -1717,8 +1918,8 @@
       const viewH = cam.height;
       const centerX = viewW / 2;
       const centerY = viewH / 2;
-      const edgePadding = 56;
-      const onScreenPadding = 92;
+      const edgePadding = HOOK_INDICATOR.EDGE_PADDING;
+      const onScreenPadding = HOOK_INDICATOR.ON_SCREEN_PADDING;
       const pulse = 0.5 + Math.sin(performance.now() * 0.008) * 0.5;
 
       for (const actor of hookedSurvivors) {
@@ -1749,14 +1950,14 @@
         const danger = (actor.hookCount || 1) >= 2;
         const mainColor = danger ? 0xff3d3d : COLORS.hook;
         const ringAlpha = danger ? 0.78 : 0.62;
-        const r = 20 + pulse * 3;
+        const r = HOOK_INDICATOR.RADIUS + pulse * HOOK_INDICATOR.PULSE;
 
         // Direction pointer, slightly outside the bubble.
         const arrowX = x + dx * 24;
         const arrowY = y + dy * 24;
         const tangentX = -dy;
         const tangentY = dx;
-        g.fillStyle(mainColor, 0.82);
+        g.fillStyle(mainColor, HOOK_INDICATOR.ARROW_ALPHA);
         g.fillTriangle(
           arrowX + dx * 10,
           arrowY + dy * 10,
@@ -1766,9 +1967,9 @@
           arrowY - dy * 8 - tangentY * 7
         );
 
-        g.fillStyle(0x120807, 0.86);
-        g.fillCircle(x, y, 23);
-        g.lineStyle(3, mainColor, ringAlpha);
+        g.fillStyle(0x120807, HOOK_INDICATOR.FILL_ALPHA);
+        g.fillCircle(x, y, HOOK_INDICATOR.RADIUS - 4);
+        g.lineStyle(3, mainColor, ringAlpha * HOOK_INDICATOR.LINE_ALPHA);
         g.strokeCircle(x, y, r);
         g.lineStyle(1, 0xffffff, 0.22);
         g.strokeCircle(x, y, 15);
@@ -1948,8 +2149,32 @@
     return String(str).replace(/[&<>'"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#039;", '"': "&quot;" }[ch]));
   }
 
+  function isEditableTarget(target) {
+    if (!target) return false;
+    const tag = String(target.tagName || "").toLowerCase();
+    return target.isContentEditable || tag === "input" || tag === "textarea" || tag === "select";
+  }
+
+  function clearHeldGameplayInput() {
+    input.up = false;
+    input.down = false;
+    input.left = false;
+    input.right = false;
+    input.sprint = false;
+    input.repair = false;
+    input.attackHeld = false;
+  }
+
   function setupKeyboard() {
+    window.addEventListener("focusin", (e) => {
+      if (isEditableTarget(e.target)) {
+        clearHeldGameplayInput();
+        sendInput({}, true);
+      }
+    });
+
     window.addEventListener("keydown", (e) => {
+      if (isEditableTarget(e.target)) return;
       if (["KeyW", "KeyA", "KeyS", "KeyD", "ArrowUp", "ArrowLeft", "ArrowDown", "ArrowRight", "Space"].includes(e.code)) e.preventDefault();
       ensureAudioStarted();
       const was = JSON.stringify(inputPayload());
@@ -1964,6 +2189,7 @@
     }, { passive: false });
 
     window.addEventListener("keyup", (e) => {
+      if (isEditableTarget(e.target)) return;
       if (e.code === "KeyW" || e.code === "ArrowUp") input.up = false;
       if (e.code === "KeyS" || e.code === "ArrowDown") input.down = false;
       if (e.code === "KeyA" || e.code === "ArrowLeft") input.left = false;
