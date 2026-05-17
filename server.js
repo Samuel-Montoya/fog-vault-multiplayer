@@ -21,6 +21,10 @@ app.get("/", (req, res) => res.sendFile(path.join(PUBLIC_DIR, "index.html")));
 const TICK_RATE = 60;
 const SNAPSHOT_RATE = 60;
 const MAX_SURVIVORS = 4;
+const SURVIVOR_SKINS = new Set(["blueSquare", "yellowStar", "purplePentagon"]);
+function sanitizeSkin(value) {
+  return SURVIVOR_SKINS.has(value) ? value : "blueSquare";
+}
 const PLAYER_SIZE = 30;
 const KILLER_SIZE = 38;
 const INTERACT_DISTANCE = 74;
@@ -28,6 +32,8 @@ const QUICK_ATTACK_RANGE = 62;
 const LUNGE_ATTACK_RANGE = 98;
 const ATTACK_ARC = Math.PI * 0.44;
 const ATTACK_SIDE_RADIUS = 24;
+// Tiny "standing on top of them" AOE so an M1 still connects when survivors are hugging the killer.
+const ATTACK_CLOSE_AOE_RADIUS = 26;
 const ATTACK_TAP_MAX = 0.18;
 const LUNGE_CHARGE_TIME = 0.32;
 const QUICK_ATTACK_ACTIVE = 0.20;
@@ -52,7 +58,13 @@ const KILLER_VAULT_TIME = 1.05;
 const KILLER_BREAK_TIME = 1.25;
 // Adjustable generator speed: raise this number to make generators slower.
 const GENERATOR_REPAIR_TIME = 28.0;
+// Max completed generators required to power the gates / finish the objective.
+// Add 8, 12, or 40 gens to the map if you want. The match still only asks for this many.
+const REQUIRED_GENERATORS_TO_COMPLETE = 5;
 const GENERATOR_COLLISION_SIZE = 54;
+// Killer generator kick: hold E near a partially repaired gen to regress it.
+const GENERATOR_KICK_TIME = 1.0;
+const GENERATOR_KICK_REGRESSION = 0.10;
 const GATE_ESCAPE_TIME = 0.75;
 const HEAL_TIME = 6.0;
 const HEAL_DISTANCE = 82;
@@ -72,9 +84,9 @@ const SURVIVOR_CONE_ANGLE = Math.PI / 2.6;
 const KILLER_CONE_LENGTH = 920;
 const KILLER_CONE_ANGLE = Math.PI / 1.75;
 const KILLER_SCRATCH_MARK_VISIBILITY_RANGE = 520;
-const MUSIC_LAYER_1_VOLUME = 0.14;
-const MUSIC_LAYER_2_MAX_VOLUME = 0.22;
-const MUSIC_LAYER_3_VOLUME = 0.32;
+const MUSIC_LAYER_1_VOLUME = 0.12;
+const MUSIC_LAYER_2_MAX_VOLUME = 0.30;
+const MUSIC_LAYER_3_VOLUME = 0.30;
 const BOT_REPATH_MIN = 0.16;
 const BOT_REPATH_MAX = 0.42;
 const BOT_SURVIVOR_THREAT_RADIUS = 640;
@@ -173,7 +185,19 @@ function parseMap(mapDef) {
       if (ch === "+") map.windows.push({ ...base, id: uid("window"), orientation: orientationForWindow(rows, x, y) });
       if (ch === "-") map.pallets.push({ ...base, id: uid("pallet"), orientation: "horizontal", state: "upright", broken: false });
       if (ch === "|") map.pallets.push({ ...base, id: uid("pallet"), orientation: "vertical", state: "upright", broken: false });
-      if (ch === "G") map.generators.push({ id: uid("gen"), x: rx + tile / 2, y: ry + tile / 2, progress: 0, done: false, activeRepairers: [] });
+      if (ch === "G") map.generators.push({
+        id: uid("gen"),
+        x: rx + tile / 2,
+        y: ry + tile / 2,
+        progress: 0,
+        done: false,
+        activeRepairers: [],
+        beingKicked: false,
+        kickProgress: 0,
+        // Prevent kick spam: after a successful kick, this stays true
+        // until a survivor actually repairs this generator again.
+        kickLocked: false
+      });
       if (ch === "E") map.gates.push({ id: uid("gate"), x: rx + tile / 2, y: ry + tile / 2, open: false });
       if (ch === "P") map.survivorSpawns.push({ x: rx + tile / 2, y: ry + tile / 2 });
       if (ch === "K") map.killerSpawns.push({ x: rx + tile / 2, y: ry + tile / 2 });
@@ -295,6 +319,7 @@ function makePlayer(socket, role, name, options = {}) {
     name: String(name || "Player").slice(0, 18),
     isBot: !!options.isBot,
     role,
+    skin: role === "survivor" ? sanitizeSkin(options.skin) : "killerCircle",
     ready: false,
     x: 0,
     y: 0,
@@ -334,6 +359,9 @@ function makePlayer(socket, role, name, options = {}) {
     attackSweepStartY: 0,
     swingTime: 0,
     chaseHold: 0,
+    // For chase music: once the survivor sees the killer during chase, keep layer_3 alive briefly
+    // after they look away. This avoids frantic on/off music when checking behind you.
+    killerVisibleHold: 0,
     palletGraceId: null,
     palletGraceTime: 0,
     bot: {
@@ -383,7 +411,7 @@ function createLobby(name) {
   return lobby;
 }
 
-function joinLobby(socket, lobby, requestedRole, name) {
+function joinLobby(socket, lobby, requestedRole, name, skin) {
   leaveCurrentLobby(socket);
 
   let role = requestedRole === "killer" ? "killer" : "survivor";
@@ -404,7 +432,7 @@ function joinLobby(socket, lobby, requestedRole, name) {
     return false;
   }
 
-  const player = makePlayer(socket, role, name, { isBot: false });
+  const player = makePlayer(socket, role, name, { isBot: false, skin });
   lobby.players.set(socket.id, player);
   socketToLobby.set(socket.id, lobby.id);
   socket.join(lobby.id);
@@ -450,7 +478,7 @@ function broadcastLobbyState(lobby) {
     name: lobby.name,
     phase: lobby.phase,
     mapName: lobby.mapName,
-    players: [...lobby.players.values()].map((p) => ({ id: p.id, name: p.name, role: p.role, ready: p.ready, isBot: !!p.isBot }))
+    players: [...lobby.players.values()].map((p) => ({ id: p.id, name: p.name, role: p.role, skin: p.skin || "blueSquare", ready: p.ready, isBot: !!p.isBot }))
   });
 }
 
@@ -467,7 +495,7 @@ function addBotToLobby(lobby, role) {
   const id = uid("bot");
   const count = players.filter((p) => p.isBot && p.role === roleValue).length + 1;
   const name = roleValue === "killer" ? "Bot Killer" : `Bot Survivor ${count}`;
-  const bot = makePlayer({ id }, roleValue, name, { isBot: true });
+  const bot = makePlayer({ id }, roleValue, name, { isBot: true, skin: ["blueSquare", "yellowStar", "purplePentagon"][count % 3] });
   bot.ready = true;
   lobby.players.set(id, bot);
   return { ok: true };
@@ -503,14 +531,14 @@ function startGame(lobby) {
     events: [],
     particles: [],
     scratchMarks: [],
-    requiredGenerators: map.generators.length,
+    requiredGenerators: Math.min(REQUIRED_GENERATORS_TO_COMPLETE, map.generators.length),
     escapeOpen: false,
     time: 0
   };
 
   let survivorSpawnIndex = 0;
   for (const player of players) {
-    const actor = makePlayer({ id: player.id }, player.role, player.name, { isBot: !!player.isBot });
+    const actor = makePlayer({ id: player.id }, player.role, player.name, { isBot: !!player.isBot, skin: player.skin });
     actor.ready = player.ready;
     if (actor.role === "killer") {
       const spawn = map.killerSpawns[0];
@@ -666,7 +694,7 @@ function nearestInteractable(game, actor, includePalletDrop = true) {
   return options[0] || null;
 }
 
-function startVault(game, actor, object) {
+function startVault(game, actor, object, vaultType = "window") {
   const c = centerOf(object);
   const duration = actor.role === "killer" ? KILLER_VAULT_TIME : SURVIVOR_VAULT_TIME;
   let toX = actor.x;
@@ -691,7 +719,7 @@ function startVault(game, actor, object) {
     toX: clamp(toX, 44, game.map.width - 44),
     toY: clamp(toY, 44, game.map.height - 44)
   };
-  addEvent(game, "vault", { x: c.x, y: c.y, role: actor.role });
+  addEvent(game, "vault", { x: c.x, y: c.y, role: actor.role, actorId: actor.id, vaultType });
 }
 
 function movementDirection(input) {
@@ -774,7 +802,7 @@ function handleAction(game, actor) {
   if (!hit) return;
 
   if (hit.type === "window" || hit.type === "palletVault") {
-    startVault(game, actor, hit.object);
+    startVault(game, actor, hit.object, hit.type === "palletVault" ? "pallet" : "window");
   } else if (hit.type === "palletDrop") {
     moveToPalletSideByInput(game, actor, hit.object);
     hit.object.state = "dropped";
@@ -886,6 +914,11 @@ function pointInAttackSwipe(originX, originY, angle, survivor, profile) {
   const dx = survivor.x - originX;
   const dy = survivor.y - originY;
   const d = Math.hypot(dx, dy);
+
+  // Very small local AOE at the killer's feet. This catches survivors who are basically
+  // touching the killer, including slightly behind them, without turning M1 into a lawn sprinkler.
+  if (d <= ATTACK_CLOSE_AOE_RADIUS + PLAYER_SIZE / 2) return true;
+
   if (d > profile.range + PLAYER_SIZE / 2) return false;
 
   const facingX = Math.cos(angle || 0);
@@ -987,6 +1020,7 @@ function updateTimers(game, dt) {
     actor.recovery = Math.max(0, actor.recovery - dt);
     actor.attackCooldown = Math.max(0, actor.attackCooldown - dt);
     actor.chaseHold = Math.max(0, actor.chaseHold - dt);
+    actor.killerVisibleHold = Math.max(0, (actor.killerVisibleHold || 0) - dt);
     actor.palletGraceTime = Math.max(0, actor.palletGraceTime - dt);
     if (actor.palletGraceTime <= 0) actor.palletGraceId = null;
   }
@@ -1252,6 +1286,72 @@ function updateHealing(game, dt) {
   }
 }
 
+
+function nearestKickableGenerator(game, killer) {
+  if (!killer || killer.role !== "killer" || killer.dead || killer.escaped) return null;
+  return game.map.generators
+    .filter((gen) => !gen.done && gen.progress > 0.001 && !gen.kickLocked)
+    .filter((gen) => dist(killer.x, killer.y, gen.x, gen.y) <= INTERACT_DISTANCE + 10)
+    .filter((gen) => segmentClear(game, killer.x, killer.y, gen.x, gen.y))
+    .sort((a, b) => dist(killer.x, killer.y, a.x, a.y) - dist(killer.x, killer.y, b.x, b.y))[0] || null;
+}
+
+function resetGeneratorKick(killer) {
+  if (!killer) return;
+  killer.generatorKickTargetId = null;
+  killer.generatorKickChannelId = null;
+  killer.generatorKickProgress = 0;
+}
+
+function updateGeneratorKicks(game, dt) {
+  for (const gen of game.map.generators) {
+    gen.beingKicked = false;
+    gen.kickProgress = Math.max(0, (gen.kickProgress || 0) - dt * 1.8);
+  }
+
+  const killer = [...game.actors.values()].find((p) => p.role === "killer" && !p.dead);
+  if (!killer) return;
+
+  killer.generatorKickTargetId = null;
+
+  const busy = killer.vault || killer.breakTarget || killer.attackState || killer.actionLock > 0 || killer.hookActionTargetId;
+  if (!killer.input.repair || busy) {
+    resetGeneratorKick(killer);
+    return;
+  }
+
+  const gen = nearestKickableGenerator(game, killer);
+  if (!gen) {
+    resetGeneratorKick(killer);
+    return;
+  }
+
+  if (killer.generatorKickChannelId !== gen.id) {
+    killer.generatorKickChannelId = gen.id;
+    killer.generatorKickProgress = 0;
+  }
+
+  killer.generatorKickTargetId = gen.id;
+  killer.input.up = killer.input.down = killer.input.left = killer.input.right = false;
+  killer.input.sprint = false;
+  killer.input.angle = Math.atan2(gen.y - killer.y, gen.x - killer.x);
+
+  killer.generatorKickProgress = clamp((killer.generatorKickProgress || 0) + dt / GENERATOR_KICK_TIME, 0, 1);
+  gen.beingKicked = true;
+  gen.kickProgress = killer.generatorKickProgress;
+
+  if (killer.generatorKickProgress >= 1) {
+    const oldProgress = gen.progress;
+    gen.progress = clamp(gen.progress - GENERATOR_KICK_REGRESSION, 0, 1);
+    // A kicked generator cannot be kicked again until survivors work on it.
+    gen.kickLocked = true;
+    gen.beingKicked = false;
+    gen.kickProgress = 0;
+    addEvent(game, "genKick", { x: gen.x, y: gen.y, generatorId: gen.id, oldProgress, progress: gen.progress });
+    resetGeneratorKick(killer);
+  }
+}
+
 function updateGeneratorsAndGates(game, dt) {
   for (const gen of game.map.generators) gen.activeRepairers = [];
 
@@ -1263,7 +1363,12 @@ function updateGeneratorsAndGates(game, dt) {
       .filter((g) => !g.done)
       .sort((a, b) => dist(actor.x, actor.y, a.x, a.y) - dist(actor.x, actor.y, b.x, b.y))[0];
     if (gen && dist(actor.x, actor.y, gen.x, gen.y) < INTERACT_DISTANCE) {
+      const oldProgress = gen.progress;
       gen.progress = clamp(gen.progress + dt / GENERATOR_REPAIR_TIME, 0, 1);
+      if (gen.progress > oldProgress) {
+        // Survivors touched the gen again, so the killer can kick it once more later.
+        gen.kickLocked = false;
+      }
       gen.activeRepairers.push(actor.id);
       if (gen.progress >= 1 && !gen.done) {
         gen.done = true;
@@ -1317,6 +1422,15 @@ function updateChaseState(game, dt) {
 
     if (startsChase || keepsChase) {
       survivor.chaseHold = CHASE_HOLD_SECONDS;
+    }
+
+    // Music-only memory: if the survivor sees the killer during chase, keep the high chase
+    // layer for a few seconds after they look away, until they spot the killer again.
+    // This is intentionally separate from chaseHold so audio can be dramatic without
+    // changing chase rules, visibility, or win conditions.
+    const survivorCanSeeKiller = survivor.chaseHold > 0 && isActorVisibleToViewer(game, survivor, killer);
+    if (survivorCanSeeKiller) {
+      survivor.killerVisibleHold = CHASE_HOLD_SECONDS;
     }
   }
 }
@@ -1740,6 +1854,7 @@ function updateGame(lobby, dt) {
   updateBotInputs(game, dt);
   updateTimers(game, dt);
   updateHookInteractions(game, dt);
+  updateGeneratorKicks(game, dt);
   const killer = [...game.actors.values()].find((p) => p.role === "killer");
   for (const actor of game.actors.values()) moveActor(game, actor, dt);
   updateKillerAttack(game, killer, dt);
@@ -1787,13 +1902,15 @@ function isActorVisibleToViewer(game, viewer, actor) {
 }
 
 function serializeActor(game, actor, visible = true) {
-  // Always send position and angle, even when the viewer cannot see this actor.
+  // Always send position, angle, and skin, even when the viewer cannot see this actor.
   // The client hides the sprite locally but keeps interpolating it, so reappearing actors
   // do not teleport from an old stale position. The fog may lie, the server does not.
+  const actorSkin = actor.role === "survivor" ? sanitizeSkin(actor.skin) : "killerCircle";
   return {
     id: actor.id,
     name: actor.name,
     role: actor.role,
+    skin: actorSkin,
     visible: !!visible,
     x: Number(actor.x.toFixed(2)),
     y: Number(actor.y.toFixed(2)),
@@ -1811,6 +1928,8 @@ function serializeActor(game, actor, visible = true) {
     hookActionTargetId: actor.hookActionTargetId || null,
     hookActionType: actor.hookActionType || null,
     hookReadyTargetId: actor.role === "killer" ? (nearestDownedSurvivorForHook(game, actor)?.id || null) : null,
+    generatorKickTargetId: actor.generatorKickTargetId || null,
+    generatorKickProgress: actor.generatorKickProgress || 0,
     unhookTargetId: actor.unhookTargetId || null,
     recovery: actor.recovery,
     attackState: actor.attackState,
@@ -1827,7 +1946,8 @@ function serializeActor(game, actor, visible = true) {
     healProgress: actor.healProgress || 0,
     activeHealers: actor.activeHealers || [],
     healingTargetId: actor.healingTargetId || null,
-    chase: actor.chaseHold > 0
+    chase: actor.chaseHold > 0,
+    killerVisibleHold: actor.killerVisibleHold || 0
   };
 }
 
@@ -1841,18 +1961,39 @@ function buildSnapshotFor(lobby, socketId) {
   }
 
   const killer = [...game.actors.values()].find((p) => p.role === "killer");
-  let music = { layer1: MUSIC_LAYER_1_VOLUME, layer2: 0, layer3: 0, chase: false, terror: 0, distance: 9999 };
+  let music = {
+    layer1: MUSIC_LAYER_1_VOLUME,
+    layer2: 0,
+    layer3: 0,
+    chase: false,
+    terror: 0,
+    distance: 9999,
+    killerVisible: false,
+    visibleHold: false
+  };
+
   if (viewer && viewer.role === "survivor" && killer && !viewer.dead && !viewer.escaped) {
     const d = dist(viewer.x, viewer.y, killer.x, killer.y);
     const terror = clamp(1 - d / TERROR_RADIUS, 0, 1);
     const chase = viewer.chaseHold > 0;
+    const killerVisible = isActorVisibleToViewer(game, viewer, killer);
+
+    // Clean three-layer music ladder:
+    // layer_1 = normal ambient when the survivor is safe / no meaningful terror pressure.
+    // layer_2 = killer is nearby, but the survivor is NOT in chase.
+    // layer_3 = survivor is in chase, regardless of whether the killer is currently on-screen.
+    const nearbyNoChase = !chase && terror > 0;
+    const terrorRamp = Math.pow(terror, 0.72);
+
     music = {
-      layer1: MUSIC_LAYER_1_VOLUME,
-      layer2: chase ? Math.max(MUSIC_LAYER_2_MAX_VOLUME * 0.45, terror * MUSIC_LAYER_2_MAX_VOLUME) : terror * MUSIC_LAYER_2_MAX_VOLUME,
+      layer1: chase ? 0 : MUSIC_LAYER_1_VOLUME * (nearbyNoChase ? clamp(1 - terrorRamp * 0.85, 0.15, 1) : 1),
+      layer2: nearbyNoChase ? terrorRamp * MUSIC_LAYER_2_MAX_VOLUME : 0,
       layer3: chase ? MUSIC_LAYER_3_VOLUME : 0,
       chase,
       terror,
-      distance: d
+      distance: d,
+      killerVisible,
+      visibleHold: chase
     };
   }
 
@@ -1873,7 +2014,7 @@ function buildSnapshotFor(lobby, socketId) {
       height: map.height,
       tile: map.tile,
       pallets: map.pallets.map((p) => ({ id: p.id, x: p.x, y: p.y, w: p.w, h: p.h, orientation: p.orientation, state: p.state, broken: p.broken })),
-      generators: map.generators.map((g) => ({ id: g.id, x: g.x, y: g.y, progress: g.progress, done: g.done, activeRepairers: g.activeRepairers })),
+      generators: map.generators.map((g) => ({ id: g.id, x: g.x, y: g.y, progress: g.progress, done: g.done, activeRepairers: g.activeRepairers, beingKicked: !!g.beingKicked, kickProgress: g.kickProgress || 0, kickLocked: !!g.kickLocked })),
       gates: map.gates.map((g) => ({ id: g.id, x: g.x, y: g.y, open: g.open })),
       hooks: (map.hooks || []).filter((h) => h.active).map((h) => ({ id: h.id, x: h.x, y: h.y, survivorId: h.survivorId, active: h.active }))
     },
@@ -1886,7 +2027,9 @@ function buildSnapshotFor(lobby, socketId) {
     scratchMarks: visibleScratchMarks.map((s) => ({ id: s.id, x: s.x, y: s.y, angle: s.angle, ttl: s.ttl })),
     objective: {
       doneGenerators: map.generators.filter((g) => g.done).length,
+      requiredGenerators: game.requiredGenerators,
       totalGenerators: map.generators.length,
+      remainingGenerators: Math.max(0, game.requiredGenerators - map.generators.filter((g) => g.done).length),
       escapeOpen: game.escapeOpen
     },
     music
@@ -1915,21 +2058,21 @@ io.on("connection", (socket) => {
   socket.emit("hello", { id: socket.id });
   socket.emit("lobbyList", [...lobbies.values()].map(getLobbySummary));
 
-  socket.on("createLobby", ({ name, role, playerName } = {}) => {
+  socket.on("createLobby", ({ name, role, playerName, skin } = {}) => {
     const lobby = createLobby(name);
-    joinLobby(socket, lobby, role, playerName);
+    joinLobby(socket, lobby, role, playerName, skin);
   });
 
-  socket.on("joinLobby", ({ lobbyId, role, playerName } = {}) => {
+  socket.on("joinLobby", ({ lobbyId, role, playerName, skin } = {}) => {
     const lobby = lobbies.get(lobbyId);
     if (!lobby) {
       socket.emit("toast", { type: "error", message: "Lobby not found." });
       return;
     }
-    joinLobby(socket, lobby, role, playerName);
+    joinLobby(socket, lobby, role, playerName, skin);
   });
 
-  socket.on("quickJoin", ({ role, playerName } = {}) => {
+  socket.on("quickJoin", ({ role, playerName, skin } = {}) => {
     const available = [...lobbies.values()].filter((l) => l.phase === "lobby");
     const roleValue = role === "killer" ? "killer" : "survivor";
     const lobby = available.find((l) => {
@@ -1937,12 +2080,12 @@ io.on("connection", (socket) => {
       if (roleValue === "killer") return !players.some((p) => p.role === "killer");
       return players.filter((p) => p.role === "survivor").length < MAX_SURVIVORS;
     }) || createLobby("Open Lobby");
-    joinLobby(socket, lobby, roleValue, playerName);
+    joinLobby(socket, lobby, roleValue, playerName, skin);
   });
 
   socket.on("leaveLobby", () => leaveCurrentLobby(socket));
 
-  socket.on("setRole", ({ role } = {}) => {
+  socket.on("setRole", ({ role, skin } = {}) => {
     const lobby = lobbies.get(socketToLobby.get(socket.id));
     if (!lobby || lobby.phase !== "lobby") return;
     const player = lobby.players.get(socket.id);
@@ -1953,9 +2096,22 @@ io.on("connection", (socket) => {
       return;
     }
     player.role = nextRole;
+    // If the player picked a survivor skin before switching back from killer,
+    // preserve that choice instead of silently resetting them to blue square.
+    player.skin = nextRole === "survivor" ? sanitizeSkin(skin || player.skin) : "killerCircle";
     player.ready = false;
     broadcastLobbyState(lobby);
     broadcastLobbyList();
+  });
+
+  socket.on("setSkin", ({ skin } = {}) => {
+    const lobby = lobbies.get(socketToLobby.get(socket.id));
+    if (!lobby || lobby.phase !== "lobby") return;
+    const player = lobby.players.get(socket.id);
+    if (!player || player.role !== "survivor") return;
+    player.skin = sanitizeSkin(skin);
+    player.ready = false;
+    broadcastLobbyState(lobby);
   });
 
   socket.on("setReady", ({ ready } = {}) => {

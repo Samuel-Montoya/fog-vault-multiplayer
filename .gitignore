@@ -17,3 +17,8 @@ logs/
 
 # JetBrains IDEs
 .idea/
+public/client.js
+public/dead.mp3
+public/gen.mp3
+public/gen.svg
+public/hooked.mp3

@@ -590,3 +590,528 @@ body.in-chase #gameWrap canvas {
   .big-gen-icon { width: 40px; height: 40px; }
   .big-gen-copy strong { font-size: 32px; }
 }
+
+/* Survivor skin selector */
+.skin-picker {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin: 16px 0 4px;
+  padding: 12px;
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 18px;
+  background: rgba(255,255,255,0.045);
+}
+.skin-picker.compact {
+  margin-top: 12px;
+}
+.skin-title {
+  width: 100%;
+  color: var(--gold);
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.skin-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 999px;
+}
+.skin-btn.selected {
+  border-color: rgba(216, 168, 79, 0.74);
+  background: rgba(216, 168, 79, 0.16);
+  box-shadow: inset 0 0 24px rgba(216, 168, 79, 0.08);
+}
+.skin-preview {
+  width: 20px;
+  height: 20px;
+  display: inline-block;
+  filter: drop-shadow(0 0 7px rgba(255,255,255,0.18));
+}
+.skin-square {
+  background: #75d5ff;
+  border: 2px solid #f7fbff;
+}
+.skin-star {
+  background: #ffd94a;
+  clip-path: polygon(50% 0%, 61% 35%, 98% 35%, 68% 56%, 79% 92%, 50% 70%, 21% 92%, 32% 56%, 2% 35%, 39% 35%);
+  border: none;
+}
+.skin-pentagon {
+  background: #9b6dff;
+  clip-path: polygon(50% 0%, 98% 35%, 80% 100%, 20% 100%, 2% 35%);
+}
+
+/* v48 campfire lobby theme: original horror-campfire presentation, not licensed assets. */
+#menu.campfire-screen,
+#lobbyScreen.campfire-screen {
+  justify-content: flex-start;
+  align-items: center;
+  padding: clamp(18px, 4vw, 56px);
+  background:
+    radial-gradient(circle at 64% 74%, rgba(244, 104, 28, 0.2), transparent 18%),
+    radial-gradient(circle at 82% 30%, rgba(106, 14, 21, 0.2), transparent 34%),
+    linear-gradient(180deg, #07090d 0%, #040506 54%, #020202 100%);
+  backdrop-filter: none;
+  overflow: hidden;
+}
+
+#menu.campfire-screen::before,
+#lobbyScreen.campfire-screen::before {
+  content: "";
+  position: absolute;
+  inset: -10%;
+  z-index: 0;
+  background:
+    radial-gradient(circle at 58% 72%, rgba(255, 115, 34, 0.2), transparent 18%),
+    radial-gradient(circle at 50% 48%, transparent 0 44%, rgba(0,0,0,0.52) 76%, rgba(0,0,0,0.86) 100%),
+    repeating-linear-gradient(90deg, rgba(255,255,255,0.018) 0 1px, transparent 1px 7px);
+  filter: blur(0.1px);
+  animation: lobbyBreath 6s ease-in-out infinite alternate;
+}
+
+#menu.campfire-screen::after,
+#lobbyScreen.campfire-screen::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at center, transparent 34%, rgba(0,0,0,0.42) 72%, rgba(0,0,0,0.74) 100%),
+    linear-gradient(90deg, rgba(0,0,0,0.68), transparent 34% 72%, rgba(0,0,0,0.62));
+}
+
+.campfire-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.moon-haze {
+  position: absolute;
+  right: 13%;
+  top: 8%;
+  width: 360px;
+  height: 360px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle, rgba(166, 184, 206, 0.2), rgba(75, 81, 94, 0.11) 38%, transparent 72%);
+  filter: blur(2px);
+  opacity: 0.58;
+}
+
+.tree-line {
+  position: absolute;
+  left: -5%;
+  right: -5%;
+  bottom: 28%;
+  height: 44%;
+  opacity: 0.86;
+  background:
+    conic-gradient(from 140deg at 5% 100%, transparent 0 24deg, rgba(0,0,0,.98) 25deg 47deg, transparent 48deg),
+    conic-gradient(from 140deg at 12% 100%, transparent 0 20deg, rgba(0,0,0,.95) 21deg 44deg, transparent 45deg),
+    conic-gradient(from 140deg at 21% 100%, transparent 0 26deg, rgba(0,0,0,.98) 27deg 50deg, transparent 51deg),
+    conic-gradient(from 140deg at 35% 100%, transparent 0 23deg, rgba(0,0,0,.96) 24deg 48deg, transparent 49deg),
+    conic-gradient(from 140deg at 48% 100%, transparent 0 28deg, rgba(0,0,0,.98) 29deg 53deg, transparent 54deg),
+    conic-gradient(from 140deg at 63% 100%, transparent 0 20deg, rgba(0,0,0,.96) 21deg 44deg, transparent 45deg),
+    conic-gradient(from 140deg at 77% 100%, transparent 0 25deg, rgba(0,0,0,.98) 26deg 51deg, transparent 52deg),
+    conic-gradient(from 140deg at 91% 100%, transparent 0 23deg, rgba(0,0,0,.96) 24deg 48deg, transparent 49deg);
+  background-repeat: repeat-x;
+  background-size: 820px 100%;
+  transform: skewX(-3deg);
+}
+.tree-line.far {
+  bottom: 34%;
+  opacity: 0.34;
+  filter: blur(2px);
+  transform: scale(1.18) skewX(2deg);
+}
+.tree-line.near {
+  bottom: 21%;
+  opacity: 0.88;
+  filter: blur(0.4px);
+}
+
+.fog-bank {
+  position: absolute;
+  left: -20%;
+  right: -20%;
+  height: 26%;
+  background:
+    radial-gradient(ellipse at 20% 70%, rgba(183, 166, 148, 0.12), transparent 46%),
+    radial-gradient(ellipse at 52% 46%, rgba(190, 176, 163, 0.1), transparent 50%),
+    radial-gradient(ellipse at 82% 68%, rgba(183, 166, 148, 0.12), transparent 48%);
+  filter: blur(15px);
+  mix-blend-mode: screen;
+}
+.fog-one {
+  bottom: 16%;
+  opacity: 0.55;
+  animation: fogDrift 15s linear infinite alternate;
+}
+.fog-two {
+  bottom: 5%;
+  opacity: 0.42;
+  animation: fogDrift 22s linear infinite alternate-reverse;
+}
+
+.campfire-setpiece {
+  position: absolute;
+  left: min(62vw, 920px);
+  bottom: 8vh;
+  width: min(54vw, 760px);
+  height: min(62vh, 600px);
+  transform: translateX(-50%);
+  transform-origin: center bottom;
+}
+
+.campfire {
+  position: absolute;
+  left: 50%;
+  bottom: 8%;
+  width: 210px;
+  height: 180px;
+  transform: translateX(-50%);
+  filter: drop-shadow(0 0 52px rgba(255, 94, 24, 0.42));
+}
+.ember-ring {
+  position: absolute;
+  left: 50%;
+  bottom: 13px;
+  width: 250px;
+  height: 68px;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background:
+    radial-gradient(ellipse at center, rgba(255, 103, 32, 0.32), rgba(114, 20, 8, 0.22) 46%, transparent 72%);
+  filter: blur(6px);
+  animation: emberPulse 1.3s ease-in-out infinite alternate;
+}
+.log {
+  position: absolute;
+  left: 50%;
+  bottom: 22px;
+  width: 160px;
+  height: 24px;
+  border-radius: 999px;
+  background:
+    linear-gradient(90deg, #1b0e08, #4f2311 32%, #1a0a05 72%),
+    repeating-linear-gradient(90deg, rgba(255,255,255,0.12) 0 3px, transparent 3px 18px);
+  border: 1px solid rgba(255, 153, 74, 0.18);
+  box-shadow: inset 0 -5px 0 rgba(0,0,0,0.35);
+}
+.log-a { transform: translateX(-50%) rotate(11deg); }
+.log-b { transform: translateX(-50%) rotate(-13deg); }
+.flame {
+  position: absolute;
+  left: 50%;
+  bottom: 35px;
+  width: 74px;
+  height: 128px;
+  border-radius: 58% 42% 54% 46% / 76% 76% 24% 24%;
+  transform-origin: center bottom;
+  mix-blend-mode: screen;
+}
+.flame-back {
+  background: radial-gradient(circle at 50% 72%, #ff5f18, #ad1507 58%, transparent 70%);
+  transform: translateX(-50%) scale(1.18) rotate(-4deg);
+  filter: blur(5px);
+  opacity: 0.84;
+  animation: flameWaver 0.55s ease-in-out infinite alternate;
+}
+.flame-mid {
+  background: radial-gradient(circle at 48% 72%, #ffe66e, #ff8328 48%, transparent 72%);
+  transform: translateX(-50%) scale(0.82) rotate(5deg);
+  animation: flameWaver 0.42s ease-in-out infinite alternate-reverse;
+}
+.flame-front {
+  width: 36px;
+  height: 86px;
+  background: radial-gradient(circle at 47% 70%, #fff8b8, #ffc13c 54%, transparent 76%);
+  transform: translateX(-50%) scale(0.75) rotate(-2deg);
+  opacity: 0.92;
+  animation: flameWaver 0.36s ease-in-out infinite alternate;
+}
+.sparks i {
+  position: absolute;
+  left: 50%;
+  bottom: 90px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #ffd474;
+  box-shadow: 0 0 12px rgba(255, 190, 72, 0.72);
+  animation: sparkRise 2.2s ease-in infinite;
+}
+.sparks i:nth-child(1) { margin-left: -48px; animation-delay: -0.1s; }
+.sparks i:nth-child(2) { margin-left: -18px; animation-delay: -0.8s; }
+.sparks i:nth-child(3) { margin-left: 8px; animation-delay: -1.2s; }
+.sparks i:nth-child(4) { margin-left: 34px; animation-delay: -0.5s; }
+.sparks i:nth-child(5) { margin-left: 60px; animation-delay: -1.6s; }
+
+.survivor-silhouette,
+.killer-silhouette {
+  position: absolute;
+  bottom: 18%;
+  width: 64px;
+  height: 156px;
+  opacity: 0.86;
+  filter: drop-shadow(0 18px 20px rgba(0,0,0,0.86));
+  transform-origin: center bottom;
+}
+.survivor-silhouette::before,
+.killer-silhouette::before {
+  content: "";
+  position: absolute;
+  left: 18px;
+  top: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #080708;
+  box-shadow: 0 36px 0 13px #070607, 0 89px 0 15px #050505;
+}
+.survivor-silhouette::after,
+.killer-silhouette::after {
+  content: "";
+  position: absolute;
+  left: 6px;
+  top: 62px;
+  width: 54px;
+  height: 78px;
+  border-radius: 42% 42% 12% 12%;
+  background: linear-gradient(180deg, #080707, #020202);
+  clip-path: polygon(22% 0, 78% 0, 94% 100%, 56% 100%, 50% 66%, 44% 100%, 6% 100%);
+}
+.survivor-a { left: 18%; bottom: 17%; transform: scale(0.9) rotate(-2deg); }
+.survivor-b { left: 38%; bottom: 20%; transform: scale(0.78) rotate(2deg); opacity: .72; }
+.survivor-c { right: 24%; bottom: 18%; transform: scale(0.82) rotate(1deg); opacity: .78; }
+.survivor-d { right: 39%; bottom: 21%; transform: scale(0.7) rotate(-1deg); opacity: .65; }
+.ready-pose { filter: drop-shadow(0 0 18px rgba(255, 106, 24, 0.16)) drop-shadow(0 18px 20px rgba(0,0,0,0.86)); }
+.killer-silhouette {
+  right: 7%;
+  bottom: 18%;
+  width: 96px;
+  height: 226px;
+  transform: scale(1.15);
+  opacity: 0.9;
+}
+.killer-silhouette::before {
+  left: 30px;
+  width: 35px;
+  height: 35px;
+  box-shadow: 0 49px 0 20px #050404, 0 125px 0 25px #030303;
+}
+.killer-silhouette::after {
+  left: 8px;
+  top: 78px;
+  width: 82px;
+  height: 132px;
+  background: linear-gradient(180deg, #080304, #020202);
+  clip-path: polygon(18% 0, 82% 0, 100% 100%, 61% 100%, 51% 62%, 41% 100%, 0 100%);
+}
+.killer-lobby { right: 5%; }
+
+.campfire-panel {
+  position: relative;
+  z-index: 3;
+  width: min(474px, calc(100vw - 36px));
+  max-height: calc(100vh - 44px);
+  margin-left: clamp(0px, 2vw, 32px);
+  border-radius: 0 18px 18px 0;
+  border-left: 4px solid rgba(211, 32, 32, 0.82);
+  background:
+    linear-gradient(180deg, rgba(12, 10, 10, 0.92), rgba(4, 4, 5, 0.92)),
+    repeating-linear-gradient(135deg, rgba(255,255,255,0.048) 0 1px, transparent 1px 9px);
+  box-shadow:
+    0 28px 110px rgba(0,0,0,0.74),
+    inset 0 1px 0 rgba(255,255,255,0.08),
+    inset 0 0 70px rgba(126, 16, 16, 0.12);
+  backdrop-filter: blur(13px) saturate(0.86);
+}
+.campfire-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 -4px;
+  width: 4px;
+  background: linear-gradient(180deg, #ff4545, #761414 55%, #d8a84f);
+  box-shadow: 0 0 22px rgba(255, 49, 49, 0.36);
+}
+.campfire-panel::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.055), transparent 22%),
+    radial-gradient(circle at 80% 6%, rgba(216,168,79,0.12), transparent 30%);
+}
+.campfire-panel > * { position: relative; z-index: 1; }
+
+.campfire-panel h1 {
+  color: #f5efe8;
+  font-size: clamp(42px, 7vw, 76px);
+  letter-spacing: -0.07em;
+  text-transform: uppercase;
+  text-shadow:
+    0 1px 0 #000,
+    0 10px 28px rgba(0,0,0,0.85),
+    0 0 34px rgba(196, 33, 33, 0.18);
+}
+.campfire-panel p {
+  color: #c4b9ae;
+  font-weight: 650;
+}
+.campfire-panel .eyebrow {
+  color: #d8a84f;
+  text-shadow: 0 0 16px rgba(216, 168, 79, 0.18);
+}
+
+.campfire-panel input {
+  border-radius: 4px;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.085), rgba(255,255,255,0.045));
+  border: 1px solid rgba(255,255,255,0.18);
+  box-shadow: inset 0 0 20px rgba(0,0,0,0.28);
+}
+
+.campfire-panel button {
+  border-radius: 4px;
+  padding: 12px 16px;
+  text-transform: uppercase;
+  letter-spacing: 0.055em;
+  background:
+    linear-gradient(180deg, rgba(39,35,34,0.92), rgba(14,13,14,0.94));
+  border-color: rgba(255,255,255,0.16);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 8px 24px rgba(0,0,0,0.28);
+}
+.campfire-panel button:hover {
+  background:
+    linear-gradient(180deg, rgba(72,52,42,0.98), rgba(22,17,16,0.98));
+  border-color: rgba(216, 168, 79, 0.48);
+}
+.campfire-panel button.primary {
+  color: #fff8ed;
+  background:
+    linear-gradient(180deg, #bc2222, #681313 72%, #3e0c0c);
+  border-color: rgba(255, 89, 89, 0.5);
+  box-shadow: 0 0 0 1px rgba(255,255,255,0.06), 0 14px 36px rgba(176, 32, 32, 0.2), inset 0 1px 0 rgba(255,255,255,0.14);
+}
+.campfire-panel button.selected {
+  background:
+    linear-gradient(180deg, rgba(139, 24, 24, 0.95), rgba(47, 12, 12, 0.95));
+  border-color: rgba(255, 76, 76, 0.58);
+  box-shadow: 0 0 28px rgba(183, 34, 34, 0.18), inset 0 0 22px rgba(255,255,255,0.04);
+}
+
+.campfire-panel .skin-picker {
+  border-radius: 4px;
+  background: rgba(5, 5, 6, 0.48);
+  border: 1px solid rgba(255,255,255,0.12);
+  box-shadow: inset 0 0 30px rgba(0,0,0,0.25);
+}
+.campfire-panel .skin-btn {
+  border-radius: 4px;
+}
+.campfire-panel .skin-btn.selected {
+  border-color: rgba(216,168,79,0.74);
+  background: linear-gradient(180deg, rgba(110, 82, 39, 0.64), rgba(33, 25, 14, 0.8));
+}
+
+#lobbyScreen .campfire-panel {
+  width: min(560px, calc(100vw - 36px));
+}
+.players-list {
+  max-height: min(34vh, 300px);
+  overflow: auto;
+  padding-right: 3px;
+}
+.player-item,
+.lobby-item {
+  border-radius: 4px;
+  background:
+    linear-gradient(90deg, rgba(8,8,9,0.76), rgba(28,22,20,0.58));
+  border-left: 3px solid rgba(216,168,79,0.32);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
+}
+.player-item strong,
+.lobby-item strong {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.player-item small,
+.lobby-item small {
+  color: #b8aaa0;
+  font-weight: 700;
+}
+.lobby-list.empty {
+  border-radius: 4px;
+  background: rgba(0,0,0,0.32);
+}
+
+@keyframes flameWaver {
+  0% { transform: translateX(-50%) scaleY(0.92) scaleX(1.08) rotate(-4deg); }
+  100% { transform: translateX(-50%) scaleY(1.08) scaleX(0.88) rotate(5deg); }
+}
+@keyframes emberPulse {
+  from { opacity: .58; transform: translateX(-50%) scale(0.96); }
+  to { opacity: .88; transform: translateX(-50%) scale(1.06); }
+}
+@keyframes sparkRise {
+  0% { transform: translate(0, 0) scale(0.6); opacity: 0; }
+  15% { opacity: .9; }
+  100% { transform: translate(var(--spark-x, 18px), -160px) scale(0.2); opacity: 0; }
+}
+@keyframes fogDrift {
+  from { transform: translateX(-3%); }
+  to { transform: translateX(4%); }
+}
+@keyframes lobbyBreath {
+  from { transform: scale(1); filter: saturate(.92); }
+  to { transform: scale(1.02); filter: saturate(1.08); }
+}
+
+@media (max-width: 1040px) {
+  #menu.campfire-screen,
+  #lobbyScreen.campfire-screen {
+    align-items: flex-start;
+    justify-content: center;
+    padding: 16px;
+  }
+  .campfire-panel {
+    margin-left: 0;
+    width: min(620px, calc(100vw - 28px));
+    max-height: calc(100vh - 32px);
+  }
+  .campfire-setpiece {
+    left: 58%;
+    width: 820px;
+    opacity: 0.48;
+    transform: translateX(-50%) scale(0.88);
+  }
+  .killer-silhouette { right: 1%; }
+}
+
+@media (max-width: 640px) {
+  .campfire-panel {
+    border-radius: 0 14px 14px 0;
+    padding: 18px;
+  }
+  .campfire-panel h1 {
+    font-size: 42px;
+  }
+  .campfire-setpiece {
+    left: 50%;
+    transform: translateX(-50%) scale(0.68);
+    opacity: 0.3;
+  }
+  .moon-haze { right: -18%; top: -4%; }
+}

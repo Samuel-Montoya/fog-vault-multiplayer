@@ -9,11 +9,33 @@
 <body>
   <div id="gameWrap"></div>
 
-  <div id="menu" class="screen screen-open">
-    <div class="panel title-panel">
-      <div class="eyebrow">phaser-rendered server-authoritative horror chase</div>
-      <h1>Fog Vault Multiplayer</h1>
-      <p>Open lobbies, 1 killer, up to 4 survivors, generators, vaults, pallets, bots, layered chase music, and lighting that finally behaves like a flashlight instead of a haunted printer.</p>
+  <div id="menu" class="screen screen-open campfire-screen">
+    <div class="campfire-backdrop" aria-hidden="true">
+      <div class="moon-haze"></div>
+      <div class="tree-line far"></div>
+      <div class="tree-line near"></div>
+      <div class="fog-bank fog-one"></div>
+      <div class="fog-bank fog-two"></div>
+      <div class="campfire-setpiece">
+        <div class="survivor-silhouette survivor-a"></div>
+        <div class="survivor-silhouette survivor-b"></div>
+        <div class="survivor-silhouette survivor-c"></div>
+        <div class="killer-silhouette"></div>
+        <div class="campfire">
+          <div class="ember-ring"></div>
+          <div class="log log-a"></div>
+          <div class="log log-b"></div>
+          <div class="flame flame-back"></div>
+          <div class="flame flame-mid"></div>
+          <div class="flame flame-front"></div>
+          <div class="sparks"><i></i><i></i><i></i><i></i><i></i></div>
+        </div>
+      </div>
+    </div>
+    <div class="panel title-panel campfire-panel">
+      <div class="eyebrow">gather at the fire</div>
+      <h1>Fog Vault</h1>
+      <p>Choose a role, pick a survivor shape, and step into an open trial. One killer, up to four survivors, generators, pallets, hooks, and just enough darkness to make everyone behave badly.</p>
 
       <label class="field-label" for="playerName">Name</label>
       <input id="playerName" maxlength="18" placeholder="Player" />
@@ -21,6 +43,22 @@
       <div class="role-row">
         <button class="role-btn selected" data-role="survivor">Survivor</button>
         <button class="role-btn" data-role="killer">Killer</button>
+      </div>
+
+      <div class="skin-picker" aria-label="Survivor skin selector">
+        <div class="skin-title">Survivor skin</div>
+        <button class="skin-btn selected" data-skin="blueSquare" type="button">
+          <span class="skin-preview skin-square"></span>
+          <span>Blue Square</span>
+        </button>
+        <button class="skin-btn" data-skin="yellowStar" type="button">
+          <span class="skin-preview skin-star"></span>
+          <span>Yellow Star</span>
+        </button>
+        <button class="skin-btn" data-skin="purplePentagon" type="button">
+          <span class="skin-preview skin-pentagon"></span>
+          <span>Purple Pentagon</span>
+        </button>
       </div>
 
       <div class="button-row">
@@ -33,15 +71,53 @@
     </div>
   </div>
 
-  <div id="lobbyScreen" class="screen">
-    <div class="panel lobby-panel">
-      <div class="eyebrow">waiting room</div>
+  <div id="lobbyScreen" class="screen campfire-screen">
+    <div class="campfire-backdrop lobby-campfire-backdrop" aria-hidden="true">
+      <div class="moon-haze"></div>
+      <div class="tree-line far"></div>
+      <div class="tree-line near"></div>
+      <div class="fog-bank fog-one"></div>
+      <div class="fog-bank fog-two"></div>
+      <div class="campfire-setpiece">
+        <div class="survivor-silhouette survivor-a ready-pose"></div>
+        <div class="survivor-silhouette survivor-b"></div>
+        <div class="survivor-silhouette survivor-c"></div>
+        <div class="survivor-silhouette survivor-d"></div>
+        <div class="killer-silhouette killer-lobby"></div>
+        <div class="campfire">
+          <div class="ember-ring"></div>
+          <div class="log log-a"></div>
+          <div class="log log-b"></div>
+          <div class="flame flame-back"></div>
+          <div class="flame flame-mid"></div>
+          <div class="flame flame-front"></div>
+          <div class="sparks"><i></i><i></i><i></i><i></i><i></i></div>
+        </div>
+      </div>
+    </div>
+    <div class="panel lobby-panel campfire-panel">
+      <div class="eyebrow">trial lobby</div>
       <h1 id="lobbyTitle">Lobby</h1>
-      <p id="lobbySubtitle">Choose roles. Only one killer per match.</p>
+      <p id="lobbySubtitle">Ready by the fire. One killer may enter the trial.</p>
       <div id="playersList" class="players-list"></div>
       <div class="role-row">
         <button id="beSurvivorBtn">Choose Survivor</button>
         <button id="beKillerBtn">Choose Killer</button>
+      </div>
+      <div class="skin-picker compact" aria-label="Survivor skin selector">
+        <div class="skin-title">Survivor skin</div>
+        <button class="skin-btn selected" data-skin="blueSquare" type="button">
+          <span class="skin-preview skin-square"></span>
+          <span>Blue Square</span>
+        </button>
+        <button class="skin-btn" data-skin="yellowStar" type="button">
+          <span class="skin-preview skin-star"></span>
+          <span>Yellow Star</span>
+        </button>
+        <button class="skin-btn" data-skin="purplePentagon" type="button">
+          <span class="skin-preview skin-pentagon"></span>
+          <span>Purple Pentagon</span>
+        </button>
       </div>
       <div class="button-row">
         <button id="readyBtn">Ready</button>
@@ -50,7 +126,7 @@
         <button id="startBtn" class="primary">Start Match</button>
         <button id="leaveBtn">Leave</button>
       </div>
-      <p class="hint">Start requires exactly <b>1 killer</b> and at least <b>1 survivor</b>. Bot buttons are for testing, because asking friends to help debug collision math is apparently a social crime.</p>
+      <p class="hint">Start requires exactly <b>1 killer</b> and at least <b>1 survivor</b>. Bots are test subjects, which is rude but efficient.</p>
     </div>
   </div>
 
