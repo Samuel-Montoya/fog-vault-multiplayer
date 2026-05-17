@@ -930,7 +930,7 @@ function startKillerAttack(game, killer, type) {
     x: killer.x,
     y: killer.y,
     angle: killer.angle,
-    type: profile.type,
+    attackType: profile.type,
     range: profile.range,
     arc: profile.arc,
     duration: profile.duration,

@@ -52,7 +52,7 @@
       hooked: "/hooked.mp3",
       dead: "/dead.mp3",
       gen: "/gen.mp3",
-      swing: "/swing.mp3",
+      swing: "/swing.ogg",
       windowVault: "/window_vault.ogg",
       palletVault: "/pallet_vault.ogg",
       injured: "/injured.ogg"
@@ -1749,7 +1749,7 @@
         ttl: Math.max(0.18, (event.duration || 0.24) + 0.08),
         startup: event.startup || 0,
         life: 0,
-        type: event.type || "quick"
+        type: event.attackType || event.type || "quick"
       });
     }
 
