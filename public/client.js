@@ -62,7 +62,11 @@
       swing: "/swing.ogg",
       windowVault: "/window_vault.ogg",
       palletVault: "/pallet_vault.ogg",
-      injured: "/injured.ogg"
+      injured: "/injured.ogg",
+      orbPickup1: "/orb_pickup_1.mp3",
+      orbPickup2: "/orb_pickup_2.mp3",
+      orbPickup3: "/orb_pickup_3.mp3",
+      orbDeposit: "/orb_deposit.mp3"
     },
     VOLUMES: {
       hooked: 0.82,
@@ -71,7 +75,11 @@
       swing: 0.42,
       windowVault: 0.34,
       palletVault: 0.76,
-      injured: 0.8
+      injured: 0.8,
+      orbPickup1: 0.58,
+      orbPickup2: 0.58,
+      orbPickup3: 0.58,
+      orbDeposit: 0.62
     }
   };
 
@@ -87,6 +95,8 @@
     // and a real server-confirmed swing gives a tiny punch. Small numbers on purpose.
     KILLER_M1_HOLD_ZOOM: LOW_POWER_MODE ? 0.045 : 0.085,
     KILLER_M1_PULSE_ZOOM: LOW_POWER_MODE ? 0.035 : 0.065,
+    UNHOOK_ACTION_ZOOM: LOW_POWER_MODE ? 0.06 : 0.11,
+    DOWNED_ZOOM: LOW_POWER_MODE ? 0.08 : 0.14,
     ZOOM_SMOOTHING: LOW_POWER_MODE ? 4.8 : 6.8,
     CHASE_IN_LERP: 0.055,
     CHASE_OUT_LERP: 0.04,
@@ -250,6 +260,15 @@
     DEPOSIT_SMOOTHING: 5.5,
     DEPOSIT_PROGRESS_SMOOTHING: 16,
     DEPOSIT_EXIT_PUSH: 16
+  };
+
+  const DOT_FADE_VISUAL = {
+    // Server visibility still decides whether an orb exists for this player.
+    // The client only eases alpha when that visibility changes. Cheap little mercy.
+    IN_SPEED: LOW_POWER_MODE ? 8.5 : 11.5,
+    OUT_SPEED: LOW_POWER_MODE ? 9.5 : 13.5,
+    FPS: LOW_POWER_MODE ? 12 : 18,
+    REMOVE_ALPHA: 0.018
   };
 
   const SURVIVOR_SKINS = {
@@ -672,26 +691,107 @@
     }
   }
 
-  function playSfx(name) {
+  function playSfx(name, options = {}) {
     const base = audio.sfx?.[name];
     if (!base) return;
     const clip = base.cloneNode(true);
     clip.loop = false;
-    clip.volume = clamp((SFX.VOLUMES[name] || 0.75) * SFX.MASTER, 0, 1);
+    const volumeMult = Number.isFinite(options.volumeMult) ? options.volumeMult : 1;
+    clip.volume = clamp((SFX.VOLUMES[name] || 0.75) * SFX.MASTER * volumeMult, 0, 1);
+    if (Number.isFinite(options.rate)) {
+      const rate = clamp(options.rate, 0.55, 2.25);
+      // Disable pitch preservation before changing playbackRate. Some browsers are weird
+      // little gremlins and will "helpfully" keep pitch flat if this happens later.
+      if ("preservesPitch" in clip) clip.preservesPitch = false;
+      if ("mozPreservesPitch" in clip) clip.mozPreservesPitch = false;
+      if ("webkitPreservesPitch" in clip) clip.webkitPreservesPitch = false;
+      clip.playbackRate = rate;
+    }
     clip.play().catch(() => {
       // Browser autoplay rules can still block if the user has not interacted yet.
       // Once they click or press a key, future effects will play. Naturally, browsers need consent to scream.
     });
   }
 
+  const ORB_PICKUP_SFX = ["orbPickup1", "orbPickup2", "orbPickup3"];
+  const ORB_DEPOSIT_PITCH = {
+    MAX_CHAIN: 10,
+    MIN_RATE: 0.92,
+    MAX_RATE: 2.12
+  };
+  const orbDepositAudio = { streak: 0, lastAt: 0, generatorId: null };
+
+  function playRandomOrbPickupSfx() {
+    const pick = ORB_PICKUP_SFX[Math.floor(Math.random() * ORB_PICKUP_SFX.length)];
+    playSfx(pick);
+  }
+
+  function playLocalOrbDepositSfx(event) {
+    if (!event || event.survivorId !== myId) return;
+    const now = performance.now();
+    const sameGen = orbDepositAudio.generatorId === event.generatorId;
+    const stillChaining = sameGen && now - orbDepositAudio.lastAt < 2600;
+    if (!stillChaining) orbDepositAudio.streak = 0;
+
+    const eventDepositIndex = Number(event.depositIndex);
+    const depositNumber = clamp(
+      Number.isFinite(eventDepositIndex) && eventDepositIndex > 0
+        ? eventDepositIndex
+        : orbDepositAudio.streak + 1,
+      1,
+      ORB_DEPOSIT_PITCH.MAX_CHAIN
+    );
+    const t = ORB_DEPOSIT_PITCH.MAX_CHAIN <= 1
+      ? 1
+      : (depositNumber - 1) / (ORB_DEPOSIT_PITCH.MAX_CHAIN - 1);
+    const rate = lerp(ORB_DEPOSIT_PITCH.MIN_RATE, ORB_DEPOSIT_PITCH.MAX_RATE, t);
+    const volumeMult = lerp(0.92, 1.08, t);
+    playSfx("orbDeposit", { rate, volumeMult });
+
+    // Cap at 10 because that is the max carried deposit chain. The 10th deposit is
+    // the peak tone; extra weirdness after that can stay in the void where it belongs.
+    orbDepositAudio.streak = Math.min(ORB_DEPOSIT_PITCH.MAX_CHAIN, depositNumber);
+    orbDepositAudio.lastAt = now;
+    orbDepositAudio.generatorId = event.generatorId || null;
+  }
+
+  function resetOrbDepositPitch() {
+    orbDepositAudio.streak = 0;
+    orbDepositAudio.lastAt = 0;
+    orbDepositAudio.generatorId = null;
+  }
+
+  const LOCAL_SFX_RANGE = {
+    swing: 315,
+    hit: 440
+  };
+
+  function getLocalVisualActor() {
+    return phaserScene?.actors?.get(myId) || null;
+  }
+
+  function distanceToLocalEvent(event) {
+    const me = getLocalVisualActor();
+    const x = Number(event?.x);
+    const y = Number(event?.y);
+    if (!me?.current || !Number.isFinite(x) || !Number.isFinite(y)) return Infinity;
+    return dist(me.current.x, me.current.y, x, y);
+  }
+
   function playLocalizedSwing(event) {
-    if (!phaserScene || !event) return;
-    const me = phaserScene.actors?.get(myId);
-    if (!me) return;
+    if (!event) return;
     const isKillerSwinging = event.actorId === myId;
-    const d = dist(me.current.x, me.current.y, event.x || 0, event.y || 0);
-    // Killer hears their own swing. Survivors only hear it when the blade is uncomfortably close.
-    if (isKillerSwinging || d <= 390) playSfx("swing");
+    const d = distanceToLocalEvent(event);
+    // Killer hears their own swing. Everyone else only hears it when it is actually nearby.
+    if (isKillerSwinging || d <= LOCAL_SFX_RANGE.swing) playSfx("swing");
+  }
+
+  function playLocalizedHit(event) {
+    if (!event) return;
+    const isMyHit = event.survivorId === myId;
+    const d = distanceToLocalEvent(event);
+    // The victim always hears impact. Other players only hear it nearby.
+    if (isMyHit || d <= LOCAL_SFX_RANGE.hit) playSfx("injured");
   }
 
   function survivorStateLabel(actor) {
@@ -936,6 +1036,9 @@
       }).setOrigin(0.5).setDepth(2701).setScrollFactor(0, 0).setVisible(false));
       this.swipes = [];
       this.recentHookIndicators = [];
+      this.collectibleDotVisuals = new Map();
+      this.collectibleDotFadeTimer = 0;
+      this.collectibleDotsAnimating = false;
       this.createGeneratorFallbackTexture();
       this.createLightTextures();
       this.lightConeMask = this.make.image({ x: 0, y: 0, key: "softFlashlightCone", add: false })
@@ -1141,6 +1244,8 @@
       this.rebuildFogTexture();
       this.clearGeneratorSprites();
       this.clearActors();
+      this.collectibleDotVisuals?.clear();
+      this.collectibleDotsAnimating = false;
       this.lastDynamicKey = "";
       this.lastGeneratorKey = "";
       this.needsDynamicRedraw = true;
@@ -1420,18 +1525,70 @@
       this.syncGeneratorSprites(currentSnapshot.map?.generators || this.map.generators || []);
       for (const gate of currentSnapshot.map?.gates || this.map.gates || []) this.drawGate(g, gate);
       for (const hook of currentSnapshot.map?.hooks || this.map.hooks || []) this.drawHook(g, hook);
-      for (const dot of currentSnapshot.collectibleDots || []) this.drawCollectibleDot(g, dot);
+      this.drawCollectibleDots(g);
+    }
+
+    updateCollectibleDotVisuals(dt) {
+      if (!this.collectibleDotVisuals) this.collectibleDotVisuals = new Map();
+      const visibleDots = currentSnapshot?.collectibleDots || [];
+      const seen = new Set();
+      let animating = false;
+
+      for (const dot of visibleDots) {
+        if (!dot?.id || !Number.isFinite(dot.x) || !Number.isFinite(dot.y)) continue;
+        seen.add(dot.id);
+        let visual = this.collectibleDotVisuals.get(dot.id);
+        if (!visual) {
+          visual = {
+            id: dot.id,
+            x: dot.x,
+            y: dot.y,
+            alpha: 0,
+            targetAlpha: 1,
+            phase: hash2(Math.floor(dot.x), Math.floor(dot.y)) * Math.PI * 2
+          };
+          this.collectibleDotVisuals.set(dot.id, visual);
+          animating = true;
+        }
+        visual.x = lerp(visual.x, dot.x, dampAlpha(14, dt));
+        visual.y = lerp(visual.y, dot.y, dampAlpha(14, dt));
+        visual.targetAlpha = 1;
+      }
+
+      for (const [id, visual] of this.collectibleDotVisuals.entries()) {
+        if (!seen.has(id)) visual.targetAlpha = 0;
+        const speed = visual.targetAlpha > visual.alpha ? DOT_FADE_VISUAL.IN_SPEED : DOT_FADE_VISUAL.OUT_SPEED;
+        const next = lerp(visual.alpha, visual.targetAlpha, dampAlpha(speed, dt));
+        if (Math.abs(next - visual.alpha) > 0.002) animating = true;
+        visual.alpha = next;
+        if (visual.targetAlpha <= 0 && visual.alpha <= DOT_FADE_VISUAL.REMOVE_ALPHA) {
+          this.collectibleDotVisuals.delete(id);
+          animating = true;
+        }
+      }
+
+      this.collectibleDotsAnimating = animating;
+      return animating;
+    }
+
+    drawCollectibleDots(g) {
+      if (!this.collectibleDotVisuals?.size) return;
+      for (const dot of this.collectibleDotVisuals.values()) this.drawCollectibleDot(g, dot);
     }
 
     drawCollectibleDot(g, dot) {
       if (!dot || !Number.isFinite(dot.x) || !Number.isFinite(dot.y)) return;
-      const pulse = 0.5 + Math.sin(performance.now() / 320 + hash2(Math.floor(dot.x), Math.floor(dot.y)) * Math.PI * 2) * 0.5;
-      g.fillStyle(COLORS.collectibleDot, 0.18 + pulse * 0.14);
-      g.fillCircle(dot.x, dot.y, 11 + pulse * 2.5);
-      g.fillStyle(COLORS.collectibleDotGlow, 0.9);
-      g.fillCircle(dot.x, dot.y, 4.5 + pulse * 1.2);
-      g.lineStyle(2, 0xfff7d6, 0.45 + pulse * 0.25);
-      g.strokeCircle(dot.x, dot.y, 7 + pulse * 1.5);
+      const alpha = clamp(dot.alpha ?? 1, 0, 1);
+      if (alpha <= 0.01) return;
+      const pulse = 0.5 + Math.sin(performance.now() / 320 + (dot.phase || 0)) * 0.5;
+      const easeAlpha = alpha * alpha * (3 - 2 * alpha);
+      const scale = 0.62 + easeAlpha * 0.38;
+      g.fillStyle(COLORS.collectibleDot, (0.14 + pulse * 0.12) * easeAlpha);
+      g.fillCircle(dot.x, dot.y, (11 + pulse * 2.5) * scale);
+      g.fillStyle(COLORS.collectibleDotGlow, 0.92 * easeAlpha);
+      g.fillCircle(dot.x, dot.y, (4.5 + pulse * 1.2) * scale);
+      g.lineStyle(2, 0xfff7d6, (0.38 + pulse * 0.30) * easeAlpha);
+      g.strokeCircle(dot.x, dot.y, (7 + pulse * 1.5) * scale);
     }
 
     drawGeneratorLayer() {
@@ -1530,15 +1687,46 @@
       const tile = this.map.tile || 72;
       const x = Math.round(((hook.x || 0) - tile / 2) / tile) * tile;
       const y = Math.round(((hook.y || 0) - tile / 2) / tile) * tile;
-      const pulse = 0.5 + Math.sin((this.time?.now || performance.now()) * 0.007) * 0.5;
+      const now = this.time?.now || performance.now();
+      const pulse = 0.5 + Math.sin(now * 0.0068) * 0.5;
+      const slowPulse = 0.5 + Math.sin(now * 0.0029) * 0.5;
+      const cx = x + tile / 2;
+      const cy = y + tile / 2;
+      const pad = 10;
+      const size = tile - pad * 2;
+      const bracket = Math.max(12, tile * 0.22);
 
-      // Hook state is now a red outlined tile, no hook prop. The square is the danger.
-      g.fillStyle(0x7a0505, 0.10 + pulse * 0.06);
-      g.fillRect(x + 3, y + 3, tile - 6, tile - 6);
-      g.lineStyle(6, 0xff2e2e, 0.78 + pulse * 0.18);
-      g.strokeRect(x + 3, y + 3, tile - 6, tile - 6);
-      g.lineStyle(2, 0xffc0a8, 0.34 + pulse * 0.22);
-      g.strokeRect(x + 12, y + 12, tile - 24, tile - 24);
+      // Minimal danger shrine: no giant border, just a pulsing red containment square.
+      g.fillStyle(0x140407, 0.18 + pulse * 0.07);
+      g.fillRoundedRect(x + pad, y + pad, size, size, 12);
+
+      g.fillStyle(0xff243f, 0.055 + pulse * 0.055);
+      g.fillCircle(cx, cy, tile * (0.34 + slowPulse * 0.08));
+
+      g.lineStyle(2, 0xff2b45, 0.22 + pulse * 0.36);
+      g.strokeRoundedRect(x + pad + 4, y + pad + 4, size - 8, size - 8, 10);
+
+      g.lineStyle(4, 0xff364f, 0.54 + pulse * 0.28);
+      // Four animated corner brackets. Clear, stylish, and not a huge red parking lot.
+      g.beginPath();
+      g.moveTo(x + pad, y + pad + bracket); g.lineTo(x + pad, y + pad); g.lineTo(x + pad + bracket, y + pad);
+      g.moveTo(x + tile - pad - bracket, y + pad); g.lineTo(x + tile - pad, y + pad); g.lineTo(x + tile - pad, y + pad + bracket);
+      g.moveTo(x + tile - pad, y + tile - pad - bracket); g.lineTo(x + tile - pad, y + tile - pad); g.lineTo(x + tile - pad - bracket, y + tile - pad);
+      g.moveTo(x + pad + bracket, y + tile - pad); g.lineTo(x + pad, y + tile - pad); g.lineTo(x + pad, y + tile - pad - bracket);
+      g.strokePath();
+
+      const diamond = 8 + pulse * 3;
+      g.fillStyle(0x090106, 0.82);
+      g.fillTriangle(cx, cy - diamond, cx + diamond, cy, cx, cy + diamond);
+      g.fillTriangle(cx, cy - diamond, cx - diamond, cy, cx, cy + diamond);
+      g.lineStyle(2, 0xff8a9a, 0.34 + pulse * 0.36);
+      g.beginPath();
+      g.moveTo(cx, cy - diamond - 6);
+      g.lineTo(cx + diamond + 6, cy);
+      g.lineTo(cx, cy + diamond + 6);
+      g.lineTo(cx - diamond - 6, cy);
+      g.closePath();
+      g.strokePath();
     }
 
     getGeneratorTextureKey() {
@@ -1669,6 +1857,7 @@
     updateHud(snapshot) {
       const me = (snapshot.actors || []).find((a) => a.id === myId);
       if (!me) return;
+      if (!me.dotDepositTargetId && orbDepositAudio.streak > 0) resetOrbDepositPitch();
 
       const now = performance.now();
       const objective = snapshot.objective || {};
@@ -2072,13 +2261,19 @@
         }
         if (event.type === "execute" || event.type === "death") playSfx("dead");
         if (event.type === "genDone") playSfx("gen");
-        if (event.type === "hit" || event.type === "downed") playSfx("injured");
+        if (event.type === "hit" || event.type === "downed") playLocalizedHit(event);
         if (event.type === "vault" && event.actorId === myId) playSfx(event.vaultType === "pallet" ? "palletVault" : "windowVault");
         if (["hit", "death", "execute", "downed", "hooked", "unhooked"].includes(event.type)) {
           const color = event.type === "unhooked" ? 0x75d5ff : event.type === "hooked" ? COLORS.hook : COLORS.blood;
           const heavy = event.type === "death" || event.type === "execute" || event.type === "downed" || event.type === "hooked";
           this.burst(event.x, event.y, color, event.type === "hooked" ? 52 : event.type === "execute" || event.type === "death" ? 62 : 38, event.type === "unhooked" ? 140 : 220);
-          this.cameras.main.shake(heavy ? 210 : 110, heavy ? 0.0055 : 0.0032);
+
+          const isLocalSurvivorEvent = event.survivorId === myId;
+          const shouldShakeForImpact = (event.type === "hit" || event.type === "downed") && isLocalSurvivorEvent;
+          const shouldShakeForStateChange = ["death", "execute", "hooked"].includes(event.type) && isLocalSurvivorEvent;
+          if (shouldShakeForImpact || shouldShakeForStateChange) {
+            this.cameras.main.shake(heavy ? 210 : 110, heavy ? 0.0055 : 0.0032);
+          }
         }
         if (event.type === "genDone") {
           this.burst(event.x, event.y, COLORS.gen, 58, 190);
@@ -2097,8 +2292,12 @@
           this.addShockwave(event.x, event.y, 0x9eff91);
         }
         if (event.type === "healDone") this.burst(event.x, event.y, 0x8dff9a, 24, 120);
-        if (event.type === "dotPickup") this.burst(event.x, event.y, COLORS.collectibleDot, 10, 95);
+        if (event.type === "dotPickup") {
+          this.burst(event.x, event.y, COLORS.collectibleDot, 10, 95);
+          if (event.actorId === myId) playRandomOrbPickupSfx();
+        }
         if (event.type === "dotDeposit") {
+          playLocalOrbDepositSfx(event);
           this.burst(event.x, event.y, COLORS.collectibleDotGlow, 18, 110);
           this.addShockwave(event.x, event.y, COLORS.collectibleDot);
         }
@@ -2250,6 +2449,7 @@
       this.updateActorDisplays(dt);
       this.updateImmersion(dt);
       this.updateCamera(dt);
+      this.updateCollectibleDotVisuals(dt);
       this.maybeDrawDynamicWorld(dt);
       this.maybeDrawGeneratorLayer(dt);
       this.maybeUpdateScratchGraphics(dt);
@@ -2428,17 +2628,27 @@
       const killerM1Hold = localData?.role === "killer" && (input.attackHeld || killerCharging) ? 1 : 0;
       const attackZoom = killerM1Hold * IMMERSION.KILLER_M1_HOLD_ZOOM
         + (this.killerM1Pulse || 0) * IMMERSION.KILLER_M1_PULSE_ZOOM;
+      const survivorDoingUnhook = localData?.role === "survivor" && !!localData.unhookTargetId;
+      const survivorBeingUnhooked = localData?.role === "survivor" && !!localData.hooked && (localData.unhookProgress || 0) > 0;
+      const unhookZoom = (survivorDoingUnhook || survivorBeingUnhooked) ? IMMERSION.UNHOOK_ACTION_ZOOM : 0;
+      const downedZoom = localData?.role === "survivor" && !!localData.downed && !localData.hooked
+        ? IMMERSION.DOWNED_ZOOM
+        : 0;
       const targetZoom = clamp(
         IMMERSION.BASE_ZOOM
           + this.terrorBlend * IMMERSION.TERROR_ZOOM
           + this.chaseBlend * IMMERSION.CHASE_ZOOM
-          + attackZoom,
+          + attackZoom
+          + unhookZoom
+          + downedZoom,
         IMMERSION.BASE_ZOOM,
         IMMERSION.BASE_ZOOM
           + IMMERSION.TERROR_ZOOM
           + IMMERSION.CHASE_ZOOM
           + IMMERSION.KILLER_M1_HOLD_ZOOM
           + IMMERSION.KILLER_M1_PULSE_ZOOM
+          + IMMERSION.UNHOOK_ACTION_ZOOM
+          + IMMERSION.DOWNED_ZOOM
       );
       const zoomAlpha = dampAlpha(IMMERSION.ZOOM_SMOOTHING, dt);
       const nextZoom = lerp(cam.zoom || IMMERSION.BASE_ZOOM, targetZoom, zoomAlpha);
@@ -2522,11 +2732,14 @@
 
     maybeDrawDynamicWorld(dt) {
       this.dynamicRedrawTimer += dt;
-      const interval = 1 / PERFORMANCE.DYNAMIC_WORLD_FPS;
-      if (!this.needsDynamicRedraw && this.dynamicRedrawTimer < interval) return;
+      const animatingDots = !!this.collectibleDotsAnimating;
+      const animatingHooks = !!(currentSnapshot?.map?.hooks || this.map?.hooks || []).some((hook) => hook.active !== false);
+      const shouldAnimate = animatingDots || animatingHooks;
+      const interval = 1 / (animatingDots ? DOT_FADE_VISUAL.FPS : PERFORMANCE.DYNAMIC_WORLD_FPS);
+      if (!this.needsDynamicRedraw && !shouldAnimate && this.dynamicRedrawTimer < interval) return;
       if (this.dynamicRedrawTimer < interval) return;
       const key = this.getDynamicWorldKey();
-      if (key !== this.lastDynamicKey || this.needsDynamicRedraw) {
+      if (key !== this.lastDynamicKey || this.needsDynamicRedraw || shouldAnimate) {
         this.lastDynamicKey = key;
         this.drawDynamicWorld();
       }

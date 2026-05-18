@@ -149,14 +149,21 @@ const SURVIVOR_DOT_PICKUP_RADIUS = 48;
 const KILLER_DOT_PICKUP_RADIUS = 92;
 const DOT_DEPOSIT_DISTANCE = 96;
 const DOT_DEPOSIT_SECONDS = 0.5;
+// Deposit balancing: the first few dots feed quickly, then the survivor slows down
+// as they keep dumping a full pocket into one generator. Leaving the gen or running
+// out of dots resets the chain.
+const DOT_DEPOSIT_FAST_CHAIN_COUNT = 5;
+const DOT_DEPOSIT_MAX_CHAIN = SURVIVOR_DOT_MAX;
+const DOT_DEPOSIT_MAX_SECONDS = 1.65;
 const DOT_REPAIR_PROGRESS = 1 / DOTS_PER_GENERATOR;
-const DOT_MIN_TILE_SPACING = 4.1;
+const DOT_MIN_TILE_SPACING = 3.0;
 const DOT_MIN_OBJECTIVE_TILE_DIST = 1.8;
-const DOT_SPAWN_FLOOR_RATIO = 0.018;
-const DOT_SPAWN_MIN = 8;
-const DOT_MAX_ON_MAP = 24;
+const DOT_SPAWN_FLOOR_RATIO = 0.032;
+const DOT_SPAWN_MIN = 16;
+const DOT_MAX_ON_MAP = 38;
 const DOT_SPAWN_MAX = DOT_MAX_ON_MAP;
-const DOT_RESPAWN_SECONDS = 9.0;
+const DOT_RESPAWN_SECONDS = 2.2;
+const DOT_RESPAWN_BATCH = 3;
 const TERROR_RADIUS = 760;
 const CHASE_START_RADIUS = 520;
 const CHASE_HOLD_SECONDS = 3;
@@ -440,6 +447,7 @@ function makePlayer(socket, role, name, options = {}) {
     dots: role === "survivor" ? 0 : 0,
     dotDepositTargetId: null,
     dotDepositProgress: 0,
+    dotDepositChain: 0,
     dead: false,
     escaped: false,
     downed: false,
@@ -1248,10 +1256,12 @@ function updateDotRespawns(game, dt) {
   game.collectibleDots = game.collectibleDots || [];
   game.dotRespawnQueue = Math.max(0, game.dotRespawnQueue || 0);
 
-  // Keep the live world sparse but gently top it back up if the match has been
-  // stripped clean. No dot confetti. No accidental yellow carpet simulator.
-  if (game.collectibleDots.length < Math.min(DOT_SPAWN_MIN, DOT_MAX_ON_MAP) && game.dotRespawnQueue < DOT_MAX_ON_MAP) {
-    game.dotRespawnQueue += 1;
+  // Keep the live world populated enough for dot-only objectives without turning
+  // the map into an arcade carpet. Queue the missing amount, then respawn in small batches.
+  const targetMinimum = Math.min(DOT_SPAWN_MIN, DOT_MAX_ON_MAP);
+  if (game.collectibleDots.length < targetMinimum && game.dotRespawnQueue < DOT_MAX_ON_MAP) {
+    const missing = targetMinimum - game.collectibleDots.length;
+    game.dotRespawnQueue = Math.min(DOT_MAX_ON_MAP, game.dotRespawnQueue + missing);
   }
 
   if (!game.dotRespawnQueue || game.collectibleDots.length >= DOT_MAX_ON_MAP) return;
@@ -1260,7 +1270,11 @@ function updateDotRespawns(game, dt) {
   if (game.dotRespawnTimer > 0) return;
 
   game.dotRespawnTimer = DOT_RESPAWN_SECONDS;
-  if (spawnRandomWorldDot(game)) game.dotRespawnQueue = Math.max(0, game.dotRespawnQueue - 1);
+  const spawnCount = Math.min(DOT_RESPAWN_BATCH, game.dotRespawnQueue, DOT_MAX_ON_MAP - game.collectibleDots.length);
+  for (let i = 0; i < spawnCount; i++) {
+    if (spawnRandomWorldDot(game)) game.dotRespawnQueue = Math.max(0, game.dotRespawnQueue - 1);
+    else break;
+  }
 }
 
 function spawnWorldDotNear(game, nearX, nearY) {
@@ -1346,6 +1360,7 @@ function loseSurvivorDots(game, survivor, mode = "hit") {
   survivor.dots = Math.max(0, held - lost);
   survivor.dotDepositTargetId = null;
   survivor.dotDepositProgress = 0;
+  survivor.dotDepositChain = 0;
 
   let scattered = 0;
   for (let i = 0; i < lost; i++) {
@@ -1374,7 +1389,8 @@ function updateCollectibleDots(game, dt) {
       const dy = actor.y - dot.y;
       const d2 = dx * dx + dy * dy;
       if (d2 > nearestD2) continue;
-      if (!segmentClear(game, actor.x, actor.y, dot.x, dot.y)) continue;
+      // Visibility is only for drawing/fade. Pickup is proximity-based so players can
+      // grab orbs while moving without needing to stare directly at them. Tiny mercy.
       nearestIdx = i;
       nearestD2 = d2;
     }
@@ -1391,11 +1407,7 @@ function updateCollectibleDots(game, dt) {
 function nearestDotDepositGenerator(game, actor) {
   if (!actor || actor.role !== "survivor" || (actor.dots || 0) <= 0) return null;
   if (actor.dead || actor.escaped || actor.downed || actor.hooked || actor.vault || actor.actionLock > 0) return null;
-  if (actor.input.sprint) return null;
   if (actor.healingTargetId || actor.unhookTargetId || (actor.activeHealers && actor.activeHealers.length > 0)) return null;
-
-  const moving = !!(actor.input.up || actor.input.down || actor.input.left || actor.input.right);
-  if (moving) return null;
 
   let best = null;
   let bestDist = Infinity;
@@ -1417,6 +1429,24 @@ function clearDotDepositState(game) {
   }
 }
 
+function dotDepositSecondsForActor(actor) {
+  const chain = clamp(actor?.dotDepositChain || 0, 0, DOT_DEPOSIT_MAX_CHAIN);
+  const nextDepositNumber = clamp(chain + 1, 1, DOT_DEPOSIT_MAX_CHAIN);
+  if (nextDepositNumber <= DOT_DEPOSIT_FAST_CHAIN_COUNT) return DOT_DEPOSIT_SECONDS;
+
+  const slowSteps = Math.max(1, DOT_DEPOSIT_MAX_CHAIN - DOT_DEPOSIT_FAST_CHAIN_COUNT);
+  const t = clamp((nextDepositNumber - DOT_DEPOSIT_FAST_CHAIN_COUNT) / slowSteps, 0, 1);
+  const eased = Math.pow(t, 1.15);
+  return DOT_DEPOSIT_SECONDS + (DOT_DEPOSIT_MAX_SECONDS - DOT_DEPOSIT_SECONDS) * eased;
+}
+
+function resetActorDotDeposit(actor) {
+  if (!actor) return;
+  actor.dotDepositTargetId = null;
+  actor.dotDepositProgress = 0;
+  actor.dotDepositChain = 0;
+}
+
 function updateDotDeposits(game, dt) {
   clearDotDepositState(game);
   const buckets = new Map();
@@ -1425,20 +1455,21 @@ function updateDotDeposits(game, dt) {
     if (actor.role !== "survivor") continue;
     const gen = nearestDotDepositGenerator(game, actor);
     if (!gen) {
-      actor.dotDepositTargetId = null;
-      actor.dotDepositProgress = 0;
+      resetActorDotDeposit(actor);
       continue;
     }
 
     if (actor.dotDepositTargetId !== gen.id) {
       actor.dotDepositTargetId = gen.id;
       actor.dotDepositProgress = 0;
+      actor.dotDepositChain = 0;
     }
 
-    actor.dotDepositProgress = clamp((actor.dotDepositProgress || 0) + dt / DOT_DEPOSIT_SECONDS, 0, 1);
-    actor.input.up = actor.input.down = actor.input.left = actor.input.right = false;
-    actor.input.sprint = false;
-    actor.input.angle = Math.atan2(gen.y - actor.y, gen.x - actor.x);
+    const depositSeconds = dotDepositSecondsForActor(actor);
+    actor.dotDepositProgress = clamp((actor.dotDepositProgress || 0) + dt / depositSeconds, 0, 1);
+    // Keep depositing while the survivor walks around the generator. Do not freeze input;
+    // the progress continues as long as they remain in range with line of sight.
+    if (actor.isBot) actor.input.angle = Math.atan2(gen.y - actor.y, gen.x - actor.x);
 
     let bucket = buckets.get(gen.id);
     if (!bucket) {
@@ -1458,6 +1489,7 @@ function updateDotDeposits(game, dt) {
 
       actor.dots = Math.max(0, (actor.dots || 0) - 1);
       actor.dotDepositProgress = 0;
+      actor.dotDepositChain = clamp((actor.dotDepositChain || 0) + 1, 0, DOT_DEPOSIT_MAX_CHAIN);
 
       const oldProgress = gen.progress;
       gen.progress = clamp(gen.progress + DOT_REPAIR_PROGRESS, 0, 1);
@@ -1470,8 +1502,16 @@ function updateDotDeposits(game, dt) {
         y: gen.y,
         survivorId: actor.id,
         generatorId: gen.id,
-        progress: gen.progress
+        progress: gen.progress,
+        depositIndex: actor.dotDepositChain,
+        nextDepositSeconds: dotDepositSecondsForActor(actor)
       });
+
+      if ((actor.dots || 0) <= 0) {
+        actor.dotDepositTargetId = null;
+        actor.dotDepositProgress = 0;
+        actor.dotDepositChain = 0;
+      }
 
       if (gen.progress > oldProgress && gen.progress >= 1 && !gen.done) {
         gen.done = true;
@@ -2664,6 +2704,7 @@ function serializeActor(game, actor, visible = true) {
     dots: actor.role === "killer" ? clamp(actor.dots || 0, 0, KILLER_DOT_MAX) : actor.role === "survivor" ? clamp(actor.dots || 0, 0, SURVIVOR_DOT_MAX) : 0,
     dotDepositTargetId: actor.role === "survivor" ? actor.dotDepositTargetId || null : null,
     dotDepositProgress: actor.role === "survivor" ? quantizedProgress(actor.dotDepositProgress || 0) : 0,
+    dotDepositChain: actor.role === "survivor" ? clamp(actor.dotDepositChain || 0, 0, DOT_DEPOSIT_MAX_CHAIN) : 0,
     injured: actor.injured,
     dead: actor.dead,
     escaped: actor.escaped,
@@ -2714,6 +2755,19 @@ function canViewerSeeGeneratorDetails(game, viewer, gen) {
   if (d > KILLER_CONE_LENGTH) return false;
   return segmentClear(game, viewer.x, viewer.y, gen.x, gen.y)
     && coneSees(viewer, { x: gen.x, y: gen.y }, KILLER_CONE_LENGTH, KILLER_CONE_ANGLE);
+}
+
+function canViewerSeeDot(game, viewer, dot) {
+  if (!game || !viewer || !dot) return false;
+  if (viewer.dead || viewer.escaped || viewer.hooked || viewer.downed) return false;
+
+  const length = viewer.role === "killer" ? KILLER_CONE_LENGTH : SURVIVOR_CONE_LENGTH;
+  const angle = viewer.role === "killer" ? KILLER_CONE_ANGLE : SURVIVOR_CONE_ANGLE;
+  const d = dist(viewer.x, viewer.y, dot.x, dot.y);
+  if (d > length) return false;
+
+  return coneSees(viewer, { x: dot.x, y: dot.y }, length, angle)
+    && segmentClear(game, viewer.x, viewer.y, dot.x, dot.y);
 }
 
 function serializeGeneratorForViewer(game, viewer, gen) {
@@ -2824,7 +2878,9 @@ function buildSnapshotFor(lobby, socketId) {
       remainingGenerators: Math.max(0, requiredGenerators - doneGenerators),
       escapeOpen: game.escapeOpen
     },
-    collectibleDots: (game.collectibleDots || []).map((d) => ({ id: d.id, x: d.x, y: d.y })),
+    collectibleDots: (game.collectibleDots || [])
+      .filter((d) => canViewerSeeDot(game, viewer, d))
+      .map((d) => ({ id: d.id, x: d.x, y: d.y })),
     music
   };
 }
