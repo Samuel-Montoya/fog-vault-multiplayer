@@ -658,6 +658,7 @@ function startGame(lobby) {
 
   lobby.phase = "game";
   lobby.game = game;
+  syncGameKiller(game);
   for (const player of lobby.players.values()) player.ready = false;
   io.to(lobby.id).emit("gameStarted", serializeMapForClient(map));
   broadcastLobbyState(lobby);
@@ -913,7 +914,7 @@ function handleAction(game, actor) {
     bumpPathCache(game);
     addEvent(game, "palletDrop", { x: hit.object.x + hit.object.w / 2, y: hit.object.y + hit.object.h / 2 });
 
-    const killer = [...game.actors.values()].find((p) => p.role === "killer" && !p.dead);
+    const killer = getGameKiller(game, { aliveOnly: true });
     if (killer && circleNearRect(killer.x, killer.y, KILLER_SIZE * 0.65, hit.object)) {
       killer.recovery = Math.max(killer.recovery, 2.4);
       addEvent(game, "killerStun", { x: killer.x, y: killer.y });
@@ -1207,7 +1208,7 @@ function nearestHookedSurvivorForRescue(game, healer) {
 }
 
 function sendSurvivorToHook(game, survivor) {
-  const killer = [...game.actors.values()].find((p) => p.role === "killer" && !p.dead) || null;
+  const killer = getGameKiller(game, { aliveOnly: true });
   const spot = randomFloorHookSpot(game, killer);
   const hook = {
     id: uid("hook"),
@@ -1280,7 +1281,7 @@ function updateHookInteractions(game, dt) {
 
   const activeHookTargets = new Set();
   const activeUnhookTargets = new Set();
-  const killer = [...game.actors.values()].find((p) => p.role === "killer" && !p.dead);
+  const killer = getGameKiller(game, { aliveOnly: true });
 
   if (killer && killer.input.repair && !killer.vault && !killer.breakTarget && !killer.attackState && killer.actionLock <= 0) {
     const target = nearestDownedSurvivorForHook(game, killer);
@@ -1438,7 +1439,7 @@ function updateGeneratorKicks(game, dt) {
     gen.kickProgress = Math.max(0, (gen.kickProgress || 0) - dt * 1.8);
   }
 
-  const killer = [...game.actors.values()].find((p) => p.role === "killer" && !p.dead);
+  const killer = getGameKiller(game, { aliveOnly: true });
   if (!killer) return;
 
   killer.generatorKickTargetId = null;
@@ -1573,7 +1574,7 @@ function updateGeneratorsAndGates(game, dt) {
 }
 
 function updateChaseState(game, dt) {
-  const killer = [...game.actors.values()].find((p) => p.role === "killer" && !p.dead);
+  const killer = getGameKiller(game, { aliveOnly: true });
   if (!killer) return;
 
   for (const survivor of game.actors.values()) {
@@ -2171,7 +2172,7 @@ function botMoveToObjective(game, actor) {
 }
 
 function updateBotInputs(game, dt) {
-  const killer = [...game.actors.values()].find((p) => p.role === "killer" && !p.dead);
+  const killer = getGameKiller(game, { aliveOnly: true });
 
   for (const actor of game.actors.values()) {
     if (!actor.isBot || actor.dead || actor.escaped || actor.hooked || actor.downed) continue;
@@ -2255,7 +2256,7 @@ function updateGame(lobby, dt) {
   updateTimers(game, dt);
   updateHookInteractions(game, dt);
   updateGeneratorKicks(game, dt);
-  const killer = [...game.actors.values()].find((p) => p.role === "killer");
+  const killer = getGameKiller(game);
   for (const actor of game.actors.values()) moveActor(game, actor, dt);
   updateKillerAttack(game, killer, dt);
   for (const actor of game.actors.values()) {
@@ -2271,6 +2272,29 @@ function updateGame(lobby, dt) {
     actor.input.attack = false;
     actor.input.attackReleased = false;
   }
+}
+
+function syncGameKiller(game) {
+  game.killer = null;
+  for (const actor of game.actors.values()) {
+    if (actor.role === "killer") {
+      game.killer = actor;
+      return;
+    }
+  }
+}
+
+function getGameKiller(game, options = {}) {
+  const { aliveOnly = false } = options;
+  const cached = game.killer;
+  if (cached && game.actors.get(cached.id) === cached && cached.role === "killer") {
+    if (aliveOnly && cached.dead) return null;
+    return cached;
+  }
+  syncGameKiller(game);
+  if (!game.killer) return null;
+  if (aliveOnly && game.killer.dead) return null;
+  return game.killer;
 }
 
 function isActorVisibleToViewer(game, viewer, actor) {
@@ -2301,17 +2325,13 @@ function isActorVisibleToViewer(game, viewer, actor) {
   return true;
 }
 
-function serializeActor(game, actor, visible = true) {
-  // Always send position, angle, and skin, even when the viewer cannot see this actor.
-  // The client hides the sprite locally but keeps interpolating it, so reappearing actors
-  // do not teleport from an old stale position. The fog may lie, the server does not.
+function serializeActorCore(game, actor) {
   const actorSkin = actor.role === "survivor" ? sanitizeSkin(actor.skin) : "killerCircle";
   return {
     id: actor.id,
     name: actor.name,
     role: actor.role,
     skin: actorSkin,
-    visible: !!visible,
     x: Number(actor.x.toFixed(2)),
     y: Number(actor.y.toFixed(2)),
     angle: actor.angle,
@@ -2352,6 +2372,10 @@ function serializeActor(game, actor, visible = true) {
   };
 }
 
+function serializeActor(game, actor, visible = true) {
+  return { ...serializeActorCore(game, actor), visible: !!visible };
+}
+
 function quantizedProgress(value) {
   if (value >= 1) return 1;
   // Keep repair traffic smooth but bounded. Sending microscopic 60Hz float changes
@@ -2388,16 +2412,51 @@ function serializeGeneratorForViewer(game, viewer, gen) {
   };
 }
 
-function buildSnapshotFor(lobby, socketId) {
+function buildLobbySnapshotBase(lobby) {
+  const game = lobby.game;
+  const map = game.map;
+  const actorList = [...game.actors.values()];
+  const doneGenerators = map.generators.reduce((count, g) => count + (g.done ? 1 : 0), 0);
+  const requiredGenerators = game.requiredGenerators;
+
+  return {
+    lobbyId: lobby.id,
+    seq: game.snapshotSeq || 0,
+    phase: game.phase,
+    winner: game.winner,
+    endReason: game.endReason,
+    killer: getGameKiller(game),
+    actorList,
+    actorCores: actorList.map((actor) => serializeActorCore(game, actor)),
+    events: game.events.slice(),
+    mapStatic: {
+      width: map.width,
+      height: map.height,
+      tile: map.tile,
+      pallets: map.pallets.map((p) => ({ id: p.id, x: p.x, y: p.y, w: p.w, h: p.h, orientation: p.orientation, state: p.state, broken: p.broken })),
+      gates: map.gates.map((g) => ({ id: g.id, x: g.x, y: g.y, open: g.open })),
+      hooks: (map.hooks || []).filter((h) => h.active).map((h) => ({ id: h.id, x: h.x, y: h.y, survivorId: h.survivorId, active: h.active }))
+    },
+    objective: {
+      doneGenerators,
+      requiredGenerators,
+      totalGenerators: map.generators.length,
+      remainingGenerators: Math.max(0, requiredGenerators - doneGenerators),
+      escapeOpen: game.escapeOpen
+    }
+  };
+}
+
+function buildSnapshotForViewer(lobby, socketId, base) {
   const game = lobby.game;
   const viewer = game.actors.get(socketId);
   const map = game.map;
-  const actors = [];
-  for (const actor of game.actors.values()) {
-    actors.push(serializeActor(game, actor, isActorVisibleToViewer(game, viewer, actor)));
-  }
+  const killer = base.killer;
+  const actors = base.actorList.map((actor, index) => ({
+    ...base.actorCores[index],
+    visible: isActorVisibleToViewer(game, viewer, actor)
+  }));
 
-  const killer = [...game.actors.values()].find((p) => p.role === "killer");
   let music = {
     layer1: MUSIC_LAYER_1_VOLUME,
     layer2: 0,
@@ -2414,11 +2473,6 @@ function buildSnapshotFor(lobby, socketId) {
     const terror = clamp(1 - d / TERROR_RADIUS, 0, 1);
     const chase = viewer.chaseHold > 0;
     const killerVisible = isActorVisibleToViewer(game, viewer, killer);
-
-    // Clean three-layer music ladder:
-    // layer_1 = normal ambient when the survivor is safe / no meaningful terror pressure.
-    // layer_2 = killer is nearby, but the survivor is NOT in chase.
-    // layer_3 = survivor is in chase, regardless of whether the killer is currently on-screen.
     const nearbyNoChase = !chase && terror > 0;
     const terrorRamp = Math.pow(terror, 0.72);
 
@@ -2436,7 +2490,6 @@ function buildSnapshotFor(lobby, socketId) {
 
   const visibleScratchMarks = viewer?.role === "killer"
     ? game.scratchMarks.filter((s) => {
-        if (!viewer) return false;
         const d = dist(viewer.x, viewer.y, s.x, s.y);
         if (d > KILLER_SCRATCH_MARK_VISIBILITY_RANGE) return false;
         const target = { x: s.x, y: s.y };
@@ -2444,35 +2497,21 @@ function buildSnapshotFor(lobby, socketId) {
       })
     : game.scratchMarks.filter((s) => dist(viewer?.x || 0, viewer?.y || 0, s.x, s.y) < 180);
 
-  const doneGenerators = map.generators.reduce((count, g) => count + (g.done ? 1 : 0), 0);
-  const requiredGenerators = game.requiredGenerators;
-
   return {
-    lobbyId: lobby.id,
-    seq: game.snapshotSeq || 0,
+    lobbyId: base.lobbyId,
+    seq: base.seq,
     map: {
-      width: map.width,
-      height: map.height,
-      tile: map.tile,
-      pallets: map.pallets.map((p) => ({ id: p.id, x: p.x, y: p.y, w: p.w, h: p.h, orientation: p.orientation, state: p.state, broken: p.broken })),
-      generators: map.generators.map((g) => serializeGeneratorForViewer(game, viewer, g)),
-      gates: map.gates.map((g) => ({ id: g.id, x: g.x, y: g.y, open: g.open })),
-      hooks: (map.hooks || []).filter((h) => h.active).map((h) => ({ id: h.id, x: h.x, y: h.y, survivorId: h.survivorId, active: h.active }))
+      ...base.mapStatic,
+      generators: map.generators.map((g) => serializeGeneratorForViewer(game, viewer, g))
     },
-    phase: game.phase,
-    winner: game.winner,
-    endReason: game.endReason,
+    phase: base.phase,
+    winner: base.winner,
+    endReason: base.endReason,
     viewerId: socketId,
     actors,
-    events: game.events.slice(),
+    events: base.events,
     scratchMarks: visibleScratchMarks.map((s) => ({ id: s.id, x: s.x, y: s.y, angle: s.angle, ttl: s.ttl })),
-    objective: {
-      doneGenerators,
-      requiredGenerators,
-      totalGenerators: map.generators.length,
-      remainingGenerators: Math.max(0, requiredGenerators - doneGenerators),
-      escapeOpen: game.escapeOpen
-    },
+    objective: base.objective,
     music
   };
 }
@@ -2481,6 +2520,7 @@ function sendSnapshots() {
   for (const lobby of lobbies.values()) {
     if (!lobby.game) continue;
     lobby.game.snapshotSeq = (lobby.game.snapshotSeq || 0) + 1;
+    const base = buildLobbySnapshotBase(lobby);
     for (const socketId of lobby.players.keys()) {
       const socket = io.sockets.sockets.get(socketId);
       if (!socket) continue;
@@ -2490,7 +2530,7 @@ function sendSnapshots() {
         serverMetrics.snapshotsSkipped += 1;
         continue;
       }
-      socket.compress(false).volatile.emit("snapshot", buildSnapshotFor(lobby, socketId));
+      socket.compress(false).volatile.emit("snapshot", buildSnapshotForViewer(lobby, socketId, base));
       serverMetrics.snapshotsSent += 1;
     }
     if (lobby.game.events.length) lobby.game.events.length = 0;

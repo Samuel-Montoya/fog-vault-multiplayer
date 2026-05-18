@@ -131,8 +131,11 @@
     // happen just because somebody is holding E. Humanity may survive this one.
     GENERATOR_FPS: LOW_POWER_MODE ? 4 : 6,
     SCRATCH_DRAW_FPS: LOW_POWER_MODE ? 6 : 8,
+    LIGHTING_FPS: LOW_POWER_MODE ? 30 : 60,
+    HOOK_INDICATOR_FPS: LOW_POWER_MODE ? 20 : 30,
     MAX_PARTICLES: LOW_POWER_MODE ? 28 : 58,
-    MAX_SHOCKWAVES: LOW_POWER_MODE ? 3 : 6
+    MAX_SHOCKWAVES: LOW_POWER_MODE ? 3 : 6,
+    MAX_SEEN_EVENTS: 256
   };
 
   // Visual generator tuning. Put your actual SVG at public/gen.svg.
@@ -463,14 +466,53 @@
     };
   }
 
+  function inputSignature(payload) {
+    const dir = payload.actionDir || "";
+    const dirCode = dir === "up" ? 1 : dir === "down" ? 2 : dir === "left" ? 3 : dir === "right" ? 4 : 0;
+    const angleBucket = Math.round((payload.angle || 0) * 64);
+    let flags = 0;
+    if (payload.up) flags |= 1;
+    if (payload.down) flags |= 2;
+    if (payload.left) flags |= 4;
+    if (payload.right) flags |= 8;
+    if (payload.sprint) flags |= 16;
+    if (payload.repair) flags |= 32;
+    if (payload.action) flags |= 64;
+    if (payload.attack) flags |= 128;
+    if (payload.attackHeld) flags |= 256;
+    if (payload.attackReleased) flags |= 512;
+    return `${flags}|${dirCode}|${angleBucket}`;
+  }
+
   function sendInput(oneShot = {}, force = false) {
     if (!socket || !myId) return;
     const payload = inputPayload(oneShot);
-    const signature = JSON.stringify(payload);
+    const signature = inputSignature(payload);
     if (force || signature !== lastInputPayload || oneShot.action || oneShot.attack || oneShot.attackReleased) {
       socket.emit("input", payload);
       lastInputPayload = signature;
     }
+  }
+
+  function actorVisualKey(data) {
+    if (!data) return "";
+    return [
+      data.role,
+      data.skin,
+      data.health,
+      data.injured ? 1 : 0,
+      data.downed ? 1 : 0,
+      data.hooked ? 1 : 0,
+      data.dead ? 1 : 0,
+      data.escaped ? 1 : 0,
+      data.invuln > 0 ? 1 : 0,
+      data.attackState || "",
+      data.attacking ? 1 : 0,
+      data.recovery > 0 ? 1 : 0,
+      Math.round((data.healProgress || 0) * 24),
+      Math.round((data.hookProgress || 0) * 24),
+      Math.round((data.unhookProgress || 0) * 24)
+    ].join("|");
   }
 
   function setupAudio() {
@@ -761,6 +803,12 @@
       this.killerM1Pulse = 0;
       this.lastMoveDirX = 0;
       this.lastMoveDirY = 0;
+      this.lightingTimer = 0;
+      this.hookIndicatorTimer = 0;
+      this.lastGeneratorSpriteKey = "";
+      this.localCollisionSolids = [];
+      this.localCollisionKey = "";
+      this.seenEventIds = new Set();
     }
 
     preload() {
@@ -829,11 +877,6 @@
           sendInput({ attackReleased: true }, true);
         }
       });
-    }
-
-    createGrassTexture() {
-      // Legacy no-op. v51 uses a cheap solid/patch ground graphics layer for performance.
-      return null;
     }
 
     createGeneratorFallbackTexture() {
@@ -957,10 +1000,32 @@
       this.clearActors();
       this.lastDynamicKey = "";
       this.lastGeneratorKey = "";
+      this.lastGeneratorSpriteKey = "";
       this.needsDynamicRedraw = true;
       this.needsGeneratorRedraw = true;
       this.localVisual = null;
       this.localServerTarget = null;
+      this.localCollisionSolids = [];
+      this.localCollisionKey = "";
+      this.seenEventIds?.clear();
+    }
+
+    rebuildLocalCollisionSolids() {
+      if (!this.map) {
+        this.localCollisionSolids = [];
+        this.localCollisionKey = "";
+        return;
+      }
+      const pallets = (currentSnapshot?.map?.pallets || this.map.pallets || [])
+        .filter((p) => !p.broken && p.state === "dropped");
+      const key = `${(this.map.walls || []).length}|${(this.map.windows || []).length}|${pallets.map((p) => p.id).join(",")}`;
+      if (key === this.localCollisionKey) return;
+      this.localCollisionKey = key;
+      this.localCollisionSolids = [
+        ...(this.map.walls || []),
+        ...(this.map.windows || []),
+        ...pallets
+      ];
     }
 
     rebuildGrassLayer() {
@@ -1040,22 +1105,11 @@
       if (!this.map) return;
       const g = this.worldGraphics;
       g.clear();
-      const tile = this.map.tile || 72;
-      const cols = Math.ceil(this.map.width / tile);
-      const rows = Math.ceil(this.map.height / tile);
 
-      // The actual ground is a static world-space tileSprite. These translucent
-      // stains sit above it, so the camera can move without the grass texture sliding.
-      for (let y = 0; y < rows; y++) {
-        for (let x = 0; x < cols; x++) {
-          const n = hash2(x, y);
-          g.fillStyle(n > 0.62 ? 0x31452a : 0x0b120b, n > 0.62 ? 0.08 : 0.05);
-          g.fillRect(x * tile, y * tile, tile, tile);
-        }
-      }
-
-      // Old blood stains, cracks, and dirt. Charming, if your idea of charm is tetanus.
-      for (let i = 0; i < 180; i++) {
+      // Ground color lives on grassLayer (rebuildGrassLayer). Only draw stains + walls here
+      // so map load does not iterate every floor tile and hitch the first frame.
+      const stainCount = LOW_POWER_MODE ? 90 : 180;
+      for (let i = 0; i < stainCount; i++) {
         const x = hash2(i, 7) * this.map.width;
         const y = hash2(i, 19) * this.map.height;
         const r = 8 + hash2(i, 31) * 30;
@@ -1217,9 +1271,7 @@
         this.drawPallet(g, pallet);
       }
 
-      // Generator sprites/bars live on their own layer now. Redrawing every pallet,
-      // gate, and hook because a progress bar moved was the lag monster wearing a nametag.
-      this.syncGeneratorSprites(currentSnapshot.map?.generators || this.map.generators || []);
+      // Generator sprites sync on the generator layer only (see drawGeneratorLayer).
       for (const gate of currentSnapshot.map?.gates || this.map.gates || []) this.drawGate(g, gate);
       for (const hook of currentSnapshot.map?.hooks || this.map.hooks || []) this.drawHook(g, hook);
     }
@@ -1227,7 +1279,11 @@
     drawGeneratorLayer() {
       if (!this.map || !currentSnapshot || !this.generatorGraphics) return;
       const generators = currentSnapshot.map?.generators || this.map.generators || [];
-      this.syncGeneratorSprites(generators);
+      const spriteKey = this.getGeneratorSpriteKey();
+      if (spriteKey !== this.lastGeneratorSpriteKey) {
+        this.syncGeneratorSprites(generators);
+        this.lastGeneratorSpriteKey = spriteKey;
+      }
       const g = this.generatorGraphics;
       g.clear();
       for (const gen of generators) this.drawGenerator(g, gen);
@@ -1458,7 +1514,7 @@
         objective: [objective.doneGenerators, objective.requiredGenerators, objective.totalGenerators, objective.escapeOpen],
         survivors: (snapshot.actors || []).filter((a) => a.role === "survivor").map((a) => [a.id, a.health, a.injured, a.downed, a.hooked, a.dead, a.escaped, a.chase, a.hookProgress, a.healProgress, a.hookCount])
       });
-      if (hudKey === this.lastHudKey && now - this.lastHudRenderAt < 180) return;
+      if (hudKey === this.lastHudKey && now - this.lastHudRenderAt < (LOW_POWER_MODE ? 280 : 180)) return;
       this.lastHudKey = hudKey;
       this.lastHudRenderAt = now;
       renderSurvivorStatusHud(snapshot);
@@ -1491,7 +1547,6 @@
           ui.healthText.textContent = kickable ? "Hold E: Kick generator" : "Killer";
         }
       } else ui.healthText.textContent = survivorStateLabel(me);
-      updateHorrorFx(snapshot, me, { terror: this.terrorBlend, chase: this.chaseBlend });
     }
 
     updateScratchGraphics(marks) {
@@ -1540,7 +1595,13 @@
           item.chatText.setText(data.chatText || "");
           item.chatText.setVisible(isVisible && !!data.chatText);
         }
-        this.styleActor(item, data);
+        const visualKey = actorVisualKey(data);
+        if (visualKey !== item.visualKey) {
+          item.visualKey = visualKey;
+          this.styleActor(item, data);
+        } else {
+          this.updateActorProgressBars(item, data);
+        }
 
         if (data.id === myId) {
           this.localServerTarget = { x: data.x, y: data.y, angle: data.angle, data };
@@ -1602,9 +1663,22 @@
         nameText,
         chatText,
         data,
+        visualKey: actorVisualKey(data),
         current: { x: data.x || 0, y: data.y || 0, angle: data.angle || 0 },
         target: { x: data.x || 0, y: data.y || 0, angle: data.angle || 0 }
       };
+    }
+
+    updateActorProgressBars(item, data) {
+      if (!item.healBarBg || !item.healBar || data.role === "killer") return;
+      const downedHealProgress = data.downed && data.healProgress > 0 ? data.healProgress : 0;
+      const progress = data.hooked ? (data.unhookProgress || 0) : data.downed ? (downedHealProgress || data.hookProgress || 0) : (data.healProgress || 0);
+      const showProgress = progress > 0 && !data.dead && !data.escaped;
+      const progressColor = data.hooked ? 0x75d5ff : downedHealProgress ? 0x8dff9a : data.downed && (data.hookCount || 0) >= 2 && data.hookProgress > 0 ? 0xff4040 : data.downed ? 0xffb36b : 0x8dff9a;
+      item.healBarBg.setVisible(showProgress);
+      item.healBar.setVisible(showProgress);
+      item.healBar.setFillStyle(progressColor, 0.95);
+      item.healBar.width = 38 * clamp(progress, 0, 1);
     }
 
     drawActorShape(item, data, fillColor, fillAlpha, outlineColor, outlineAlpha) {
@@ -1685,19 +1759,19 @@
         const outlineColor = showProgress ? progressColor : data.invuln > 0 ? 0xffffff : data.hooked ? 0xffc06a : skin.outline;
         this.drawActorShape(item, data, data.dead ? 0x555555 : color, disabled ? 0.45 : 1, outlineColor, showProgress || data.invuln > 0 || data.hooked ? 1 : 0.82);
         item.facing.setFillStyle(0xffffff, disabled || data.hooked ? 0.15 : 0.42);
-        if (item.healBarBg && item.healBar) {
-          item.healBarBg.setVisible(showProgress);
-          item.healBar.setVisible(showProgress);
-          item.healBar.setFillStyle(progressColor, 0.95);
-          item.healBar.width = 38 * clamp(progress, 0, 1);
-        }
+        this.updateActorProgressBars(item, data);
       }
     }
 
     handleEvents(events) {
+      if (!this.seenEventIds) this.seenEventIds = new Set();
       for (const event of events) {
-        if (this[`seen_${event.id}`]) continue;
-        this[`seen_${event.id}`] = true;
+        if (!event?.id || this.seenEventIds.has(event.id)) continue;
+        this.seenEventIds.add(event.id);
+        if (this.seenEventIds.size > PERFORMANCE.MAX_SEEN_EVENTS) {
+          const oldest = this.seenEventIds.values().next().value;
+          if (oldest) this.seenEventIds.delete(oldest);
+        }
         if (event.type === "swipe" || event.type === "swing") {
           this.addSwipeIndicator(event);
           playLocalizedSwing(event);
@@ -1754,6 +1828,17 @@
     drawChargeIndicators(dt) {
       const g = this.chargeGraphics;
       if (!g) return;
+      let hasCharging = false;
+      for (const item of this.actors.values()) {
+        if (item.data?.role === "killer" && item.data.attackState === "charging") {
+          hasCharging = true;
+          break;
+        }
+      }
+      if (!hasCharging) {
+        g.clear();
+        return;
+      }
       g.clear();
       for (const [id, item] of this.actors.entries()) {
         const data = item.data || {};
@@ -1808,6 +1893,10 @@
 
     drawSwipes(dt) {
       const g = this.swipeGraphics;
+      if (!this.swipes.length) {
+        g.clear();
+        return;
+      }
       g.clear();
       for (let i = this.swipes.length - 1; i >= 0; i--) {
         const s = this.swipes[i];
@@ -1827,7 +1916,7 @@
         const fade = windup ? 0.26 + 0.28 * sweepT : Math.pow(1 - rawT, 1.35);
         const range = s.range * (windup ? 0.84 + 0.16 * sweepT : 1);
         const arc = s.arc * (windup ? 0.55 + 0.45 * sweepT : 1);
-        const steps = 22;
+        const steps = LOW_POWER_MODE ? 12 : 22;
         const points = [{ x, y }];
 
         for (let n = 0; n <= steps; n++) {
@@ -1890,6 +1979,7 @@
     update(time, deltaMs) {
       const dt = Math.min(0.04, deltaMs / 1000);
       updateMusic();
+      this.rebuildLocalCollisionSolids();
       this.updateAimAngle();
       this.predictLocal(dt);
       this.updateActorDisplays(dt);
@@ -1898,8 +1988,8 @@
       this.maybeDrawDynamicWorld(dt);
       this.maybeDrawGeneratorLayer(dt);
       this.maybeUpdateScratchGraphics(dt);
-      this.drawLighting();
-      this.drawHookIndicators();
+      this.maybeDrawLighting(dt);
+      this.maybeDrawHookIndicators(dt);
       this.drawChatWheel();
       this.drawChargeIndicators(dt);
       this.drawSwipes(dt);
@@ -1963,14 +2053,12 @@
 
     localWouldCollide(role, x, y) {
       const box = actorRect({ role }, x, y);
-      const solids = [...(this.map.walls || []), ...(this.map.windows || [])];
-      for (const p of currentSnapshot?.map?.pallets || []) {
-        if (!p.broken && p.state === "dropped") solids.push(p);
-      }
+      const solids = this.localCollisionSolids || [];
       if (role === "survivor") {
         for (const gen of currentSnapshot?.map?.generators || this.map.generators || []) {
           const size = GENERATOR_COLLISION_SIZE;
-          solids.push({ id: gen.id, x: gen.x - size / 2, y: gen.y - size / 2, w: size, h: size });
+          const genRect = { id: gen.id, x: gen.x - size / 2, y: gen.y - size / 2, w: size, h: size };
+          if (rectsOverlap(box, genRect)) return true;
         }
       }
       return solids.some((r) => rectsOverlap(box, r));
@@ -1978,12 +2066,13 @@
 
     updateActorDisplays(dt) {
       for (const [id, item] of this.actors.entries()) {
+        const data = item.data;
         if (id === myId && this.localVisual) {
           item.current.x = this.localVisual.x;
           item.current.y = this.localVisual.y;
           item.current.angle = this.localVisual.angle;
         } else {
-          const factor = item.data?.vaulting ? 0.5 : 0.22;
+          const factor = data?.vaulting ? 0.5 : 0.22;
           item.current.x = lerp(item.current.x, item.target.x, factor);
           item.current.y = lerp(item.current.y, item.target.y, factor);
           item.current.angle = lerpAngle(item.current.angle, item.target.angle, 0.24);
@@ -1991,11 +2080,38 @@
         item.container.setPosition(item.current.x, item.current.y);
         item.container.rotation = item.current.angle || 0;
         if (item.chatText) {
-          const isKiller = item.data?.role === "killer";
+          const isKiller = data?.role === "killer";
           item.chatText.setPosition(item.current.x, item.current.y + (isKiller ? 47 : 43));
           item.chatText.setRotation(0);
         }
+        if (data) {
+          const progressKey = [
+            Math.round((data.healProgress || 0) * 24),
+            Math.round((data.hookProgress || 0) * 24),
+            Math.round((data.unhookProgress || 0) * 24)
+          ].join("|");
+          if (progressKey !== item.progressKey) {
+            item.progressKey = progressKey;
+            this.updateActorProgressBars(item, data);
+          }
+        }
       }
+    }
+
+    maybeDrawLighting(dt) {
+      this.lightingTimer += dt;
+      const interval = 1 / PERFORMANCE.LIGHTING_FPS;
+      if (this.lightingTimer < interval) return;
+      this.lightingTimer = 0;
+      this.drawLighting();
+    }
+
+    maybeDrawHookIndicators(dt) {
+      this.hookIndicatorTimer += dt;
+      const interval = 1 / PERFORMANCE.HOOK_INDICATOR_FPS;
+      if (this.hookIndicatorTimer < interval) return;
+      this.hookIndicatorTimer = 0;
+      this.drawHookIndicators();
     }
 
     updateImmersion(dt) {
@@ -2116,6 +2232,12 @@
       const hookKey = (map.hooks || []).map((h) => `${h.id}:${h.active ? 1 : 0}:${h.survivorId || ""}`).join("|");
       const gateKey = (map.gates || []).map((g) => `${g.id}:${g.open ? 1 : 0}`).join("|");
       return `${palletKey}#${hookKey}#${gateKey}`;
+    }
+
+    getGeneratorSpriteKey() {
+      const map = currentSnapshot?.map || this.map;
+      if (!map) return "";
+      return (map.generators || []).map((g) => `${g.id}:${g.done ? 1 : 0}`).join("|");
     }
 
     getGeneratorWorldKey() {
@@ -2476,6 +2598,10 @@
 
     updateParticles(dt) {
       const g = this.particleGraphics;
+      if (!this.particles.length && !this.shockwaves.length) {
+        g.clear();
+        return;
+      }
       g.clear();
       for (let i = this.shockwaves.length - 1; i >= 0; i--) {
         const wave = this.shockwaves[i];
