@@ -30,8 +30,10 @@ const PERF = Object.freeze({
   tickRate: 60,
   // Boosted hosts can afford slightly more frequent snapshots, but keep this sane.
   // Generator visuals are already throttled client-side; do not turn snapshots into a firehose again.
-  snapshotRate: IS_BOOSTED_HOST ? 20 : 16,
-  botThinkRate: IS_BOOSTED_HOST ? 12 : 8,
+  // Lower snapshot rate is deliberate: client-side interpolation hides it,
+  // while older Edge/WebGL laptops avoid JSON + render pressure spikes.
+  snapshotRate: IS_BOOSTED_HOST ? 16 : 12,
+  botThinkRate: IS_BOOSTED_HOST ? 10 : 7,
   pathfindLoopLimit: IS_BOOSTED_HOST ? 1600 : 950,
   pathCacheMax: IS_BOOSTED_HOST ? 900 : 300,
   enablePathCache: process.env.ENABLE_PATH_CACHE !== "false",
@@ -43,7 +45,7 @@ const TICK_RATE = PERF.tickRate;
 const SNAPSHOT_RATE = PERF.snapshotRate;
 const BOT_THINK_RATE = PERF.botThinkRate;
 const PATHFIND_LOOP_LIMIT = PERF.pathfindLoopLimit;
-const SCRATCH_MARK_MAX = 45;
+const SCRATCH_MARK_MAX = 32;
 const MAX_SURVIVORS = 4;
 const SURVIVOR_SKINS = new Set(["blueSquare", "yellowStar", "purplePentagon"]);
 function sanitizeSkin(value) {
@@ -2905,8 +2907,8 @@ function buildSnapshotFor(lobby, socketId) {
     endReason: game.endReason,
     viewerId: socketId,
     actors,
-    events: game.events.slice(),
-    scratchMarks: visibleScratchMarks.map((s) => ({ id: s.id, x: s.x, y: s.y, angle: s.angle, ttl: s.ttl })),
+    events: game.events.slice(-24),
+    scratchMarks: visibleScratchMarks.slice(-24).map((s) => ({ id: s.id, x: Math.round(s.x), y: Math.round(s.y), angle: Math.round((s.angle || 0) * 100) / 100, ttl: Math.round((s.ttl || 0) * 10) / 10 })),
     objective: {
       doneGenerators,
       requiredGenerators,
@@ -2914,7 +2916,7 @@ function buildSnapshotFor(lobby, socketId) {
       remainingGenerators: Math.max(0, requiredGenerators - doneGenerators),
       escapeOpen: game.escapeOpen
     },
-    collectibleDots: visibleCollectibleDotsForViewer(game, viewer).map((d) => ({ id: d.id, x: d.x, y: d.y })),
+    collectibleDots: visibleCollectibleDotsForViewer(game, viewer).map((d) => ({ id: d.id, x: Math.round(d.x), y: Math.round(d.y) })),
     music
   };
 }
