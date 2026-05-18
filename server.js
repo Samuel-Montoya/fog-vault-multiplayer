@@ -140,13 +140,16 @@ const HOOK_INTERACT_DISTANCE = 128;
 const HOOK_RESCUE_DISTANCE = 108;
 const HOOK_MIN_KILLER_DISTANCE = 430;
 const SURVIVOR_DOT_MAX = 10;
-// Sparse map economy. Survivors carry dots, then auto-deposit them into gens.
-// A dot takes 0.5s to insert and gives 10 seconds worth of generator repair.
+const KILLER_DOT_MAX = 999;
+// Dot economy: survivors complete generators by collecting dots and standing near a gen.
+// No hold-E generator repair. One inserted dot takes 0.5s and each gen needs about 15 dots.
+const DOTS_PER_GENERATOR = 15;
 const SURVIVOR_DOT_DROP_ON_HIT_PERCENT = 0.5;
-const DOT_PICKUP_RADIUS = 48;
+const SURVIVOR_DOT_PICKUP_RADIUS = 48;
+const KILLER_DOT_PICKUP_RADIUS = 92;
 const DOT_DEPOSIT_DISTANCE = 96;
 const DOT_DEPOSIT_SECONDS = 0.5;
-const DOT_REPAIR_SECONDS = 10.0;
+const DOT_REPAIR_PROGRESS = 1 / DOTS_PER_GENERATOR;
 const DOT_MIN_TILE_SPACING = 4.1;
 const DOT_MIN_OBJECTIVE_TILE_DIST = 1.8;
 const DOT_SPAWN_FLOOR_RATIO = 0.018;
@@ -1320,16 +1323,15 @@ function seedInitialCollectibleDots(game) {
   }
 }
 
-function survivorCanPickupDots(actor) {
-  return !!(
-    actor
-    && actor.role === "survivor"
-    && !actor.dead
-    && !actor.escaped
-    && !actor.hooked
-    && !actor.downed
-    && (actor.dots || 0) < SURVIVOR_DOT_MAX
-  );
+function actorCanPickupDots(actor) {
+  if (!actor || actor.dead || actor.escaped || actor.hooked || actor.downed) return false;
+  if (actor.role === "survivor") return (actor.dots || 0) < SURVIVOR_DOT_MAX;
+  if (actor.role === "killer") return (actor.dots || 0) < KILLER_DOT_MAX;
+  return false;
+}
+
+function dotPickupRadiusForActor(actor) {
+  return actor?.role === "killer" ? KILLER_DOT_PICKUP_RADIUS : SURVIVOR_DOT_PICKUP_RADIUS;
 }
 
 function loseSurvivorDots(game, survivor, mode = "hit") {
@@ -1359,11 +1361,11 @@ function updateCollectibleDots(game, dt) {
   updateDotRespawns(game, dt);
   if (!game.collectibleDots?.length) return;
 
-  const pickupRadius2 = DOT_PICKUP_RADIUS * DOT_PICKUP_RADIUS;
-
   for (const actor of game.actors.values()) {
-    if (!survivorCanPickupDots(actor)) continue;
+    if (!actorCanPickupDots(actor)) continue;
 
+    const pickupRadius = dotPickupRadiusForActor(actor);
+    const pickupRadius2 = pickupRadius * pickupRadius;
     let nearestIdx = -1;
     let nearestD2 = pickupRadius2;
     for (let i = 0; i < game.collectibleDots.length; i++) {
@@ -1379,9 +1381,10 @@ function updateCollectibleDots(game, dt) {
 
     if (nearestIdx < 0) continue;
     const dot = game.collectibleDots.splice(nearestIdx, 1)[0];
-    actor.dots = Math.min(SURVIVOR_DOT_MAX, (actor.dots || 0) + 1);
+    const maxDots = actor.role === "killer" ? KILLER_DOT_MAX : SURVIVOR_DOT_MAX;
+    actor.dots = Math.min(maxDots, (actor.dots || 0) + 1);
     queueDotRespawns(game, 1);
-    addEvent(game, "dotPickup", { x: dot.x, y: dot.y, survivorId: actor.id });
+    addEvent(game, "dotPickup", { x: dot.x, y: dot.y, actorId: actor.id, survivorId: actor.role === "survivor" ? actor.id : null, role: actor.role });
   }
 }
 
@@ -1457,7 +1460,7 @@ function updateDotDeposits(game, dt) {
       actor.dotDepositProgress = 0;
 
       const oldProgress = gen.progress;
-      gen.progress = clamp(gen.progress + DOT_REPAIR_SECONDS / GENERATOR_REPAIR_TIME, 0, 1);
+      gen.progress = clamp(gen.progress + DOT_REPAIR_PROGRESS, 0, 1);
       gen.kickLocked = false;
       gen.dotDepositing = true;
       gen.dotDepositProgress = 0;
@@ -1840,57 +1843,13 @@ function nearestRepairableGenerator(game, actor) {
 }
 
 function updateGeneratorsAndGates(game, dt) {
-  const repairBuckets = new Map();
-
+  // Generator progress is dot-only now. Holding E no longer repairs generators.
+  // Keep these flags reset so old repair visuals never get stuck from stale state.
   for (const gen of game.map.generators) {
     gen.repairing = false;
     gen.repairerCount = 0;
-    // dotDepositing is owned by updateDotDeposits(); normal repair should not erase it.
     if (Array.isArray(gen.activeRepairers)) gen.activeRepairers.length = 0;
     else gen.activeRepairers = [];
-  }
-
-  for (const actor of game.actors.values()) {
-    if (actor.role !== "survivor" || actor.dead || actor.escaped || actor.downed || actor.hooked) continue;
-    if (actor.healingTargetId || actor.unhookTargetId || actor.dotDepositTargetId || (actor.activeHealers && actor.activeHealers.length > 0)) continue;
-    if (!actor.input.repair || actor.input.sprint) continue;
-
-    const gen = nearestRepairableGenerator(game, actor);
-    if (!gen) continue;
-
-    actor.input.up = false;
-    actor.input.down = false;
-    actor.input.left = false;
-    actor.input.right = false;
-    actor.input.sprint = false;
-    actor.input.angle = Math.atan2(gen.y - actor.y, gen.x - actor.x);
-
-    let bucket = repairBuckets.get(gen.id);
-    if (!bucket) {
-      bucket = { gen, count: 0 };
-      repairBuckets.set(gen.id, bucket);
-    }
-    bucket.count += 1;
-  }
-
-  for (const { gen, count } of repairBuckets.values()) {
-    if (!count || gen.done) continue;
-    const oldProgress = gen.progress;
-    gen.repairing = true;
-    gen.repairerCount = count;
-    // The client only needs a boolean repair glow, not a full list of survivor ids.
-    gen.activeRepairers = ["active"];
-    gen.progress = clamp(gen.progress + (dt * count) / GENERATOR_REPAIR_TIME, 0, 1);
-    if (gen.progress > oldProgress) {
-      // Survivors touched the gen again, so the killer can kick it once more later.
-      gen.kickLocked = false;
-    }
-    if (gen.progress >= 1 && !gen.done) {
-      gen.done = true;
-      gen.repairing = false;
-      gen.activeRepairers = [];
-      addEvent(game, "genDone", { x: gen.x, y: gen.y });
-    }
   }
 
   const doneCount = game.map.generators.filter((g) => g.done).length;
@@ -1901,7 +1860,7 @@ function updateGeneratorsAndGates(game, dt) {
 
   for (const actor of game.actors.values()) {
     if (actor.role !== "survivor" || actor.dead || actor.escaped || actor.downed || actor.hooked || !game.escapeOpen) continue;
-    if (actor.healingTargetId || actor.unhookTargetId || (actor.activeHealers && actor.activeHealers.length > 0)) continue;
+    if (actor.healingTargetId || actor.unhookTargetId || actor.dotDepositTargetId || (actor.activeHealers && actor.activeHealers.length > 0)) continue;
     const gate = game.map.gates.find((g) => dist(actor.x, actor.y, g.x, g.y) < INTERACT_DISTANCE);
     if (gate && actor.input.repair) {
       actor.escapeProgress = (actor.escapeProgress || 0) + dt;
@@ -2434,6 +2393,46 @@ function botUseLoopObject(game, survivor, killer) {
   return false;
 }
 
+function chooseBotDotTarget(game, actor) {
+  const bot = actor.bot || (actor.bot = {});
+  const existing = bot.objectiveDotId ? (game.collectibleDots || []).find((d) => d.id === bot.objectiveDotId) : null;
+  if (existing && game.time < (bot.objectiveDotUntil || 0)) return existing;
+
+  let best = null;
+  let bestScore = Infinity;
+  for (const dot of game.collectibleDots || []) {
+    if (!dot) continue;
+    const dx = actor.x - dot.x;
+    const dy = actor.y - dot.y;
+    const d2 = dx * dx + dy * dy;
+    if (d2 < bestScore && segmentClear(game, actor.x, actor.y, dot.x, dot.y)) {
+      bestScore = d2;
+      best = dot;
+    }
+  }
+
+  bot.objectiveDotId = best?.id || null;
+  bot.objectiveDotUntil = (game.time || 0) + 0.6 + Math.random() * 0.35;
+  return best;
+}
+
+function botMoveToDot(game, actor) {
+  const dot = chooseBotDotTarget(game, actor);
+  if (!dot) return false;
+  followPath(game, actor, dot.x, dot.y, true);
+  return true;
+}
+
+function botStandAndDepositAtGen(game, actor, gen) {
+  actor.input.up = actor.input.down = actor.input.left = actor.input.right = false;
+  actor.input.sprint = false;
+  actor.input.repair = false;
+  actor.input.angle = Math.atan2(gen.y - actor.y, gen.x - actor.x);
+  actor.bot.path = [];
+  actor.bot.goalX = gen.x;
+  actor.bot.goalY = gen.y;
+}
+
 function chooseBotGeneratorTarget(game, actor) {
   const bot = actor.bot || (actor.bot = {});
   const existing = bot.objectiveGenId ? game.map.generators.find((g) => g.id === bot.objectiveGenId && !g.done) : null;
@@ -2496,21 +2495,22 @@ function botMoveToObjective(game, actor) {
     return;
   }
 
+  // Generators are dot-only now. Bots collect dots first, then stand near a gen to auto-deposit.
+  if ((actor.dots || 0) <= 0 && botMoveToDot(game, actor)) return;
+
   const gen = chooseBotGeneratorTarget(game, actor);
 
-  if (gen) {
-    if (dist(actor.x, actor.y, gen.x, gen.y) < INTERACT_DISTANCE && segmentClear(game, actor.x, actor.y, gen.x, gen.y)) {
-      actor.input.repair = true;
-      actor.input.angle = Math.atan2(gen.y - actor.y, gen.x - actor.x);
-      actor.input.up = actor.input.down = actor.input.left = actor.input.right = false;
-      actor.input.sprint = false;
-      actor.bot.path = [];
-      actor.bot.goalX = gen.x;
-      actor.bot.goalY = gen.y;
+  if (gen && (actor.dots || 0) > 0) {
+    if (dist(actor.x, actor.y, gen.x, gen.y) <= DOT_DEPOSIT_DISTANCE && segmentClear(game, actor.x, actor.y, gen.x, gen.y)) {
+      botStandAndDepositAtGen(game, actor, gen);
     } else {
       followPath(game, actor, gen.x, gen.y, false);
     }
+    return;
   }
+
+  // If no live generators are useful but dots exist, keep collecting so the bot is not idle.
+  if (botMoveToDot(game, actor)) return;
 }
 
 function updateBotInputs(game, dt) {
@@ -2661,7 +2661,7 @@ function serializeActor(game, actor, visible = true) {
     y: Number(actor.y.toFixed(2)),
     angle: actor.angle,
     health: actor.health,
-    dots: actor.role === "survivor" ? clamp(actor.dots || 0, 0, SURVIVOR_DOT_MAX) : 0,
+    dots: actor.role === "killer" ? clamp(actor.dots || 0, 0, KILLER_DOT_MAX) : actor.role === "survivor" ? clamp(actor.dots || 0, 0, SURVIVOR_DOT_MAX) : 0,
     dotDepositTargetId: actor.role === "survivor" ? actor.dotDepositTargetId || null : null,
     dotDepositProgress: actor.role === "survivor" ? quantizedProgress(actor.dotDepositProgress || 0) : 0,
     injured: actor.injured,

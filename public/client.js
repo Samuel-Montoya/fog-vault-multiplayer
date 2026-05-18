@@ -1666,7 +1666,7 @@
       ui.roleLabel.textContent = me.role === "killer" ? "Killer" : "Survivor";
       ui.controlsLabel.textContent = me.role === "killer"
         ? "WASD move • Mouse aim • M1 attack/lunge • Space vault/break • hold E hook/execute/kick gen • hold R chat"
-        : "WASD move • Shift sprint • Mouse flashlight • Space vault/drop • hold E heal/repair/escape • hold R chat";
+        : "WASD move • Shift sprint • Mouse flashlight • Space vault/drop • collect dots, stand near gens to deposit • hold E heal/escape • hold R chat";
       const done = snapshot.objective?.doneGenerators ?? 0;
       const required = snapshot.objective?.requiredGenerators ?? snapshot.objective?.totalGenerators ?? 0;
       const total = snapshot.objective?.totalGenerators ?? required;
