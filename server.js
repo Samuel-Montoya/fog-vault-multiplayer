@@ -22,8 +22,8 @@ app.use(express.static(PUBLIC_DIR));
 app.get("/", (req, res) => res.sendFile(path.join(PUBLIC_DIR, "index.html")));
 
 const TICK_RATE = 60;
-const SNAPSHOT_RATE = 24;
-const BOT_THINK_RATE = 8;
+const SNAPSHOT_RATE = 20;
+const BOT_THINK_RATE = 12;
 const SCRATCH_MARK_MAX = 45;
 const MAX_SURVIVORS = 4;
 const SURVIVOR_SKINS = new Set(["blueSquare", "yellowStar", "purplePentagon"]);
@@ -71,15 +71,16 @@ const GENERATOR_COLLISION_SIZE = 54;
 const GENERATOR_KICK_TIME = 1.0;
 const GENERATOR_KICK_REGRESSION = 0.10;
 const GATE_ESCAPE_TIME = 0.75;
-const HEAL_TIME = 6.0;
+const HEAL_TIME = 4.2;
 const HEAL_DISTANCE = 82;
 const DOWNED_CRAWL_SPEED = 62;
 const HOOK_CHANNEL_TIME = 1.35;
 const EXECUTE_CHANNEL_TIME = 2.15;
-const UNHOOK_TIME = 3.25;
+const UNHOOK_TIME = 2.15;
 const HOOKS_BEFORE_EXECUTION = 2;
 const HOOK_INTERACT_DISTANCE = 128;
 const HOOK_RESCUE_DISTANCE = 108;
+const HOOK_MIN_KILLER_DISTANCE = 430;
 const TERROR_RADIUS = 760;
 const CHASE_START_RADIUS = 520;
 const CHASE_HOLD_SECONDS = 3;
@@ -571,6 +572,7 @@ function startGame(lobby) {
     events: [],
     particles: [],
     scratchMarks: [],
+    snapshotSeq: 0,
     requiredGenerators: Math.min(REQUIRED_GENERATORS_TO_COMPLETE, map.generators.length),
     escapeOpen: false,
     time: 0,
@@ -1076,9 +1078,12 @@ function updateTimers(game, dt) {
 }
 
 
-function randomFloorHookSpot(game) {
+function randomFloorHookSpot(game, killer = null) {
   const tile = game.map.tile;
-  const candidates = [];
+  const baseCandidates = [];
+  const farCandidates = [];
+  const minKillerDistance = Math.max(HOOK_MIN_KILLER_DISTANCE, tile * 5.5);
+
   for (let y = 1; y < game.map.rows - 1; y++) {
     for (let x = 1; x < game.map.cols - 1; x++) {
       if (game.map.rawRows[y]?.[x] !== ".") continue;
@@ -1087,10 +1092,14 @@ function randomFloorHookSpot(game) {
       if (tooCloseToExisting) continue;
       const nearObjective = [...game.map.generators, ...game.map.gates].some((o) => dist(o.x, o.y, p.x, p.y) < tile * 1.4);
       if (nearObjective) continue;
-      candidates.push(p);
+      baseCandidates.push(p);
+      if (!killer || dist(killer.x, killer.y, p.x, p.y) >= minKillerDistance) farCandidates.push(p);
     }
   }
-  const list = candidates.length ? candidates : [{ x: game.map.width / 2, y: game.map.height / 2 }];
+
+  // Prefer hooks far from the killer so the pickup does not become an instant camp.
+  // If the map is cramped, fall back to any valid floor tile instead of failing the hook.
+  const list = farCandidates.length ? farCandidates : baseCandidates.length ? baseCandidates : [{ x: game.map.width / 2, y: game.map.height / 2 }];
   return list[Math.floor(Math.random() * list.length)];
 }
 
@@ -1136,7 +1145,8 @@ function nearestHookedSurvivorForRescue(game, healer) {
 }
 
 function sendSurvivorToHook(game, survivor) {
-  const spot = randomFloorHookSpot(game);
+  const killer = [...game.actors.values()].find((p) => p.role === "killer" && !p.dead) || null;
+  const spot = randomFloorHookSpot(game, killer);
   const hook = {
     id: uid("hook"),
     x: spot.x,
@@ -2057,7 +2067,7 @@ function updateBotInputs(game, dt) {
           const flee = chooseFleePoint(game, actor, killer);
           actor.bot.fleeX = flee.x;
           actor.bot.fleeY = flee.y;
-          actor.bot.fleeTimer = 0.34 + Math.random() * 0.16;
+          actor.bot.fleeTimer = 0.24 + Math.random() * 0.12;
         }
         followPath(game, actor, actor.bot.fleeX, actor.bot.fleeY, true);
         botUseLoopObject(game, actor, killer);
@@ -2180,6 +2190,11 @@ function serializeActor(game, actor, visible = true) {
   };
 }
 
+function quantizedProgress(value) {
+  if (value >= 1) return 1;
+  return Math.round(clamp(value || 0, 0, 1) * 200) / 200;
+}
+
 function buildSnapshotFor(lobby, socketId) {
   const game = lobby.game;
   const viewer = game.actors.get(socketId);
@@ -2241,12 +2256,24 @@ function buildSnapshotFor(lobby, socketId) {
 
   return {
     lobbyId: lobby.id,
+    seq: game.snapshotSeq || 0,
     map: {
       width: map.width,
       height: map.height,
       tile: map.tile,
       pallets: map.pallets.map((p) => ({ id: p.id, x: p.x, y: p.y, w: p.w, h: p.h, orientation: p.orientation, state: p.state, broken: p.broken })),
-      generators: map.generators.map((g) => ({ id: g.id, x: g.x, y: g.y, progress: g.progress, done: g.done, activeRepairers: g.activeRepairers, beingKicked: !!g.beingKicked, kickProgress: g.kickProgress || 0, kickLocked: !!g.kickLocked })),
+      generators: map.generators.map((g) => ({
+        id: g.id,
+        x: g.x,
+        y: g.y,
+        progress: quantizedProgress(g.progress),
+        done: g.done,
+        // Clients only use the length for the repair glow; do not ship every id every snapshot.
+        activeRepairers: g.activeRepairers?.length ? ["active"] : [],
+        beingKicked: !!g.beingKicked,
+        kickProgress: quantizedProgress(g.kickProgress || 0),
+        kickLocked: !!g.kickLocked
+      })),
       gates: map.gates.map((g) => ({ id: g.id, x: g.x, y: g.y, open: g.open })),
       hooks: (map.hooks || []).filter((h) => h.active).map((h) => ({ id: h.id, x: h.x, y: h.y, survivorId: h.survivorId, active: h.active }))
     },
@@ -2271,9 +2298,14 @@ function buildSnapshotFor(lobby, socketId) {
 function sendSnapshots() {
   for (const lobby of lobbies.values()) {
     if (!lobby.game) continue;
+    lobby.game.snapshotSeq = (lobby.game.snapshotSeq || 0) + 1;
     for (const socketId of lobby.players.keys()) {
       const socket = io.sockets.sockets.get(socketId);
-      if (socket) socket.compress(false).volatile.emit("snapshot", buildSnapshotFor(lobby, socketId));
+      if (!socket) continue;
+      // If a client is already backed up, skip this frame instead of piling JSON
+      // into the transport queue. The next volatile snapshot will catch them up.
+      if (socket.conn?.transport && socket.conn.transport.writable === false) continue;
+      socket.compress(false).volatile.emit("snapshot", buildSnapshotFor(lobby, socketId));
     }
     if (lobby.game.events.length) lobby.game.events.length = 0;
   }

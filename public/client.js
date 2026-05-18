@@ -76,6 +76,10 @@
     // without forcing Phaser to violently rescale the whole scene in one frame.
     TERROR_ZOOM: LOW_POWER_MODE ? 0.025 : 0.04,
     CHASE_ZOOM: LOW_POWER_MODE ? 0.07 : 0.11,
+    // Killer-only attack pressure. Holding M1 subtly pushes the camera in,
+    // and a real server-confirmed swing gives a tiny punch. Small numbers on purpose.
+    KILLER_M1_HOLD_ZOOM: LOW_POWER_MODE ? 0.018 : 0.032,
+    KILLER_M1_PULSE_ZOOM: LOW_POWER_MODE ? 0.016 : 0.028,
     ZOOM_SMOOTHING: LOW_POWER_MODE ? 4.8 : 6.8,
     CHASE_IN_LERP: 0.055,
     CHASE_OUT_LERP: 0.04,
@@ -745,6 +749,7 @@
       this.cameraSwayY = 0;
       this.cameraSwayTargetX = 0;
       this.cameraSwayTargetY = 0;
+      this.killerM1Pulse = 0;
       this.lastMoveDirX = 0;
       this.lastMoveDirY = 0;
     }
@@ -1400,7 +1405,11 @@
       setMusicTargets(snapshot.music);
       if (!this.map && snapshot.map) this.loadMap(snapshot.map);
       if (this.map && snapshot.map) this.map = { ...this.map, ...snapshot.map, walls: this.map.walls, windows: this.map.windows };
-      this.needsDynamicRedraw = true;
+      // Do not force a dynamic redraw on every network snapshot. Generator repair
+      // progress arrives constantly, and forcing redraws here bypassed the coarse
+      // dynamic-world key below. Let maybeDrawDynamicWorld() redraw only when the
+      // pallet/gen/hook/gate key actually changes.
+      if (!this.lastDynamicKey) this.needsDynamicRedraw = true;
       this.pendingScratchMarks = snapshot.scratchMarks || [];
       this.needsScratchRedraw = true;
       this.updateActorTargets(snapshot.actors || []);
@@ -1652,6 +1661,11 @@
         if (event.type === "swipe" || event.type === "swing") {
           this.addSwipeIndicator(event);
           playLocalizedSwing(event);
+          const localActor = this.actors.get(myId);
+          if (event.actorId === myId && localActor?.data?.role === "killer") {
+            this.killerM1Pulse = 1;
+            this.cameras.main.shake(LOW_POWER_MODE ? 48 : 64, LOW_POWER_MODE ? 0.00012 : 0.00020);
+          }
         }
         if (event.type === "hooked") {
           playSfx("hooked");
@@ -1952,6 +1966,7 @@
       this.breathPhase += dt * (1.25 + this.terrorBlend * 2.1 + this.chaseBlend * 2.5);
       this.lightFlickerPhase += dt * LIGHTING.FLICKER_SPEED;
       this.heartbeatPulse = Math.max(0, this.heartbeatPulse - dt * 3.8);
+      this.killerM1Pulse = Math.max(0, (this.killerM1Pulse || 0) - dt * 5.5);
 
       const interval = lerp(IMMERSION.HEARTBEAT_MAX_INTERVAL, IMMERSION.HEARTBEAT_MIN_INTERVAL, clamp(this.terrorBlend + this.chaseBlend * 0.45, 0, 1));
       this.heartbeatTimer += dt;
@@ -1980,12 +1995,21 @@
       const y = item.container.y;
       if (!Number.isFinite(x) || !Number.isFinite(y)) return;
 
+      const localData = item.data || item.current || item.target || null;
+      const killerM1Hold = localData?.role === "killer" && input.attackHeld ? 1 : 0;
+      const attackZoom = killerM1Hold * IMMERSION.KILLER_M1_HOLD_ZOOM
+        + (this.killerM1Pulse || 0) * IMMERSION.KILLER_M1_PULSE_ZOOM;
       const targetZoom = clamp(
         IMMERSION.BASE_ZOOM
           + this.terrorBlend * IMMERSION.TERROR_ZOOM
-          + this.chaseBlend * IMMERSION.CHASE_ZOOM,
+          + this.chaseBlend * IMMERSION.CHASE_ZOOM
+          + attackZoom,
         IMMERSION.BASE_ZOOM,
-        IMMERSION.BASE_ZOOM + IMMERSION.TERROR_ZOOM + IMMERSION.CHASE_ZOOM
+        IMMERSION.BASE_ZOOM
+          + IMMERSION.TERROR_ZOOM
+          + IMMERSION.CHASE_ZOOM
+          + IMMERSION.KILLER_M1_HOLD_ZOOM
+          + IMMERSION.KILLER_M1_PULSE_ZOOM
       );
       const zoomAlpha = dampAlpha(IMMERSION.ZOOM_SMOOTHING, dt);
       const nextZoom = lerp(cam.zoom || IMMERSION.BASE_ZOOM, targetZoom, zoomAlpha);
@@ -2731,6 +2755,7 @@
       ensureAudioStarted();
     });
     socket.on("snapshot", (snapshot) => {
+      if (snapshot?.seq && currentSnapshot?.seq && snapshot.seq <= currentSnapshot.seq) return;
       currentSnapshot = snapshot;
       if (phaserScene) phaserScene.applySnapshot(snapshot);
     });

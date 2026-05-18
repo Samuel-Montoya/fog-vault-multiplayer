@@ -21,6 +21,10 @@ const HEALTH = {
   ESCAPED: "escaped"
 };
 
+const FAST_HEAL_SECONDS = Math.max(1.8, (CONFIG.healing?.healSeconds || 6) * 0.68);
+const FAST_UNHOOK_SECONDS = Math.max(1.25, (CONFIG.hooks?.unhookSeconds || 3.25) * 0.66);
+const HOOK_MIN_KILLER_DISTANCE = Math.max(420, (CONFIG.actor?.tileSize || 72) * 5.5);
+
 function makeInput() {
   return {
     up: false,
@@ -439,12 +443,12 @@ class Game {
     if (actor.beingHealedBy) return;
 
     const hooked = this.nearestHookedSurvivor(actor);
-    if (hooked) return this.channelAction(actor, hooked, "rescue", CONFIG.hooks.unhookSeconds, dt, () => this.rescueSurvivor(hooked, actor));
+    if (hooked) return this.channelAction(actor, hooked, "rescue", FAST_UNHOOK_SECONDS, dt, () => this.rescueSurvivor(hooked, actor));
 
     const healTarget = this.nearestHealableSurvivor(actor);
     if (healTarget) {
       healTarget.beingHealedBy = actor.id;
-      return this.channelAction(actor, healTarget, "heal", CONFIG.healing.healSeconds, dt, () => this.completeHeal(healTarget, actor));
+      return this.channelAction(actor, healTarget, "heal", FAST_HEAL_SECONDS, dt, () => this.completeHeal(healTarget, actor));
     }
 
     const gate = this.nearestGate(actor);
@@ -452,7 +456,11 @@ class Game {
 
     const gen = this.nearestGenerator(actor);
     if (gen && !gen.done && !this.gatesPowered()) {
-      actor.channel = { type: "repair", targetId: gen.id, t: 0, duration: CONFIG.objective.generatorRepairSeconds, progress: gen.progress };
+      if (!actor.channel || actor.channel.type !== "repair" || actor.channel.targetId !== gen.id) {
+        actor.channel = { type: "repair", targetId: gen.id, t: 0, duration: CONFIG.objective.generatorRepairSeconds, progress: gen.progress };
+      }
+      actor.channel.t += dt;
+      actor.channel.progress = gen.progress;
       gen.progress = clamp(gen.progress + dt / CONFIG.objective.generatorRepairSeconds, 0, 1);
       if (gen.progress >= 1 && !gen.done) {
         gen.done = true;
@@ -492,7 +500,12 @@ class Game {
   }
 
   hookSurvivor(survivor, killer) {
-    const tile = randItem(this.map.floorTiles) || { x: survivor.x, y: survivor.y };
+    const floorTiles = this.map.floorTiles || [];
+    const validTiles = floorTiles.filter((tile) => {
+      if (!killer) return true;
+      return dist(tile.x, tile.y, killer.x, killer.y) >= HOOK_MIN_KILLER_DISTANCE;
+    });
+    const tile = randItem(validTiles) || randItem(floorTiles) || { x: survivor.x, y: survivor.y };
     survivor.healthState = HEALTH.HOOKED;
     survivor.hookCount += 1;
     survivor.x = tile.x;
