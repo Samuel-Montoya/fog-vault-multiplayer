@@ -76,10 +76,10 @@
       windowVault: 0.34,
       palletVault: 0.76,
       injured: 0.8,
-      orbPickup1: 0.58,
-      orbPickup2: 0.58,
-      orbPickup3: 0.58,
-      orbDeposit: 0.62
+      orbPickup1: 0.68,
+      orbPickup2: 0.68,
+      orbPickup3: 0.68,
+      orbDeposit: 0.72
     }
   };
 
@@ -95,8 +95,7 @@
     // and a real server-confirmed swing gives a tiny punch. Small numbers on purpose.
     KILLER_M1_HOLD_ZOOM: LOW_POWER_MODE ? 0.045 : 0.085,
     KILLER_M1_PULSE_ZOOM: LOW_POWER_MODE ? 0.035 : 0.065,
-    UNHOOK_ACTION_ZOOM: LOW_POWER_MODE ? 0.06 : 0.11,
-    DOWNED_ZOOM: LOW_POWER_MODE ? 0.08 : 0.14,
+    DEPOSIT_ZOOM: LOW_POWER_MODE ? 0.055 : 0.12,
     ZOOM_SMOOTHING: LOW_POWER_MODE ? 4.8 : 6.8,
     CHASE_IN_LERP: 0.055,
     CHASE_OUT_LERP: 0.04,
@@ -263,8 +262,6 @@
   };
 
   const DOT_FADE_VISUAL = {
-    // Server visibility still decides whether an orb exists for this player.
-    // The client only eases alpha when that visibility changes. Cheap little mercy.
     IN_SPEED: LOW_POWER_MODE ? 8.5 : 11.5,
     OUT_SPEED: LOW_POWER_MODE ? 9.5 : 13.5,
     FPS: LOW_POWER_MODE ? 12 : 18,
@@ -696,69 +693,21 @@
     if (!base) return;
     const clip = base.cloneNode(true);
     clip.loop = false;
-    const volumeMult = Number.isFinite(options.volumeMult) ? options.volumeMult : 1;
-    clip.volume = clamp((SFX.VOLUMES[name] || 0.75) * SFX.MASTER * volumeMult, 0, 1);
-    if (Number.isFinite(options.rate)) {
-      const rate = clamp(options.rate, 0.55, 2.25);
-      // Disable pitch preservation before changing playbackRate. Some browsers are weird
-      // little gremlins and will "helpfully" keep pitch flat if this happens later.
-      if ("preservesPitch" in clip) clip.preservesPitch = false;
-      if ("mozPreservesPitch" in clip) clip.mozPreservesPitch = false;
-      if ("webkitPreservesPitch" in clip) clip.webkitPreservesPitch = false;
-      clip.playbackRate = rate;
+
+    const playbackRate = Number(options.playbackRate);
+    if (Number.isFinite(playbackRate) && playbackRate > 0) {
+      // Set these before playbackRate so browsers actually pitch-shift instead of preserving pitch like helpful little pests.
+      clip.preservesPitch = false;
+      clip.mozPreservesPitch = false;
+      clip.webkitPreservesPitch = false;
+      clip.playbackRate = clamp(playbackRate, 0.5, 2.25);
     }
+
+    clip.volume = clamp((SFX.VOLUMES[name] || 0.75) * SFX.MASTER, 0, 1);
     clip.play().catch(() => {
       // Browser autoplay rules can still block if the user has not interacted yet.
       // Once they click or press a key, future effects will play. Naturally, browsers need consent to scream.
     });
-  }
-
-  const ORB_PICKUP_SFX = ["orbPickup1", "orbPickup2", "orbPickup3"];
-  const ORB_DEPOSIT_PITCH = {
-    MAX_CHAIN: 10,
-    MIN_RATE: 0.92,
-    MAX_RATE: 2.12
-  };
-  const orbDepositAudio = { streak: 0, lastAt: 0, generatorId: null };
-
-  function playRandomOrbPickupSfx() {
-    const pick = ORB_PICKUP_SFX[Math.floor(Math.random() * ORB_PICKUP_SFX.length)];
-    playSfx(pick);
-  }
-
-  function playLocalOrbDepositSfx(event) {
-    if (!event || event.survivorId !== myId) return;
-    const now = performance.now();
-    const sameGen = orbDepositAudio.generatorId === event.generatorId;
-    const stillChaining = sameGen && now - orbDepositAudio.lastAt < 2600;
-    if (!stillChaining) orbDepositAudio.streak = 0;
-
-    const eventDepositIndex = Number(event.depositIndex);
-    const depositNumber = clamp(
-      Number.isFinite(eventDepositIndex) && eventDepositIndex > 0
-        ? eventDepositIndex
-        : orbDepositAudio.streak + 1,
-      1,
-      ORB_DEPOSIT_PITCH.MAX_CHAIN
-    );
-    const t = ORB_DEPOSIT_PITCH.MAX_CHAIN <= 1
-      ? 1
-      : (depositNumber - 1) / (ORB_DEPOSIT_PITCH.MAX_CHAIN - 1);
-    const rate = lerp(ORB_DEPOSIT_PITCH.MIN_RATE, ORB_DEPOSIT_PITCH.MAX_RATE, t);
-    const volumeMult = lerp(0.92, 1.08, t);
-    playSfx("orbDeposit", { rate, volumeMult });
-
-    // Cap at 10 because that is the max carried deposit chain. The 10th deposit is
-    // the peak tone; extra weirdness after that can stay in the void where it belongs.
-    orbDepositAudio.streak = Math.min(ORB_DEPOSIT_PITCH.MAX_CHAIN, depositNumber);
-    orbDepositAudio.lastAt = now;
-    orbDepositAudio.generatorId = event.generatorId || null;
-  }
-
-  function resetOrbDepositPitch() {
-    orbDepositAudio.streak = 0;
-    orbDepositAudio.lastAt = 0;
-    orbDepositAudio.generatorId = null;
   }
 
   const LOCAL_SFX_RANGE = {
@@ -792,6 +741,21 @@
     const d = distanceToLocalEvent(event);
     // The victim always hears impact. Other players only hear it nearby.
     if (isMyHit || d <= LOCAL_SFX_RANGE.hit) playSfx("injured");
+  }
+
+  function playOrbPickupSfx(event) {
+    if (!event || event.actorId !== myId) return;
+    const choice = 1 + Math.floor(Math.random() * 3);
+    playSfx(`orbPickup${choice}`);
+  }
+
+  function playOrbDepositSfx(event) {
+    if (!event || event.survivorId !== myId) return;
+    const index = clamp(Number(event.depositIndex || event.chainIndex || 1), 1, SURVIVOR_DOT_MAX);
+    const t = SURVIVOR_DOT_MAX <= 1 ? 1 : (index - 1) / (SURVIVOR_DOT_MAX - 1);
+    // 1/10 is grounded, 10/10 is clearly higher. Perfectly subtle, unlike human UI requests.
+    const rate = 0.86 + t * 1.04;
+    playSfx("orbDeposit", { playbackRate: rate });
   }
 
   function survivorStateLabel(actor) {
@@ -968,6 +932,8 @@
       this.needsScratchRedraw = false;
       this.lastDynamicKey = "";
       this.lastGeneratorKey = "";
+      this.collectibleDotVisuals?.clear();
+      this.collectibleDotsAnimating = false;
       this.lastHudKey = "";
       this.lastHudRenderAt = 0;
       this.lastFogWidth = 0;
@@ -1009,6 +975,8 @@
       this.generatorGraphics = this.add.graphics().setDepth(3.25);
       this.generatorDepositVisual = new Map();
       this.generatorDepositLastRaw = new Map();
+      this.collectibleDotVisuals = new Map();
+      this.collectibleDotsAnimating = false;
       this.scratchGraphics = this.add.graphics().setDepth(4);
       // Kept only as a cheap fallback container. The actual beam glow is now a pre-baked
       // soft sprite, because per-frame triangle drawing made the cone edge look harsh.
@@ -1036,9 +1004,6 @@
       }).setOrigin(0.5).setDepth(2701).setScrollFactor(0, 0).setVisible(false));
       this.swipes = [];
       this.recentHookIndicators = [];
-      this.collectibleDotVisuals = new Map();
-      this.collectibleDotFadeTimer = 0;
-      this.collectibleDotsAnimating = false;
       this.createGeneratorFallbackTexture();
       this.createLightTextures();
       this.lightConeMask = this.make.image({ x: 0, y: 0, key: "softFlashlightCone", add: false })
@@ -1244,10 +1209,10 @@
       this.rebuildFogTexture();
       this.clearGeneratorSprites();
       this.clearActors();
-      this.collectibleDotVisuals?.clear();
-      this.collectibleDotsAnimating = false;
       this.lastDynamicKey = "";
       this.lastGeneratorKey = "";
+      this.collectibleDotVisuals?.clear();
+      this.collectibleDotsAnimating = false;
       this.needsDynamicRedraw = true;
       this.needsGeneratorRedraw = true;
       this.localVisual = null;
@@ -1261,8 +1226,7 @@
       }
       if (!this.map) return;
 
-      // Ultra-cheap world backdrop. One dark rectangle, no dots, no grid, no orbit lines.
-      // Keeps the horror theme cheap to render while keeping the map/game objects visible.
+      // Static menu-style horror grid. Drawn once at map load, not every frame.
       const pad = 5200;
       const x = -pad;
       const y = -pad;
@@ -1272,6 +1236,29 @@
       this.outOfBoundsGraphics = g;
       g.fillStyle(0x03040a, 1);
       g.fillRect(x, y, w, h);
+      this.drawStaticArenaGrid(g, x, y, w, h, 96, 0x12203a, 0.24);
+      this.drawStaticArenaGrid(g, x, y, w, h, 384, 0x263c68, 0.16);
+    }
+
+    drawStaticArenaGrid(g, x, y, w, h, step, color, alpha) {
+      if (!g || step <= 0) return;
+      const startX = Math.floor(x / step) * step;
+      const endX = x + w;
+      const startY = Math.floor(y / step) * step;
+      const endY = y + h;
+      g.lineStyle(1, color, alpha);
+      for (let xx = startX; xx <= endX; xx += step) {
+        g.beginPath();
+        g.moveTo(xx, y);
+        g.lineTo(xx, y + h);
+        g.strokePath();
+      }
+      for (let yy = startY; yy <= endY; yy += step) {
+        g.beginPath();
+        g.moveTo(x, yy);
+        g.lineTo(x + w, yy);
+        g.strokePath();
+      }
     }
 
     rebuildGrassLayer() {
@@ -1281,15 +1268,16 @@
       }
       if (!this.map) return;
 
-      // Ultra-cheap playable floor. One dark rectangle, no patches, stains, dots, or edge washes.
-      // Walls, windows, pallets, hooks, gens, actors, and fog still render above it.
+      // Static in-bounds grid, matching the main menu without the expensive decorative blobs.
       const g = this.add.graphics()
         .setDepth(0)
         .setScrollFactor(1, 1);
 
       this.grassLayer = g;
-      g.fillStyle(0x090a10, 1);
+      g.fillStyle(0x070913, 1);
       g.fillRect(0, 0, this.map.width, this.map.height);
+      this.drawStaticArenaGrid(g, 0, 0, this.map.width, this.map.height, this.map.tile || 72, 0x172541, 0.32);
+      this.drawStaticArenaGrid(g, 0, 0, this.map.width, this.map.height, (this.map.tile || 72) * 4, 0x315082, 0.18);
     }
 
     rebuildFogTexture() {
@@ -1687,46 +1675,15 @@
       const tile = this.map.tile || 72;
       const x = Math.round(((hook.x || 0) - tile / 2) / tile) * tile;
       const y = Math.round(((hook.y || 0) - tile / 2) / tile) * tile;
-      const now = this.time?.now || performance.now();
-      const pulse = 0.5 + Math.sin(now * 0.0068) * 0.5;
-      const slowPulse = 0.5 + Math.sin(now * 0.0029) * 0.5;
-      const cx = x + tile / 2;
-      const cy = y + tile / 2;
-      const pad = 10;
-      const size = tile - pad * 2;
-      const bracket = Math.max(12, tile * 0.22);
+      const pulse = 0.5 + Math.sin((this.time?.now || performance.now()) * 0.007) * 0.5;
 
-      // Minimal danger shrine: no giant border, just a pulsing red containment square.
-      g.fillStyle(0x140407, 0.18 + pulse * 0.07);
-      g.fillRoundedRect(x + pad, y + pad, size, size, 12);
-
-      g.fillStyle(0xff243f, 0.055 + pulse * 0.055);
-      g.fillCircle(cx, cy, tile * (0.34 + slowPulse * 0.08));
-
-      g.lineStyle(2, 0xff2b45, 0.22 + pulse * 0.36);
-      g.strokeRoundedRect(x + pad + 4, y + pad + 4, size - 8, size - 8, 10);
-
-      g.lineStyle(4, 0xff364f, 0.54 + pulse * 0.28);
-      // Four animated corner brackets. Clear, stylish, and not a huge red parking lot.
-      g.beginPath();
-      g.moveTo(x + pad, y + pad + bracket); g.lineTo(x + pad, y + pad); g.lineTo(x + pad + bracket, y + pad);
-      g.moveTo(x + tile - pad - bracket, y + pad); g.lineTo(x + tile - pad, y + pad); g.lineTo(x + tile - pad, y + pad + bracket);
-      g.moveTo(x + tile - pad, y + tile - pad - bracket); g.lineTo(x + tile - pad, y + tile - pad); g.lineTo(x + tile - pad - bracket, y + tile - pad);
-      g.moveTo(x + pad + bracket, y + tile - pad); g.lineTo(x + pad, y + tile - pad); g.lineTo(x + pad, y + tile - pad - bracket);
-      g.strokePath();
-
-      const diamond = 8 + pulse * 3;
-      g.fillStyle(0x090106, 0.82);
-      g.fillTriangle(cx, cy - diamond, cx + diamond, cy, cx, cy + diamond);
-      g.fillTriangle(cx, cy - diamond, cx - diamond, cy, cx, cy + diamond);
-      g.lineStyle(2, 0xff8a9a, 0.34 + pulse * 0.36);
-      g.beginPath();
-      g.moveTo(cx, cy - diamond - 6);
-      g.lineTo(cx + diamond + 6, cy);
-      g.lineTo(cx, cy + diamond + 6);
-      g.lineTo(cx - diamond - 6, cy);
-      g.closePath();
-      g.strokePath();
+      // Hook state is now a red outlined tile, no hook prop. The square is the danger.
+      g.fillStyle(0x7a0505, 0.10 + pulse * 0.06);
+      g.fillRect(x + 3, y + 3, tile - 6, tile - 6);
+      g.lineStyle(6, 0xff2e2e, 0.78 + pulse * 0.18);
+      g.strokeRect(x + 3, y + 3, tile - 6, tile - 6);
+      g.lineStyle(2, 0xffc0a8, 0.34 + pulse * 0.22);
+      g.strokeRect(x + 12, y + 12, tile - 24, tile - 24);
     }
 
     getGeneratorTextureKey() {
@@ -1815,9 +1772,14 @@
       if (depositing && smoothedDeposit > 0.002) {
         const depositArc = smoothedDeposit >= GENERATOR_VISUAL.DEPOSIT_FULL_SNAP ? 1 : smoothedDeposit;
         g.lineStyle(4, COLORS.collectibleDotGlow, 0.92);
-        g.beginPath();
-        g.arc(gen.x, gen.y, 52, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * depositArc, false);
-        g.strokePath();
+        if (depositArc >= 0.995) {
+          // Phaser arc strokes can leave a tiny seam at 2π. A real circle closes cleanly.
+          g.strokeCircle(gen.x, gen.y, 52);
+        } else {
+          g.beginPath();
+          g.arc(gen.x, gen.y, 52, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * depositArc, false);
+          g.strokePath();
+        }
       }
 
       if (gen.done && showProgress) {
@@ -1857,7 +1819,6 @@
     updateHud(snapshot) {
       const me = (snapshot.actors || []).find((a) => a.id === myId);
       if (!me) return;
-      if (!me.dotDepositTargetId && orbDepositAudio.streak > 0) resetOrbDepositPitch();
 
       const now = performance.now();
       const objective = snapshot.objective || {};
@@ -2294,13 +2255,21 @@
         if (event.type === "healDone") this.burst(event.x, event.y, 0x8dff9a, 24, 120);
         if (event.type === "dotPickup") {
           this.burst(event.x, event.y, COLORS.collectibleDot, 10, 95);
-          if (event.actorId === myId) playRandomOrbPickupSfx();
+          playOrbPickupSfx(event);
         }
         if (event.type === "dotDeposit") {
-          playLocalOrbDepositSfx(event);
+          playOrbDepositSfx(event);
           this.burst(event.x, event.y, COLORS.collectibleDotGlow, 18, 110);
           this.addShockwave(event.x, event.y, COLORS.collectibleDot);
+          if (event.generatorId) {
+            if (!this.generatorDepositVisual) this.generatorDepositVisual = new Map();
+            if (!this.depositCompleteHold) this.depositCompleteHold = new Map();
+            this.generatorDepositVisual.set(event.generatorId, 1);
+            this.depositCompleteHold.set(event.generatorId, performance.now() + 180);
+            this.needsGeneratorRedraw = true;
+          }
         }
+        // dotFull is now shown as the same under-player chat bubble used by the R chat wheel.
         if (event.type === "dotLoss") this.burst(event.x, event.y, COLORS.collectibleDot, 14, 120);
       }
     }
@@ -2626,29 +2595,23 @@
       const localData = item.data || item.current || item.target || null;
       const killerCharging = localData?.role === "killer" && localData.attackState === "charging";
       const killerM1Hold = localData?.role === "killer" && (input.attackHeld || killerCharging) ? 1 : 0;
+      const isDepositing = localData?.role === "survivor" && (!!localData.dotDepositTargetId || (localData.dotDepositProgress || 0) > 0.001);
+      const depositZoom = isDepositing ? IMMERSION.DEPOSIT_ZOOM : 0;
       const attackZoom = killerM1Hold * IMMERSION.KILLER_M1_HOLD_ZOOM
         + (this.killerM1Pulse || 0) * IMMERSION.KILLER_M1_PULSE_ZOOM;
-      const survivorDoingUnhook = localData?.role === "survivor" && !!localData.unhookTargetId;
-      const survivorBeingUnhooked = localData?.role === "survivor" && !!localData.hooked && (localData.unhookProgress || 0) > 0;
-      const unhookZoom = (survivorDoingUnhook || survivorBeingUnhooked) ? IMMERSION.UNHOOK_ACTION_ZOOM : 0;
-      const downedZoom = localData?.role === "survivor" && !!localData.downed && !localData.hooked
-        ? IMMERSION.DOWNED_ZOOM
-        : 0;
       const targetZoom = clamp(
         IMMERSION.BASE_ZOOM
           + this.terrorBlend * IMMERSION.TERROR_ZOOM
           + this.chaseBlend * IMMERSION.CHASE_ZOOM
           + attackZoom
-          + unhookZoom
-          + downedZoom,
+          + depositZoom,
         IMMERSION.BASE_ZOOM,
         IMMERSION.BASE_ZOOM
           + IMMERSION.TERROR_ZOOM
           + IMMERSION.CHASE_ZOOM
+          + IMMERSION.DEPOSIT_ZOOM
           + IMMERSION.KILLER_M1_HOLD_ZOOM
           + IMMERSION.KILLER_M1_PULSE_ZOOM
-          + IMMERSION.UNHOOK_ACTION_ZOOM
-          + IMMERSION.DOWNED_ZOOM
       );
       const zoomAlpha = dampAlpha(IMMERSION.ZOOM_SMOOTHING, dt);
       const nextZoom = lerp(cam.zoom || IMMERSION.BASE_ZOOM, targetZoom, zoomAlpha);
@@ -2733,13 +2696,11 @@
     maybeDrawDynamicWorld(dt) {
       this.dynamicRedrawTimer += dt;
       const animatingDots = !!this.collectibleDotsAnimating;
-      const animatingHooks = !!(currentSnapshot?.map?.hooks || this.map?.hooks || []).some((hook) => hook.active !== false);
-      const shouldAnimate = animatingDots || animatingHooks;
       const interval = 1 / (animatingDots ? DOT_FADE_VISUAL.FPS : PERFORMANCE.DYNAMIC_WORLD_FPS);
-      if (!this.needsDynamicRedraw && !shouldAnimate && this.dynamicRedrawTimer < interval) return;
+      if (!this.needsDynamicRedraw && !animatingDots && this.dynamicRedrawTimer < interval) return;
       if (this.dynamicRedrawTimer < interval) return;
       const key = this.getDynamicWorldKey();
-      if (key !== this.lastDynamicKey || this.needsDynamicRedraw || shouldAnimate) {
+      if (key !== this.lastDynamicKey || this.needsDynamicRedraw || animatingDots) {
         this.lastDynamicKey = key;
         this.drawDynamicWorld();
       }
@@ -2760,6 +2721,13 @@
 
         if (!gen.dotDepositing) {
           this.generatorDepositLastRaw.delete(gen.id);
+          const holdUntil = this.depositCompleteHold?.get(gen.id) || 0;
+          if (holdUntil > performance.now()) {
+            this.generatorDepositVisual.set(gen.id, 1);
+            animating = true;
+            continue;
+          }
+          this.depositCompleteHold?.delete(gen.id);
           if (prev !== 0) {
             this.generatorDepositVisual.set(gen.id, 0);
             animating = true;
@@ -2800,6 +2768,7 @@
         if (!seen.has(id)) {
           this.generatorDepositVisual.delete(id);
           this.generatorDepositLastRaw.delete(id);
+          this.depositCompleteHold?.delete(id);
         }
       }
 
