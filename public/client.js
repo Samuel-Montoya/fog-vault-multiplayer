@@ -686,6 +686,7 @@
       if (actor.healProgress > 0) return "Being Healed";
       return actor.hookProgress > 0 ? ((actor.hookCount || 0) >= 2 ? "Being Executed" : "Being Hooked") : "Downed";
     }
+    if (actor.dotDepositTargetId) return `Depositing ${Math.round((actor.dotDepositProgress || 0) * 100)}%`;
     if (actor.health <= 1 || actor.injured) return actor.healProgress > 0 ? "Being Healed" : "Injured";
     return actor.chase ? "Chased" : "Healthy";
   }
@@ -712,6 +713,7 @@
       return actor.hookProgress > 0 ? ((actor.hookCount || 0) >= 2 ? "execute" : "capture") : "down";
     }
     if (actor.chase) return "chase";
+    if (actor.dotDepositTargetId) return "feed";
     if (actor.healProgress > 0) return "heal";
     if (actor.health <= 1 || actor.injured) return "hurt";
     return "safe";
@@ -732,13 +734,14 @@
       const name = escapeHtml(actor.name || "Survivor");
       const you = actor.id === myId ? '<span class="survivor-you">You</span>' : "";
       const dotsHeld = Math.min(SURVIVOR_DOT_MAX, actor.dots || 0);
+      const depositText = actor.dotDepositTargetId ? ` • feeding ${Math.round((actor.dotDepositProgress || 0) * 100)}%` : "";
       return `
         <div class="${survivorCardClass(actor)}">
           <div class="survivor-portrait" aria-hidden="true"></div>
           <div class="survivor-meta">
             <div class="survivor-name-row"><span class="survivor-name">${name}</span>${you}</div>
             <div class="survivor-state">${escapeHtml(state)}</div>
-            <div class="survivor-dots" aria-label="Collectible dots">${dotsHeld} / ${SURVIVOR_DOT_MAX}</div>
+            <div class="survivor-dots" aria-label="Collectible dots">${dotsHeld} / ${SURVIVOR_DOT_MAX}${depositText}</div>
           </div>
           <div class="survivor-action">${escapeHtml(actionLabel(actor))}</div>
         </div>`;
@@ -1538,23 +1541,24 @@
       const showRepairFx = gen.showRepairFx !== false;
       const progress = clamp(gen.progress || 0, 0, 1);
       const repairing = showRepairFx && !gen.done && (gen.repairing || (Array.isArray(gen.activeRepairers) && gen.activeRepairers.length > 0));
+      const depositing = showRepairFx && !gen.done && !!gen.dotDepositing;
       const kicking = showProgress && !gen.done && !!gen.beingKicked;
       const now = performance.now();
       const pulse = 0.5 + Math.sin(now / 260 + hash2(Math.floor(gen.x), Math.floor(gen.y)) * Math.PI * 2) * 0.5;
-      const coreColor = gen.done ? 0x4de283 : kicking ? 0xff5a66 : repairing ? 0x31a9ff : 0xa772ff;
-      const rimColor = gen.done ? 0xb8ffd1 : kicking ? 0xffb4bc : repairing ? 0xbde7ff : 0xe6d7ff;
+      const coreColor = gen.done ? 0x4de283 : kicking ? 0xff5a66 : depositing ? COLORS.collectibleDot : repairing ? 0x31a9ff : 0xa772ff;
+      const rimColor = gen.done ? 0xb8ffd1 : kicking ? 0xffb4bc : depositing ? COLORS.collectibleDotGlow : repairing ? 0xbde7ff : 0xe6d7ff;
       const shadowAlpha = gen.done ? 0.16 : 0.22;
 
       // Soft contact shadow, like an agar cell hovering just above the field.
       g.fillStyle(0x41536e, shadowAlpha);
       g.fillEllipse(gen.x, gen.y + 32, 78, 18);
 
-      if (repairing || kicking) {
+      if (repairing || depositing || kicking) {
         const auraSize = 39 + pulse * 7;
-        const auraColor = kicking ? GENERATOR_VISUAL.KICK_GLOW_COLOR : 0x31a9ff;
-        g.fillStyle(auraColor, kicking ? 0.055 : 0.045);
+        const auraColor = kicking ? GENERATOR_VISUAL.KICK_GLOW_COLOR : depositing ? COLORS.collectibleDot : 0x31a9ff;
+        g.fillStyle(auraColor, kicking ? 0.055 : depositing ? 0.065 : 0.045);
         g.fillCircle(gen.x, gen.y, auraSize + 15);
-        g.lineStyle(3, auraColor, kicking ? 0.46 : 0.32);
+        g.lineStyle(3, auraColor, kicking ? 0.46 : depositing ? 0.44 : 0.32);
         g.strokeCircle(gen.x, gen.y, auraSize);
       }
 
@@ -1564,8 +1568,8 @@
       g.fillCircle(gen.x, gen.y, 34);
       g.lineStyle(4, rimColor, 0.95);
       g.strokeCircle(gen.x, gen.y, 34);
-      g.fillStyle(coreColor, gen.done ? 0.92 : 0.80);
-      g.fillCircle(gen.x, gen.y, 22 + pulse * (repairing ? 2.2 : 0.8));
+      g.fillStyle(coreColor, gen.done ? 0.92 : depositing ? 0.88 : 0.80);
+      g.fillCircle(gen.x, gen.y, 22 + pulse * (repairing || depositing ? 2.2 : 0.8));
       g.fillStyle(0xffffff, 0.26);
       g.fillCircle(gen.x - 9, gen.y - 10, 8);
       g.fillStyle(0x111827, 0.10);
@@ -1574,9 +1578,9 @@
       const orbitR = 39;
       for (let i = 0; i < 5; i++) {
         const seed = hash2(Math.floor(gen.x / 7) + i * 13, Math.floor(gen.y / 7) + i * 17);
-        const angle = seed * Math.PI * 2 + (repairing ? now / 1250 : 0) + i * 1.18;
+        const angle = seed * Math.PI * 2 + (repairing || depositing ? now / 1250 : 0) + i * 1.18;
         const dotSize = 3.2 + (i % 2) * 1.5;
-        g.fillStyle(i % 2 ? 0x31a9ff : 0xa772ff, gen.done ? 0.26 : 0.52);
+        g.fillStyle(depositing ? COLORS.collectibleDot : i % 2 ? 0x31a9ff : 0xa772ff, gen.done ? 0.26 : depositing ? 0.66 : 0.52);
         g.fillCircle(gen.x + Math.cos(angle) * orbitR, gen.y + Math.sin(angle) * orbitR, dotSize);
       }
 
@@ -1584,7 +1588,7 @@
         const ringR = 44;
         g.lineStyle(5, 0xdce7f5, 0.82);
         g.strokeCircle(gen.x, gen.y, ringR);
-        const progressColor = gen.done ? 0x4de283 : kicking ? GENERATOR_VISUAL.KICK_GLOW_COLOR : repairing ? 0x31a9ff : 0xa772ff;
+        const progressColor = gen.done ? 0x4de283 : kicking ? GENERATOR_VISUAL.KICK_GLOW_COLOR : depositing ? COLORS.collectibleDot : repairing ? 0x31a9ff : 0xa772ff;
         if (progress > 0.002) {
           g.lineStyle(6, progressColor, 0.98);
           g.beginPath();
@@ -1598,6 +1602,14 @@
         g.lineStyle(3, GENERATOR_VISUAL.KICK_GLOW_COLOR, 0.95);
         g.beginPath();
         g.arc(gen.x, gen.y, 52, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * kickProgress, false);
+        g.strokePath();
+      }
+
+      if (depositing) {
+        const depositProgress = clamp(gen.dotDepositProgress || 0, 0, 1);
+        g.lineStyle(4, COLORS.collectibleDotGlow, 0.92);
+        g.beginPath();
+        g.arc(gen.x, gen.y, 52, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * depositProgress, false);
         g.strokePath();
       }
 
@@ -2033,6 +2045,11 @@
         }
         if (event.type === "healDone") this.burst(event.x, event.y, 0x8dff9a, 24, 120);
         if (event.type === "dotPickup") this.burst(event.x, event.y, COLORS.collectibleDot, 10, 95);
+        if (event.type === "dotDeposit") {
+          this.burst(event.x, event.y, COLORS.collectibleDotGlow, 18, 110);
+          this.addShockwave(event.x, event.y, COLORS.collectibleDot);
+        }
+        if (event.type === "dotLoss") this.burst(event.x, event.y, COLORS.collectibleDot, 14, 120);
       }
     }
 
@@ -2413,9 +2430,11 @@
       return (map.generators || []).map((g) => {
         const showProgress = g.showProgress !== false ? 1 : 0;
         const repairOn = (g.showRepairFx !== false && (g.repairing || (Array.isArray(g.activeRepairers) && g.activeRepairers.length > 0))) ? 1 : 0;
+        const depositOn = (g.showRepairFx !== false && g.dotDepositing) ? 1 : 0;
         const progressStep = showProgress ? Math.round((g.progress || 0) * 50) : 0;
+        const depositStep = showProgress ? Math.round((g.dotDepositProgress || 0) * 12) : 0;
         const kickStep = showProgress ? Math.round((g.kickProgress || 0) * 12) : 0;
-        return `${g.id}:${showProgress}:${progressStep}:${g.done ? 1 : 0}:${repairOn}:${g.beingKicked ? 1 : 0}:${kickStep}:${g.kickLocked ? 1 : 0}`;
+        return `${g.id}:${showProgress}:${progressStep}:${g.done ? 1 : 0}:${repairOn}:${depositOn}:${depositStep}:${g.beingKicked ? 1 : 0}:${kickStep}:${g.kickLocked ? 1 : 0}`;
       }).join("|");
     }
 
