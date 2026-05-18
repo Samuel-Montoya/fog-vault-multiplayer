@@ -1675,15 +1675,49 @@
       const tile = this.map.tile || 72;
       const x = Math.round(((hook.x || 0) - tile / 2) / tile) * tile;
       const y = Math.round(((hook.y || 0) - tile / 2) / tile) * tile;
-      const pulse = 0.5 + Math.sin((this.time?.now || performance.now()) * 0.007) * 0.5;
+      const now = this.time?.now || performance.now();
+      const cx = x + tile / 2;
+      const cy = y + tile / 2;
+      const basePulse = 0.5 + Math.sin(now * 0.006) * 0.5;
 
-      // Hook state is now a red outlined tile, no hook prop. The square is the danger.
-      g.fillStyle(0x7a0505, 0.10 + pulse * 0.06);
-      g.fillRect(x + 3, y + 3, tile - 6, tile - 6);
-      g.lineStyle(6, 0xff2e2e, 0.78 + pulse * 0.18);
-      g.strokeRect(x + 3, y + 3, tile - 6, tile - 6);
-      g.lineStyle(2, 0xffc0a8, 0.34 + pulse * 0.22);
-      g.strokeRect(x + 12, y + 12, tile - 24, tile - 24);
+      // Hook state: no giant red border. A thin containment field pulses outward
+      // around the tile so it reads as dangerous without shouting in block letters.
+      g.fillStyle(0x170308, 0.22 + basePulse * 0.05);
+      g.fillRoundedRect(x + 9, y + 9, tile - 18, tile - 18, 11);
+
+      for (let i = 0; i < 3; i++) {
+        const t = ((now / 1050) + i / 3) % 1;
+        const ease = 1 - Math.pow(1 - t, 2);
+        const inset = 18 - ease * 14;
+        const alpha = (1 - t) * (0.42 - i * 0.055);
+        g.lineStyle(1.4, 0xff315d, alpha);
+        g.strokeRoundedRect(x + inset, y + inset, tile - inset * 2, tile - inset * 2, 12 + ease * 5);
+      }
+
+      const bracketAlpha = 0.45 + basePulse * 0.34;
+      const pad = 11;
+      const len = 14;
+      g.lineStyle(2, 0xff6b7d, bracketAlpha);
+      // Corner brackets, cheaper than a sprite sheet and less ugly than a red fence.
+      g.beginPath();
+      g.moveTo(x + pad, y + pad + len); g.lineTo(x + pad, y + pad); g.lineTo(x + pad + len, y + pad);
+      g.moveTo(x + tile - pad - len, y + pad); g.lineTo(x + tile - pad, y + pad); g.lineTo(x + tile - pad, y + pad + len);
+      g.moveTo(x + tile - pad, y + tile - pad - len); g.lineTo(x + tile - pad, y + tile - pad); g.lineTo(x + tile - pad - len, y + tile - pad);
+      g.moveTo(x + pad + len, y + tile - pad); g.lineTo(x + pad, y + tile - pad); g.lineTo(x + pad, y + tile - pad - len);
+      g.strokePath();
+
+      g.fillStyle(0xff315d, 0.10 + basePulse * 0.10);
+      g.fillCircle(cx, cy, 15 + basePulse * 4);
+      g.lineStyle(1.5, 0xff9aac, 0.28 + basePulse * 0.30);
+      g.beginPath();
+      g.moveTo(cx, cy - 12);
+      g.lineTo(cx + 12, cy);
+      g.lineTo(cx, cy + 12);
+      g.lineTo(cx - 12, cy);
+      g.closePath();
+      g.strokePath();
+      g.fillStyle(0xffd1dc, 0.34 + basePulse * 0.22);
+      g.fillCircle(cx, cy, 3.2);
     }
 
     getGeneratorTextureKey() {
@@ -2164,6 +2198,35 @@
       this.drawHeldDotOrbits(item, item.body, bodyAlpha, accent, glow, item.current?.angle ?? 0);
     }
 
+    drawHookedSurvivorPulse(item, data) {
+      if (!item?.outline || !data?.hooked) return;
+      const now = performance.now();
+      const danger = (data.hookCount || 1) >= 2;
+      const base = danger ? 0xff315d : 0xff4d6d;
+      const soft = danger ? 0xff9aac : 0xffb4c2;
+      const phase = (now / 880) % 1;
+
+      for (let i = 0; i < 3; i++) {
+        const t = (phase + i / 3) % 1;
+        const radius = 20 + t * 23;
+        const alpha = (1 - t) * (danger ? 0.42 : 0.34);
+        item.outline.lineStyle(1.25, base, alpha);
+        item.outline.strokeCircle(0, 0, radius);
+      }
+
+      const smallPulse = 0.5 + Math.sin(now / 170) * 0.5;
+      item.outline.lineStyle(1, soft, 0.35 + smallPulse * 0.25);
+      item.outline.strokeCircle(0, 0, 20 + smallPulse * 2.5);
+
+      // Small vertical tether marks the survivor as bound without drawing a solid
+      // red leash across the screen. Subtle horror, not kindergarten UI.
+      item.outline.lineStyle(1, 0xffd1dc, 0.22 + smallPulse * 0.18);
+      item.outline.beginPath();
+      item.outline.moveTo(0, -34 - smallPulse * 3);
+      item.outline.lineTo(0, -22);
+      item.outline.strokePath();
+    }
+
     styleActor(item, data) {
       if (data.role === "killer") {
         const charging = data.attackState === "charging";
@@ -2182,7 +2245,8 @@
         const executing = data.downed && (data.hookCount || 0) >= 2 && data.hookProgress > 0;
         const progressColor = data.hooked ? 0x75d5ff : downedHealProgress ? 0x8dff9a : executing ? 0xff4040 : data.downed ? 0xffb36b : 0x8dff9a;
         const outlineColor = showProgress ? progressColor : data.invuln > 0 ? 0xffffff : data.hooked ? 0xffc06a : skin.outline;
-        this.drawActorShape(item, data, data.dead ? 0x555555 : color, disabled ? 0.45 : 1, outlineColor, showProgress || data.invuln > 0 || data.hooked ? 1 : 0.82);
+        this.drawActorShape(item, data, data.dead ? 0x555555 : color, disabled ? 0.45 : 1, outlineColor, showProgress || data.invuln > 0 ? 1 : 0.82);
+        if (data.hooked && !disabled) this.drawHookedSurvivorPulse(item, data);
         item.facing.setFillStyle(0xffffff, disabled || data.hooked ? 0.15 : 0.42);
         if (item.healBarBg && item.healBar) {
           item.healBarBg.setVisible(showProgress);
@@ -2696,11 +2760,13 @@
     maybeDrawDynamicWorld(dt) {
       this.dynamicRedrawTimer += dt;
       const animatingDots = !!this.collectibleDotsAnimating;
-      const interval = 1 / (animatingDots ? DOT_FADE_VISUAL.FPS : PERFORMANCE.DYNAMIC_WORLD_FPS);
-      if (!this.needsDynamicRedraw && !animatingDots && this.dynamicRedrawTimer < interval) return;
+      const animatingHooks = (currentSnapshot?.map?.hooks || this.map?.hooks || []).some((hook) => hook && hook.active !== false);
+      const animated = animatingDots || animatingHooks;
+      const interval = 1 / (animatingDots ? DOT_FADE_VISUAL.FPS : animatingHooks ? 12 : PERFORMANCE.DYNAMIC_WORLD_FPS);
+      if (!this.needsDynamicRedraw && !animated && this.dynamicRedrawTimer < interval) return;
       if (this.dynamicRedrawTimer < interval) return;
       const key = this.getDynamicWorldKey();
-      if (key !== this.lastDynamicKey || this.needsDynamicRedraw || animatingDots) {
+      if (key !== this.lastDynamicKey || this.needsDynamicRedraw || animated) {
         this.lastDynamicKey = key;
         this.drawDynamicWorld();
       }

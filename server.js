@@ -149,6 +149,13 @@ const SURVIVOR_DOT_PICKUP_RADIUS = 48;
 const KILLER_DOT_PICKUP_RADIUS = 92;
 const DOT_DEPOSIT_DISTANCE = 96;
 const DOT_DEPOSIT_SECONDS = 0.5;
+// Deposit balancing: the first few orbs feed quickly, then dumping a full pocket
+// into one generator gets slower. Leaving the gen, switching gens, getting hit,
+// or running out of orbs resets the chain. Tiny stamina system, because circles
+// apparently need labor laws.
+const DOT_DEPOSIT_FAST_CHAIN_COUNT = 5;
+const DOT_DEPOSIT_MAX_CHAIN = SURVIVOR_DOT_MAX;
+const DOT_DEPOSIT_MAX_SECONDS = 1.65;
 const DOT_REPAIR_PROGRESS = 1 / DOTS_PER_GENERATOR;
 const DOT_MIN_TILE_SPACING = 3.0;
 const DOT_MIN_OBJECTIVE_TILE_DIST = 1.8;
@@ -1448,6 +1455,26 @@ function clearDotDepositState(game) {
   }
 }
 
+function dotDepositSecondsForActor(actor) {
+  const chain = clamp(actor?.dotDepositChain || 0, 0, DOT_DEPOSIT_MAX_CHAIN);
+  const nextDepositNumber = clamp(chain + 1, 1, DOT_DEPOSIT_MAX_CHAIN);
+  if (nextDepositNumber <= DOT_DEPOSIT_FAST_CHAIN_COUNT) return DOT_DEPOSIT_SECONDS;
+
+  const slowSteps = Math.max(1, DOT_DEPOSIT_MAX_CHAIN - DOT_DEPOSIT_FAST_CHAIN_COUNT);
+  const t = clamp((nextDepositNumber - DOT_DEPOSIT_FAST_CHAIN_COUNT) / slowSteps, 0, 1);
+  // Ease slowly at first, then noticeably by deposit 8-10. This keeps early
+  // depositing snappy but makes greedier ten-orb dumps feel heavier.
+  const eased = t * t * (3 - 2 * t);
+  return DOT_DEPOSIT_SECONDS + (DOT_DEPOSIT_MAX_SECONDS - DOT_DEPOSIT_SECONDS) * eased;
+}
+
+function resetActorDotDeposit(actor) {
+  if (!actor) return;
+  actor.dotDepositTargetId = null;
+  actor.dotDepositProgress = 0;
+  actor.dotDepositChain = 0;
+}
+
 function updateDotDeposits(game, dt) {
   clearDotDepositState(game);
   const buckets = new Map();
@@ -1456,9 +1483,7 @@ function updateDotDeposits(game, dt) {
     if (actor.role !== "survivor") continue;
     const gen = nearestDotDepositGenerator(game, actor);
     if (!gen) {
-      actor.dotDepositTargetId = null;
-      actor.dotDepositProgress = 0;
-      actor.dotDepositChain = 0;
+      resetActorDotDeposit(actor);
       continue;
     }
 
@@ -1468,10 +1493,12 @@ function updateDotDeposits(game, dt) {
       actor.dotDepositChain = 0;
     }
 
-    actor.dotDepositProgress = clamp((actor.dotDepositProgress || 0) + dt / DOT_DEPOSIT_SECONDS, 0, 1);
-    // Depositing is automatic. Let survivors keep moving around the generator,
-    // but keep their aim facing the gen so the animation reads clearly.
-    actor.input.angle = Math.atan2(gen.y - actor.y, gen.x - actor.x);
+    const depositSeconds = dotDepositSecondsForActor(actor);
+    actor.dotDepositProgress = clamp((actor.dotDepositProgress || 0) + dt / depositSeconds, 0, 1);
+
+    // Depositing is automatic and mobile: survivors can circle the gen while
+    // feeding orbs. Bots keep facing the gen so their intent is readable.
+    if (actor.isBot) actor.input.angle = Math.atan2(gen.y - actor.y, gen.x - actor.x);
 
     let bucket = buckets.get(gen.id);
     if (!bucket) {
@@ -1490,9 +1517,9 @@ function updateDotDeposits(game, dt) {
       if ((actor.dotDepositProgress || 0) < 1 || (actor.dots || 0) <= 0 || gen.done) continue;
 
       actor.dots = Math.max(0, (actor.dots || 0) - 1);
-      actor.dotDepositChain = clamp((actor.dotDepositChain || 0) + 1, 1, SURVIVOR_DOT_MAX);
-      const depositIndex = actor.dotDepositChain;
       actor.dotDepositProgress = 0;
+      actor.dotDepositChain = clamp((actor.dotDepositChain || 0) + 1, 1, DOT_DEPOSIT_MAX_CHAIN);
+      const depositIndex = actor.dotDepositChain;
 
       const oldProgress = gen.progress;
       gen.progress = clamp(gen.progress + DOT_REPAIR_PROGRESS, 0, 1);
@@ -1506,8 +1533,13 @@ function updateDotDeposits(game, dt) {
         survivorId: actor.id,
         generatorId: gen.id,
         depositIndex,
+        nextDepositSeconds: dotDepositSecondsForActor(actor),
         progress: gen.progress
       });
+
+      if ((actor.dots || 0) <= 0) {
+        resetActorDotDeposit(actor);
+      }
 
       if (gen.progress > oldProgress && gen.progress >= 1 && !gen.done) {
         gen.done = true;
