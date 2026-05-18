@@ -20,7 +20,7 @@
   // RenderTexture sits above it, then the local player's flashlight erases that fog.
   // Inside the cone you see the real map, not a white overlay and not a black void.
   const LIGHTING = {
-    MAP_DARKNESS: 0.1,          // 0 = no fog, 0.85 = very dark outside vision
+    MAP_DARKNESS: 0.1,           // 0 = no fog, 0.85 = very dark outside vision
     SURVIVOR_LENGTH: 700,
     SURVIVOR_ANGLE: Math.PI / 2.25,
     KILLER_LENGTH: 980,
@@ -42,7 +42,7 @@
 
   const MUSIC = {
     MASTER: 0.55,
-    MENU_MASTER: 0.46,
+    MENU_MASTER: 0.28,
     FADE: 0.065,
     MENU: "/menu.mp3",
     LAYERS: ["/layer_1.mp3", "/layer_2.mp3", "/layer_3.mp3"]
@@ -214,21 +214,47 @@
     wallDark: 0x8ea0b5,
     wallLight: 0xf7fbff,
     window: 0x38bdf8,
-    pallet: 0xf59e0b,
-    palletDark: 0xb45309,
+    pallet: 0x38bdf8,
+    palletDark: 0x6366f1,
     gen: 0x94a3b8,
     gate: 0x22c55e,
     survivor: 0x75d5ff,
     survivorInjured: 0xff6868,
     killer: 0x5b21b6,
     text: 0xf2efea,
-    scratch: 0xff3535
+    scratch: 0x38bdf8
   };
 
   const SURVIVOR_SKINS = {
-    blueSquare: { id: "blueSquare", label: "Blue Square", shape: "square", color: 0x75d5ff, outline: 0xf7fbff },
-    yellowStar: { id: "yellowStar", label: "Yellow Star", shape: "star", color: 0xffd94a, outline: 0xfff2a8 },
-    purplePentagon: { id: "purplePentagon", label: "Purple Pentagon", shape: "pentagon", color: 0x9b6dff, outline: 0xe7d9ff }
+    // Keep the original IDs so existing lobby/server skin data still works.
+    // The visuals are now themed as soft .io-style signal creatures instead of plain geometry.
+    blueSquare: {
+      id: "blueSquare",
+      label: "Azure Orbit",
+      shape: "orbit",
+      color: 0x38bdf8,
+      accent: 0x818cf8,
+      glow: 0xbae6fd,
+      outline: 0xf0f9ff
+    },
+    yellowStar: {
+      id: "yellowStar",
+      label: "Solar Sprite",
+      shape: "sprite",
+      color: 0xfacc15,
+      accent: 0xfb7185,
+      glow: 0xfef3c7,
+      outline: 0xfffbeb
+    },
+    purplePentagon: {
+      id: "purplePentagon",
+      label: "Prism Ghost",
+      shape: "prism",
+      color: 0xa78bfa,
+      accent: 0x22d3ee,
+      glow: 0xede9fe,
+      outline: 0xf5f3ff
+    }
   };
 
   // In-match radial chat. Hold R, aim with the mouse, release R to send.
@@ -320,6 +346,7 @@
   let phaserScene = null;
   let lastInputPayload = "";
   let toastTimer = null;
+  let activeScreenName = "menu";
 
   function setSelectedSkin(skinId) {
     selectedSkin = SURVIVOR_SKINS[skinId] ? skinId : "blueSquare";
@@ -352,20 +379,34 @@
     volumes: [0, 0, 0]
   };
 
-  function setMenuAudioActive(active) {
+  function setMenuAudioActive(active, options = {}) {
     audio.menuActive = !!active;
     const menu = audio.menu;
     if (!menu) return;
+
+    menu.volume = MUSIC.MENU_MASTER;
+
     if (!audio.menuActive) {
       menu.pause();
       return;
     }
-    menu.volume = MUSIC.MENU_MASTER;
-    menu.play().catch(() => null);
+
+    if (options.restart) {
+      try { menu.currentTime = 0; } catch (_) { /* Some browsers get precious about media time. */ }
+    }
+
+    menu.play().catch(() => {
+      // Browser autoplay rules may block this until the first click/key press.
+      // Keep menuActive true so the unlock listener below can start it immediately.
+    });
   }
 
-  function ensureMenuAudioStarted() {
+  function ensureMenuAudioStarted(options = {}) {
     if (!audio.menuActive || !audio.menu) return;
+    audio.menu.volume = MUSIC.MENU_MASTER;
+    if (options.restart) {
+      try { audio.menu.currentTime = 0; } catch (_) { /* ignore */ }
+    }
     audio.menu.play().catch(() => null);
   }
 
@@ -391,12 +432,18 @@
   }
 
   function showScreen(name) {
+    const previousScreen = activeScreenName;
+    const wasGameScreen = previousScreen === "game";
+    activeScreenName = name;
+
     const isGameScreen = name === "game";
     const menuLike = !isGameScreen;
+    const shouldRestartMenuMusic = menuLike && wasGameScreen;
+
     document.body.classList.toggle("is-game-screen", isGameScreen);
     document.body.classList.toggle("is-menu-screen", menuLike);
     setGameplayAudioActive(isGameScreen);
-    setMenuAudioActive(menuLike);
+    setMenuAudioActive(menuLike, { restart: shouldRestartMenuMusic });
     ui.menu?.classList.toggle("screen-open", name === "menu");
     ui.playScreen?.classList.toggle("screen-open", name === "play");
     ui.skinScreen?.classList.toggle("screen-open", name === "skins");
@@ -820,7 +867,7 @@
 
     create() {
       phaserScene = this;
-      this.cameras.main.setBackgroundColor("#f6f9ff");
+      this.cameras.main.setBackgroundColor("#ffffff");
       this.scale.on("resize", () => this.rebuildFogTexture());
       this.grassLayer = null;
       this.worldGraphics = this.add.graphics().setDepth(1);
@@ -1017,6 +1064,8 @@
       }
       if (!this.map) return;
 
+      // Ultra-cheap world backdrop. One white rectangle, no dots, no grid, no orbit lines.
+      // This removes the decorative background draw cost while keeping the map/game objects visible.
       const pad = 5200;
       const x = -pad;
       const y = -pad;
@@ -1024,43 +1073,8 @@
       const h = this.map.height + pad * 2;
       const g = this.add.graphics().setDepth(-20).setScrollFactor(1, 1);
       this.outOfBoundsGraphics = g;
-
-      // Match the menu mood behind the playable map: pale field, soft blobs, clean grid.
-      // The map itself still draws above this, so gameplay/lighting stay intact.
-      g.fillStyle(0xf6f9ff, 1);
+      g.fillStyle(0xffffff, 1);
       g.fillRect(x, y, w, h);
-
-      g.fillStyle(0x31a9ff, 0.10);
-      g.fillCircle(this.map.width * 0.18, -760, 780);
-      g.fillStyle(0xa772ff, 0.10);
-      g.fillCircle(this.map.width + 920, this.map.height * 0.72, 920);
-      g.fillStyle(0xffd34d, 0.12);
-      g.fillCircle(-780, this.map.height * 0.30, 620);
-      g.fillStyle(0xff4d5f, 0.075);
-      g.fillCircle(this.map.width * 0.50, this.map.height + 860, 760);
-
-      const grid = 36;
-      g.lineStyle(1, 0x41536e, 0.10);
-      const startX = Math.floor(x / grid) * grid;
-      const endX = x + w;
-      const startY = Math.floor(y / grid) * grid;
-      const endY = y + h;
-      for (let xx = startX; xx <= endX; xx += grid) {
-        g.beginPath();
-        g.moveTo(xx, y);
-        g.lineTo(xx, y + h);
-        g.strokePath();
-      }
-      for (let yy = startY; yy <= endY; yy += grid) {
-        g.beginPath();
-        g.moveTo(x, yy);
-        g.lineTo(x + w, yy);
-        g.strokePath();
-      }
-
-      // Soft boundary glow around the real map so the outside reads intentional, not missing.
-      g.lineStyle(18, 0xffffff, 0.38);
-      g.strokeRoundedRect(-9, -9, this.map.width + 18, this.map.height + 18, 34);
     }
 
     rebuildGrassLayer() {
@@ -1070,35 +1084,15 @@
       }
       if (!this.map) return;
 
-      // Performance pass: no procedural blade texture, no per-cell grass strokes.
-      // One cheap green field with a few broad patches is vastly smoother and still reads as grass.
+      // Ultra-cheap playable floor. One white rectangle, no patches, stains, dots, or edge washes.
+      // Walls, windows, pallets, hooks, gens, actors, and fog still render above it.
       const g = this.add.graphics()
         .setDepth(0)
         .setScrollFactor(1, 1);
 
       this.grassLayer = g;
-      g.fillStyle(GROUND_VISUAL.BASE, 1);
+      g.fillStyle(0xffffff, 1);
       g.fillRect(0, 0, this.map.width, this.map.height);
-
-      // Large, low-count color variation so the field is not a flat rectangle.
-      const patches = 18;
-      for (let i = 0; i < patches; i++) {
-        const x = hash2(i + 17, 101) * this.map.width;
-        const y = hash2(i + 29, 211) * this.map.height;
-        const w = 180 + hash2(i + 43, 307) * 420;
-        const h = 120 + hash2(i + 59, 409) * 320;
-        const color = hash2(i + 71, 503) > 0.5 ? GROUND_VISUAL.BASE_LIGHT : GROUND_VISUAL.BASE_DARK;
-        g.fillStyle(color, GROUND_VISUAL.PATCH_ALPHA);
-        g.fillEllipse(x, y, w, h);
-      }
-
-      // Slightly greener boundary wash around the playable map, cheap and readable.
-      const edge = Math.max(90, (this.map.tile || GROUND_VISUAL.TILE_SIZE) * 1.45);
-      g.fillStyle(GROUND_VISUAL.EDGE_GREEN, GROUND_VISUAL.EDGE_ALPHA);
-      g.fillRect(0, 0, this.map.width, edge);
-      g.fillRect(0, this.map.height - edge, this.map.width, edge);
-      g.fillRect(0, 0, edge, this.map.height);
-      g.fillRect(this.map.width - edge, 0, edge, this.map.height);
     }
 
     rebuildFogTexture() {
@@ -1140,30 +1134,9 @@
       if (!this.map) return;
       const g = this.worldGraphics;
       g.clear();
-      const tile = this.map.tile || 72;
-      const cols = Math.ceil(this.map.width / tile);
-      const rows = Math.ceil(this.map.height / tile);
 
-      // The actual ground is a static world-space tileSprite. These translucent
-      // stains sit above it, so the camera can move without the grass texture sliding.
-      for (let y = 0; y < rows; y++) {
-        for (let x = 0; x < cols; x++) {
-          const n = hash2(x, y);
-          g.fillStyle(n > 0.62 ? 0x31452a : 0x0b120b, n > 0.62 ? 0.08 : 0.05);
-          g.fillRect(x * tile, y * tile, tile, tile);
-        }
-      }
-
-      // Old blood stains, cracks, and dirt. Charming, if your idea of charm is tetanus.
-      for (let i = 0; i < 180; i++) {
-        const x = hash2(i, 7) * this.map.width;
-        const y = hash2(i, 19) * this.map.height;
-        const r = 8 + hash2(i, 31) * 30;
-        const isBlood = hash2(i, 43) > 0.76;
-        g.fillStyle(isBlood ? COLORS.blood : 0x171614, isBlood ? 0.22 : 0.18);
-        g.fillEllipse(x, y, r * 1.8, r);
-      }
-
+      // Background is intentionally blank white now. Do not draw tile noise,
+      // dots, stains, patches, or decorative floor cells here. Walls/windows only.
       for (const wall of this.map.walls || []) this.drawWall(g, wall);
       for (const win of this.map.windows || []) this.drawWindow(g, win);
     }
@@ -1338,7 +1311,7 @@
       const dropped = pallet.state === "dropped";
       const wood = COLORS.pallet;
       const dark = COLORS.palletDark;
-      const light = 0xd3914a;
+      const light = 0xdbeafe;
 
       if (broken) {
         g.lineStyle(5, dark, 0.72);
@@ -1348,7 +1321,7 @@
         g.moveTo(pallet.x + 18, pallet.y + pallet.h - 13);
         g.lineTo(pallet.x + pallet.w - 11, pallet.y + 12);
         g.strokePath();
-        g.lineStyle(2, light, 0.35);
+        g.lineStyle(2, light, 0.58);
         g.beginPath();
         g.moveTo(pallet.x + 20, pallet.y + 18);
         g.lineTo(pallet.x + pallet.w - 20, pallet.y + pallet.h - 16);
@@ -1368,58 +1341,50 @@
     }
 
     drawWoodPalletBody(g, x, y, w, h, horizontal, dropped) {
-      const wood = dropped ? COLORS.palletDark : COLORS.pallet;
-      const dark = COLORS.palletDark;
-      const light = 0xd3914a;
+      // .io-style barricade: bright, readable, and not pretending to be lumber.
+      const base = dropped ? 0x1e3a8a : COLORS.pallet;
+      const dark = dropped ? 0x312e81 : COLORS.palletDark;
+      const light = dropped ? 0x93c5fd : 0xe0f2fe;
+      const accent = dropped ? 0xf0abfc : 0xa78bfa;
 
-      g.fillStyle(0x140b07, 0.34);
-      g.fillRoundedRect(x + 3, y + 4, w, h, 6);
+      g.fillStyle(0x0f172a, dropped ? 0.24 : 0.18);
+      g.fillRoundedRect(x + 4, y + 5, w, h, 10);
 
-      g.fillStyle(wood, 1);
-      g.fillRoundedRect(x, y, w, h, 6);
-      g.lineStyle(2, dark, 0.78);
-      g.strokeRoundedRect(x, y, w, h, 6);
+      g.fillStyle(base, dropped ? 0.96 : 0.88);
+      g.fillRoundedRect(x, y, w, h, 10);
+      g.lineStyle(3, dark, 0.88);
+      g.strokeRoundedRect(x, y, w, h, 10);
 
-      const slats = 4;
+      const lanes = 3;
       if (horizontal) {
-        const slatW = w / slats;
-        for (let i = 0; i < slats; i++) {
-          const sx = x + i * slatW + 3;
-          g.fillStyle(i % 2 ? brighten(wood, 0.06) : wood, 1);
-          g.fillRoundedRect(sx, y + 3, slatW - 6, h - 6, 4);
-          g.lineStyle(1, dark, 0.48);
-          g.beginPath();
-          g.moveTo(sx + slatW - 7, y + 5);
-          g.lineTo(sx + slatW - 7, y + h - 5);
-          g.strokePath();
+        const laneW = w / lanes;
+        for (let i = 0; i < lanes; i++) {
+          const sx = x + i * laneW + 5;
+          g.fillStyle(i % 2 ? light : 0xffffff, i % 2 ? 0.46 : 0.34);
+          g.fillRoundedRect(sx, y + 5, laneW - 10, h - 10, 8);
         }
-        // Cross braces make the pallet read as wood, not a brown candy bar.
-        g.lineStyle(4, dark, 0.64);
-        g.beginPath(); g.moveTo(x + 8, y + h * 0.25); g.lineTo(x + w - 8, y + h * 0.75); g.strokePath();
-        g.beginPath(); g.moveTo(x + 8, y + h * 0.75); g.lineTo(x + w - 8, y + h * 0.25); g.strokePath();
+        g.lineStyle(4, accent, dropped ? 0.72 : 0.58);
+        g.beginPath(); g.moveTo(x + 9, y + h * 0.30); g.lineTo(x + w - 9, y + h * 0.70); g.strokePath();
+        g.beginPath(); g.moveTo(x + 9, y + h * 0.70); g.lineTo(x + w - 9, y + h * 0.30); g.strokePath();
       } else {
-        const slatH = h / slats;
-        for (let i = 0; i < slats; i++) {
-          const sy = y + i * slatH + 3;
-          g.fillStyle(i % 2 ? brighten(wood, 0.06) : wood, 1);
-          g.fillRoundedRect(x + 3, sy, w - 6, slatH - 6, 4);
-          g.lineStyle(1, dark, 0.48);
-          g.beginPath();
-          g.moveTo(x + 5, sy + slatH - 7);
-          g.lineTo(x + w - 5, sy + slatH - 7);
-          g.strokePath();
+        const laneH = h / lanes;
+        for (let i = 0; i < lanes; i++) {
+          const sy = y + i * laneH + 5;
+          g.fillStyle(i % 2 ? light : 0xffffff, i % 2 ? 0.46 : 0.34);
+          g.fillRoundedRect(x + 5, sy, w - 10, laneH - 10, 8);
         }
-        g.lineStyle(4, dark, 0.64);
-        g.beginPath(); g.moveTo(x + w * 0.25, y + 8); g.lineTo(x + w * 0.75, y + h - 8); g.strokePath();
-        g.beginPath(); g.moveTo(x + w * 0.75, y + 8); g.lineTo(x + w * 0.25, y + h - 8); g.strokePath();
+        g.lineStyle(4, accent, dropped ? 0.72 : 0.58);
+        g.beginPath(); g.moveTo(x + w * 0.30, y + 9); g.lineTo(x + w * 0.70, y + h - 9); g.strokePath();
+        g.beginPath(); g.moveTo(x + w * 0.70, y + 9); g.lineTo(x + w * 0.30, y + h - 9); g.strokePath();
       }
 
-      g.fillStyle(light, 0.42);
-      g.fillCircle(x + w * 0.22, y + h * 0.25, 2.2);
-      g.fillCircle(x + w * 0.78, y + h * 0.75, 2.2);
+      const pulse = 0.5 + Math.sin((performance.now?.() || Date.now()) / 260) * 0.5;
+      g.fillStyle(0xffffff, 0.78);
+      g.fillCircle(x + w * 0.18, y + h * 0.24, 3.2);
+      g.fillCircle(x + w * 0.82, y + h * 0.76, 3.2);
       if (!dropped) {
-        g.lineStyle(2, 0xffd28a, 0.22);
-        g.strokeRoundedRect(x + 2, y + 2, w - 4, h - 4, 5);
+        g.lineStyle(2, 0xbae6fd, 0.28 + pulse * 0.22);
+        g.strokeRoundedRect(x + 2, y + 2, w - 4, h - 4, 9);
       }
     }
 
@@ -1608,10 +1573,20 @@
         const alpha = clamp((mark.ttl || 0) / 4, 0, 1) * 0.85;
         const len = 22;
         const a = mark.angle || 0;
+        g.lineStyle(6, 0x0f172a, alpha * 0.18);
+        g.beginPath();
+        g.moveTo(mark.x - Math.cos(a) * len * 0.5, mark.y - Math.sin(a) * len * 0.5);
+        g.lineTo(mark.x + Math.cos(a) * len * 0.5, mark.y + Math.sin(a) * len * 0.5);
+        g.strokePath();
         g.lineStyle(3, COLORS.scratch, alpha);
         g.beginPath();
         g.moveTo(mark.x - Math.cos(a) * len * 0.5, mark.y - Math.sin(a) * len * 0.5);
         g.lineTo(mark.x + Math.cos(a) * len * 0.5, mark.y + Math.sin(a) * len * 0.5);
+        g.strokePath();
+        g.lineStyle(1, 0xe0f2fe, alpha * 0.82);
+        g.beginPath();
+        g.moveTo(mark.x - Math.cos(a) * len * 0.28, mark.y - Math.sin(a) * len * 0.28);
+        g.lineTo(mark.x + Math.cos(a) * len * 0.28, mark.y + Math.sin(a) * len * 0.28);
         g.strokePath();
       }
     }
@@ -1755,13 +1730,78 @@
       }
 
       const skin = getSurvivorSkin(data.skin);
-      if (skin.shape === "star") {
-        const points = [];
-        for (let i = 0; i < 10; i++) {
-          const r = i % 2 === 0 ? 20 : 9;
-          const a = -Math.PI / 2 + i * Math.PI / 5;
-          points.push({ x: Math.cos(a) * r, y: Math.sin(a) * r });
+      const now = performance.now();
+      const seed = hash2(String(data.id || "survivor").length, Math.floor((data.x || 0) / 17));
+      const phase = now / 360 + seed * Math.PI * 2;
+      const injured = data.health <= 1 || data.injured || data.downed;
+      const disabled = data.dead || data.escaped;
+      const r = 15.5 + Math.sin(phase) * 0.75;
+      const accent = injured ? 0xfb7185 : (skin.accent || outlineColor);
+      const glow = skin.glow || 0xffffff;
+      const bodyAlpha = disabled ? fillAlpha * 0.45 : fillAlpha;
+
+      if (skin.shape === "orbit") {
+        // Friendly signal-orb: readable, soft, and a little alive.
+        item.body.fillStyle(glow, 0.18 * bodyAlpha);
+        item.body.fillCircle(0, 0, 24 + Math.sin(phase * 1.2) * 1.6);
+        item.body.fillStyle(fillColor, 0.96 * bodyAlpha);
+        item.body.fillCircle(0, 0, r);
+        item.body.fillStyle(0xffffff, 0.42 * bodyAlpha);
+        item.body.fillCircle(-5, -6, r * 0.42);
+        item.outline.lineStyle(2, outlineColor, outlineAlpha);
+        item.outline.strokeCircle(0, 0, r + 3);
+        item.outline.lineStyle(1, accent, 0.64 * outlineAlpha);
+        item.outline.strokeCircle(0, 0, 24);
+        for (let i = 0; i < 3; i++) {
+          const a = phase * (1.05 + i * 0.1) + i * Math.PI * 2 / 3;
+          const ox = Math.cos(a) * (22 + i * 1.4);
+          const oy = Math.sin(a) * (22 + i * 1.4);
+          item.body.fillStyle(i === 1 ? accent : glow, 0.86 * bodyAlpha);
+          item.body.fillCircle(ox, oy, i === 1 ? 3.8 : 3.1);
         }
+        return;
+      }
+
+      if (skin.shape === "sprite") {
+        // Solar sprite: a compact cell with fins, so it looks quick without noisy detail.
+        const tail = injured ? 13 : 10;
+        item.body.fillStyle(glow, 0.18 * bodyAlpha);
+        item.body.fillCircle(0, 0, 24 + Math.sin(phase) * 1.4);
+        item.body.fillStyle(accent, 0.34 * bodyAlpha);
+        item.body.beginPath();
+        item.body.moveTo(-r - tail, -8);
+        item.body.lineTo(-r - 2, 0);
+        item.body.lineTo(-r - tail, 8);
+        item.body.closePath();
+        item.body.fillPath();
+        item.body.fillStyle(fillColor, 0.96 * bodyAlpha);
+        item.body.fillCircle(0, 0, r);
+        item.body.fillStyle(0xffffff, 0.48 * bodyAlpha);
+        item.body.fillCircle(-4, -6, r * 0.36);
+        item.outline.lineStyle(2, outlineColor, outlineAlpha);
+        item.outline.strokeCircle(0, 0, r + 3);
+        item.outline.lineStyle(2, accent, 0.52 * outlineAlpha);
+        item.outline.beginPath();
+        item.outline.moveTo(-r - tail, -8);
+        item.outline.lineTo(-r - 2, 0);
+        item.outline.lineTo(-r - tail, 8);
+        item.outline.strokePath();
+        item.body.fillStyle(accent, 0.85 * bodyAlpha);
+        item.body.fillCircle(Math.cos(phase * 1.35) * 20, Math.sin(phase * 1.35) * 20, 3.2);
+        return;
+      }
+
+      if (skin.shape === "prism") {
+        // Prism ghost: geometric, floaty, and distinct from the killer's void blob.
+        const points = [];
+        for (let i = 0; i < 6; i++) {
+          const a = -Math.PI / 2 + i * Math.PI * 2 / 6;
+          const pr = i % 2 === 0 ? r + 4 : r + 1;
+          points.push({ x: Math.cos(a) * pr, y: Math.sin(a) * pr });
+        }
+        item.body.fillStyle(glow, 0.16 * bodyAlpha);
+        item.body.fillCircle(0, 0, 25 + Math.sin(phase) * 1.4);
+        item.body.fillStyle(fillColor, 0.94 * bodyAlpha);
         item.body.beginPath();
         item.outline.beginPath();
         points.forEach((p, i) => {
@@ -1771,31 +1811,25 @@
         item.body.closePath();
         item.outline.closePath();
         item.body.fillPath();
+        item.outline.lineStyle(2, outlineColor, outlineAlpha);
         item.outline.strokePath();
-        return;
-      }
-
-      if (skin.shape === "pentagon") {
-        const points = [];
-        for (let i = 0; i < 5; i++) {
-          const a = -Math.PI / 2 + i * Math.PI * 2 / 5;
-          points.push({ x: Math.cos(a) * 20, y: Math.sin(a) * 20 });
-        }
-        item.body.beginPath();
+        item.outline.lineStyle(1, accent, 0.72 * outlineAlpha);
         item.outline.beginPath();
-        points.forEach((p, i) => {
-          if (i === 0) { item.body.moveTo(p.x, p.y); item.outline.moveTo(p.x, p.y); }
-          else { item.body.lineTo(p.x, p.y); item.outline.lineTo(p.x, p.y); }
-        });
-        item.body.closePath();
+        item.outline.moveTo(0, -r - 2);
+        item.outline.lineTo(r * 0.72, 0);
+        item.outline.lineTo(0, r + 2);
+        item.outline.lineTo(-r * 0.72, 0);
         item.outline.closePath();
-        item.body.fillPath();
         item.outline.strokePath();
+        item.body.fillStyle(0xffffff, 0.38 * bodyAlpha);
+        item.body.fillCircle(-4, -6, 5.5);
         return;
       }
 
-      item.body.fillRect(-15, -15, 30, 30);
-      item.outline.strokeRect(-17, -17, 34, 34);
+      item.body.fillStyle(fillColor, bodyAlpha);
+      item.body.fillCircle(0, 0, r);
+      item.outline.lineStyle(2, outlineColor, outlineAlpha);
+      item.outline.strokeCircle(0, 0, r + 3);
     }
 
     styleActor(item, data) {
@@ -2123,7 +2157,7 @@
         }
         item.container.setPosition(item.current.x, item.current.y);
         item.container.rotation = item.current.angle || 0;
-        if (item.data?.role === "killer") {
+        if (item.data?.role === "killer" || item.data?.role === "survivor") {
           this.styleActor(item, item.data);
         }
         if (item.chatText) {
@@ -2983,7 +3017,15 @@
     setupMobileControls();
     setupSockets();
     bootPhaser();
-    document.addEventListener("pointerdown", ensureAudioStarted, { once: true });
+    showScreen("menu");
+
+    const unlockAudio = () => {
+      ensureAudioStarted();
+      ensureMenuAudioStarted();
+    };
+    document.addEventListener("pointerdown", unlockAudio, { once: true });
+    document.addEventListener("keydown", unlockAudio, { once: true });
+    document.addEventListener("touchstart", unlockAudio, { once: true, passive: true });
   }
 
   start();

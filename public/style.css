@@ -1553,9 +1553,15 @@ button.selected,
   border: 3px solid #fff;
   box-shadow: 0 4px 12px rgba(31,44,71,0.18);
 }
-.skin-square { background: var(--io-blue); }
-.skin-star { background: var(--io-yellow); }
-.skin-pentagon { background: var(--io-purple); }
+.skin-square {
+  background: radial-gradient(circle at 35% 30%, #e0f2fe 0 18%, #38bdf8 19% 58%, #818cf8 59% 100%);
+}
+.skin-star {
+  background: radial-gradient(circle at 35% 30%, #fffbeb 0 18%, #facc15 19% 58%, #fb7185 59% 100%);
+}
+.skin-pentagon {
+  background: radial-gradient(circle at 35% 30%, #f5f3ff 0 18%, #a78bfa 19% 58%, #22d3ee 59% 100%);
+}
 
 .lobby-list.empty,
 .lobby-item,
