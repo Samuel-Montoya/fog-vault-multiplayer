@@ -691,8 +691,20 @@ function addEvent(game, type, data = {}) {
   if (game.events.length > 40) game.events.splice(0, game.events.length - 40);
 }
 
+/**
+ * Leaves a sprint scratch at the actor's feet. actorId controls visibility:
+ * survivors only receive their own marks; the killer uses cone/LOS filtering.
+ */
 function addScratch(game, actor) {
-  game.scratchMarks.push({ id: uid("scratch"), x: actor.x, y: actor.y, angle: actor.angle + (Math.random() - 0.5), ttl: 4.0, createdAt: game.time || 0 });
+  game.scratchMarks.push({
+    id: uid("scratch"),
+    actorId: actor.id,
+    x: actor.x,
+    y: actor.y,
+    angle: actor.angle + (Math.random() - 0.5),
+    ttl: 4.0,
+    createdAt: game.time || 0
+  });
   if (game.scratchMarks.length > SCRATCH_MARK_MAX) game.scratchMarks.splice(0, game.scratchMarks.length - SCRATCH_MARK_MAX);
 }
 
@@ -774,8 +786,13 @@ function moveActor(game, actor, dt) {
   if (!wouldCollide(game, actor, nextX, actor.y)) actor.x = nextX;
   if (!wouldCollide(game, actor, actor.x, nextY)) actor.y = nextY;
 
+  // Throttled scratch trail while sprinting (reduces snapshot + client draw load).
   if (actor.role === "survivor" && !actor.downed && actor.input.sprint && (Math.abs(dx) + Math.abs(dy) > 0.05)) {
-    if (Math.random() < 0.45) addScratch(game, actor);
+    actor.scratchCooldown = Math.max(0, (actor.scratchCooldown || 0) - dt);
+    if (actor.scratchCooldown <= 0 && Math.random() < 0.42) {
+      addScratch(game, actor);
+      actor.scratchCooldown = 0.1;
+    }
   }
 }
 
@@ -2392,6 +2409,7 @@ function canViewerSeeGeneratorDetails(game, viewer, gen) {
     && coneSees(viewer, { x: gen.x, y: gen.y }, KILLER_CONE_LENGTH, KILLER_CONE_ANGLE);
 }
 
+/** Per-viewer generator payload; killer only sees repair progress inside cone/LOS. */
 function serializeGeneratorForViewer(game, viewer, gen) {
   const showDetails = canViewerSeeGeneratorDetails(game, viewer, gen);
   const repairing = showDetails && !!(gen.repairing || (gen.activeRepairers && gen.activeRepairers.length));
@@ -2488,6 +2506,7 @@ function buildSnapshotForViewer(lobby, socketId, base) {
     };
   }
 
+  // Killer: cone + LOS. Survivor: own scratches only, within 180 units.
   const visibleScratchMarks = viewer?.role === "killer"
     ? game.scratchMarks.filter((s) => {
         const d = dist(viewer.x, viewer.y, s.x, s.y);
@@ -2495,7 +2514,7 @@ function buildSnapshotForViewer(lobby, socketId, base) {
         const target = { x: s.x, y: s.y };
         return coneSees(viewer, target, KILLER_SCRATCH_MARK_VISIBILITY_RANGE, KILLER_CONE_ANGLE) && segmentClear(game, viewer.x, viewer.y, s.x, s.y);
       })
-    : game.scratchMarks.filter((s) => dist(viewer?.x || 0, viewer?.y || 0, s.x, s.y) < 180);
+    : game.scratchMarks.filter((s) => s.actorId === viewer?.id && dist(viewer.x, viewer.y, s.x, s.y) < 180);
 
   return {
     lobbyId: base.lobbyId,

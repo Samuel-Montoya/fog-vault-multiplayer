@@ -122,6 +122,10 @@
   // so walking into generators does not feel like rubber-band soup.
   const GENERATOR_COLLISION_SIZE = 54;
 
+  /**
+   * Client render/network tuning. Snapshots arrive ~16–20 Hz; these caps prevent
+   * pallets, generators, scratches, and fog from repainting at packet rate.
+   */
   const PERFORMANCE = {
     // Expensive world UI is redrawn at fixed rates instead of every network snapshot.
     // Lower these if a very weak laptop is still wheezing. Raise them if you want
@@ -466,6 +470,10 @@
     };
   }
 
+  /**
+   * Compact input fingerprint so we only emit socket "input" when buttons,
+   * movement, sprint/repair, or aim (bucketed) actually change.
+   */
   function inputSignature(payload) {
     const dir = payload.actionDir || "";
     const dirCode = dir === "up" ? 1 : dir === "down" ? 2 : dir === "left" ? 3 : dir === "right" ? 4 : 0;
@@ -494,6 +502,11 @@
     }
   }
 
+  /**
+   * Dirty key for survivor/killer body graphics. When unchanged, skip styleActor()
+   * and only update heal/hook progress bars. Must be set to "" on new actors so
+   * the first paint always runs.
+   */
   function actorVisualKey(data) {
     if (!data) return "";
     return [
@@ -761,14 +774,18 @@
       this.map = null;
       this.worldGraphics = null;
       this.dynamicGraphics = null;
-      this.generatorGraphics = null;
       this.scratchGraphics = null;
       this.fogRT = null;
       this.lightConeMask = null;
       this.lightAuraMask = null;
       this.particleGraphics = null;
       this.actors = new Map();
-      this.generatorSprites = new Map();
+      this.generatorSprites = new Map(); // SVG/icon per gen (done tint only)
+      this.generatorBarGraphics = new Map(); // id -> Graphics (shadow + bar)
+      this.generatorBarState = new Map(); // id -> last getGenVisualKey()
+      this.generatorGlows = new Map(); // id -> { ring, fill } repair/kick pulse sprites
+      this.dirtyGeneratorBarIds = new Set(); // ids needing refreshGeneratorOverlays
+      this.pendingSnapshot = null; // filled by queueSnapshot, drained in update()
       this.localVisual = null;
       this.localServerTarget = null;
       this.particles = [];
@@ -778,11 +795,9 @@
       this.generatorRedrawTimer = 0;
       this.scratchRedrawTimer = 0;
       this.needsDynamicRedraw = false;
-      this.needsGeneratorRedraw = false;
       this.pendingScratchMarks = [];
       this.needsScratchRedraw = false;
       this.lastDynamicKey = "";
-      this.lastGeneratorKey = "";
       this.lastHudKey = "";
       this.lastHudRenderAt = 0;
       this.lastFogWidth = 0;
@@ -808,7 +823,42 @@
       this.lastGeneratorSpriteKey = "";
       this.localCollisionSolids = [];
       this.localCollisionKey = "";
+      this.serverBlendFrom = null; // local prediction: interpolated server position
+      this.serverBlendTo = null;
+      this.serverBlendT = 1;
       this.seenEventIds = new Set();
+    }
+
+    /**
+     * Interpolated authoritative position between the last two server snapshots.
+     * Used for soft prediction correction instead of snapping every packet.
+     */
+    getServerRefPos() {
+      if (!this.serverBlendTo) return { x: 0, y: 0 };
+      const t = clamp(this.serverBlendT, 0, 1);
+      return {
+        x: lerp(this.serverBlendFrom?.x ?? this.serverBlendTo.x, this.serverBlendTo.x, t),
+        y: lerp(this.serverBlendFrom?.y ?? this.serverBlendTo.y, this.serverBlendTo.y, t)
+      };
+    }
+
+    /**
+     * Called when a snapshot updates the local player. Starts a short blend from
+     * the current ref toward the new server (x, y) so sprint/repair does not stutter.
+     */
+    syncServerBlendTarget(x, y) {
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+      if (!this.serverBlendTo) {
+        this.serverBlendFrom = { x, y };
+        this.serverBlendTo = { x, y };
+        this.serverBlendT = 1;
+        return;
+      }
+      if (Math.hypot(x - this.serverBlendTo.x, y - this.serverBlendTo.y) < 0.5) return;
+      const ref = this.getServerRefPos();
+      this.serverBlendFrom = { x: ref.x, y: ref.y };
+      this.serverBlendTo = { x, y };
+      this.serverBlendT = 0;
     }
 
     preload() {
@@ -827,7 +877,6 @@
       this.grassLayer = null;
       this.worldGraphics = this.add.graphics().setDepth(1);
       this.dynamicGraphics = this.add.graphics().setDepth(3);
-      this.generatorGraphics = this.add.graphics().setDepth(3.25);
       this.scratchGraphics = this.add.graphics().setDepth(4);
       this.chargeGraphics = this.add.graphics().setDepth(21);
       this.swipeGraphics = this.add.graphics().setDepth(22);
@@ -997,19 +1046,27 @@
       this.drawDynamicWorld();
       this.rebuildFogTexture();
       this.clearGeneratorSprites();
+      this.clearGeneratorBarGraphics();
+      this.dirtyGeneratorBarIds.clear();
       this.clearActors();
       this.lastDynamicKey = "";
-      this.lastGeneratorKey = "";
       this.lastGeneratorSpriteKey = "";
       this.needsDynamicRedraw = true;
-      this.needsGeneratorRedraw = true;
+      this.primeGeneratorOverlays(map.generators || []);
       this.localVisual = null;
       this.localServerTarget = null;
       this.localCollisionSolids = [];
       this.localCollisionKey = "";
+      this.serverBlendFrom = null;
+      this.serverBlendTo = null;
+      this.serverBlendT = 1;
       this.seenEventIds?.clear();
     }
 
+    /**
+     * Cached walls/windows/dropped pallets for client-side movement prediction.
+     * Key only changes when dropped pallet set changes (not every snapshot field).
+     */
     rebuildLocalCollisionSolids() {
       if (!this.map) {
         this.localCollisionSolids = [];
@@ -1093,7 +1150,95 @@
     clearGeneratorSprites() {
       for (const sprite of this.generatorSprites.values()) sprite.destroy();
       this.generatorSprites.clear();
-      this.generatorGraphics?.clear();
+    }
+
+    /** Destroys per-generator progress-bar Graphics and repair glow sprites. */
+    clearGeneratorBarGraphics() {
+      for (const gfx of this.generatorBarGraphics.values()) gfx.destroy();
+      this.generatorBarGraphics.clear();
+      this.generatorBarState.clear();
+      this.clearGeneratorGlows();
+    }
+
+    /** Removes pulsing repair/kick ring sprites (see syncGeneratorGlows). */
+    clearGeneratorGlows() {
+      for (const glow of this.generatorGlows.values()) {
+        glow.ring?.destroy();
+        glow.fill?.destroy();
+      }
+      this.generatorGlows.clear();
+    }
+
+    /**
+     * Creates/destroys lightweight Phaser circle sprites for repair/kick FX.
+     * Runs on snapshot apply when state changes — pulse animation is updateGeneratorGlows().
+     * Bars stay on generatorBarGraphics; glow is never drawn with Graphics.clear().
+     */
+    syncGeneratorGlows() {
+      if (!currentSnapshot) return;
+      const generators = currentSnapshot.map?.generators || this.map?.generators || [];
+      const active = new Set();
+
+      for (const gen of generators) {
+        const id = String(gen.id);
+        const showRepairFx = gen.showRepairFx !== false;
+        const repairing = showRepairFx && !gen.done && (gen.repairing || (Array.isArray(gen.activeRepairers) && gen.activeRepairers.length > 0));
+        const kicking = gen.showProgress !== false && !gen.done && !!gen.beingKicked;
+        if (!repairing && !kicking) continue;
+
+        active.add(id);
+        const stateKey = kicking ? "kick" : "repair";
+        const color = kicking ? GENERATOR_VISUAL.KICK_GLOW_COLOR : GENERATOR_VISUAL.REPAIR_GLOW_COLOR;
+        let glow = this.generatorGlows.get(id);
+
+        if (!glow) {
+          const radius = GENERATOR_VISUAL.SIZE * 0.52;
+          glow = {
+            stateKey,
+            kicking: !!kicking,
+            ring: this.add.circle(gen.x, gen.y, radius, 0xffffff, 0)
+              .setDepth(3.2)
+              .setStrokeStyle(kicking ? 3 : 2, color, kicking ? 0.74 : 0.42),
+            fill: this.add.circle(gen.x, gen.y, radius * 1.05, color, kicking ? 0.06 : 0.045).setDepth(3.15)
+          };
+          this.generatorGlows.set(id, glow);
+        } else if (glow.stateKey !== stateKey) {
+          glow.stateKey = stateKey;
+          glow.kicking = !!kicking;
+          glow.ring.setStrokeStyle(kicking ? 3 : 2, color, glow.ring.alpha);
+          glow.fill.setFillStyle(color, glow.fill.alpha);
+        }
+      }
+
+      for (const [id, glow] of this.generatorGlows.entries()) {
+        if (active.has(id)) continue;
+        glow.ring?.destroy();
+        glow.fill?.destroy();
+        this.generatorGlows.delete(id);
+      }
+    }
+
+    /** Cheap per-frame pulse: only adjusts alpha on existing glow sprites. */
+    updateGeneratorGlows() {
+      if (!this.generatorGlows.size) return;
+      const t = performance.now();
+      for (const glow of this.generatorGlows.values()) {
+        const pulse = 0.5 + Math.sin(t / (glow.kicking ? 95 : 135)) * 0.5;
+        glow.ring.setAlpha((glow.kicking ? 0.74 : 0.42) * (0.55 + pulse * 0.45));
+        glow.fill.setAlpha((glow.kicking ? 0.06 : 0.045) * (0.75 + pulse * 0.35));
+      }
+    }
+
+    /**
+     * Dirty key for one generator's bar/shadow Graphics layer.
+     * Coarse progress steps (×12) limit redraws; repair/kick/done flags trigger on/off.
+     */
+    getGenVisualKey(gen) {
+      const showProgress = gen.showProgress !== false ? 1 : 0;
+      const repairing = gen.showRepairFx !== false && (gen.repairing || (Array.isArray(gen.activeRepairers) && gen.activeRepairers.length > 0)) ? 1 : 0;
+      const progressStep = showProgress ? Math.round((gen.progress || 0) * 12) : 0;
+      const kickStep = showProgress ? Math.round((gen.kickProgress || 0) * 8) : 0;
+      return `${showProgress}:${gen.done ? 1 : 0}:${repairing}:${gen.beingKicked ? 1 : 0}:${gen.kickLocked ? 1 : 0}:${kickStep}:${progressStep}`;
     }
 
     clearActors() {
@@ -1276,17 +1421,80 @@
       for (const hook of currentSnapshot.map?.hooks || this.map.hooks || []) this.drawHook(g, hook);
     }
 
-    drawGeneratorLayer() {
-      if (!this.map || !currentSnapshot || !this.generatorGraphics) return;
+    /**
+     * One-time draw of all generator bars at map load so the first remote repair
+     * does not cold-start a full-map Graphics flush.
+     */
+    primeGeneratorOverlays(generators) {
+      if (!this.map || !generators?.length) return;
+      const spriteKey = this.getGeneratorSpriteKey();
+      this.syncGeneratorSprites(generators);
+      this.lastGeneratorSpriteKey = spriteKey;
+      for (const gen of generators) {
+        const id = String(gen.id);
+        let gfx = this.generatorBarGraphics.get(id);
+        if (!gfx) {
+          gfx = this.add.graphics().setDepth(3.25);
+          this.generatorBarGraphics.set(id, gfx);
+        }
+        gfx.clear();
+        this.drawGenerator(gfx, gen);
+        this.generatorBarState.set(id, this.getGenVisualKey(gen));
+      }
+    }
+
+    /**
+     * Compares each generator's visual key to the last painted state; changed ids
+     * go into dirtyGeneratorBarIds for refreshGeneratorOverlays (called each snapshot).
+     */
+    markDirtyGeneratorBars(snapshot) {
+      const generators = snapshot?.map?.generators || [];
+      for (const gen of generators) {
+        const id = String(gen.id);
+        const visualKey = this.getGenVisualKey(gen);
+        if (this.generatorBarState.get(id) !== visualKey) this.dirtyGeneratorBarIds.add(id);
+      }
+    }
+
+    /**
+     * Redraws only generators listed in dirtyGeneratorBarIds (plus sprite sync
+     * when done-state changes). Called from maybeDrawGeneratorLayer on a fixed FPS.
+     */
+    refreshGeneratorOverlays() {
+      if (!this.map || !currentSnapshot) return;
       const generators = currentSnapshot.map?.generators || this.map.generators || [];
       const spriteKey = this.getGeneratorSpriteKey();
       if (spriteKey !== this.lastGeneratorSpriteKey) {
         this.syncGeneratorSprites(generators);
         this.lastGeneratorSpriteKey = spriteKey;
       }
-      const g = this.generatorGraphics;
-      g.clear();
-      for (const gen of generators) this.drawGenerator(g, gen);
+
+      if (!this.dirtyGeneratorBarIds.size) return;
+
+      const activeIds = new Set();
+      for (const gen of generators) {
+        const id = String(gen.id);
+        activeIds.add(id);
+        if (!this.dirtyGeneratorBarIds.has(id)) continue;
+
+        const visualKey = this.getGenVisualKey(gen);
+        let gfx = this.generatorBarGraphics.get(id);
+        if (!gfx) {
+          gfx = this.add.graphics().setDepth(3.25);
+          this.generatorBarGraphics.set(id, gfx);
+        }
+        gfx.clear();
+        this.drawGenerator(gfx, gen);
+        this.generatorBarState.set(id, visualKey);
+      }
+      this.dirtyGeneratorBarIds.clear();
+
+      for (const [id, gfx] of this.generatorBarGraphics.entries()) {
+        if (activeIds.has(id)) continue;
+        gfx.destroy();
+        this.generatorBarGraphics.delete(id);
+        this.generatorBarState.delete(id);
+      }
     }
 
     drawPallet(g, pallet) {
@@ -1430,6 +1638,10 @@
       }
     }
 
+    /**
+     * Draws shadow + progress bar for one generator into its dedicated Graphics.
+     * Repair/kick pulse rings live in generatorGlows (syncGeneratorGlows), not here.
+     */
     drawGenerator(g, gen) {
       const showProgress = gen.showProgress !== false;
       const showRepairFx = gen.showRepairFx !== false;
@@ -1445,14 +1657,7 @@
       g.fillStyle(0x000000, 0.28);
       g.fillEllipse(gen.x, gen.y + 35, GENERATOR_VISUAL.SIZE * 0.78, 17);
 
-      if (repairing || kicking) {
-        const pulse = 0.5 + Math.sin(performance.now() / (kicking ? 95 : 135)) * 0.5;
-        const color = kicking ? GENERATOR_VISUAL.KICK_GLOW_COLOR : GENERATOR_VISUAL.REPAIR_GLOW_COLOR;
-        g.lineStyle(kicking ? 3 : 2, color, kicking ? 0.74 : 0.42);
-        g.strokeCircle(gen.x, gen.y, GENERATOR_VISUAL.SIZE * (0.50 + pulse * 0.06));
-        g.fillStyle(color, kicking ? 0.06 : 0.045);
-        g.fillCircle(gen.x, gen.y, GENERATOR_VISUAL.SIZE * (0.55 + pulse * 0.05));
-      }
+      // Pulsing rings: generatorGlows + updateGeneratorGlows (not Graphics).
 
       if (showProgress) {
         g.fillStyle(0x0b0b0a, 0.84);
@@ -1484,37 +1689,52 @@
       g.fillRoundedRect(x + 8, y + 8, 52, 52, 9);
     }
 
+    /**
+     * Latest-wins snapshot buffer. Socket callbacks queue here; applySnapshot runs
+     * at the start of Phaser update() so network work does not run mid-frame.
+     */
+    queueSnapshot(snapshot) {
+      this.pendingSnapshot = snapshot;
+    }
+
+    /**
+     * Applies one server snapshot per frame max. Dynamic map data is read from
+     * currentSnapshot (not merged into this.map every packet). Generators use
+     * dirty bar ids + separate glow sprites to avoid repair stutter.
+     */
     applySnapshot(snapshot) {
       currentSnapshot = snapshot;
       setMusicTargets(snapshot.music);
       if (!this.map && snapshot.map) this.loadMap(snapshot.map);
-      if (this.map && snapshot.map) this.map = { ...this.map, ...snapshot.map, walls: this.map.walls, windows: this.map.windows };
-      // Do not force a dynamic redraw on every network snapshot. Generator repair
-      // progress arrives constantly, and forcing redraws here bypassed the coarse
-      // dynamic-world key below. Let maybeDrawDynamicWorld() redraw only when the
-      // pallet/gen/hook/gate key actually changes.
       if (!this.lastDynamicKey) this.needsDynamicRedraw = true;
-      if (!this.lastGeneratorKey) this.needsGeneratorRedraw = true;
       this.pendingScratchMarks = snapshot.scratchMarks || [];
-      this.needsScratchRedraw = true;
+      this.rebuildLocalCollisionSolids();
       this.updateActorTargets(snapshot.actors || []);
+      this.markDirtyGeneratorBars(snapshot);
+      this.syncGeneratorGlows();
       this.handleEvents(snapshot.events || []);
       this.updateHud(snapshot);
       this.lastSnapshotAt = performance.now();
     }
 
+    /**
+     * DOM HUD refresh — throttled by time and hudKey so remote generator repair
+     * does not rebuild survivor cards 20×/sec.
+     */
     updateHud(snapshot) {
       const me = (snapshot.actors || []).find((a) => a.id === myId);
       if (!me) return;
 
       const now = performance.now();
+      if (now - this.lastHudRenderAt < (LOW_POWER_MODE ? 280 : 220)) return;
+
       const objective = snapshot.objective || {};
       const hudKey = JSON.stringify({
         self: [me.id, me.role, me.health, me.injured, me.downed, me.hooked, me.dead, me.escaped, me.chase, me.hookProgress, me.healProgress, me.generatorKickTargetId, me.generatorKickProgress],
         objective: [objective.doneGenerators, objective.requiredGenerators, objective.totalGenerators, objective.escapeOpen],
         survivors: (snapshot.actors || []).filter((a) => a.role === "survivor").map((a) => [a.id, a.health, a.injured, a.downed, a.hooked, a.dead, a.escaped, a.chase, a.hookProgress, a.healProgress, a.hookCount])
       });
-      if (hudKey === this.lastHudKey && now - this.lastHudRenderAt < (LOW_POWER_MODE ? 280 : 180)) return;
+      if (hudKey === this.lastHudKey) return;
       this.lastHudKey = hudKey;
       this.lastHudRenderAt = now;
       renderSurvivorStatusHud(snapshot);
@@ -1564,18 +1784,25 @@
       }
     }
 
+    /**
+     * Syncs server actor state into display targets. Uses actorVisualKey to skip
+     * full body redraws; name/chat text only updates when the string changes.
+     */
     updateActorTargets(actors) {
       const seen = new Set();
       for (const data of actors) {
         seen.add(data.id);
         let item = this.actors.get(data.id);
+        let isNewActor = false;
         if (!item || item.role !== data.role) {
           if (item) {
             item.container.destroy();
             item.chatText?.destroy();
           }
           item = this.createActorDisplay(data);
+          item.visualKey = "";
           this.actors.set(data.id, item);
+          isNewActor = true;
         }
 
         item.data = data;
@@ -1588,15 +1815,20 @@
         // We only hide the container visually. That prevents the seen-again teleport jump.
         const isVisible = data.visible !== false || data.id === myId;
         item.container.setVisible(true);
-        item.container.setAlpha(isVisible ? 1 : 0);
-        item.nameText.setText(data.name || "");
-        item.nameText.setVisible(isVisible && data.id !== myId);
+        const nextAlpha = isVisible ? 1 : 0;
+        if (item.container.alpha !== nextAlpha) item.container.setAlpha(nextAlpha);
+        const name = data.name || "";
+        if (item.nameText.text !== name) item.nameText.setText(name);
+        const showName = isVisible && data.id !== myId;
+        if (item.nameText.visible !== showName) item.nameText.setVisible(showName);
         if (item.chatText) {
-          item.chatText.setText(data.chatText || "");
-          item.chatText.setVisible(isVisible && !!data.chatText);
+          const chat = data.chatText || "";
+          if (item.chatText.text !== chat) item.chatText.setText(chat);
+          const showChat = isVisible && !!data.chatText;
+          if (item.chatText.visible !== showChat) item.chatText.setVisible(showChat);
         }
         const visualKey = actorVisualKey(data);
-        if (visualKey !== item.visualKey) {
+        if (isNewActor || visualKey !== item.visualKey) {
           item.visualKey = visualKey;
           this.styleActor(item, data);
         } else {
@@ -1604,6 +1836,7 @@
         }
 
         if (data.id === myId) {
+          this.syncServerBlendTarget(data.x, data.y);
           this.localServerTarget = { x: data.x, y: data.y, angle: data.angle, data };
           if (this.localVisual) {
             this.localVisual.role = data.role;
@@ -1663,7 +1896,7 @@
         nameText,
         chatText,
         data,
-        visualKey: actorVisualKey(data),
+        visualKey: "",
         current: { x: data.x || 0, y: data.y || 0, angle: data.angle || 0 },
         target: { x: data.x || 0, y: data.y || 0, angle: data.angle || 0 }
       };
@@ -1978,13 +2211,19 @@
 
     update(time, deltaMs) {
       const dt = Math.min(0.04, deltaMs / 1000);
+      // Drain at most one queued snapshot per frame (see queueSnapshot).
+      if (this.pendingSnapshot) {
+        const snapshot = this.pendingSnapshot;
+        this.pendingSnapshot = null;
+        this.applySnapshot(snapshot);
+      }
       updateMusic();
-      this.rebuildLocalCollisionSolids();
       this.updateAimAngle();
       this.predictLocal(dt);
       this.updateActorDisplays(dt);
       this.updateImmersion(dt);
       this.updateCamera(dt);
+      this.updateGeneratorGlows();
       this.maybeDrawDynamicWorld(dt);
       this.maybeDrawGeneratorLayer(dt);
       this.maybeUpdateScratchGraphics(dt);
@@ -2046,9 +2285,23 @@
       if (!this.localWouldCollide(data.role, nx, this.localVisual.y)) this.localVisual.x = nx;
       if (!this.localWouldCollide(data.role, this.localVisual.x, ny)) this.localVisual.y = ny;
 
-      // Soft reconciliation with server authority. Not syrupy, not teleporty. Finally, a compromise that doesn't smell like despair.
-      this.localVisual.x += (this.localServerTarget.x - this.localVisual.x) * 0.075;
-      this.localVisual.y += (this.localServerTarget.y - this.localVisual.y) * 0.075;
+      // Soft correction toward blended server ref (see getServerRefPos / syncServerBlendTarget).
+      if (this.serverBlendTo) {
+        this.serverBlendT = Math.min(1, this.serverBlendT + dt / 0.055);
+      }
+      const ref = this.getServerRefPos();
+      const errX = ref.x - this.localVisual.x;
+      const errY = ref.y - this.localVisual.y;
+      const err = Math.hypot(errX, errY);
+      if (err > 140) {
+        this.localVisual.x = ref.x;
+        this.localVisual.y = ref.y;
+      } else if (err > 12) {
+        const rate = input.sprint ? 3.2 : 4.8;
+        const alpha = dampAlpha(rate, dt);
+        this.localVisual.x += errX * alpha;
+        this.localVisual.y += errY * alpha;
+      }
     }
 
     localWouldCollide(role, x, y) {
@@ -2240,18 +2493,6 @@
       return (map.generators || []).map((g) => `${g.id}:${g.done ? 1 : 0}`).join("|");
     }
 
-    getGeneratorWorldKey() {
-      const map = currentSnapshot?.map || this.map;
-      if (!map) return "";
-      return (map.generators || []).map((g) => {
-        const showProgress = g.showProgress !== false ? 1 : 0;
-        const repairOn = (g.showRepairFx !== false && (g.repairing || (Array.isArray(g.activeRepairers) && g.activeRepairers.length > 0))) ? 1 : 0;
-        const progressStep = showProgress ? Math.round((g.progress || 0) * 50) : 0;
-        const kickStep = showProgress ? Math.round((g.kickProgress || 0) * 12) : 0;
-        return `${g.id}:${showProgress}:${progressStep}:${g.done ? 1 : 0}:${repairOn}:${g.beingKicked ? 1 : 0}:${kickStep}:${g.kickLocked ? 1 : 0}`;
-      }).join("|");
-    }
-
     maybeDrawDynamicWorld(dt) {
       this.dynamicRedrawTimer += dt;
       const interval = 1 / PERFORMANCE.DYNAMIC_WORLD_FPS;
@@ -2266,25 +2507,23 @@
       this.dynamicRedrawTimer = 0;
     }
 
+    /** Fixed-FPS pass; only redraws generator bars whose dirty set is non-empty. */
     maybeDrawGeneratorLayer(dt) {
       this.generatorRedrawTimer += dt;
       const interval = 1 / PERFORMANCE.GENERATOR_FPS;
-      if (!this.needsGeneratorRedraw && this.generatorRedrawTimer < interval) return;
       if (this.generatorRedrawTimer < interval) return;
-      const key = this.getGeneratorWorldKey();
-      if (key !== this.lastGeneratorKey || this.needsGeneratorRedraw) {
-        this.lastGeneratorKey = key;
-        this.drawGeneratorLayer();
-      }
-      this.needsGeneratorRedraw = false;
       this.generatorRedrawTimer = 0;
+      this.refreshGeneratorOverlays();
     }
 
+    /**
+     * Scratch marks repaint on a timer from pendingScratchMarks (updated each
+     * snapshot). Not flagged dirty per-packet — avoids sprint/repair snapshot spam.
+     */
     maybeUpdateScratchGraphics(dt) {
       this.scratchRedrawTimer += dt;
-      if (!this.needsScratchRedraw || this.scratchRedrawTimer < 1 / PERFORMANCE.SCRATCH_DRAW_FPS) return;
+      if (this.scratchRedrawTimer < 1 / PERFORMANCE.SCRATCH_DRAW_FPS) return;
       this.updateScratchGraphics(this.pendingScratchMarks || []);
-      this.needsScratchRedraw = false;
       this.scratchRedrawTimer = 0;
     }
 
@@ -2945,10 +3184,10 @@
       showScreen("game");
       ensureAudioStarted();
     });
+    // Do not apply snapshots here — queue for GameScene.update() (see queueSnapshot).
     socket.on("snapshot", (snapshot) => {
       if (snapshot?.seq && currentSnapshot?.seq && snapshot.seq <= currentSnapshot.seq) return;
-      currentSnapshot = snapshot;
-      if (phaserScene) phaserScene.applySnapshot(snapshot);
+      phaserScene?.queueSnapshot(snapshot);
     });
     socket.on("matchEnded", ({ winner, reason }) => {
       ui.winnerText.textContent = winner === "killer" ? "Killer Wins" : "Survivors Win";
