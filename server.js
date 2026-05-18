@@ -191,7 +191,7 @@ const BOT_KILLER_STUCK_SECONDS = 0.85;
 const CHAT_MESSAGE_DURATION = 3.0;
 const CHAT_WHEEL_MESSAGES = {
   survivor: {
-    normal: ["Let's do a generator.", "I'm so scared...", "Here he comes!", "What was that?!"],
+    normal: ["Let's feed a rift.", "I'm so scared...", "Here he comes!", "What was that?!"],
     chase: ["He's on me...!", "Leave me alone!", "I'm so scared!", "AHHHH!"],
     injured: ["I need healing...", "Please, help me...", "I need to hide.", "Over here..."],
     downed: ["Pick me up!", "Help, please...", "I don't wanna die...", "I'm down...!"],
@@ -1432,7 +1432,6 @@ function updateCollectibleDots(game, dt) {
 function nearestDotDepositGenerator(game, actor) {
   if (!actor || actor.role !== "survivor" || (actor.dots || 0) <= 0) return null;
   if (actor.dead || actor.escaped || actor.downed || actor.hooked || actor.vault || actor.actionLock > 0) return null;
-  if (actor.input.sprint) return null;
   if (actor.healingTargetId || actor.unhookTargetId || (actor.activeHealers && actor.activeHealers.length > 0)) return null;
 
   let best = null;
@@ -2004,7 +2003,7 @@ function checkWinConditions(lobby) {
   }
 
   if (game.map.generators.length > 0 && doneGens >= game.requiredGenerators) {
-    endGame(lobby, "survivors", "All generators are complete.");
+    endGame(lobby, "survivors", "All rifts are stabilized.");
   }
 }
 

@@ -1656,3 +1656,67 @@ html, body, #gameWrap { background: var(--io-bg) !important; color: var(--io-tex
 .menu-action:hover, button:hover, .coffee-link:hover, .text-btn:hover { background: rgba(24, 30, 50, 0.96); }
 .lobby-item, .player-item, .option-card, .hud-card, .survivor-status-card, .big-gen-counter { background: rgba(9, 11, 20, 0.78) !important; color: var(--io-text) !important; border-color: rgba(255,255,255,0.10) !important; }
 .skin-preview { border-color: rgba(255,255,255,0.78); box-shadow: 0 0 18px rgba(124,58,237,0.25); }
+
+
+/* v83 rift objective icon: replaces the old generator image with the current orb/rift symbol. */
+.big-gen-icon.rift-counter-icon {
+  position: relative;
+  flex: 0 0 auto;
+  width: 52px;
+  height: 52px;
+  border-radius: 999px;
+  display: grid;
+  place-items: center;
+  background:
+    radial-gradient(circle at 38% 28%, rgba(255, 246, 188, 0.9), transparent 18%),
+    radial-gradient(circle at center, rgba(255, 210, 84, 0.96) 0 22%, rgba(142, 82, 255, 0.78) 43%, rgba(29, 13, 51, 0.92) 74%);
+  border: 1px solid rgba(255, 220, 114, 0.72);
+  box-shadow:
+    0 0 0 1px rgba(166, 117, 255, 0.25),
+    0 0 18px rgba(255, 203, 74, 0.34),
+    0 4px 16px rgba(0, 0, 0, 0.74),
+    inset 0 0 20px rgba(255, 255, 255, 0.14);
+  overflow: visible;
+  filter: none;
+}
+.big-gen-icon.rift-counter-icon::before {
+  content: "";
+  position: absolute;
+  inset: 7px;
+  border-radius: 999px;
+  border: 2px solid rgba(240, 216, 255, 0.34);
+  transform: rotate(-18deg) scaleX(1.22);
+}
+.big-gen-icon.rift-counter-icon::after {
+  content: "";
+  position: absolute;
+  inset: 12px;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(255, 246, 183, 0.96), rgba(255, 195, 50, 0.92) 44%, rgba(255, 195, 50, 0) 72%);
+  box-shadow: 0 0 16px rgba(255, 213, 85, 0.62);
+}
+.rift-counter-core {
+  position: absolute;
+  width: 13px;
+  height: 13px;
+  border-radius: 999px;
+  background: #fff4a8;
+  box-shadow: 0 0 18px rgba(255, 224, 92, 0.9);
+  z-index: 2;
+}
+.rift-counter-orbit {
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #ffe58a;
+  box-shadow: 0 0 10px rgba(255, 215, 79, 0.72);
+  z-index: 3;
+}
+.rift-counter-orbit.orbit-a { transform: translate(20px, -4px); }
+.rift-counter-orbit.orbit-b { transform: translate(-17px, 13px); width: 5px; height: 5px; opacity: 0.86; }
+.rift-counter-orbit.orbit-c { transform: translate(-8px, -20px); width: 4px; height: 4px; opacity: 0.72; }
+.big-gen-copy span,
+.objective-card span:first-child {
+  letter-spacing: 0.14em;
+}
