@@ -182,7 +182,9 @@
     BAR_HEIGHT: 8,
     BAR_Y_OFFSET: 48,
     REPAIR_GLOW_COLOR: 0xffd15c,
-    KICK_GLOW_COLOR: 0xff4b4b
+    KICK_GLOW_COLOR: 0xff4b4b,
+    DEPOSIT_PROGRESS_SMOOTHING: 18,
+    DEPOSIT_FULL_SNAP: 0.98
   };
 
   const HOOK_INDICATOR = {
@@ -235,6 +237,20 @@
   };
 
   const SURVIVOR_DOT_MAX = 10;
+
+  const DOT_ORBIT_VISUAL = {
+    RADIUS_BASE: 22,
+    RADIUS_STEP: 1.4,
+    SIZE_PRIMARY: 3.8,
+    SIZE_SECONDARY: 3.1,
+    BOB: 1.2,
+    // Matches the old decorative orbit speed (performance.now() / 360).
+    SPIN_SPEED: 2.75,
+    PICKUP_SMOOTHING: 11,
+    DEPOSIT_SMOOTHING: 5.5,
+    DEPOSIT_PROGRESS_SMOOTHING: 16,
+    DEPOSIT_EXIT_PUSH: 16
+  };
 
   const SURVIVOR_SKINS = {
     // Keep the original IDs so existing lobby/server skin data still works.
@@ -891,6 +907,8 @@
       this.worldGraphics = this.add.graphics().setDepth(1);
       this.dynamicGraphics = this.add.graphics().setDepth(3);
       this.generatorGraphics = this.add.graphics().setDepth(3.25);
+      this.generatorDepositVisual = new Map();
+      this.generatorDepositLastRaw = new Map();
       this.scratchGraphics = this.add.graphics().setDepth(4);
       // Kept only as a cheap fallback container. The actual beam glow is now a pre-baked
       // soft sprite, because per-frame triangle drawing made the cone edge look harsh.
@@ -1540,8 +1558,9 @@
       const showProgress = gen.showProgress !== false;
       const showRepairFx = gen.showRepairFx !== false;
       const progress = clamp(gen.progress || 0, 0, 1);
+      const smoothedDeposit = clamp(this.generatorDepositVisual?.get(gen.id) ?? gen.dotDepositProgress ?? 0, 0, 1);
       const repairing = showRepairFx && !gen.done && (gen.repairing || (Array.isArray(gen.activeRepairers) && gen.activeRepairers.length > 0));
-      const depositing = showRepairFx && !gen.done && !!gen.dotDepositing;
+      const depositing = showRepairFx && !gen.done && (!!gen.dotDepositing || smoothedDeposit > 0.008);
       const kicking = showProgress && !gen.done && !!gen.beingKicked;
       const now = performance.now();
       const pulse = 0.5 + Math.sin(now / 260 + hash2(Math.floor(gen.x), Math.floor(gen.y)) * Math.PI * 2) * 0.5;
@@ -1605,11 +1624,11 @@
         g.strokePath();
       }
 
-      if (depositing) {
-        const depositProgress = clamp(gen.dotDepositProgress || 0, 0, 1);
+      if (depositing && smoothedDeposit > 0.002) {
+        const depositArc = smoothedDeposit >= GENERATOR_VISUAL.DEPOSIT_FULL_SNAP ? 1 : smoothedDeposit;
         g.lineStyle(4, COLORS.collectibleDotGlow, 0.92);
         g.beginPath();
-        g.arc(gen.x, gen.y, 52, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * depositProgress, false);
+        g.arc(gen.x, gen.y, 52, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * depositArc, false);
         g.strokePath();
       }
 
@@ -1816,8 +1835,54 @@
         chatText,
         data,
         current: { x: data.x || 0, y: data.y || 0, angle: data.angle || 0 },
-        target: { x: data.x || 0, y: data.y || 0, angle: data.angle || 0 }
+        target: { x: data.x || 0, y: data.y || 0, angle: data.angle || 0 },
+        dotDisplay: clamp(data.dots ?? 0, 0, SURVIVOR_DOT_MAX),
+        dotDepositVisual: 0,
+        dotOrbitPhase: hash2((data.id || "survivor").length, (data.id || "s").charCodeAt(0) || 0) * Math.PI * 2
       };
+    }
+
+    getSurvivorDotVisualTarget(item) {
+      const serverDots = clamp(item.data?.dots ?? 0, 0, SURVIVOR_DOT_MAX);
+      const depositProgress = item.data?.dotDepositProgress ?? 0;
+      const isDepositing = depositProgress > 0.001 && !!item.data?.dotDepositTargetId;
+      if (!isDepositing) return { targetDots: serverDots, depositing: false };
+
+      const depositVisual = item.dotDepositVisual ?? depositProgress;
+      return {
+        targetDots: Math.max(0, serverDots - depositVisual),
+        depositing: true
+      };
+    }
+
+    drawHeldDotOrbits(item, body, bodyAlpha, accent, glow, playerAngle) {
+      const display = item.dotDisplay ?? 0;
+      if (display <= 0.03) return;
+
+      const orbitPhase = item.dotOrbitPhase ?? 0;
+      const spreadCount = Math.max(1, Math.min(SURVIVOR_DOT_MAX, display));
+
+      for (let i = 0; i < SURVIVOR_DOT_MAX; i++) {
+        const fill = clamp(display - i, 0, 1);
+        if (fill <= 0.02) continue;
+
+        const orbitSpin = orbitPhase * (1.05 + i * 0.1);
+        const slotAngle = orbitSpin + (i / spreadCount) * Math.PI * 2 - Math.PI / 2;
+        const localAngle = slotAngle - (playerAngle || 0);
+        const radius = DOT_ORBIT_VISUAL.RADIUS_BASE + (i % 3) * DOT_ORBIT_VISUAL.RADIUS_STEP;
+        const bob = Math.sin(orbitPhase * 2.3 + i * 0.85) * DOT_ORBIT_VISUAL.BOB;
+        const exitT = 1 - fill;
+        const exitEase = exitT * exitT;
+        const exitPush = exitEase * DOT_ORBIT_VISUAL.DEPOSIT_EXIT_PUSH;
+        const ox = Math.cos(localAngle) * (radius + bob + exitPush);
+        const oy = Math.sin(localAngle) * (radius + bob + exitPush);
+        const size = (i % 2 === 1 ? DOT_ORBIT_VISUAL.SIZE_PRIMARY : DOT_ORBIT_VISUAL.SIZE_SECONDARY) * (0.65 + fill * 0.35);
+        const alpha = bodyAlpha * 0.86 * fill * fill;
+        const color = i % 2 === 1 ? accent : glow;
+
+        body.fillStyle(color, alpha);
+        body.fillCircle(ox, oy, size);
+      }
     }
 
     drawActorShape(item, data, fillColor, fillAlpha, outlineColor, outlineAlpha) {
@@ -1862,7 +1927,7 @@
 
       const skin = getSurvivorSkin(data.skin);
       const now = performance.now();
-      const seed = hash2(String(data.id || "survivor").length, Math.floor((data.x || 0) / 17));
+      const seed = hash2((data.id || "survivor").length, (data.id || "s").charCodeAt(0) || 0);
       const phase = now / 360 + seed * Math.PI * 2;
       const injured = data.health <= 1 || data.injured || data.downed;
       const disabled = data.dead || data.escaped;
@@ -1883,17 +1948,7 @@
         item.outline.strokeCircle(0, 0, r + 3);
         item.outline.lineStyle(1, accent, 0.64 * outlineAlpha);
         item.outline.strokeCircle(0, 0, 24);
-        for (let i = 0; i < 3; i++) {
-          const a = phase * (1.05 + i * 0.1) + i * Math.PI * 2 / 3;
-          const ox = Math.cos(a) * (22 + i * 1.4);
-          const oy = Math.sin(a) * (22 + i * 1.4);
-          item.body.fillStyle(i === 1 ? accent : glow, 0.86 * bodyAlpha);
-          item.body.fillCircle(ox, oy, i === 1 ? 3.8 : 3.1);
-        }
-        return;
-      }
-
-      if (skin.shape === "sprite") {
+      } else if (skin.shape === "sprite") {
         // Solar sprite: a compact cell with fins, so it looks quick without noisy detail.
         const tail = injured ? 13 : 10;
         item.body.fillStyle(glow, 0.18 * bodyAlpha);
@@ -1917,12 +1972,7 @@
         item.outline.lineTo(-r - 2, 0);
         item.outline.lineTo(-r - tail, 8);
         item.outline.strokePath();
-        item.body.fillStyle(accent, 0.85 * bodyAlpha);
-        item.body.fillCircle(Math.cos(phase * 1.35) * 20, Math.sin(phase * 1.35) * 20, 3.2);
-        return;
-      }
-
-      if (skin.shape === "prism") {
+      } else if (skin.shape === "prism") {
         // Prism ghost: geometric, floaty, and distinct from the killer's void blob.
         const points = [];
         for (let i = 0; i < 6; i++) {
@@ -1954,13 +2004,14 @@
         item.outline.strokePath();
         item.body.fillStyle(0xffffff, 0.38 * bodyAlpha);
         item.body.fillCircle(-4, -6, 5.5);
-        return;
+      } else {
+        item.body.fillStyle(fillColor, bodyAlpha);
+        item.body.fillCircle(0, 0, r);
+        item.outline.lineStyle(2, outlineColor, outlineAlpha);
+        item.outline.strokeCircle(0, 0, r + 3);
       }
 
-      item.body.fillStyle(fillColor, bodyAlpha);
-      item.body.fillCircle(0, 0, r);
-      item.outline.lineStyle(2, outlineColor, outlineAlpha);
-      item.outline.strokeCircle(0, 0, r + 3);
+      this.drawHeldDotOrbits(item, item.body, bodyAlpha, accent, glow, item.current?.angle ?? 0);
     }
 
     styleActor(item, data) {
@@ -2294,6 +2345,30 @@
         }
         item.container.setPosition(item.current.x, item.current.y);
         item.container.rotation = item.current.angle || 0;
+        if (item.data?.role === "survivor") {
+          const serverDots = clamp(item.data.dots ?? 0, 0, SURVIVOR_DOT_MAX);
+          const depositProgress = item.data.dotDepositProgress ?? 0;
+          const isDepositing = depositProgress > 0.001 && !!item.data.dotDepositTargetId;
+
+          if (isDepositing) {
+            item.dotDepositVisual = lerp(
+              item.dotDepositVisual ?? depositProgress,
+              depositProgress,
+              dampAlpha(DOT_ORBIT_VISUAL.DEPOSIT_PROGRESS_SMOOTHING, dt)
+            );
+          } else {
+            item.dotDepositVisual = 0;
+          }
+
+          const { targetDots, depositing } = this.getSurvivorDotVisualTarget(item);
+          const prevDisplay = item.dotDisplay ?? targetDots;
+          const smoothing = depositing || targetDots < prevDisplay - 0.0001
+            ? DOT_ORBIT_VISUAL.DEPOSIT_SMOOTHING
+            : DOT_ORBIT_VISUAL.PICKUP_SMOOTHING;
+
+          item.dotOrbitPhase = (item.dotOrbitPhase || 0) + dt * DOT_ORBIT_VISUAL.SPIN_SPEED;
+          item.dotDisplay = lerp(prevDisplay, targetDots, dampAlpha(smoothing, dt));
+        }
         if (item.data?.role === "killer" || item.data?.role === "survivor") {
           this.styleActor(item, item.data);
         }
@@ -2459,9 +2534,75 @@
       this.dynamicRedrawTimer = 0;
     }
 
+    updateGeneratorDepositVisuals(dt) {
+      if (!this.generatorDepositVisual) this.generatorDepositVisual = new Map();
+      if (!this.generatorDepositLastRaw) this.generatorDepositLastRaw = new Map();
+      const generators = currentSnapshot?.map?.generators || this.map?.generators || [];
+      const seen = new Set();
+      let animating = false;
+
+      for (const gen of generators) {
+        seen.add(gen.id);
+        const prev = this.generatorDepositVisual.get(gen.id) ?? 0;
+
+        if (!gen.dotDepositing) {
+          this.generatorDepositLastRaw.delete(gen.id);
+          if (prev !== 0) {
+            this.generatorDepositVisual.set(gen.id, 0);
+            animating = true;
+          }
+          continue;
+        }
+
+        const raw = clamp(gen.dotDepositProgress || 0, 0, 1);
+        const lastRaw = this.generatorDepositLastRaw.get(gen.id) ?? 0;
+
+        // Server resets progress to 0 between back-to-back deposits while still in range.
+        if (raw < 0.02) {
+          this.generatorDepositLastRaw.set(gen.id, 0);
+          if (prev !== 0) {
+            this.generatorDepositVisual.set(gen.id, 0);
+            animating = true;
+          }
+          continue;
+        }
+
+        if (raw + 0.12 < lastRaw) {
+          this.generatorDepositVisual.set(gen.id, 0);
+        }
+        this.generatorDepositLastRaw.set(gen.id, raw);
+
+        const fillTarget = raw >= GENERATOR_VISUAL.DEPOSIT_FULL_SNAP ? 1 : raw;
+        let next = this.generatorDepositVisual.get(gen.id) ?? 0;
+        if (fillTarget < next) next = fillTarget;
+        else next = lerp(next, fillTarget, dampAlpha(GENERATOR_VISUAL.DEPOSIT_PROGRESS_SMOOTHING, dt));
+        next = Math.min(1, Math.max(next, fillTarget));
+        if (fillTarget >= 1) next = 1;
+
+        if (next < 1 && Math.abs(next - prev) > 0.0004) animating = true;
+        this.generatorDepositVisual.set(gen.id, next);
+      }
+
+      for (const id of [...this.generatorDepositVisual.keys()]) {
+        if (!seen.has(id)) {
+          this.generatorDepositVisual.delete(id);
+          this.generatorDepositLastRaw.delete(id);
+        }
+      }
+
+      return animating;
+    }
+
     maybeDrawGeneratorLayer(dt) {
+      const depositAnimating = this.updateGeneratorDepositVisuals(dt);
       this.generatorRedrawTimer += dt;
       const interval = 1 / PERFORMANCE.GENERATOR_FPS;
+
+      if (depositAnimating) {
+        this.drawGeneratorLayer();
+        return;
+      }
+
       if (!this.needsGeneratorRedraw && this.generatorRedrawTimer < interval) return;
       if (this.generatorRedrawTimer < interval) return;
       const key = this.getGeneratorWorldKey();
