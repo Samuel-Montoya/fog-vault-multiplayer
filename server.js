@@ -139,6 +139,14 @@ const HOOKS_BEFORE_EXECUTION = 2;
 const HOOK_INTERACT_DISTANCE = 128;
 const HOOK_RESCUE_DISTANCE = 108;
 const HOOK_MIN_KILLER_DISTANCE = 430;
+const SURVIVOR_DOT_MAX = 10;
+const SURVIVOR_DOT_DROP_ON_HIT = 2;
+const DOT_PICKUP_RADIUS = 48;
+const DOT_MIN_TILE_SPACING = 2.2;
+const DOT_MIN_OBJECTIVE_TILE_DIST = 1.4;
+const DOT_SPAWN_FLOOR_RATIO = 0.06;
+const DOT_SPAWN_MIN = 16;
+const DOT_SPAWN_MAX = 80;
 const TERROR_RADIUS = 760;
 const CHASE_START_RADIUS = 520;
 const CHASE_HOLD_SECONDS = 3;
@@ -419,6 +427,7 @@ function makePlayer(socket, role, name, options = {}) {
     y: 0,
     angle: 0,
     health: role === "survivor" ? 2 : 999,
+    dots: role === "survivor" ? 0 : 0,
     dead: false,
     escaped: false,
     downed: false,
@@ -636,8 +645,11 @@ function startGame(lobby) {
     requiredGenerators: Math.min(REQUIRED_GENERATORS_TO_COMPLETE, map.generators.length),
     escapeOpen: false,
     time: 0,
-    botThinkAccumulator: 0
+    botThinkAccumulator: 0,
+    collectibleDots: []
   };
+
+  seedInitialCollectibleDots(game);
 
   let survivorSpawnIndex = 0;
   for (const player of players) {
@@ -956,6 +968,8 @@ function damageSurvivor(game, killer, survivor) {
     addEvent(game, "hit", { x: survivor.x, y: survivor.y, survivorId: survivor.id, health: survivor.health });
   }
 
+  dropDotsOnHit(game, survivor);
+
   if (killer && killer.attackState) killer.attackHasHit = true;
   else if (killer) {
     killer.recovery = Math.max(killer.recovery, KILLER_QUICK_HIT_RECOVERY);
@@ -1139,6 +1153,169 @@ function updateTimers(game, dt) {
   }
 }
 
+
+function countFloorTiles(map) {
+  let count = 0;
+  for (let y = 0; y < map.rows; y++) {
+    for (let x = 0; x < map.cols; x++) {
+      if (map.rawRows[y]?.[x] === ".") count += 1;
+    }
+  }
+  return count;
+}
+
+function initialDotSpawnCount(map) {
+  const floorTiles = countFloorTiles(map);
+  return clamp(Math.round(floorTiles * DOT_SPAWN_FLOOR_RATIO), DOT_SPAWN_MIN, DOT_SPAWN_MAX);
+}
+
+function enumerateFloorDotCandidates(game, options = {}) {
+  const tile = game.map.tile;
+  const minObjective = tile * DOT_MIN_OBJECTIVE_TILE_DIST;
+  const minDotSpacing = tile * DOT_MIN_TILE_SPACING;
+  const excludeNearObjectives = options.excludeNearObjectives !== false;
+  const excludeExistingDots = options.excludeExistingDots !== false;
+  const candidates = [];
+
+  for (let y = 1; y < game.map.rows - 1; y++) {
+    for (let x = 1; x < game.map.cols - 1; x++) {
+      if (game.map.rawRows[y]?.[x] !== ".") continue;
+      const p = tileCenter(game, x, y);
+      if (excludeNearObjectives) {
+        const nearObjective = [
+          ...game.map.generators,
+          ...game.map.gates,
+          ...game.map.survivorSpawns,
+          ...game.map.killerSpawns
+        ].some((o) => dist(o.x, o.y, p.x, p.y) < minObjective);
+        if (nearObjective) continue;
+      }
+      if (excludeExistingDots) {
+        const tooClose = (game.collectibleDots || []).some((d) => dist(d.x, d.y, p.x, p.y) < minDotSpacing);
+        if (tooClose) continue;
+      }
+      candidates.push({ x: p.x, y: p.y, tileX: x, tileY: y });
+    }
+  }
+  return candidates;
+}
+
+function spawnWorldDotAt(game, spot) {
+  if (!spot) return false;
+  if ((game.collectibleDots || []).some((d) => d.tileX === spot.tileX && d.tileY === spot.tileY)) return false;
+  game.collectibleDots.push({
+    id: uid("dot"),
+    x: spot.x,
+    y: spot.y,
+    tileX: spot.tileX,
+    tileY: spot.tileY
+  });
+  return true;
+}
+
+function spawnWorldDotNear(game, nearX, nearY) {
+  const actorTile = tileAt(game, nearX, nearY);
+  const tile = game.map.tile;
+  const minSpacing = tile * DOT_MIN_TILE_SPACING;
+  const radius = 5;
+  let best = null;
+  let bestDist = Infinity;
+
+  for (let ty = actorTile.y - radius; ty <= actorTile.y + radius; ty++) {
+    for (let tx = actorTile.x - radius; tx <= actorTile.x + radius; tx++) {
+      if (game.map.rawRows[ty]?.[tx] !== ".") continue;
+      const p = tileCenter(game, tx, ty);
+      if ((game.collectibleDots || []).some((d) => d.tileX === tx && d.tileY === ty)) continue;
+      if ((game.collectibleDots || []).some((d) => dist(d.x, d.y, p.x, p.y) < minSpacing)) continue;
+      const d = dist(nearX, nearY, p.x, p.y);
+      if (d < bestDist) {
+        bestDist = d;
+        best = { x: p.x, y: p.y, tileX: tx, tileY: ty };
+      }
+    }
+  }
+
+  if (!best) {
+    const fallback = enumerateFloorDotCandidates(game).sort(
+      (a, b) => dist(nearX, nearY, a.x, a.y) - dist(nearX, nearY, b.x, b.y)
+    )[0];
+    best = fallback || null;
+  }
+
+  return spawnWorldDotAt(game, best);
+}
+
+function seedInitialCollectibleDots(game) {
+  game.collectibleDots = [];
+  const target = initialDotSpawnCount(game.map);
+  const candidates = enumerateFloorDotCandidates(game, { excludeExistingDots: false });
+  for (let i = candidates.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+  }
+
+  const tile = game.map.tile;
+  const minSpacing = tile * DOT_MIN_TILE_SPACING;
+  for (const candidate of candidates) {
+    if (game.collectibleDots.length >= target) break;
+    const tooClose = game.collectibleDots.some((d) => dist(d.x, d.y, candidate.x, candidate.y) < minSpacing);
+    if (tooClose) continue;
+    game.collectibleDots.push({
+      id: uid("dot"),
+      x: candidate.x,
+      y: candidate.y,
+      tileX: candidate.tileX,
+      tileY: candidate.tileY
+    });
+  }
+}
+
+function survivorCanPickupDots(actor) {
+  return !!(
+    actor
+    && actor.role === "survivor"
+    && !actor.dead
+    && !actor.escaped
+    && !actor.hooked
+    && !actor.downed
+    && (actor.dots || 0) < SURVIVOR_DOT_MAX
+  );
+}
+
+function dropDotsOnHit(game, survivor) {
+  if (!survivor || survivor.role !== "survivor") return;
+  const drop = Math.min(SURVIVOR_DOT_DROP_ON_HIT, survivor.dots || 0);
+  if (drop <= 0) return;
+  survivor.dots = Math.max(0, (survivor.dots || 0) - drop);
+  for (let i = 0; i < drop; i++) spawnWorldDotNear(game, survivor.x, survivor.y);
+}
+
+function updateCollectibleDots(game) {
+  if (!game.collectibleDots?.length) return;
+  const pickupRadius2 = DOT_PICKUP_RADIUS * DOT_PICKUP_RADIUS;
+
+  for (const actor of game.actors.values()) {
+    if (!survivorCanPickupDots(actor)) continue;
+
+    let nearestIdx = -1;
+    let nearestD2 = pickupRadius2;
+    for (let i = 0; i < game.collectibleDots.length; i++) {
+      const dot = game.collectibleDots[i];
+      const dx = actor.x - dot.x;
+      const dy = actor.y - dot.y;
+      const d2 = dx * dx + dy * dy;
+      if (d2 > nearestD2) continue;
+      if (!segmentClear(game, actor.x, actor.y, dot.x, dot.y)) continue;
+      nearestIdx = i;
+      nearestD2 = d2;
+    }
+
+    if (nearestIdx < 0) continue;
+    const dot = game.collectibleDots.splice(nearestIdx, 1)[0];
+    actor.dots = Math.min(SURVIVOR_DOT_MAX, (actor.dots || 0) + 1);
+    addEvent(game, "dotPickup", { x: dot.x, y: dot.y, survivorId: actor.id });
+  }
+}
 
 function randomFloorHookSpot(game, killer = null) {
   const tile = game.map.tile;
@@ -2257,6 +2434,7 @@ function updateGame(lobby, dt) {
   updateGeneratorKicks(game, dt);
   const killer = [...game.actors.values()].find((p) => p.role === "killer");
   for (const actor of game.actors.values()) moveActor(game, actor, dt);
+  updateCollectibleDots(game);
   updateKillerAttack(game, killer, dt);
   for (const actor of game.actors.values()) {
     if (actor.input.action) handleAction(game, actor);
@@ -2316,6 +2494,7 @@ function serializeActor(game, actor, visible = true) {
     y: Number(actor.y.toFixed(2)),
     angle: actor.angle,
     health: actor.health,
+    dots: actor.role === "survivor" ? clamp(actor.dots || 0, 0, SURVIVOR_DOT_MAX) : 0,
     injured: actor.injured,
     dead: actor.dead,
     escaped: actor.escaped,
@@ -2473,6 +2652,7 @@ function buildSnapshotFor(lobby, socketId) {
       remainingGenerators: Math.max(0, requiredGenerators - doneGenerators),
       escapeOpen: game.escapeOpen
     },
+    collectibleDots: (game.collectibleDots || []).map((d) => ({ id: d.id, x: d.x, y: d.y })),
     music
   };
 }

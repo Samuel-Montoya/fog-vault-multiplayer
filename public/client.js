@@ -229,8 +229,12 @@
     survivorInjured: 0xff6868,
     killer: 0x7c3aed,
     text: 0xf2efea,
-    scratch: 0x38bdf8
+    scratch: 0x38bdf8,
+    collectibleDot: 0xfbbf24,
+    collectibleDotGlow: 0xffe08a
   };
+
+  const SURVIVOR_DOT_MAX = 10;
 
   const SURVIVOR_SKINS = {
     // Keep the original IDs so existing lobby/server skin data still works.
@@ -727,12 +731,14 @@
       const state = survivorStateLabel(actor);
       const name = escapeHtml(actor.name || "Survivor");
       const you = actor.id === myId ? '<span class="survivor-you">You</span>' : "";
+      const dotsHeld = Math.min(SURVIVOR_DOT_MAX, actor.dots || 0);
       return `
         <div class="${survivorCardClass(actor)}">
           <div class="survivor-portrait" aria-hidden="true"></div>
           <div class="survivor-meta">
             <div class="survivor-name-row"><span class="survivor-name">${name}</span>${you}</div>
             <div class="survivor-state">${escapeHtml(state)}</div>
+            <div class="survivor-dots" aria-label="Collectible dots">${dotsHeld} / ${SURVIVOR_DOT_MAX}</div>
           </div>
           <div class="survivor-action">${escapeHtml(actionLabel(actor))}</div>
         </div>`;
@@ -1393,6 +1399,18 @@
       this.syncGeneratorSprites(currentSnapshot.map?.generators || this.map.generators || []);
       for (const gate of currentSnapshot.map?.gates || this.map.gates || []) this.drawGate(g, gate);
       for (const hook of currentSnapshot.map?.hooks || this.map.hooks || []) this.drawHook(g, hook);
+      for (const dot of currentSnapshot.collectibleDots || []) this.drawCollectibleDot(g, dot);
+    }
+
+    drawCollectibleDot(g, dot) {
+      if (!dot || !Number.isFinite(dot.x) || !Number.isFinite(dot.y)) return;
+      const pulse = 0.5 + Math.sin(performance.now() / 320 + hash2(Math.floor(dot.x), Math.floor(dot.y)) * Math.PI * 2) * 0.5;
+      g.fillStyle(COLORS.collectibleDot, 0.18 + pulse * 0.14);
+      g.fillCircle(dot.x, dot.y, 11 + pulse * 2.5);
+      g.fillStyle(COLORS.collectibleDotGlow, 0.9);
+      g.fillCircle(dot.x, dot.y, 4.5 + pulse * 1.2);
+      g.lineStyle(2, 0xfff7d6, 0.45 + pulse * 0.25);
+      g.strokeCircle(dot.x, dot.y, 7 + pulse * 1.5);
     }
 
     drawGeneratorLayer() {
@@ -1624,9 +1642,10 @@
       const now = performance.now();
       const objective = snapshot.objective || {};
       const hudKey = JSON.stringify({
-        self: [me.id, me.role, me.health, me.injured, me.downed, me.hooked, me.dead, me.escaped, me.chase, me.hookProgress, me.healProgress, me.generatorKickTargetId, me.generatorKickProgress],
+        self: [me.id, me.role, me.health, me.dots, me.injured, me.downed, me.hooked, me.dead, me.escaped, me.chase, me.hookProgress, me.healProgress, me.generatorKickTargetId, me.generatorKickProgress],
         objective: [objective.doneGenerators, objective.requiredGenerators, objective.totalGenerators, objective.escapeOpen],
-        survivors: (snapshot.actors || []).filter((a) => a.role === "survivor").map((a) => [a.id, a.health, a.injured, a.downed, a.hooked, a.dead, a.escaped, a.chase, a.hookProgress, a.healProgress, a.hookCount])
+        survivors: (snapshot.actors || []).filter((a) => a.role === "survivor").map((a) => [a.id, a.health, a.dots, a.injured, a.downed, a.hooked, a.dead, a.escaped, a.chase, a.hookProgress, a.healProgress, a.hookCount]),
+        dots: (snapshot.collectibleDots || []).map((d) => d.id).join(",")
       });
       if (hudKey === this.lastHudKey && now - this.lastHudRenderAt < 180) return;
       this.lastHudKey = hudKey;
@@ -2013,6 +2032,7 @@
           this.addShockwave(event.x, event.y, 0x9eff91);
         }
         if (event.type === "healDone") this.burst(event.x, event.y, 0x8dff9a, 24, 120);
+        if (event.type === "dotPickup") this.burst(event.x, event.y, COLORS.collectibleDot, 10, 95);
       }
     }
 
@@ -2383,7 +2403,8 @@
       const palletKey = (map.pallets || []).map((p) => `${p.id}:${p.state}:${p.broken ? 1 : 0}`).join("|");
       const hookKey = (map.hooks || []).map((h) => `${h.id}:${h.active ? 1 : 0}:${h.survivorId || ""}`).join("|");
       const gateKey = (map.gates || []).map((g) => `${g.id}:${g.open ? 1 : 0}`).join("|");
-      return `${palletKey}#${hookKey}#${gateKey}`;
+      const dotKey = (currentSnapshot?.collectibleDots || []).map((d) => d.id).join(",");
+      return `${palletKey}#${hookKey}#${gateKey}#${dotKey}`;
     }
 
     getGeneratorWorldKey() {
