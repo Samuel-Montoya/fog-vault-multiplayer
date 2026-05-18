@@ -1481,8 +1481,28 @@ function updateGeneratorKicks(game, dt) {
   }
 }
 
+function nearestRepairableGenerator(game, actor) {
+  let gen = null;
+  let bestD2 = INTERACT_DISTANCE * INTERACT_DISTANCE;
+  for (const candidate of game.map.generators) {
+    if (candidate.done) continue;
+    const dx = actor.x - candidate.x;
+    const dy = actor.y - candidate.y;
+    const d2 = dx * dx + dy * dy;
+    if (d2 < bestD2 && segmentClear(game, actor.x, actor.y, candidate.x, candidate.y)) {
+      gen = candidate;
+      bestD2 = d2;
+    }
+  }
+  return gen;
+}
+
 function updateGeneratorsAndGates(game, dt) {
+  const repairBuckets = new Map();
+
   for (const gen of game.map.generators) {
+    gen.repairing = false;
+    gen.repairerCount = 0;
     if (Array.isArray(gen.activeRepairers)) gen.activeRepairers.length = 0;
     else gen.activeRepairers = [];
   }
@@ -1491,30 +1511,42 @@ function updateGeneratorsAndGates(game, dt) {
     if (actor.role !== "survivor" || actor.dead || actor.escaped || actor.downed || actor.hooked) continue;
     if (actor.healingTargetId || actor.unhookTargetId || (actor.activeHealers && actor.activeHealers.length > 0)) continue;
     if (!actor.input.repair || actor.input.sprint) continue;
-    let gen = null;
-    let bestD2 = INTERACT_DISTANCE * INTERACT_DISTANCE;
-    for (const candidate of game.map.generators) {
-      if (candidate.done) continue;
-      const dx = actor.x - candidate.x;
-      const dy = actor.y - candidate.y;
-      const d2 = dx * dx + dy * dy;
-      if (d2 < bestD2) {
-        gen = candidate;
-        bestD2 = d2;
-      }
+
+    const gen = nearestRepairableGenerator(game, actor);
+    if (!gen) continue;
+
+    actor.input.up = false;
+    actor.input.down = false;
+    actor.input.left = false;
+    actor.input.right = false;
+    actor.input.sprint = false;
+    actor.input.angle = Math.atan2(gen.y - actor.y, gen.x - actor.x);
+
+    let bucket = repairBuckets.get(gen.id);
+    if (!bucket) {
+      bucket = { gen, count: 0 };
+      repairBuckets.set(gen.id, bucket);
     }
-    if (gen) {
-      const oldProgress = gen.progress;
-      gen.progress = clamp(gen.progress + dt / GENERATOR_REPAIR_TIME, 0, 1);
-      if (gen.progress > oldProgress) {
-        // Survivors touched the gen again, so the killer can kick it once more later.
-        gen.kickLocked = false;
-      }
-      gen.activeRepairers.push(actor.id);
-      if (gen.progress >= 1 && !gen.done) {
-        gen.done = true;
-        addEvent(game, "genDone", { x: gen.x, y: gen.y });
-      }
+    bucket.count += 1;
+  }
+
+  for (const { gen, count } of repairBuckets.values()) {
+    if (!count || gen.done) continue;
+    const oldProgress = gen.progress;
+    gen.repairing = true;
+    gen.repairerCount = count;
+    // The client only needs a boolean repair glow, not a full list of survivor ids.
+    gen.activeRepairers = ["active"];
+    gen.progress = clamp(gen.progress + (dt * count) / GENERATOR_REPAIR_TIME, 0, 1);
+    if (gen.progress > oldProgress) {
+      // Survivors touched the gen again, so the killer can kick it once more later.
+      gen.kickLocked = false;
+    }
+    if (gen.progress >= 1 && !gen.done) {
+      gen.done = true;
+      gen.repairing = false;
+      gen.activeRepairers = [];
+      addEvent(game, "genDone", { x: gen.x, y: gen.y });
     }
   }
 
@@ -2059,6 +2091,33 @@ function botUseLoopObject(game, survivor, killer) {
   return false;
 }
 
+function chooseBotGeneratorTarget(game, actor) {
+  const bot = actor.bot || (actor.bot = {});
+  const existing = bot.objectiveGenId ? game.map.generators.find((g) => g.id === bot.objectiveGenId && !g.done) : null;
+  if (existing && game.time < (bot.objectiveGenUntil || 0)) return existing;
+
+  let best = null;
+  let bestScore = Infinity;
+  for (const gen of game.map.generators) {
+    if (gen.done) continue;
+    const dx = actor.x - gen.x;
+    const dy = actor.y - gen.y;
+    const d2 = dx * dx + dy * dy;
+    // Spread bots out a little. Four bots dogpiling one gen makes more network churn
+    // and looks less human, which is somehow still a bar we should clear.
+    const repairerPenalty = (gen.repairerCount || (gen.repairing ? 1 : 0)) * game.map.tile * game.map.tile * 1.35;
+    const score = d2 + repairerPenalty;
+    if (score < bestScore) {
+      bestScore = score;
+      best = gen;
+    }
+  }
+
+  bot.objectiveGenId = best?.id || null;
+  bot.objectiveGenUntil = (game.time || 0) + 1.25 + Math.random() * 0.45;
+  return best;
+}
+
 function botMoveToObjective(game, actor) {
   if (game.escapeOpen && game.map.gates.length) {
     const gate = [...game.map.gates].sort((a, b) => dist(actor.x, actor.y, a.x, a.y) - dist(actor.x, actor.y, b.x, b.y))[0];
@@ -2094,14 +2153,17 @@ function botMoveToObjective(game, actor) {
     return;
   }
 
-  const gen = game.map.generators
-    .filter((g) => !g.done)
-    .sort((a, b) => dist(actor.x, actor.y, a.x, a.y) - dist(actor.x, actor.y, b.x, b.y))[0];
+  const gen = chooseBotGeneratorTarget(game, actor);
 
   if (gen) {
     if (dist(actor.x, actor.y, gen.x, gen.y) < INTERACT_DISTANCE && segmentClear(game, actor.x, actor.y, gen.x, gen.y)) {
       actor.input.repair = true;
       actor.input.angle = Math.atan2(gen.y - actor.y, gen.x - actor.x);
+      actor.input.up = actor.input.down = actor.input.left = actor.input.right = false;
+      actor.input.sprint = false;
+      actor.bot.path = [];
+      actor.bot.goalX = gen.x;
+      actor.bot.goalY = gen.y;
     } else {
       followPath(game, actor, gen.x, gen.y, false);
     }
@@ -2294,7 +2356,36 @@ function quantizedProgress(value) {
   if (value >= 1) return 1;
   // Keep repair traffic smooth but bounded. Sending microscopic 60Hz float changes
   // during generator repair is how a browser tab becomes a sad space heater.
-  return Math.round(clamp(value || 0, 0, 1) * 80) / 80;
+  return Math.round(clamp(value || 0, 0, 1) * 50) / 50;
+}
+
+function canViewerSeeGeneratorDetails(game, viewer, gen) {
+  if (!viewer || viewer.role !== "killer") return true;
+  const d = dist(viewer.x, viewer.y, gen.x, gen.y);
+  if (d <= CLOSE_REVEAL_RADIUS) return segmentClear(game, viewer.x, viewer.y, gen.x, gen.y);
+  if (d > KILLER_CONE_LENGTH) return false;
+  return segmentClear(game, viewer.x, viewer.y, gen.x, gen.y)
+    && coneSees(viewer, { x: gen.x, y: gen.y }, KILLER_CONE_LENGTH, KILLER_CONE_ANGLE);
+}
+
+function serializeGeneratorForViewer(game, viewer, gen) {
+  const showDetails = canViewerSeeGeneratorDetails(game, viewer, gen);
+  const repairing = showDetails && !!(gen.repairing || (gen.activeRepairers && gen.activeRepairers.length));
+  const kicking = showDetails && !!gen.beingKicked;
+  return {
+    id: gen.id,
+    x: gen.x,
+    y: gen.y,
+    progress: showDetails ? quantizedProgress(gen.progress) : 0,
+    done: gen.done,
+    showProgress: showDetails,
+    showRepairFx: showDetails,
+    repairing,
+    activeRepairers: repairing ? ["active"] : [],
+    beingKicked: kicking,
+    kickProgress: showDetails ? quantizedProgress(gen.kickProgress || 0) : 0,
+    kickLocked: showDetails ? !!gen.kickLocked : false
+  };
 }
 
 function buildSnapshotFor(lobby, socketId) {
@@ -2364,19 +2455,7 @@ function buildSnapshotFor(lobby, socketId) {
       height: map.height,
       tile: map.tile,
       pallets: map.pallets.map((p) => ({ id: p.id, x: p.x, y: p.y, w: p.w, h: p.h, orientation: p.orientation, state: p.state, broken: p.broken })),
-      generators: map.generators.map((g) => ({
-        id: g.id,
-        x: g.x,
-        y: g.y,
-        progress: quantizedProgress(g.progress),
-        done: g.done,
-        // Clients only need a yes/no repair glow. Do not ship every survivor id every snapshot.
-        repairing: !!(g.activeRepairers && g.activeRepairers.length),
-        activeRepairers: g.activeRepairers?.length ? ["active"] : [],
-        beingKicked: !!g.beingKicked,
-        kickProgress: quantizedProgress(g.kickProgress || 0),
-        kickLocked: !!g.kickLocked
-      })),
+      generators: map.generators.map((g) => serializeGeneratorForViewer(game, viewer, g)),
       gates: map.gates.map((g) => ({ id: g.id, x: g.x, y: g.y, open: g.open })),
       hooks: (map.hooks || []).filter((h) => h.active).map((h) => ({ id: h.id, x: h.x, y: h.y, survivorId: h.survivorId, active: h.active }))
     },

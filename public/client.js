@@ -78,8 +78,8 @@
     CHASE_ZOOM: LOW_POWER_MODE ? 0.07 : 0.11,
     // Killer-only attack pressure. Holding M1 subtly pushes the camera in,
     // and a real server-confirmed swing gives a tiny punch. Small numbers on purpose.
-    KILLER_M1_HOLD_ZOOM: LOW_POWER_MODE ? 0.018 : 0.032,
-    KILLER_M1_PULSE_ZOOM: LOW_POWER_MODE ? 0.016 : 0.028,
+    KILLER_M1_HOLD_ZOOM: LOW_POWER_MODE ? 0.045 : 0.085,
+    KILLER_M1_PULSE_ZOOM: LOW_POWER_MODE ? 0.035 : 0.065,
     ZOOM_SMOOTHING: LOW_POWER_MODE ? 4.8 : 6.8,
     CHASE_IN_LERP: 0.055,
     CHASE_OUT_LERP: 0.04,
@@ -1375,9 +1375,11 @@
     }
 
     drawGenerator(g, gen) {
+      const showProgress = gen.showProgress !== false;
+      const showRepairFx = gen.showRepairFx !== false;
       const progress = clamp(gen.progress || 0, 0, 1);
-      const repairing = !gen.done && (gen.repairing || (Array.isArray(gen.activeRepairers) && gen.activeRepairers.length > 0));
-      const kicking = !gen.done && !!gen.beingKicked;
+      const repairing = showRepairFx && !gen.done && (gen.repairing || (Array.isArray(gen.activeRepairers) && gen.activeRepairers.length > 0));
+      const kicking = showProgress && !gen.done && !!gen.beingKicked;
       const barW = GENERATOR_VISUAL.BAR_WIDTH;
       const barH = GENERATOR_VISUAL.BAR_HEIGHT;
       const x = gen.x - barW / 2;
@@ -1396,12 +1398,14 @@
         g.fillCircle(gen.x, gen.y, GENERATOR_VISUAL.SIZE * (0.55 + pulse * 0.05));
       }
 
-      g.fillStyle(0x0b0b0a, 0.84);
-      g.fillRoundedRect(x, y, barW, barH, 4);
-      g.fillStyle(gen.done ? 0x76ff72 : kicking ? GENERATOR_VISUAL.KICK_GLOW_COLOR : repairing ? GENERATOR_VISUAL.REPAIR_GLOW_COLOR : COLORS.gate, 0.98);
-      g.fillRoundedRect(x, y, Math.max(0, barW * progress), barH, 4);
-      g.lineStyle(2, gen.done ? 0xafffa9 : kicking ? 0xff9a9a : repairing ? 0xffe3a2 : 0x000000, gen.done ? 0.65 : 0.72);
-      g.strokeRoundedRect(x, y, barW, barH, 4);
+      if (showProgress) {
+        g.fillStyle(0x0b0b0a, 0.84);
+        g.fillRoundedRect(x, y, barW, barH, 4);
+        g.fillStyle(gen.done ? 0x76ff72 : kicking ? GENERATOR_VISUAL.KICK_GLOW_COLOR : repairing ? GENERATOR_VISUAL.REPAIR_GLOW_COLOR : COLORS.gate, 0.98);
+        g.fillRoundedRect(x, y, Math.max(0, barW * progress), barH, 4);
+        g.lineStyle(2, gen.done ? 0xafffa9 : kicking ? 0xff9a9a : repairing ? 0xffe3a2 : 0x000000, gen.done ? 0.65 : 0.72);
+        g.strokeRoundedRect(x, y, barW, barH, 4);
+      }
 
       if (kicking) {
         const kickW = barW * clamp(gen.kickProgress || 0, 0, 1);
@@ -1409,7 +1413,7 @@
         g.strokeRoundedRect(x, y + 13, Math.max(4, kickW), barH, 4);
       }
 
-      if (gen.done) {
+      if (gen.done && showProgress) {
         g.lineStyle(3, 0x9eff93, 0.72);
         g.strokeCircle(gen.x, gen.y, GENERATOR_VISUAL.SIZE * 0.49);
       }
@@ -2033,7 +2037,8 @@
       if (!Number.isFinite(x) || !Number.isFinite(y)) return;
 
       const localData = item.data || item.current || item.target || null;
-      const killerM1Hold = localData?.role === "killer" && input.attackHeld ? 1 : 0;
+      const killerCharging = localData?.role === "killer" && localData.attackState === "charging";
+      const killerM1Hold = localData?.role === "killer" && (input.attackHeld || killerCharging) ? 1 : 0;
       const attackZoom = killerM1Hold * IMMERSION.KILLER_M1_HOLD_ZOOM
         + (this.killerM1Pulse || 0) * IMMERSION.KILLER_M1_PULSE_ZOOM;
       const targetZoom = clamp(
@@ -2117,10 +2122,11 @@
       const map = currentSnapshot?.map || this.map;
       if (!map) return "";
       return (map.generators || []).map((g) => {
-        const repairOn = (g.repairing || (Array.isArray(g.activeRepairers) && g.activeRepairers.length > 0)) ? 1 : 0;
-        const progressStep = Math.round((g.progress || 0) * 80);
-        const kickStep = Math.round((g.kickProgress || 0) * 12);
-        return `${g.id}:${progressStep}:${g.done ? 1 : 0}:${repairOn}:${g.beingKicked ? 1 : 0}:${kickStep}:${g.kickLocked ? 1 : 0}`;
+        const showProgress = g.showProgress !== false ? 1 : 0;
+        const repairOn = (g.showRepairFx !== false && (g.repairing || (Array.isArray(g.activeRepairers) && g.activeRepairers.length > 0))) ? 1 : 0;
+        const progressStep = showProgress ? Math.round((g.progress || 0) * 50) : 0;
+        const kickStep = showProgress ? Math.round((g.kickProgress || 0) * 12) : 0;
+        return `${g.id}:${showProgress}:${progressStep}:${g.done ? 1 : 0}:${repairOn}:${g.beingKicked ? 1 : 0}:${kickStep}:${g.kickLocked ? 1 : 0}`;
       }).join("|");
     }
 
