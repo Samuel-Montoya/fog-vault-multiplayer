@@ -1728,6 +1728,7 @@
         if (!item || item.role !== data.role) {
           if (item) {
             item.container.destroy();
+            item.nameText?.destroy();
             item.chatText?.destroy();
           }
           item = this.createActorDisplay(data);
@@ -1768,6 +1769,7 @@
       for (const [id, item] of this.actors.entries()) {
         if (!seen.has(id)) {
           item.container.destroy();
+          item.nameText?.destroy();
           item.chatText?.destroy();
           this.actors.delete(id);
         }
@@ -1782,14 +1784,14 @@
       const facing = this.add.rectangle(isKiller ? 24 : 21, 0, isKiller ? 22 : 18, isKiller ? 7 : 5, 0xffffff, 0.42).setOrigin(0, 0.5);
       const healBarBg = this.add.rectangle(0, -29, 38, 5, 0x000000, 0.55).setVisible(false);
       const healBar = this.add.rectangle(-19, -29, 0, 5, 0x8dff9a, 0.95).setOrigin(0, 0.5).setVisible(false);
-      const nameText = this.add.text(0, 34, data.name || "", {
+      const nameText = this.add.text(data.x || 0, (data.y || 0) + 34, data.name || "", {
         fontFamily: "system-ui, sans-serif",
         fontSize: "12px",
         fontStyle: "800",
         color: "#f2efea",
         stroke: "#000000",
         strokeThickness: 3
-      }).setOrigin(0.5, 0);
+      }).setOrigin(0.5, 0).setDepth((data.role === "killer" ? 16 : 13));
       const chatText = this.add.text(data.x || 0, (data.y || 0) + 48, "", {
         fontFamily: "system-ui, sans-serif",
         fontSize: "14px",
@@ -1800,7 +1802,7 @@
         strokeThickness: 5,
         wordWrap: { width: 180 }
       }).setOrigin(0.5, 0).setDepth((data.role === "killer" ? 17 : 14)).setVisible(false);
-      container.add([outline, body, facing, healBarBg, healBar, nameText]);
+      container.add([outline, body, facing, healBarBg, healBar]);
       return {
         role: data.role,
         skin: data.skin || "blueSquare",
@@ -2294,6 +2296,11 @@
         item.container.rotation = item.current.angle || 0;
         if (item.data?.role === "killer" || item.data?.role === "survivor") {
           this.styleActor(item, item.data);
+        }
+        if (item.nameText) {
+          const isKiller = item.data?.role === "killer";
+          item.nameText.setPosition(item.current.x, item.current.y + (isKiller ? 36 : 34));
+          item.nameText.setRotation(0);
         }
         if (item.chatText) {
           const isKiller = item.data?.role === "killer";
