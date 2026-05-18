@@ -126,8 +126,11 @@
     // Expensive world UI is redrawn at fixed rates instead of every network snapshot.
     // Lower these if a very weak laptop is still wheezing. Raise them if you want
     // smoother generator bars / scratch marks at the cost of more Graphics work.
-    DYNAMIC_WORLD_FPS: LOW_POWER_MODE ? 8 : 12,
-    SCRATCH_DRAW_FPS: LOW_POWER_MODE ? 8 : 12,
+    DYNAMIC_WORLD_FPS: LOW_POWER_MODE ? 4 : 7,
+    // Generator bars update on their own cheap layer. Full-map redraws should not
+    // happen just because somebody is holding E. Humanity may survive this one.
+    GENERATOR_FPS: LOW_POWER_MODE ? 4 : 6,
+    SCRATCH_DRAW_FPS: LOW_POWER_MODE ? 6 : 8,
     MAX_PARTICLES: LOW_POWER_MODE ? 28 : 58,
     MAX_SHOCKWAVES: LOW_POWER_MODE ? 3 : 6
   };
@@ -716,6 +719,7 @@
       this.map = null;
       this.worldGraphics = null;
       this.dynamicGraphics = null;
+      this.generatorGraphics = null;
       this.scratchGraphics = null;
       this.fogRT = null;
       this.lightConeMask = null;
@@ -729,11 +733,16 @@
       this.shockwaves = [];
       this.inputTimer = 0;
       this.dynamicRedrawTimer = 0;
+      this.generatorRedrawTimer = 0;
       this.scratchRedrawTimer = 0;
       this.needsDynamicRedraw = false;
+      this.needsGeneratorRedraw = false;
       this.pendingScratchMarks = [];
       this.needsScratchRedraw = false;
       this.lastDynamicKey = "";
+      this.lastGeneratorKey = "";
+      this.lastHudKey = "";
+      this.lastHudRenderAt = 0;
       this.lastFogWidth = 0;
       this.lastFogHeight = 0;
       this.lastSnapshotAt = 0;
@@ -770,6 +779,7 @@
       this.grassLayer = null;
       this.worldGraphics = this.add.graphics().setDepth(1);
       this.dynamicGraphics = this.add.graphics().setDepth(3);
+      this.generatorGraphics = this.add.graphics().setDepth(3.25);
       this.scratchGraphics = this.add.graphics().setDepth(4);
       this.chargeGraphics = this.add.graphics().setDepth(21);
       this.swipeGraphics = this.add.graphics().setDepth(22);
@@ -945,6 +955,10 @@
       this.rebuildFogTexture();
       this.clearGeneratorSprites();
       this.clearActors();
+      this.lastDynamicKey = "";
+      this.lastGeneratorKey = "";
+      this.needsDynamicRedraw = true;
+      this.needsGeneratorRedraw = true;
       this.localVisual = null;
       this.localServerTarget = null;
     }
@@ -1014,6 +1028,7 @@
     clearGeneratorSprites() {
       for (const sprite of this.generatorSprites.values()) sprite.destroy();
       this.generatorSprites.clear();
+      this.generatorGraphics?.clear();
     }
 
     clearActors() {
@@ -1202,11 +1217,20 @@
         this.drawPallet(g, pallet);
       }
 
-      const generators = currentSnapshot.map?.generators || this.map.generators || [];
-      this.syncGeneratorSprites(generators);
-      for (const gen of generators) this.drawGenerator(g, gen);
+      // Generator sprites/bars live on their own layer now. Redrawing every pallet,
+      // gate, and hook because a progress bar moved was the lag monster wearing a nametag.
+      this.syncGeneratorSprites(currentSnapshot.map?.generators || this.map.generators || []);
       for (const gate of currentSnapshot.map?.gates || this.map.gates || []) this.drawGate(g, gate);
       for (const hook of currentSnapshot.map?.hooks || this.map.hooks || []) this.drawHook(g, hook);
+    }
+
+    drawGeneratorLayer() {
+      if (!this.map || !currentSnapshot || !this.generatorGraphics) return;
+      const generators = currentSnapshot.map?.generators || this.map.generators || [];
+      this.syncGeneratorSprites(generators);
+      const g = this.generatorGraphics;
+      g.clear();
+      for (const gen of generators) this.drawGenerator(g, gen);
     }
 
     drawPallet(g, pallet) {
@@ -1352,7 +1376,7 @@
 
     drawGenerator(g, gen) {
       const progress = clamp(gen.progress || 0, 0, 1);
-      const repairing = !gen.done && Array.isArray(gen.activeRepairers) && gen.activeRepairers.length > 0;
+      const repairing = !gen.done && (gen.repairing || (Array.isArray(gen.activeRepairers) && gen.activeRepairers.length > 0));
       const kicking = !gen.done && !!gen.beingKicked;
       const barW = GENERATOR_VISUAL.BAR_WIDTH;
       const barH = GENERATOR_VISUAL.BAR_HEIGHT;
@@ -1366,10 +1390,10 @@
       if (repairing || kicking) {
         const pulse = 0.5 + Math.sin(performance.now() / (kicking ? 95 : 135)) * 0.5;
         const color = kicking ? GENERATOR_VISUAL.KICK_GLOW_COLOR : GENERATOR_VISUAL.REPAIR_GLOW_COLOR;
-        g.lineStyle(kicking ? 4 : 3, color, kicking ? 0.9 : 0.68);
-        g.strokeCircle(gen.x, gen.y, GENERATOR_VISUAL.SIZE * (0.55 + pulse * 0.12));
-        g.fillStyle(color, kicking ? 0.10 : 0.08);
-        g.fillCircle(gen.x, gen.y, GENERATOR_VISUAL.SIZE * (0.62 + pulse * 0.10));
+        g.lineStyle(kicking ? 3 : 2, color, kicking ? 0.74 : 0.42);
+        g.strokeCircle(gen.x, gen.y, GENERATOR_VISUAL.SIZE * (0.50 + pulse * 0.06));
+        g.fillStyle(color, kicking ? 0.06 : 0.045);
+        g.fillCircle(gen.x, gen.y, GENERATOR_VISUAL.SIZE * (0.55 + pulse * 0.05));
       }
 
       g.fillStyle(0x0b0b0a, 0.84);
@@ -1410,6 +1434,7 @@
       // dynamic-world key below. Let maybeDrawDynamicWorld() redraw only when the
       // pallet/gen/hook/gate key actually changes.
       if (!this.lastDynamicKey) this.needsDynamicRedraw = true;
+      if (!this.lastGeneratorKey) this.needsGeneratorRedraw = true;
       this.pendingScratchMarks = snapshot.scratchMarks || [];
       this.needsScratchRedraw = true;
       this.updateActorTargets(snapshot.actors || []);
@@ -1420,8 +1445,19 @@
 
     updateHud(snapshot) {
       const me = (snapshot.actors || []).find((a) => a.id === myId);
-      renderSurvivorStatusHud(snapshot);
       if (!me) return;
+
+      const now = performance.now();
+      const objective = snapshot.objective || {};
+      const hudKey = JSON.stringify({
+        self: [me.id, me.role, me.health, me.injured, me.downed, me.hooked, me.dead, me.escaped, me.chase, me.hookProgress, me.healProgress, me.generatorKickTargetId, me.generatorKickProgress],
+        objective: [objective.doneGenerators, objective.requiredGenerators, objective.totalGenerators, objective.escapeOpen],
+        survivors: (snapshot.actors || []).filter((a) => a.role === "survivor").map((a) => [a.id, a.health, a.injured, a.downed, a.hooked, a.dead, a.escaped, a.chase, a.hookProgress, a.healProgress, a.hookCount])
+      });
+      if (hudKey === this.lastHudKey && now - this.lastHudRenderAt < 180) return;
+      this.lastHudKey = hudKey;
+      this.lastHudRenderAt = now;
+      renderSurvivorStatusHud(snapshot);
       ui.roleLabel.textContent = me.role === "killer" ? "Killer" : "Survivor";
       ui.controlsLabel.textContent = me.role === "killer"
         ? "WASD move • Mouse aim • M1 attack/lunge • Space vault/break • hold E hook/execute/kick gen • hold R chat"
@@ -1856,6 +1892,7 @@
       this.updateImmersion(dt);
       this.updateCamera(dt);
       this.maybeDrawDynamicWorld(dt);
+      this.maybeDrawGeneratorLayer(dt);
       this.maybeUpdateScratchGraphics(dt);
       this.drawLighting();
       this.drawHookIndicators();
@@ -2071,12 +2108,20 @@
       const map = currentSnapshot?.map || this.map;
       if (!map) return "";
       const palletKey = (map.pallets || []).map((p) => `${p.id}:${p.state}:${p.broken ? 1 : 0}`).join("|");
-      // Keep this key coarse. Redrawing generator UI every tiny progress tick is a browser tax,
-      // especially when bots all start repairing at once. The bar still feels responsive at this granularity.
-      const genKey = (map.generators || []).map((g) => `${g.id}:${Math.round((g.progress || 0) * 20)}:${g.done ? 1 : 0}:${(g.activeRepairers?.length || 0) > 0 ? 1 : 0}:${g.beingKicked ? 1 : 0}:${Math.round((g.kickProgress || 0) * 5)}:${g.kickLocked ? 1 : 0}`).join("|");
       const hookKey = (map.hooks || []).map((h) => `${h.id}:${h.active ? 1 : 0}:${h.survivorId || ""}`).join("|");
       const gateKey = (map.gates || []).map((g) => `${g.id}:${g.open ? 1 : 0}`).join("|");
-      return `${palletKey}#${genKey}#${hookKey}#${gateKey}`;
+      return `${palletKey}#${hookKey}#${gateKey}`;
+    }
+
+    getGeneratorWorldKey() {
+      const map = currentSnapshot?.map || this.map;
+      if (!map) return "";
+      return (map.generators || []).map((g) => {
+        const repairOn = (g.repairing || (Array.isArray(g.activeRepairers) && g.activeRepairers.length > 0)) ? 1 : 0;
+        const progressStep = Math.round((g.progress || 0) * 80);
+        const kickStep = Math.round((g.kickProgress || 0) * 12);
+        return `${g.id}:${progressStep}:${g.done ? 1 : 0}:${repairOn}:${g.beingKicked ? 1 : 0}:${kickStep}:${g.kickLocked ? 1 : 0}`;
+      }).join("|");
     }
 
     maybeDrawDynamicWorld(dt) {
@@ -2091,6 +2136,20 @@
       }
       this.needsDynamicRedraw = false;
       this.dynamicRedrawTimer = 0;
+    }
+
+    maybeDrawGeneratorLayer(dt) {
+      this.generatorRedrawTimer += dt;
+      const interval = 1 / PERFORMANCE.GENERATOR_FPS;
+      if (!this.needsGeneratorRedraw && this.generatorRedrawTimer < interval) return;
+      if (this.generatorRedrawTimer < interval) return;
+      const key = this.getGeneratorWorldKey();
+      if (key !== this.lastGeneratorKey || this.needsGeneratorRedraw) {
+        this.lastGeneratorKey = key;
+        this.drawGeneratorLayer();
+      }
+      this.needsGeneratorRedraw = false;
+      this.generatorRedrawTimer = 0;
     }
 
     maybeUpdateScratchGraphics(dt) {

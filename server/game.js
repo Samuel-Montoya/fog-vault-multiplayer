@@ -21,6 +21,36 @@ const HEALTH = {
   ESCAPED: "escaped"
 };
 
+const HOST_PROFILE = String(process.env.HOST_PROFILE || "boosted").toLowerCase();
+const IS_BOOSTED_HOST = HOST_PROFILE === "boosted" || HOST_PROFILE === "2gb" || HOST_PROFILE === "performance";
+const PERF = Object.freeze({
+  profile: HOST_PROFILE,
+  boosted: IS_BOOSTED_HOST,
+  // More CPU lets bots think a little more often without starving the main loop.
+  botRepathMultiplier: IS_BOOSTED_HOST ? 0.72 : 1,
+  // Cache map snapshot work across per-viewer snapshots. More RAM makes this cheap.
+  enableSnapshotCache: process.env.ENABLE_MAP_SNAPSHOT_CACHE !== "false"
+});
+
+function quantizedProgress(value) {
+  if (value >= 1) return 1;
+  return Math.round(clamp(value || 0, 0, 1) * 80) / 80;
+}
+
+function compactMapStateForSnapshot(mapState) {
+  if (!mapState || !Array.isArray(mapState.generators)) return mapState;
+  return {
+    ...mapState,
+    generators: mapState.generators.map((g) => ({
+      ...g,
+      progress: quantizedProgress(g.progress),
+      kickProgress: quantizedProgress(g.kickProgress || 0),
+      repairing: !!(g.repairing || (Array.isArray(g.activeRepairers) && g.activeRepairers.length)),
+      activeRepairers: (g.repairing || (Array.isArray(g.activeRepairers) && g.activeRepairers.length)) ? ["active"] : []
+    }))
+  };
+}
+
 const FAST_HEAL_SECONDS = Math.max(1.8, (CONFIG.healing?.healSeconds || 6) * 0.68);
 const FAST_UNHOOK_SECONDS = Math.max(1.25, (CONFIG.hooks?.unhookSeconds || 3.25) * 0.66);
 const HOOK_MIN_KILLER_DISTANCE = Math.max(420, (CONFIG.actor?.tileSize || 72) * 5.5);
@@ -81,11 +111,15 @@ class Game {
     this.message = "Waiting for players";
     this.requiredGenerators = CONFIG.objective.requiredGenerators;
     this.nextBotNumber = 1;
+    this.snapshotSeq = 0;
+    this.compactMapSnapshotCache = null;
   }
 
   resetRound() {
     this.map = parseMap();
     this.scratchMarks = [];
+    this.snapshotSeq = 0;
+    this.compactMapSnapshotCache = null;
     this.startedAt = Date.now();
     this.winner = null;
     this.message = "Survive the trial";
@@ -177,6 +211,7 @@ class Game {
 
   tick(dt) {
     if (this.state !== "playing") return;
+    this.snapshotSeq = (this.snapshotSeq || 0) + 1;
     for (const actor of this.actors.values()) actor.beingHealedBy = null;
     for (const actor of this.actors.values()) {
       if (actor.channel?.type === "heal") {
@@ -672,7 +707,9 @@ class Game {
       if (!actor.isBot) continue;
       actor.bot.repath -= dt;
       if (actor.bot.repath <= 0) {
-        actor.bot.repath = CONFIG.bot.repathMinSeconds + Math.random() * (CONFIG.bot.repathMaxSeconds - CONFIG.bot.repathMinSeconds);
+        const repathMin = (CONFIG.bot.repathMinSeconds || 0.5) * PERF.botRepathMultiplier;
+        const repathMax = (CONFIG.bot.repathMaxSeconds || 1.1) * PERF.botRepathMultiplier;
+        actor.bot.repath = repathMin + Math.random() * Math.max(0.05, repathMax - repathMin);
         if (actor.role === ROLE.KILLER) this.thinkKillerBot(actor);
         else this.thinkSurvivorBot(actor);
       }
@@ -812,6 +849,21 @@ class Game {
     return { layer1: CONFIG.audio.layer1Volume, layer2: near * CONFIG.audio.layer2MaxVolume, layer3: 0 };
   }
 
+  compactMapSnapshotForClients() {
+    if (!PERF.enableSnapshotCache) return compactMapStateForSnapshot(publicMapState(this.map, this.actors.values()));
+
+    const genKey = this.map.generators.map((g) => `${g.id}:${quantizedProgress(g.progress)}:${g.done ? 1 : 0}:${g.repairing ? 1 : 0}:${quantizedProgress(g.kickProgress || 0)}`).join("|");
+    const palletKey = this.map.pallets.map((p) => `${p.id}:${p.state}:${p.broken ? 1 : 0}`).join("|");
+    const gateKey = this.map.gates.map((g) => `${g.id}:${g.open ? 1 : 0}`).join("|");
+    const hookKey = (this.map.hooks || []).map((h) => `${h.id}:${h.active ? 1 : 0}:${h.survivorId || ""}`).join("|");
+    const key = `${genKey}#${palletKey}#${gateKey}#${hookKey}`;
+
+    if (this.compactMapSnapshotCache?.key === key) return this.compactMapSnapshotCache.value;
+    const value = compactMapStateForSnapshot(publicMapState(this.map, this.actors.values()));
+    this.compactMapSnapshotCache = { key, value };
+    return value;
+  }
+
   snapshotFor(viewer) {
     const killer = this.killer();
     return {
@@ -820,7 +872,9 @@ class Game {
       winner: this.winner,
       message: this.message,
       selfId: viewer.id,
-      map: publicMapState(this.map, this.actors.values()),
+      seq: this.snapshotSeq || 0,
+      hostProfile: PERF.profile,
+      map: this.compactMapSnapshotForClients(),
       objective: {
         completed: this.completedGenerators(),
         required: this.requiredGenerators,

@@ -1,6 +1,7 @@
 const path = require("path");
 const express = require("express");
 const http = require("http");
+const { monitorEventLoopDelay, performance } = require("perf_hooks");
 const { Server } = require("socket.io");
 const GAME_MAPS = require("./public/maps.js");
 
@@ -21,14 +22,71 @@ app.get("/vendor/phaser.min.js", (req, res) => res.sendFile(PHASER_FILE));
 app.use(express.static(PUBLIC_DIR));
 app.get("/", (req, res) => res.sendFile(path.join(PUBLIC_DIR, "index.html")));
 
-const TICK_RATE = 60;
-const SNAPSHOT_RATE = 20;
-const BOT_THINK_RATE = 12;
+const HOST_PROFILE = String(process.env.HOST_PROFILE || "boosted").toLowerCase();
+const IS_BOOSTED_HOST = HOST_PROFILE === "boosted" || HOST_PROFILE === "2gb" || HOST_PROFILE === "performance";
+const PERF = Object.freeze({
+  profile: HOST_PROFILE,
+  boosted: IS_BOOSTED_HOST,
+  tickRate: 60,
+  // Boosted hosts can afford slightly more frequent snapshots, but keep this sane.
+  // Generator visuals are already throttled client-side; do not turn snapshots into a firehose again.
+  snapshotRate: IS_BOOSTED_HOST ? 20 : 16,
+  botThinkRate: IS_BOOSTED_HOST ? 12 : 8,
+  pathfindLoopLimit: IS_BOOSTED_HOST ? 1600 : 950,
+  pathCacheMax: IS_BOOSTED_HOST ? 900 : 300,
+  enablePathCache: process.env.ENABLE_PATH_CACHE !== "false",
+  enableEventLoopMetrics: process.env.ENABLE_SERVER_METRICS !== "false",
+  metricsIntervalMs: Number(process.env.METRICS_INTERVAL_MS || 30000)
+});
+
+const TICK_RATE = PERF.tickRate;
+const SNAPSHOT_RATE = PERF.snapshotRate;
+const BOT_THINK_RATE = PERF.botThinkRate;
+const PATHFIND_LOOP_LIMIT = PERF.pathfindLoopLimit;
 const SCRATCH_MARK_MAX = 45;
 const MAX_SURVIVORS = 4;
 const SURVIVOR_SKINS = new Set(["blueSquare", "yellowStar", "purplePentagon"]);
 function sanitizeSkin(value) {
   return SURVIVOR_SKINS.has(value) ? value : "blueSquare";
+}
+
+const serverMetrics = {
+  tickMaxMs: 0,
+  tickSamples: 0,
+  snapshotsSent: 0,
+  snapshotsSkipped: 0,
+  pathCacheHits: 0,
+  pathCacheMisses: 0
+};
+
+const eventLoopDelay = PERF.enableEventLoopMetrics ? monitorEventLoopDelay({ resolution: 20 }) : null;
+if (eventLoopDelay) eventLoopDelay.enable();
+
+function recordTickDuration(ms) {
+  if (!PERF.enableEventLoopMetrics) return;
+  serverMetrics.tickSamples += 1;
+  if (ms > serverMetrics.tickMaxMs) serverMetrics.tickMaxMs = ms;
+}
+
+function logServerMetrics() {
+  if (!PERF.enableEventLoopMetrics) return;
+  const meanLoopMs = eventLoopDelay ? eventLoopDelay.mean / 1e6 : 0;
+  const maxLoopMs = eventLoopDelay ? eventLoopDelay.max / 1e6 : 0;
+  const activeLobbies = [...lobbies.values()].filter((lobby) => lobby.game?.phase === "game").length;
+  const activePlayers = [...lobbies.values()].reduce((sum, lobby) => sum + lobby.players.size, 0);
+  console.log(`[perf] profile=${PERF.profile} tickRate=${TICK_RATE} snapshotRate=${SNAPSHOT_RATE} botThinkRate=${BOT_THINK_RATE} lobbies=${activeLobbies} players=${activePlayers} tickMaxMs=${serverMetrics.tickMaxMs.toFixed(2)} loopMeanMs=${meanLoopMs.toFixed(2)} loopMaxMs=${maxLoopMs.toFixed(2)} snapshotsSent=${serverMetrics.snapshotsSent} snapshotsSkipped=${serverMetrics.snapshotsSkipped} pathCache=${serverMetrics.pathCacheHits}/${serverMetrics.pathCacheMisses}`);
+  serverMetrics.tickMaxMs = 0;
+  serverMetrics.tickSamples = 0;
+  serverMetrics.snapshotsSent = 0;
+  serverMetrics.snapshotsSkipped = 0;
+  serverMetrics.pathCacheHits = 0;
+  serverMetrics.pathCacheMisses = 0;
+  eventLoopDelay?.reset();
+}
+
+if (PERF.enableEventLoopMetrics) {
+  const metricsTimer = setInterval(logServerMetrics, PERF.metricsIntervalMs);
+  metricsTimer.unref?.();
 }
 const PLAYER_SIZE = 30;
 const KILLER_SIZE = 38;
@@ -573,6 +631,8 @@ function startGame(lobby) {
     particles: [],
     scratchMarks: [],
     snapshotSeq: 0,
+    pathCache: new Map(),
+    pathCacheEpoch: 0,
     requiredGenerators: Math.min(REQUIRED_GENERATORS_TO_COMPLETE, map.generators.length),
     escapeOpen: false,
     time: 0,
@@ -662,6 +722,7 @@ function moveActor(game, actor, dt) {
       if (pallet && pallet.state === "dropped") {
         pallet.broken = true;
         pallet.state = "broken";
+        bumpPathCache(game);
         addEvent(game, "palletBreak", { x: pallet.x + pallet.w / 2, y: pallet.y + pallet.h / 2 });
       }
       actor.breakTarget = null;
@@ -849,6 +910,7 @@ function handleAction(game, actor) {
   } else if (hit.type === "palletDrop") {
     moveToPalletSideByInput(game, actor, hit.object);
     hit.object.state = "dropped";
+    bumpPathCache(game);
     addEvent(game, "palletDrop", { x: hit.object.x + hit.object.w / 2, y: hit.object.y + hit.object.h / 2 });
 
     const killer = [...game.actors.values()].find((p) => p.role === "killer" && !p.dead);
@@ -1420,7 +1482,10 @@ function updateGeneratorKicks(game, dt) {
 }
 
 function updateGeneratorsAndGates(game, dt) {
-  for (const gen of game.map.generators) gen.activeRepairers = [];
+  for (const gen of game.map.generators) {
+    if (Array.isArray(gen.activeRepairers)) gen.activeRepairers.length = 0;
+    else gen.activeRepairers = [];
+  }
 
   for (const actor of game.actors.values()) {
     if (actor.role !== "survivor" || actor.dead || actor.escaped || actor.downed || actor.hooked) continue;
@@ -1596,6 +1661,36 @@ function tileCenter(game, tx, ty) {
   };
 }
 
+function clonePath(path) {
+  return Array.isArray(path) ? path.map((p) => ({ x: p.x, y: p.y })) : [];
+}
+
+function bumpPathCache(game) {
+  if (!game) return;
+  game.pathCacheEpoch = (game.pathCacheEpoch || 0) + 1;
+  game.pathCache?.clear?.();
+}
+
+function getCachedPath(game, key) {
+  if (!PERF.enablePathCache || !game?.pathCache) return null;
+  const cached = game.pathCache.get(key);
+  if (!cached) {
+    serverMetrics.pathCacheMisses += 1;
+    return null;
+  }
+  serverMetrics.pathCacheHits += 1;
+  return clonePath(cached);
+}
+
+function setCachedPath(game, key, path) {
+  if (!PERF.enablePathCache || !game?.pathCache || !Array.isArray(path)) return;
+  if (game.pathCache.size >= PERF.pathCacheMax) {
+    const oldest = game.pathCache.keys().next().value;
+    if (oldest) game.pathCache.delete(oldest);
+  }
+  game.pathCache.set(key, clonePath(path));
+}
+
 function isWallTile(game, tx, ty) {
   if (tx < 0 || ty < 0 || tx >= game.map.cols || ty >= game.map.rows) return true;
   return game.map.rawRows[ty]?.[tx] === "X";
@@ -1626,6 +1721,10 @@ function findPath(game, actor, targetX, targetY, options = {}) {
     return [{ x: targetX, y: targetY }];
   }
 
+  const pathCacheKey = `${game.pathCacheEpoch || 0}|${role}|${startKey}|${goalKey}`;
+  const cachedPath = getCachedPath(game, pathCacheKey);
+  if (cachedPath) return cachedPath;
+
   const open = [{ x: start.x, y: start.y, f: 0, g: 0 }];
   const cameFrom = new Map();
   const gScore = new Map([[startKey, 0]]);
@@ -1636,7 +1735,7 @@ function findPath(game, actor, targetX, targetY, options = {}) {
     return Math.abs(x - goal.x) + Math.abs(y - goal.y);
   }
 
-  while (open.length && loops++ < 950) {
+  while (open.length && loops++ < PATHFIND_LOOP_LIMIT) {
     let bestIndex = 0;
     let bestF = open[0].f;
     for (let i = 1; i < open.length; i++) {
@@ -1659,6 +1758,7 @@ function findPath(game, actor, targetX, targetY, options = {}) {
         k = cameFrom.get(k);
       }
       tiles.reverse();
+      setCachedPath(game, pathCacheKey, tiles);
       return tiles;
     }
 
@@ -2192,7 +2292,9 @@ function serializeActor(game, actor, visible = true) {
 
 function quantizedProgress(value) {
   if (value >= 1) return 1;
-  return Math.round(clamp(value || 0, 0, 1) * 200) / 200;
+  // Keep repair traffic smooth but bounded. Sending microscopic 60Hz float changes
+  // during generator repair is how a browser tab becomes a sad space heater.
+  return Math.round(clamp(value || 0, 0, 1) * 80) / 80;
 }
 
 function buildSnapshotFor(lobby, socketId) {
@@ -2268,7 +2370,8 @@ function buildSnapshotFor(lobby, socketId) {
         y: g.y,
         progress: quantizedProgress(g.progress),
         done: g.done,
-        // Clients only use the length for the repair glow; do not ship every id every snapshot.
+        // Clients only need a yes/no repair glow. Do not ship every survivor id every snapshot.
+        repairing: !!(g.activeRepairers && g.activeRepairers.length),
         activeRepairers: g.activeRepairers?.length ? ["active"] : [],
         beingKicked: !!g.beingKicked,
         kickProgress: quantizedProgress(g.kickProgress || 0),
@@ -2304,16 +2407,22 @@ function sendSnapshots() {
       if (!socket) continue;
       // If a client is already backed up, skip this frame instead of piling JSON
       // into the transport queue. The next volatile snapshot will catch them up.
-      if (socket.conn?.transport && socket.conn.transport.writable === false) continue;
+      if (socket.conn?.transport && socket.conn.transport.writable === false) {
+        serverMetrics.snapshotsSkipped += 1;
+        continue;
+      }
       socket.compress(false).volatile.emit("snapshot", buildSnapshotFor(lobby, socketId));
+      serverMetrics.snapshotsSent += 1;
     }
     if (lobby.game.events.length) lobby.game.events.length = 0;
   }
 }
 
 setInterval(() => {
+  const started = performance.now();
   const dt = 1 / TICK_RATE;
   for (const lobby of lobbies.values()) updateGame(lobby, dt);
+  recordTickDuration(performance.now() - started);
 }, 1000 / TICK_RATE);
 
 setInterval(sendSnapshots, 1000 / SNAPSHOT_RATE);
