@@ -9,61 +9,54 @@
 <body>
   <div id="gameWrap"></div>
 
-  <div id="menu" class="screen screen-open campfire-screen">
-    <div class="campfire-backdrop" aria-hidden="true">
-      <div class="moon-haze"></div>
-      <div class="tree-line far"></div>
-      <div class="tree-line near"></div>
-      <div class="fog-bank fog-one"></div>
-      <div class="fog-bank fog-two"></div>
-      <div class="campfire-setpiece">
-        <div class="survivor-silhouette survivor-a"></div>
-        <div class="survivor-silhouette survivor-b"></div>
-        <div class="survivor-silhouette survivor-c"></div>
-        <div class="killer-silhouette"></div>
-        <div class="campfire">
-          <div class="ember-ring"></div>
-          <div class="log log-a"></div>
-          <div class="log log-b"></div>
-          <div class="flame flame-back"></div>
-          <div class="flame flame-mid"></div>
-          <div class="flame flame-front"></div>
-          <div class="sparks"><i></i><i></i><i></i><i></i><i></i></div>
+  <div class="menu-bg" aria-hidden="true">
+    <div class="menu-grid"></div>
+    <div class="menu-blob blob-a"></div>
+    <div class="menu-blob blob-b"></div>
+    <div class="menu-blob blob-c"></div>
+  </div>
+
+  <div id="menu" class="screen screen-open io-screen">
+    <div class="io-menu-card main-menu-card">
+      <div class="io-logo-row">
+        <div class="io-logo-dot killer-dot"></div>
+        <div>
+          <div class="eyebrow">minimal multiplayer horror</div>
+          <h1>survive.io</h1>
         </div>
       </div>
+      <p class="menu-subtitle">A clean arena version of generators, hooks, pallets, survivors, and one very rude circle with a weapon.</p>
+      <nav class="main-menu-actions" aria-label="Main menu">
+        <button id="menuPlayBtn" class="menu-action primary" type="button">Play</button>
+        <button id="menuSkinsBtn" class="menu-action" type="button">Change Skins</button>
+        <button id="menuOptionsBtn" class="menu-action" type="button">Options</button>
+        <button id="menuHowBtn" class="menu-action" type="button">How to Play</button>
+        <a id="buyCoffeeBtn" class="menu-action coffee-link" href="https://www.buymeacoffee.com/replace-this" target="_blank" rel="noopener">Buy me a Coffee</a>
+      </nav>
+      <p class="replace-note">Replace the background in <code>style.css</code>: <code>--menu-bg-image: url('/your-image.jpg')</code>. Put <code>menu.mp3</code> in <code>public/</code>.</p>
     </div>
-    <div class="panel title-panel campfire-panel">
-      <div class="eyebrow">gather at the fire</div>
-      <h1>survive.io</h1>
-      <p>Choose a role, pick a survivor shape, and step into an open trial. One killer, up to four survivors, generators, pallets, hooks, and just enough darkness to make everyone behave badly.</p>
+  </div>
+
+  <div id="playScreen" class="screen io-screen">
+    <div class="io-menu-card wide-menu-card">
+      <div class="screen-topline">
+        <button class="text-btn menu-back-btn" data-screen="menu" type="button">← Menu</button>
+        <div class="eyebrow">join a trial</div>
+      </div>
+      <h1>Play</h1>
+      <p>Pick your name and role, then join an open lobby or make a new one.</p>
 
       <label class="field-label" for="playerName">Name</label>
       <input id="playerName" maxlength="18" placeholder="Player" />
 
-      <div class="role-row">
-        <button class="role-btn selected" data-role="survivor">Survivor</button>
-        <button class="role-btn" data-role="killer">Killer</button>
+      <div class="role-row pill-row">
+        <button class="role-btn selected" data-role="survivor" type="button">Survivor</button>
+        <button class="role-btn" data-role="killer" type="button">Killer</button>
       </div>
 
-      <div class="skin-picker" aria-label="Survivor skin selector">
-        <div class="skin-title">Survivor skin</div>
-        <button class="skin-btn selected" data-skin="blueSquare" type="button">
-          <span class="skin-preview skin-square"></span>
-          <span>Blue Square</span>
-        </button>
-        <button class="skin-btn" data-skin="yellowStar" type="button">
-          <span class="skin-preview skin-star"></span>
-          <span>Yellow Star</span>
-        </button>
-        <button class="skin-btn" data-skin="purplePentagon" type="button">
-          <span class="skin-preview skin-pentagon"></span>
-          <span>Purple Pentagon</span>
-        </button>
-      </div>
-
-      <div class="button-row">
-        <button id="quickJoinBtn" class="primary">Quick Join Open Lobby</button>
-        <button id="createLobbyBtn">Create Open Lobby</button>
+      <div class="button-row play-actions">
+        <button id="quickJoinBtn" class="primary" type="button">Quick Join</button>
+        <button id="createLobbyBtn" type="button">Create Lobby</button>
       </div>
 
       <h2>Open Lobbies</h2>
@@ -71,62 +64,106 @@
     </div>
   </div>
 
-  <div id="lobbyScreen" class="screen campfire-screen">
-    <div class="campfire-backdrop lobby-campfire-backdrop" aria-hidden="true">
-      <div class="moon-haze"></div>
-      <div class="tree-line far"></div>
-      <div class="tree-line near"></div>
-      <div class="fog-bank fog-one"></div>
-      <div class="fog-bank fog-two"></div>
-      <div class="campfire-setpiece">
-        <div class="survivor-silhouette survivor-a ready-pose"></div>
-        <div class="survivor-silhouette survivor-b"></div>
-        <div class="survivor-silhouette survivor-c"></div>
-        <div class="survivor-silhouette survivor-d"></div>
-        <div class="killer-silhouette killer-lobby"></div>
-        <div class="campfire">
-          <div class="ember-ring"></div>
-          <div class="log log-a"></div>
-          <div class="log log-b"></div>
-          <div class="flame flame-back"></div>
-          <div class="flame flame-mid"></div>
-          <div class="flame flame-front"></div>
-          <div class="sparks"><i></i><i></i><i></i><i></i><i></i></div>
+  <div id="skinScreen" class="screen io-screen">
+    <div class="io-menu-card wide-menu-card">
+      <div class="screen-topline">
+        <button class="text-btn menu-back-btn" data-screen="menu" type="button">← Menu</button>
+        <div class="eyebrow">cosmetic chaos</div>
+      </div>
+      <h1>Skins</h1>
+      <p>Choose the survivor cell style. Killer remains red because subtlety died in beta.</p>
+      <div class="skin-picker big-skin-picker" aria-label="Survivor skin selector">
+        <button class="skin-btn selected" data-skin="blueSquare" type="button">
+          <span class="skin-preview skin-square"></span>
+          <span>Blue Cell</span>
+        </button>
+        <button class="skin-btn" data-skin="yellowStar" type="button">
+          <span class="skin-preview skin-star"></span>
+          <span>Gold Star Cell</span>
+        </button>
+        <button class="skin-btn" data-skin="purplePentagon" type="button">
+          <span class="skin-preview skin-pentagon"></span>
+          <span>Purple Core Cell</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div id="optionsScreen" class="screen io-screen">
+    <div class="io-menu-card wide-menu-card">
+      <div class="screen-topline">
+        <button class="text-btn menu-back-btn" data-screen="menu" type="button">← Menu</button>
+        <div class="eyebrow">settings</div>
+      </div>
+      <h1>Options</h1>
+      <div class="option-list">
+        <div class="option-card">
+          <strong>Audio</strong>
+          <span>Menu music: <code>/menu.mp3</code>. Match music still uses your layered chase audio.</span>
+        </div>
+        <div class="option-card">
+          <strong>Visual Style</strong>
+          <span>Minimal grid arena, clean circles, thin outlines, readable objectives.</span>
+        </div>
+        <div class="option-card">
+          <strong>Performance</strong>
+          <span>Vector-first graphics, fewer decorative strokes, and no campfire screen melting the GPU for no reason.</span>
         </div>
       </div>
     </div>
-    <div class="panel lobby-panel campfire-panel">
-      <div class="eyebrow">trial lobby</div>
+  </div>
+
+  <div id="howScreen" class="screen io-screen">
+    <div class="io-menu-card wide-menu-card">
+      <div class="screen-topline">
+        <button class="text-btn menu-back-btn" data-screen="menu" type="button">← Menu</button>
+        <div class="eyebrow">how to play</div>
+      </div>
+      <h1>How to Play</h1>
+      <div class="how-grid">
+        <div class="option-card"><strong>Survivors</strong><span>Repair generators, heal teammates, drop pallets, vault windows, open the gate, and leave.</span></div>
+        <div class="option-card"><strong>Killer</strong><span>Track survivors, hold M1 for a lunge, kick generators, break pallets, hook or execute downed survivors.</span></div>
+        <div class="option-card"><strong>Controls</strong><span>WASD move, mouse aim, Space vault/drop/break, E interact, Shift sprint, R chat wheel.</span></div>
+        <div class="option-card"><strong>Win</strong><span>Survivors win by escaping. Killer wins by removing everyone from the board, because apparently circles can have consequences.</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="lobbyScreen" class="screen io-screen">
+    <div class="io-menu-card wide-menu-card lobby-panel">
+      <div class="screen-topline">
+        <button id="leaveBtn" class="text-btn" type="button">← Leave</button>
+        <div class="eyebrow">trial lobby</div>
+      </div>
       <h1 id="lobbyTitle">Lobby</h1>
-      <p id="lobbySubtitle">Ready by the fire. One killer may enter the trial.</p>
+      <p id="lobbySubtitle">Choose a role, ready up, then start the match.</p>
       <div id="playersList" class="players-list"></div>
-      <div class="role-row">
-        <button id="beSurvivorBtn">Choose Survivor</button>
-        <button id="beKillerBtn">Choose Killer</button>
+      <div class="role-row pill-row">
+        <button id="beSurvivorBtn" type="button">Choose Survivor</button>
+        <button id="beKillerBtn" type="button">Choose Killer</button>
       </div>
       <div class="skin-picker compact" aria-label="Survivor skin selector">
         <div class="skin-title">Survivor skin</div>
         <button class="skin-btn selected" data-skin="blueSquare" type="button">
           <span class="skin-preview skin-square"></span>
-          <span>Blue Square</span>
+          <span>Blue Cell</span>
         </button>
         <button class="skin-btn" data-skin="yellowStar" type="button">
           <span class="skin-preview skin-star"></span>
-          <span>Yellow Star</span>
+          <span>Gold Star Cell</span>
         </button>
         <button class="skin-btn" data-skin="purplePentagon" type="button">
           <span class="skin-preview skin-pentagon"></span>
-          <span>Purple Pentagon</span>
+          <span>Purple Core Cell</span>
         </button>
       </div>
-      <div class="button-row">
-        <button id="readyBtn">Ready</button>
-        <button id="addBotSurvivorBtn">Add Bot Survivor</button>
-        <button id="addBotKillerBtn">Add Bot Killer</button>
-        <button id="startBtn" class="primary">Start Match</button>
-        <button id="leaveBtn">Leave</button>
+      <div class="button-row lobby-actions">
+        <button id="readyBtn" type="button">Ready</button>
+        <button id="addBotSurvivorBtn" type="button">Add Bot Survivor</button>
+        <button id="addBotKillerBtn" type="button">Add Bot Killer</button>
+        <button id="startBtn" class="primary" type="button">Start Match</button>
       </div>
-      <p class="hint">Start requires exactly <b>1 killer</b> and at least <b>1 survivor</b>. Bots are test subjects, which is rude but efficient.</p>
+      <p class="hint">Start requires exactly <b>1 killer</b> and at least <b>1 survivor</b>.</p>
     </div>
   </div>
 
@@ -175,14 +212,14 @@
     </div>
   </div>
 
-  <div id="endScreen" class="screen">
-    <div class="panel end-panel">
+  <div id="endScreen" class="screen io-screen">
+    <div class="io-menu-card end-panel">
       <div class="eyebrow">match ended</div>
       <h1 id="winnerText">Survivors Win</h1>
       <p id="reasonText">All generators are complete.</p>
       <div class="button-row center">
-        <button id="backToLobbyBtn" class="primary">Back To Lobby</button>
-        <button id="mainMenuBtn">Main Menu</button>
+        <button id="backToLobbyBtn" class="primary" type="button">Back To Lobby</button>
+        <button id="mainMenuBtn" type="button">Main Menu</button>
       </div>
     </div>
   </div>

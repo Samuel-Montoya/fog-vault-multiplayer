@@ -20,7 +20,7 @@
   // RenderTexture sits above it, then the local player's flashlight erases that fog.
   // Inside the cone you see the real map, not a white overlay and not a black void.
   const LIGHTING = {
-    MAP_DARKNESS: 0.62,          // 0 = no fog, 0.85 = very dark outside vision
+    MAP_DARKNESS: 0.1,          // 0 = no fog, 0.85 = very dark outside vision
     SURVIVOR_LENGTH: 700,
     SURVIVOR_ANGLE: Math.PI / 2.25,
     KILLER_LENGTH: 980,
@@ -42,7 +42,9 @@
 
   const MUSIC = {
     MASTER: 0.55,
+    MENU_MASTER: 0.46,
     FADE: 0.065,
+    MENU: "/menu.mp3",
     LAYERS: ["/layer_1.mp3", "/layer_2.mp3", "/layer_3.mp3"]
   };
 
@@ -140,10 +142,10 @@
   // because browsers are apparently dramatic about absent art assets.
   const GROUND_VISUAL = {
     TILE_SIZE: 72,
-    BASE: 0x22431f,
-    BASE_DARK: 0x163015,
-    BASE_LIGHT: 0x2e5528,
-    EDGE_GREEN: 0x315f2b,
+    BASE: 0xf3f7fb,
+    BASE_DARK: 0xe4ebf3,
+    BASE_LIGHT: 0xffffff,
+    EDGE_GREEN: 0xdfe8f1,
     PATCH_ALPHA: 0.16,
     EDGE_ALPHA: 0.18
   };
@@ -151,10 +153,10 @@
   const WALL_VISUAL = {
     PLANK_HEIGHT: 18,
     PLANK_WIDTH: 44,
-    WOOD_BASE: 0x60412b,
-    WOOD_DARK: 0x2b1a11,
-    WOOD_LIGHT: 0x9b6a42,
-    WOOD_GRAIN: 0x3a2417,
+    WOOD_BASE: 0xcfd9e6,
+    WOOD_DARK: 0x8ea0b5,
+    WOOD_LIGHT: 0xf7fbff,
+    WOOD_GRAIN: 0xaebdcb,
     EDGE_ALPHA: 0.42,
     HIGHLIGHT_ALPHA: 0.17,
     GRAIN_ALPHA: 0.30,
@@ -201,24 +203,24 @@
   };
 
   const COLORS = {
-    floorA: 0x21331f,
-    floorB: 0x182718,
-    grassLine: 0x4f7242,
-    blood: 0x7b1010,
-    hook: 0x91613a,
-    hookIron: 0x1b1512,
-    downed: 0x8f2020,
-    wall: 0x60412b,
-    wallDark: 0x2b1a11,
-    wallLight: 0xa97a4b,
-    window: 0xd9edf3,
-    pallet: 0xb97835,
-    palletDark: 0x4a2917,
-    gen: 0xb0b7a8,
-    gate: 0xc2a055,
+    floorA: 0xf3f7fb,
+    floorB: 0xe8eef6,
+    grassLine: 0xd8e2ee,
+    blood: 0xf04444,
+    hook: 0x6b7280,
+    hookIron: 0x111827,
+    downed: 0xef4444,
+    wall: 0xcfd9e6,
+    wallDark: 0x8ea0b5,
+    wallLight: 0xf7fbff,
+    window: 0x38bdf8,
+    pallet: 0xf59e0b,
+    palletDark: 0xb45309,
+    gen: 0x94a3b8,
+    gate: 0x22c55e,
     survivor: 0x75d5ff,
     survivorInjured: 0xff6868,
-    killer: 0xd93434,
+    killer: 0x5b21b6,
     text: 0xf2efea,
     scratch: 0xff3535
   };
@@ -257,8 +259,17 @@
 
   const ui = {
     menu: document.getElementById("menu"),
+    playScreen: document.getElementById("playScreen"),
+    skinScreen: document.getElementById("skinScreen"),
+    optionsScreen: document.getElementById("optionsScreen"),
+    howScreen: document.getElementById("howScreen"),
     lobbyScreen: document.getElementById("lobbyScreen"),
     endScreen: document.getElementById("endScreen"),
+    menuPlayBtn: document.getElementById("menuPlayBtn"),
+    menuSkinsBtn: document.getElementById("menuSkinsBtn"),
+    menuOptionsBtn: document.getElementById("menuOptionsBtn"),
+    menuHowBtn: document.getElementById("menuHowBtn"),
+    menuBackBtns: [...document.querySelectorAll(".menu-back-btn")],
     playerName: document.getElementById("playerName"),
     roleBtns: [...document.querySelectorAll(".role-btn")],
     skinBtns: [...document.querySelectorAll(".skin-btn")],
@@ -334,10 +345,29 @@
     gameActive: false,
     lastTryAt: 0,
     layers: [],
+    menu: null,
+    menuActive: false,
     sfx: {},
     targets: [0, 0, 0],
     volumes: [0, 0, 0]
   };
+
+  function setMenuAudioActive(active) {
+    audio.menuActive = !!active;
+    const menu = audio.menu;
+    if (!menu) return;
+    if (!audio.menuActive) {
+      menu.pause();
+      return;
+    }
+    menu.volume = MUSIC.MENU_MASTER;
+    menu.play().catch(() => null);
+  }
+
+  function ensureMenuAudioStarted() {
+    if (!audio.menuActive || !audio.menu) return;
+    audio.menu.play().catch(() => null);
+  }
 
   function setGameplayAudioActive(active) {
     audio.gameActive = !!active;
@@ -361,10 +391,19 @@
   }
 
   function showScreen(name) {
-    setGameplayAudioActive(name === "game");
-    ui.menu.classList.toggle("screen-open", name === "menu");
-    ui.lobbyScreen.classList.toggle("screen-open", name === "lobby");
-    ui.endScreen.classList.toggle("screen-open", name === "end");
+    const isGameScreen = name === "game";
+    const menuLike = !isGameScreen;
+    document.body.classList.toggle("is-game-screen", isGameScreen);
+    document.body.classList.toggle("is-menu-screen", menuLike);
+    setGameplayAudioActive(isGameScreen);
+    setMenuAudioActive(menuLike);
+    ui.menu?.classList.toggle("screen-open", name === "menu");
+    ui.playScreen?.classList.toggle("screen-open", name === "play");
+    ui.skinScreen?.classList.toggle("screen-open", name === "skins");
+    ui.optionsScreen?.classList.toggle("screen-open", name === "options");
+    ui.howScreen?.classList.toggle("screen-open", name === "how");
+    ui.lobbyScreen?.classList.toggle("screen-open", name === "lobby");
+    ui.endScreen?.classList.toggle("screen-open", name === "end");
     ui.hud.classList.toggle("hidden", name !== "game");
     ui.survivorStatusHud?.classList.toggle("hidden", name !== "game");
     ui.bigGenCounter?.classList.toggle("hidden", name !== "game");
@@ -474,6 +513,12 @@
   }
 
   function setupAudio() {
+    audio.menu = new Audio(MUSIC.MENU);
+    audio.menu.loop = true;
+    audio.menu.preload = "auto";
+    audio.menu.volume = MUSIC.MENU_MASTER;
+    audio.menu.addEventListener("error", () => null);
+
     audio.layers = MUSIC.LAYERS.map((src) => {
       const a = new Audio(src);
       a.loop = true;
@@ -717,6 +762,7 @@
     constructor() {
       super("GameScene");
       this.map = null;
+      this.outOfBoundsGraphics = null;
       this.worldGraphics = null;
       this.dynamicGraphics = null;
       this.generatorGraphics = null;
@@ -774,7 +820,7 @@
 
     create() {
       phaserScene = this;
-      this.cameras.main.setBackgroundColor("#050505");
+      this.cameras.main.setBackgroundColor("#f6f9ff");
       this.scale.on("resize", () => this.rebuildFogTexture());
       this.grassLayer = null;
       this.worldGraphics = this.add.graphics().setDepth(1);
@@ -949,6 +995,7 @@
       // Showing a little outside the map is better than letting the player stick to a screen edge.
       this.cameras.main.setBounds(-100000, -100000, map.width + 200000, map.height + 200000);
       this.renderedMapKey = "";
+      this.rebuildOutOfBoundsBackdrop();
       this.rebuildGrassLayer();
       this.drawStaticWorld();
       this.drawDynamicWorld();
@@ -961,6 +1008,59 @@
       this.needsGeneratorRedraw = true;
       this.localVisual = null;
       this.localServerTarget = null;
+    }
+
+    rebuildOutOfBoundsBackdrop() {
+      if (this.outOfBoundsGraphics) {
+        this.outOfBoundsGraphics.destroy();
+        this.outOfBoundsGraphics = null;
+      }
+      if (!this.map) return;
+
+      const pad = 5200;
+      const x = -pad;
+      const y = -pad;
+      const w = this.map.width + pad * 2;
+      const h = this.map.height + pad * 2;
+      const g = this.add.graphics().setDepth(-20).setScrollFactor(1, 1);
+      this.outOfBoundsGraphics = g;
+
+      // Match the menu mood behind the playable map: pale field, soft blobs, clean grid.
+      // The map itself still draws above this, so gameplay/lighting stay intact.
+      g.fillStyle(0xf6f9ff, 1);
+      g.fillRect(x, y, w, h);
+
+      g.fillStyle(0x31a9ff, 0.10);
+      g.fillCircle(this.map.width * 0.18, -760, 780);
+      g.fillStyle(0xa772ff, 0.10);
+      g.fillCircle(this.map.width + 920, this.map.height * 0.72, 920);
+      g.fillStyle(0xffd34d, 0.12);
+      g.fillCircle(-780, this.map.height * 0.30, 620);
+      g.fillStyle(0xff4d5f, 0.075);
+      g.fillCircle(this.map.width * 0.50, this.map.height + 860, 760);
+
+      const grid = 36;
+      g.lineStyle(1, 0x41536e, 0.10);
+      const startX = Math.floor(x / grid) * grid;
+      const endX = x + w;
+      const startY = Math.floor(y / grid) * grid;
+      const endY = y + h;
+      for (let xx = startX; xx <= endX; xx += grid) {
+        g.beginPath();
+        g.moveTo(xx, y);
+        g.lineTo(xx, y + h);
+        g.strokePath();
+      }
+      for (let yy = startY; yy <= endY; yy += grid) {
+        g.beginPath();
+        g.moveTo(x, yy);
+        g.lineTo(x + w, yy);
+        g.strokePath();
+      }
+
+      // Soft boundary glow around the real map so the outside reads intentional, not missing.
+      g.lineStyle(18, 0xffffff, 0.38);
+      g.strokeRoundedRect(-9, -9, this.map.width + 18, this.map.height + 18, 34);
     }
 
     rebuildGrassLayer() {
@@ -1346,32 +1446,10 @@
     }
 
     syncGeneratorSprites(generators) {
-      const currentIds = new Set(generators.map((gen) => String(gen.id)));
-      for (const [id, sprite] of this.generatorSprites.entries()) {
-        if (!currentIds.has(id)) {
-          sprite.destroy();
-          this.generatorSprites.delete(id);
-        }
-      }
-
-      const textureKey = this.getGeneratorTextureKey();
-      for (const gen of generators) {
-        const id = String(gen.id);
-        let sprite = this.generatorSprites.get(id);
-        if (!sprite) {
-          sprite = this.add.image(gen.x, gen.y, textureKey)
-            .setOrigin(0.5, 0.5)
-            .setDepth(2.75)
-            .setDisplaySize(GENERATOR_VISUAL.SIZE, GENERATOR_VISUAL.SIZE);
-          this.generatorSprites.set(id, sprite);
-        }
-
-        if (sprite.texture?.key !== textureKey) sprite.setTexture(textureKey);
-        sprite.setPosition(gen.x, gen.y);
-        sprite.setDisplaySize(GENERATOR_VISUAL.SIZE, GENERATOR_VISUAL.SIZE);
-        sprite.setAlpha(gen.done ? 1 : 0.95);
-        sprite.setTint(gen.done ? GENERATOR_VISUAL.DONE_TINT : GENERATOR_VISUAL.WORKING_TINT);
-      }
+      // New .io-style generators are drawn entirely with lightweight Graphics.
+      // Destroy the old SVG/image sprites so the replacement cannot disappear behind stale art.
+      for (const sprite of this.generatorSprites.values()) sprite.destroy();
+      this.generatorSprites.clear();
     }
 
     drawGenerator(g, gen) {
@@ -1380,42 +1458,71 @@
       const progress = clamp(gen.progress || 0, 0, 1);
       const repairing = showRepairFx && !gen.done && (gen.repairing || (Array.isArray(gen.activeRepairers) && gen.activeRepairers.length > 0));
       const kicking = showProgress && !gen.done && !!gen.beingKicked;
-      const barW = GENERATOR_VISUAL.BAR_WIDTH;
-      const barH = GENERATOR_VISUAL.BAR_HEIGHT;
-      const x = gen.x - barW / 2;
-      const y = gen.y + GENERATOR_VISUAL.BAR_Y_OFFSET;
+      const now = performance.now();
+      const pulse = 0.5 + Math.sin(now / 260 + hash2(Math.floor(gen.x), Math.floor(gen.y)) * Math.PI * 2) * 0.5;
+      const coreColor = gen.done ? 0x4de283 : kicking ? 0xff5a66 : repairing ? 0x31a9ff : 0xa772ff;
+      const rimColor = gen.done ? 0xb8ffd1 : kicking ? 0xffb4bc : repairing ? 0xbde7ff : 0xe6d7ff;
+      const shadowAlpha = gen.done ? 0.16 : 0.22;
 
-      // Small shadow/contact patch so the SVG feels planted on the map instead of floating.
-      g.fillStyle(0x000000, 0.28);
-      g.fillEllipse(gen.x, gen.y + 35, GENERATOR_VISUAL.SIZE * 0.78, 17);
+      // Soft contact shadow, like an agar cell hovering just above the field.
+      g.fillStyle(0x41536e, shadowAlpha);
+      g.fillEllipse(gen.x, gen.y + 32, 78, 18);
 
       if (repairing || kicking) {
-        const pulse = 0.5 + Math.sin(performance.now() / (kicking ? 95 : 135)) * 0.5;
-        const color = kicking ? GENERATOR_VISUAL.KICK_GLOW_COLOR : GENERATOR_VISUAL.REPAIR_GLOW_COLOR;
-        g.lineStyle(kicking ? 3 : 2, color, kicking ? 0.74 : 0.42);
-        g.strokeCircle(gen.x, gen.y, GENERATOR_VISUAL.SIZE * (0.50 + pulse * 0.06));
-        g.fillStyle(color, kicking ? 0.06 : 0.045);
-        g.fillCircle(gen.x, gen.y, GENERATOR_VISUAL.SIZE * (0.55 + pulse * 0.05));
+        const auraSize = 39 + pulse * 7;
+        const auraColor = kicking ? GENERATOR_VISUAL.KICK_GLOW_COLOR : 0x31a9ff;
+        g.fillStyle(auraColor, kicking ? 0.055 : 0.045);
+        g.fillCircle(gen.x, gen.y, auraSize + 15);
+        g.lineStyle(3, auraColor, kicking ? 0.46 : 0.32);
+        g.strokeCircle(gen.x, gen.y, auraSize);
+      }
+
+      // Main .io-style objective cell. The little bubbles sell “machine/objective”
+      // without bringing back the old industrial generator sprite.
+      g.fillStyle(0xffffff, 0.94);
+      g.fillCircle(gen.x, gen.y, 34);
+      g.lineStyle(4, rimColor, 0.95);
+      g.strokeCircle(gen.x, gen.y, 34);
+      g.fillStyle(coreColor, gen.done ? 0.92 : 0.80);
+      g.fillCircle(gen.x, gen.y, 22 + pulse * (repairing ? 2.2 : 0.8));
+      g.fillStyle(0xffffff, 0.26);
+      g.fillCircle(gen.x - 9, gen.y - 10, 8);
+      g.fillStyle(0x111827, 0.10);
+      g.fillCircle(gen.x + 8, gen.y + 9, 5);
+
+      const orbitR = 39;
+      for (let i = 0; i < 5; i++) {
+        const seed = hash2(Math.floor(gen.x / 7) + i * 13, Math.floor(gen.y / 7) + i * 17);
+        const angle = seed * Math.PI * 2 + (repairing ? now / 1250 : 0) + i * 1.18;
+        const dotSize = 3.2 + (i % 2) * 1.5;
+        g.fillStyle(i % 2 ? 0x31a9ff : 0xa772ff, gen.done ? 0.26 : 0.52);
+        g.fillCircle(gen.x + Math.cos(angle) * orbitR, gen.y + Math.sin(angle) * orbitR, dotSize);
       }
 
       if (showProgress) {
-        g.fillStyle(0x0b0b0a, 0.84);
-        g.fillRoundedRect(x, y, barW, barH, 4);
-        g.fillStyle(gen.done ? 0x76ff72 : kicking ? GENERATOR_VISUAL.KICK_GLOW_COLOR : repairing ? GENERATOR_VISUAL.REPAIR_GLOW_COLOR : COLORS.gate, 0.98);
-        g.fillRoundedRect(x, y, Math.max(0, barW * progress), barH, 4);
-        g.lineStyle(2, gen.done ? 0xafffa9 : kicking ? 0xff9a9a : repairing ? 0xffe3a2 : 0x000000, gen.done ? 0.65 : 0.72);
-        g.strokeRoundedRect(x, y, barW, barH, 4);
+        const ringR = 44;
+        g.lineStyle(5, 0xdce7f5, 0.82);
+        g.strokeCircle(gen.x, gen.y, ringR);
+        const progressColor = gen.done ? 0x4de283 : kicking ? GENERATOR_VISUAL.KICK_GLOW_COLOR : repairing ? 0x31a9ff : 0xa772ff;
+        if (progress > 0.002) {
+          g.lineStyle(6, progressColor, 0.98);
+          g.beginPath();
+          g.arc(gen.x, gen.y, ringR, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress, false);
+          g.strokePath();
+        }
       }
 
       if (kicking) {
-        const kickW = barW * clamp(gen.kickProgress || 0, 0, 1);
+        const kickProgress = clamp(gen.kickProgress || 0, 0, 1);
         g.lineStyle(3, GENERATOR_VISUAL.KICK_GLOW_COLOR, 0.95);
-        g.strokeRoundedRect(x, y + 13, Math.max(4, kickW), barH, 4);
+        g.beginPath();
+        g.arc(gen.x, gen.y, 52, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * kickProgress, false);
+        g.strokePath();
       }
 
       if (gen.done && showProgress) {
-        g.lineStyle(3, 0x9eff93, 0.72);
-        g.strokeCircle(gen.x, gen.y, GENERATOR_VISUAL.SIZE * 0.49);
+        g.lineStyle(3, 0x4de283, 0.55 + pulse * 0.20);
+        g.strokeCircle(gen.x, gen.y, 56 + pulse * 4);
       }
     }
 
@@ -1614,8 +1721,36 @@
       item.outline.lineStyle(2, outlineColor, outlineAlpha);
 
       if (data.role === "killer") {
-        item.body.fillCircle(0, 0, 19);
-        item.outline.strokeCircle(0, 0, 22);
+        const now = performance.now();
+        const attacking = data.attacking || data.attackState === "quick" || data.attackState === "lunge";
+        const charging = data.attackState === "charging";
+        const angry = attacking ? 1 : charging ? 0.65 : data.recovery > 0 ? 0.38 : 0.18;
+        const wobble = Math.sin(now / 145) * 1.2;
+        const coreR = 18.5 + wobble + angry * 2.8;
+
+        item.body.fillStyle(0x07020f, 0.96);
+        item.body.fillCircle(0, 0, coreR + 2);
+        item.body.fillStyle(0x32105f, 0.86);
+        item.body.fillCircle(-4, -2, coreR * 0.82);
+        item.body.fillStyle(0x7c3aed, 0.36 + angry * 0.22);
+        item.body.fillCircle(5, 3, coreR * 0.68);
+        item.body.fillStyle(0x000000, 0.54);
+        item.body.fillCircle(3, -5, coreR * 0.40);
+
+        for (let i = 0; i < 7; i++) {
+          const seed = i * 1.731;
+          const a = now / (620 + i * 55) + seed;
+          const r = 11 + i * 2.15 + Math.sin(now / 220 + i) * 2.0;
+          const size = 4.4 + (i % 3) * 1.8 + angry * 1.4;
+          const color = i % 2 ? 0x8b5cf6 : 0x111827;
+          item.body.fillStyle(color, i % 2 ? 0.62 : 0.72);
+          item.body.fillCircle(Math.cos(a) * r, Math.sin(a * 1.13) * r, size);
+        }
+
+        item.outline.lineStyle(2, 0xd8b4fe, 0.48 + angry * 0.34);
+        item.outline.strokeCircle(0, 0, 23 + angry * 2);
+        item.outline.lineStyle(1, 0x4c1d95, 0.70);
+        item.outline.strokeCircle(0, 0, 28 + Math.sin(now / 190) * 1.5 + angry * 3);
         return;
       }
 
@@ -1667,10 +1802,8 @@
       if (data.role === "killer") {
         const charging = data.attackState === "charging";
         const attacking = data.attacking || data.attackState === "quick" || data.attackState === "lunge";
-        const fillColor = data.recovery > 0 ? 0x8d2020 : attacking ? 0xff4545 : charging ? 0xf06c35 : COLORS.killer;
-        const outlineColor = attacking ? 0xfff0d0 : data.recovery > 0 ? 0xffb0b0 : 0xf7e5e5;
-        this.drawActorShape(item, data, fillColor, 1, outlineColor, attacking ? 1 : 0.8);
-        item.facing.setFillStyle(0xffe2e2, attacking ? 0.7 : data.recovery > 0 ? 0.22 : charging ? 0.58 : 0.42);
+        this.drawActorShape(item, data, COLORS.killer, 1, 0xd8b4fe, attacking ? 1 : 0.84);
+        item.facing.setFillStyle(attacking ? 0xf5d0fe : 0xc084fc, attacking ? 0.82 : data.recovery > 0 ? 0.24 : charging ? 0.72 : 0.48);
       } else {
         const skin = getSurvivorSkin(data.skin);
         let color = data.health <= 1 || data.injured ? COLORS.survivorInjured : skin.color;
@@ -1990,6 +2123,9 @@
         }
         item.container.setPosition(item.current.x, item.current.y);
         item.container.rotation = item.current.angle || 0;
+        if (item.data?.role === "killer") {
+          this.styleActor(item, item.data);
+        }
         if (item.chatText) {
           const isKiller = item.data?.role === "killer";
           item.chatText.setPosition(item.current.x, item.current.y + (isKiller ? 47 : 43));
@@ -2524,7 +2660,7 @@
     const game = new Phaser.Game({
       type: Phaser.AUTO,
       parent: "gameWrap",
-      backgroundColor: "#050505",
+      backgroundColor: "#f6f9ff",
       scale: {
         mode: Phaser.Scale.RESIZE,
         autoCenter: Phaser.Scale.CENTER_BOTH,
@@ -2551,6 +2687,14 @@
   }
 
   function setupUI() {
+    ui.menuPlayBtn?.addEventListener("click", () => { ensureMenuAudioStarted(); showScreen("play"); });
+    ui.menuSkinsBtn?.addEventListener("click", () => { ensureMenuAudioStarted(); showScreen("skins"); });
+    ui.menuOptionsBtn?.addEventListener("click", () => { ensureMenuAudioStarted(); showScreen("options"); });
+    ui.menuHowBtn?.addEventListener("click", () => { ensureMenuAudioStarted(); showScreen("how"); });
+    ui.menuBackBtns?.forEach((btn) => {
+      btn.addEventListener("click", () => showScreen(btn.dataset.screen || "menu"));
+    });
+
     ui.roleBtns.forEach((btn) => {
       btn.addEventListener("click", () => {
         selectedRole = btn.dataset.role;
