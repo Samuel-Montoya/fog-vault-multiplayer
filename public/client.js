@@ -20,18 +20,23 @@
   // RenderTexture sits above it, then the local player's flashlight erases that fog.
   // Inside the cone you see the real map, not a white overlay and not a black void.
   const LIGHTING = {
-    MAP_DARKNESS: 0.1,           // 0 = no fog, 0.85 = very dark outside vision
-    SURVIVOR_LENGTH: 700,
-    SURVIVOR_ANGLE: Math.PI / 2.25,
-    KILLER_LENGTH: 980,
-    KILLER_ANGLE: Math.PI / 1.7,
+    MAP_DARKNESS: 0.38,          // 0 = no fog, 0.85 = very dark outside vision
+    SURVIVOR_LENGTH: 880,
+    SURVIVOR_ANGLE: Math.PI / 2.05,
+    KILLER_LENGTH: 1080,
+    KILLER_ANGLE: Math.PI / 1.62,
     CONE_TEXTURE_WIDTH: LOW_POWER_MODE ? 512 : 768,
     CONE_TEXTURE_HEIGHT: LOW_POWER_MODE ? 512 : 768,
-    CONE_BASE_HALF_ANGLE: Math.atan(0.52),
-    AURA_ALPHA: 0.72,
-    AURA_RADIUS: 145,
+    CONE_BASE_HALF_ANGLE: Math.atan(0.56),
+    // Softness controls are baked into tiny canvas textures once, not blurred every frame.
+    // This keeps the beam smooth without asking the browser to melt itself.
+    CONE_EDGE_SOFTNESS: LOW_POWER_MODE ? 0.38 : 0.30,
+    CONE_TAIL_FADE: LOW_POWER_MODE ? 0.88 : 0.94,
+    BLOOM_ALPHA: LOW_POWER_MODE ? 0.10 : 0.16,
+    AURA_ALPHA: 0.90,
+    AURA_RADIUS: 220,
     // Tiny flicker keeps the flashlight alive without turning it into a disco lawsuit.
-    FLICKER_STRENGTH: LOW_POWER_MODE ? 0.025 : 0.055,
+    FLICKER_STRENGTH: LOW_POWER_MODE ? 0.018 : 0.038,
     FLICKER_SPEED: LOW_POWER_MODE ? 5.0 : 7.5,
     FOG_DEPTH: 900,
     // World-space padding around the current camera view. The fog layer is
@@ -77,7 +82,7 @@
     // Camera zoom is back, but kept small and smoothed so chase feels intense
     // without forcing Phaser to violently rescale the whole scene in one frame.
     TERROR_ZOOM: LOW_POWER_MODE ? 0.025 : 0.04,
-    CHASE_ZOOM: LOW_POWER_MODE ? 0.07 : 0.11,
+    CHASE_ZOOM: 0.66,
     // Killer-only attack pressure. Holding M1 subtly pushes the camera in,
     // and a real server-confirmed swing gives a tiny punch. Small numbers on purpose.
     KILLER_M1_HOLD_ZOOM: LOW_POWER_MODE ? 0.045 : 0.085,
@@ -142,10 +147,10 @@
   // because browsers are apparently dramatic about absent art assets.
   const GROUND_VISUAL = {
     TILE_SIZE: 72,
-    BASE: 0xf3f7fb,
-    BASE_DARK: 0xe4ebf3,
-    BASE_LIGHT: 0xffffff,
-    EDGE_GREEN: 0xdfe8f1,
+    BASE: 0x090a10,
+    BASE_DARK: 0x05060a,
+    BASE_LIGHT: 0x121626,
+    EDGE_GREEN: 0x171b2c,
     PATCH_ALPHA: 0.16,
     EDGE_ALPHA: 0.18
   };
@@ -153,14 +158,16 @@
   const WALL_VISUAL = {
     PLANK_HEIGHT: 18,
     PLANK_WIDTH: 44,
-    WOOD_BASE: 0xcfd9e6,
-    WOOD_DARK: 0x8ea0b5,
-    WOOD_LIGHT: 0xf7fbff,
-    WOOD_GRAIN: 0xaebdcb,
-    EDGE_ALPHA: 0.42,
-    HIGHLIGHT_ALPHA: 0.17,
-    GRAIN_ALPHA: 0.30,
-    SEAM_ALPHA: 0.50
+    WOOD_BASE: 0x241821,
+    WOOD_DARK: 0x08070d,
+    WOOD_LIGHT: 0x4b3348,
+    WOOD_GRAIN: 0x15101a,
+    WOOD_GLOW: 0x8162ff,
+    KNOT_COLOR: 0x09060b,
+    EDGE_ALPHA: 0.72,
+    HIGHLIGHT_ALPHA: 0.24,
+    GRAIN_ALPHA: 0.38,
+    SEAM_ALPHA: 0.66
   };
 
   const GENERATOR_VISUAL = {
@@ -203,24 +210,24 @@
   };
 
   const COLORS = {
-    floorA: 0xf3f7fb,
-    floorB: 0xe8eef6,
-    grassLine: 0xd8e2ee,
+    floorA: 0x090a10,
+    floorB: 0x05060a,
+    grassLine: 0x1d2440,
     blood: 0xf04444,
-    hook: 0x6b7280,
-    hookIron: 0x111827,
-    downed: 0xef4444,
-    wall: 0xcfd9e6,
-    wallDark: 0x8ea0b5,
-    wallLight: 0xf7fbff,
+    hook: 0x9ca3af,
+    hookIron: 0x02030a,
+    downed: 0xf87171,
+    wall: 0x171827,
+    wallDark: 0x070810,
+    wallLight: 0x2e3150,
     window: 0x38bdf8,
     pallet: 0x38bdf8,
     palletDark: 0x6366f1,
-    gen: 0x94a3b8,
-    gate: 0x22c55e,
+    gen: 0x8b5cf6,
+    gate: 0x34d399,
     survivor: 0x75d5ff,
     survivorInjured: 0xff6868,
-    killer: 0x5b21b6,
+    killer: 0x7c3aed,
     text: 0xf2efea,
     scratch: 0x38bdf8
   };
@@ -817,6 +824,8 @@
       this.fogRT = null;
       this.lightConeMask = null;
       this.lightAuraMask = null;
+      this.flashlightGlowGraphics = null;
+      this.flashlightBloomImage = null;
       this.particleGraphics = null;
       this.actors = new Map();
       this.generatorSprites = new Map();
@@ -867,13 +876,18 @@
 
     create() {
       phaserScene = this;
-      this.cameras.main.setBackgroundColor("#ffffff");
+      this.cameras.main.setBackgroundColor("#03040a");
       this.scale.on("resize", () => this.rebuildFogTexture());
       this.grassLayer = null;
       this.worldGraphics = this.add.graphics().setDepth(1);
       this.dynamicGraphics = this.add.graphics().setDepth(3);
       this.generatorGraphics = this.add.graphics().setDepth(3.25);
       this.scratchGraphics = this.add.graphics().setDepth(4);
+      // Kept only as a cheap fallback container. The actual beam glow is now a pre-baked
+      // soft sprite, because per-frame triangle drawing made the cone edge look harsh.
+      this.flashlightGlowGraphics = this.add.graphics()
+        .setDepth(LIGHTING.FOG_DEPTH - 1)
+        .setBlendMode(Phaser.BlendModes.ADD);
       this.chargeGraphics = this.add.graphics().setDepth(21);
       this.swipeGraphics = this.add.graphics().setDepth(22);
       this.particleGraphics = this.add.graphics().setDepth(30);
@@ -901,6 +915,11 @@
         .setOrigin(0, 0.5);
       this.lightAuraMask = this.make.image({ x: 0, y: 0, key: "softFlashlightAura", add: false })
         .setOrigin(0.5, 0.5);
+      this.flashlightBloomImage = this.add.image(0, 0, "softFlashlightBloom")
+        .setOrigin(0, 0.5)
+        .setDepth(LIGHTING.FOG_DEPTH - 1)
+        .setBlendMode(Phaser.BlendModes.ADD)
+        .setVisible(false);
       this.input.on("pointerdown", (pointer) => {
         ensureAudioStarted();
         if (pointer.leftButtonDown()) {
@@ -993,24 +1012,69 @@
         const data = image.data;
         const originY = h / 2;
         const tanBase = Math.tan(LIGHTING.CONE_BASE_HALF_ANGLE);
+        const edgeStart = clamp(LIGHTING.CONE_EDGE_SOFTNESS, 0.18, 0.62);
+        const tailStart = clamp(LIGHTING.CONE_TAIL_FADE, 0.72, 0.98);
 
         for (let y = 0; y < h; y++) {
           for (let x = 0; x < w; x++) {
             const dx = Math.max(0, x);
             const dy = y - originY;
-            const halfWidth = Math.max(10, dx * tanBase);
+            const halfWidth = Math.max(14, dx * tanBase);
             const edgeRatio = Math.abs(dy) / halfWidth;
             const i = (y * w + x) * 4;
             if (edgeRatio > 1 || dx <= 0) continue;
 
             const radial = dx / w;
-            const centerGlow = 1 - smoothstep(0.52, 1.0, radial);
-            const edgeFade = 1 - smoothstep(0.55, 1.0, edgeRatio);
-            const noseFade = smoothstep(0.0, 0.08, radial);
-            const alpha = clamp(centerGlow * edgeFade * noseFade, 0, 1);
+            // Wide edge feather + long radial fade. This removes the sharp cardboard-cone edge
+            // while keeping the center bright enough to read as an actual flashlight.
+            const edgeFade = 1 - smoothstep(edgeStart, 1.0, edgeRatio);
+            const tailFade = 1 - smoothstep(tailStart, 1.0, radial);
+            const noseFade = smoothstep(0.0, 0.075, radial);
+            const centerLift = 0.42 + 0.58 * (1 - Math.pow(edgeRatio, 1.65));
+            const falloff = Math.pow(1 - smoothstep(0.16, 1.0, radial), 0.72);
+            const alpha = clamp(edgeFade * tailFade * noseFade * centerLift * (0.50 + falloff * 0.62), 0, 1);
 
             data[i] = 255;
             data[i + 1] = 255;
+            data[i + 2] = 255;
+            data[i + 3] = Math.floor(alpha * 255);
+          }
+        }
+
+        ctx.putImageData(image, 0, 0);
+        tex.refresh();
+      }
+
+      if (!this.textures.exists("softFlashlightBloom")) {
+        const w = LIGHTING.CONE_TEXTURE_WIDTH;
+        const h = LIGHTING.CONE_TEXTURE_HEIGHT;
+        const tex = this.textures.createCanvas("softFlashlightBloom", w, h);
+        const canvas = tex.getSourceImage();
+        const ctx = canvas.getContext("2d", { willReadFrequently: true });
+        const image = ctx.createImageData(w, h);
+        const data = image.data;
+        const originY = h / 2;
+        const tanBase = Math.tan(LIGHTING.CONE_BASE_HALF_ANGLE);
+
+        for (let y = 0; y < h; y++) {
+          for (let x = 0; x < w; x++) {
+            const dx = Math.max(0, x);
+            const dy = y - originY;
+            const halfWidth = Math.max(18, dx * tanBase);
+            const edgeRatio = Math.abs(dy) / halfWidth;
+            const i = (y * w + x) * 4;
+            if (edgeRatio > 1 || dx <= 0) continue;
+
+            const radial = dx / w;
+            const edgeFade = 1 - smoothstep(0.18, 1.0, edgeRatio);
+            const tailFade = 1 - smoothstep(0.72, 1.0, radial);
+            const noseFade = smoothstep(0.0, 0.10, radial);
+            const center = 1 - smoothstep(0.0, 0.88, edgeRatio);
+            const alpha = clamp(edgeFade * tailFade * noseFade * (0.20 + center * 0.54) * LIGHTING.BLOOM_ALPHA, 0, 0.22);
+
+            // Cold moon-blue bloom. It is purely visual and sits under the fog layer.
+            data[i] = 178;
+            data[i + 1] = 207;
             data[i + 2] = 255;
             data[i + 3] = Math.floor(alpha * 255);
           }
@@ -1027,8 +1091,9 @@
         const ctx = canvas.getContext("2d");
         const r = size / 2;
         const grad = ctx.createRadialGradient(r, r, 0, r, r, r);
-        grad.addColorStop(0, "rgba(255,255,255,0.95)");
-        grad.addColorStop(0.45, "rgba(255,255,255,0.38)");
+        grad.addColorStop(0, "rgba(255,255,255,0.96)");
+        grad.addColorStop(0.28, "rgba(255,255,255,0.64)");
+        grad.addColorStop(0.62, "rgba(230,238,255,0.22)");
         grad.addColorStop(1, "rgba(255,255,255,0)");
         ctx.fillStyle = grad;
         ctx.fillRect(0, 0, size, size);
@@ -1064,8 +1129,8 @@
       }
       if (!this.map) return;
 
-      // Ultra-cheap world backdrop. One white rectangle, no dots, no grid, no orbit lines.
-      // This removes the decorative background draw cost while keeping the map/game objects visible.
+      // Ultra-cheap world backdrop. One dark rectangle, no dots, no grid, no orbit lines.
+      // Keeps the horror theme cheap to render while keeping the map/game objects visible.
       const pad = 5200;
       const x = -pad;
       const y = -pad;
@@ -1073,7 +1138,7 @@
       const h = this.map.height + pad * 2;
       const g = this.add.graphics().setDepth(-20).setScrollFactor(1, 1);
       this.outOfBoundsGraphics = g;
-      g.fillStyle(0xffffff, 1);
+      g.fillStyle(0x03040a, 1);
       g.fillRect(x, y, w, h);
     }
 
@@ -1084,14 +1149,14 @@
       }
       if (!this.map) return;
 
-      // Ultra-cheap playable floor. One white rectangle, no patches, stains, dots, or edge washes.
+      // Ultra-cheap playable floor. One dark rectangle, no patches, stains, dots, or edge washes.
       // Walls, windows, pallets, hooks, gens, actors, and fog still render above it.
       const g = this.add.graphics()
         .setDepth(0)
         .setScrollFactor(1, 1);
 
       this.grassLayer = g;
-      g.fillStyle(0xffffff, 1);
+      g.fillStyle(0x090a10, 1);
       g.fillRect(0, 0, this.map.width, this.map.height);
     }
 
@@ -1135,7 +1200,7 @@
       const g = this.worldGraphics;
       g.clear();
 
-      // Background is intentionally blank white now. Do not draw tile noise,
+      // Background is intentionally blank and dark now. Do not draw tile noise,
       // dots, stains, patches, or decorative floor cells here. Walls/windows only.
       for (const wall of this.map.walls || []) this.drawWall(g, wall);
       for (const win of this.map.windows || []) this.drawWindow(g, win);
@@ -1146,18 +1211,37 @@
       const dark = WALL_VISUAL.WOOD_DARK;
       const light = WALL_VISUAL.WOOD_LIGHT;
       const grain = WALL_VISUAL.WOOD_GRAIN;
+      const glow = WALL_VISUAL.WOOD_GLOW;
       const plankH = WALL_VISUAL.PLANK_HEIGHT;
       const plankW = WALL_VISUAL.PLANK_WIDTH;
 
-      // Uniform fill first. Adjacent X tiles share this fill and only outer edges
-      // get outlines, so wall runs read as connected wooden barricades.
-      g.fillStyle(base, 1);
-      g.fillRect(wall.x, wall.y, wall.w, wall.h);
+      // Dark contact shadow first, so the walls sit on the map instead of looking
+      // like flat rectangles pasted on top. Static draw only, so it costs nothing per frame.
+      g.fillStyle(0x000000, 0.36);
+      g.fillRect(wall.x + 3, wall.y + 4, wall.w, wall.h);
 
-      // World-aligned plank seams. These continue across neighboring wall tiles,
-      // which stops the individual-block look. Tiny mercy.
-      g.lineStyle(1, dark, WALL_VISUAL.SEAM_ALPHA);
+      // Board rows with subtle deterministic variation. This keeps the old plank texture,
+      // just dragged into a darker horror palette instead of neon-purple cardboard.
       const yStart = Math.floor(wall.y / plankH) * plankH;
+      for (let yy = yStart; yy < wall.y + wall.h; yy += plankH) {
+        const rowTop = Math.max(wall.y, yy);
+        const rowBottom = Math.min(wall.y + wall.h, yy + plankH);
+        const rowH = rowBottom - rowTop;
+        if (rowH <= 0) continue;
+        const rowIndex = Math.floor(yy / plankH);
+        const n = hash2(Math.floor(wall.x / plankW), rowIndex);
+        const rowColor = n > 0.72 ? brighten(base, 0.12) : n < 0.22 ? darken(base, 0.20) : base;
+        g.fillStyle(rowColor, 1);
+        g.fillRect(wall.x, rowTop, wall.w, rowH);
+
+        g.fillStyle(light, 0.05 + n * 0.06);
+        g.fillRect(wall.x, rowTop, wall.w, Math.min(3, rowH));
+        g.fillStyle(dark, 0.18);
+        g.fillRect(wall.x, Math.max(rowTop, rowBottom - 2), wall.w, Math.min(2, rowH));
+      }
+
+      // World-aligned horizontal plank seams.
+      g.lineStyle(1, dark, WALL_VISUAL.SEAM_ALPHA);
       for (let yy = yStart; yy <= wall.y + wall.h; yy += plankH) {
         const y = clamp(yy, wall.y, wall.y + wall.h);
         g.beginPath();
@@ -1166,7 +1250,7 @@
         g.strokePath();
       }
 
-      // Short staggered vertical seams create board ends without drawing tile boxes.
+      // Staggered vertical plank breaks.
       const xStart = Math.floor(wall.x / plankW) * plankW;
       for (let yy = yStart; yy < wall.y + wall.h; yy += plankH) {
         const row = Math.floor(yy / plankH);
@@ -1176,6 +1260,7 @@
           const y1 = clamp(yy + 2, wall.y, wall.y + wall.h);
           const y2 = clamp(yy + plankH - 2, wall.y, wall.y + wall.h);
           if (y2 <= y1 + 2) continue;
+          g.lineStyle(1, dark, 0.42);
           g.beginPath();
           g.moveTo(x, y1);
           g.lineTo(x, y2);
@@ -1183,28 +1268,41 @@
         }
       }
 
-      // Grain lines. World-hashed so the pattern is stable when the camera moves.
-      g.lineStyle(1, grain, WALL_VISUAL.GRAIN_ALPHA);
-      const grainRows = Math.max(3, Math.floor(wall.h / 11));
+      // Heavy dark grain and cracks, similar to the original wall treatment but less bright.
+      const grainRows = Math.max(3, Math.floor(wall.h / 10));
       for (let i = 0; i < grainRows; i++) {
-        const y = wall.y + 7 + i * 11 + hash2(Math.floor(wall.x / 17) + i, Math.floor(wall.y / 19)) * 4;
+        const y = wall.y + 6 + i * 10 + hash2(Math.floor(wall.x / 17) + i, Math.floor(wall.y / 19)) * 4;
         if (y > wall.y + wall.h - 5) continue;
+        const wobble = Math.sin((wall.x + i * 31) * 0.025) * 2.5;
+        g.lineStyle(1, grain, WALL_VISUAL.GRAIN_ALPHA);
         g.beginPath();
-        g.moveTo(wall.x + 6, y);
-        const midX = wall.x + wall.w * 0.5;
-        g.lineTo(midX, y + Math.sin((wall.x + i * 31) * 0.025) * 2.5);
-        g.lineTo(wall.x + wall.w - 6, y + Math.cos((wall.y + i * 17) * 0.03) * 2.5);
+        g.moveTo(wall.x + 7, y);
+        g.lineTo(wall.x + wall.w * 0.42, y + wobble);
+        g.lineTo(wall.x + wall.w - 7, y + Math.cos((wall.y + i * 17) * 0.03) * 2.5);
         g.strokePath();
       }
 
-      // Top bevel and bottom shadow make the planks feel chunky without making each
-      // ASCII tile look boxed in.
-      g.fillStyle(light, WALL_VISUAL.HIGHLIGHT_ALPHA);
-      g.fillRect(wall.x, wall.y, wall.w, 5);
-      g.fillStyle(dark, 0.22);
-      g.fillRect(wall.x, wall.y + wall.h - 6, wall.w, 6);
+      // Occasional knots. Deterministic so they do not shimmer when redrawn.
+      const knotCount = Math.max(1, Math.floor((wall.w * wall.h) / 5200));
+      for (let i = 0; i < knotCount; i++) {
+        const kx = wall.x + 12 + hash2(wall.tileX || wall.x + i * 13, i + 33) * Math.max(1, wall.w - 24);
+        const ky = wall.y + 10 + hash2(i + 91, wall.tileY || wall.y + 7) * Math.max(1, wall.h - 20);
+        g.fillStyle(WALL_VISUAL.KNOT_COLOR, 0.42);
+        g.fillEllipse(kx, ky, 18, 7);
+        g.lineStyle(1, brighten(base, 0.18), 0.18);
+        g.strokeEllipse(kx, ky, 22, 10);
+      }
 
-      g.lineStyle(3, dark, WALL_VISUAL.EDGE_ALPHA);
+      // Subtle cold edge glint so walls read against the now-darker floor.
+      g.fillStyle(light, WALL_VISUAL.HIGHLIGHT_ALPHA);
+      g.fillRect(wall.x, wall.y, wall.w, 4);
+      g.fillStyle(dark, 0.34);
+      g.fillRect(wall.x, wall.y + wall.h - 6, wall.w, 6);
+      g.lineStyle(1, glow, 0.10);
+      g.strokeRect(wall.x + 2, wall.y + 2, Math.max(0, wall.w - 4), Math.max(0, wall.h - 4));
+
+      // Outer edges only. Adjacent wall tiles merge into rooms/corridors instead of checker blocks.
+      g.lineStyle(4, dark, WALL_VISUAL.EDGE_ALPHA);
       if (!this.hasWallNeighbor(wall, -1, 0)) {
         g.beginPath(); g.moveTo(wall.x, wall.y); g.lineTo(wall.x, wall.y + wall.h); g.strokePath();
       }
@@ -2362,6 +2460,8 @@
       this.fogRT.setPosition(fogX, fogY);
       this.fogRT.clear();
       this.fogRT.fill(0x000000, LIGHTING.MAP_DARKNESS);
+      this.flashlightGlowGraphics?.clear();
+      this.flashlightBloomImage?.setVisible(false);
 
       if (!me || !this.lightConeMask || !this.lightAuraMask) return;
 
@@ -2395,8 +2495,20 @@
         .setPosition(localX, localY)
         .setRotation(facing)
         .setScale(xScale, xScale * angleScale)
-        .setAlpha(clamp(0.94 + flicker * 0.06, 0.9, 1));
+        .setAlpha(clamp(0.98 + flicker * 0.06, 0.92, 1));
 
+      // Visible flashlight bloom. Use one pre-baked soft sprite instead of several hard-edged
+      // Graphics triangles. One additive sprite is cheaper and blends far better.
+      if (this.flashlightBloomImage) {
+        const bloomLength = length * 0.86 * flicker;
+        const bloomYScale = (Math.tan(angle / 2) / Math.tan(LIGHTING.CONE_BASE_HALF_ANGLE)) * 1.06;
+        this.flashlightBloomImage
+          .setVisible(true)
+          .setPosition(worldX, worldY)
+          .setRotation(facing)
+          .setScale(bloomLength / LIGHTING.CONE_TEXTURE_WIDTH, (bloomLength / LIGHTING.CONE_TEXTURE_WIDTH) * bloomYScale)
+          .setAlpha(role === "killer" ? 0.55 : 0.86);
+      }
       this.fogRT.erase(this.lightAuraMask);
       this.fogRT.erase(this.lightConeMask);
     }
@@ -2694,7 +2806,7 @@
     const game = new Phaser.Game({
       type: Phaser.AUTO,
       parent: "gameWrap",
-      backgroundColor: "#f6f9ff",
+      backgroundColor: "#03040a",
       scale: {
         mode: Phaser.Scale.RESIZE,
         autoCenter: Phaser.Scale.CENTER_BOTH,
