@@ -25,7 +25,7 @@
           <h1>survive.io</h1>
         </div>
       </div>
-      <p class="menu-subtitle">A clean arena version of generators, hooks, pallets, survivors, and one very rude circle with a weapon.</p>
+      <p class="menu-subtitle">A clean arena version of rifts, hooks, pallets, Survivors, and The Void stalking the grid.</p>
       <nav class="main-menu-actions" aria-label="Main menu">
         <button id="menuPlayBtn" class="menu-action primary" type="button">Play</button>
         <button id="menuSkinsBtn" class="menu-action" type="button">Change Skins</button>
@@ -33,7 +33,6 @@
         <button id="menuHowBtn" class="menu-action" type="button">How to Play</button>
         <a id="buyCoffeeBtn" class="menu-action coffee-link" href="https://www.buymeacoffee.com/replace-this" target="_blank" rel="noopener">Buy me a Coffee</a>
       </nav>
-      <button id="menuMusicToggleBtn" class="menu-music-toggle" type="button" aria-pressed="false">Menu music on</button>
       <p class="replace-note">Replace the background in <code>style.css</code>: <code>--menu-bg-image: url('/your-image.jpg')</code>. Put <code>menu.mp3</code> in <code>public/</code>.</p>
     </div>
   </div>
@@ -52,7 +51,7 @@
 
       <div class="role-row pill-row">
         <button class="role-btn selected" data-role="survivor" type="button">Survivor</button>
-        <button class="role-btn" data-role="killer" type="button">Killer</button>
+        <button class="role-btn" data-role="killer" type="button">The Void</button>
       </div>
 
       <div class="button-row play-actions">
@@ -72,7 +71,7 @@
         <div class="eyebrow">cosmetic chaos</div>
       </div>
       <h1>Skins</h1>
-      <p>Choose a survivor signal style. The killer remains a purple void because subtlety has limits.</p>
+      <p>Choose a Survivor signal style. The Void remains a purple-black anomaly because subtlety has limits.</p>
       <div class="skin-picker big-skin-picker" aria-label="Survivor skin selector">
         <button class="skin-btn selected" data-skin="blueSquare" type="button">
           <span class="skin-preview skin-square"></span>
@@ -85,6 +84,22 @@
         <button class="skin-btn" data-skin="purplePentagon" type="button">
           <span class="skin-preview skin-pentagon"></span>
           <span>Prism Ghost</span>
+        </button>
+        <button class="skin-btn" data-skin="nebulaBloom" type="button">
+          <span class="skin-preview skin-nebula"></span>
+          <span>Nebula Bloom</span>
+        </button>
+        <button class="skin-btn" data-skin="eclipseWisp" type="button">
+          <span class="skin-preview skin-eclipse"></span>
+          <span>Eclipse Wisp</span>
+        </button>
+        <button class="skin-btn" data-skin="riftMoth" type="button">
+          <span class="skin-preview skin-moth"></span>
+          <span>Rift Moth</span>
+        </button>
+        <button class="skin-btn" data-skin="signalDrone" type="button">
+          <span class="skin-preview skin-drone"></span>
+          <span>Signal Drone</span>
         </button>
       </div>
     </div>
@@ -100,8 +115,7 @@
       <div class="option-list">
         <div class="option-card">
           <strong>Audio</strong>
-          <span>Menu music on lobby and menu screens. In-match chase layers are separate.</span>
-          <button id="menuMusicToggleBtnOptions" class="menu-music-toggle" type="button" aria-pressed="false">Menu music on</button>
+          <span>Menu music: <code>/menu.mp3</code>. Match music still uses your layered chase audio.</span>
         </div>
         <div class="option-card">
           <strong>Visual Style</strong>
@@ -124,9 +138,9 @@
       <h1>How to Play</h1>
       <div class="how-grid">
         <div class="option-card"><strong>Survivors</strong><span>Collect orbs, stand near rifts to deposit them, heal teammates, drop pallets, vault windows, open the gate, and leave.</span></div>
-        <div class="option-card"><strong>Killer</strong><span>Track survivors, hold M1 for a lunge, kick generators, break pallets, hook or execute downed survivors.</span></div>
+        <div class="option-card"><strong>The Void</strong><span>Track Survivors, hold M1 for a lunge, kick generators, break pallets, hook or execute downed Survivors.</span></div>
         <div class="option-card"><strong>Controls</strong><span>WASD move, mouse aim, Space vault/drop/break, E heal/unhook/escape, stand near rifts to auto-deposit orbs, Shift sprint, R chat wheel.</span></div>
-        <div class="option-card"><strong>Win</strong><span>Survivors win by escaping. Killer wins by removing everyone from the board, because apparently circles can have consequences.</span></div>
+        <div class="option-card"><strong>Win</strong><span>Survivors win by escaping. The Void wins by removing everyone from the board, because apparently circles can have consequences.</span></div>
       </div>
     </div>
   </div>
@@ -142,7 +156,7 @@
       <div id="playersList" class="players-list"></div>
       <div class="role-row pill-row">
         <button id="beSurvivorBtn" type="button">Choose Survivor</button>
-        <button id="beKillerBtn" type="button">Choose Killer</button>
+        <button id="beKillerBtn" type="button">Choose The Void</button>
       </div>
       <div class="skin-picker compact" aria-label="Survivor skin selector">
         <div class="skin-title">Survivor skin</div>
@@ -158,14 +172,30 @@
           <span class="skin-preview skin-pentagon"></span>
           <span>Prism Ghost</span>
         </button>
+        <button class="skin-btn" data-skin="nebulaBloom" type="button">
+          <span class="skin-preview skin-nebula"></span>
+          <span>Nebula Bloom</span>
+        </button>
+        <button class="skin-btn" data-skin="eclipseWisp" type="button">
+          <span class="skin-preview skin-eclipse"></span>
+          <span>Eclipse Wisp</span>
+        </button>
+        <button class="skin-btn" data-skin="riftMoth" type="button">
+          <span class="skin-preview skin-moth"></span>
+          <span>Rift Moth</span>
+        </button>
+        <button class="skin-btn" data-skin="signalDrone" type="button">
+          <span class="skin-preview skin-drone"></span>
+          <span>Signal Drone</span>
+        </button>
       </div>
       <div class="button-row lobby-actions">
         <button id="readyBtn" type="button">Ready</button>
         <button id="addBotSurvivorBtn" type="button">Add Bot Survivor</button>
-        <button id="addBotKillerBtn" type="button">Add Bot Killer</button>
+        <button id="addBotKillerBtn" type="button">Add Bot Void</button>
         <button id="startBtn" class="primary" type="button">Start Match</button>
       </div>
-      <p class="hint">Start requires exactly <b>1 killer</b> and at least <b>1 survivor</b>.</p>
+      <p class="hint">Start requires exactly <b>1 Void</b> and at least <b>1 Survivor</b>.</p>
     </div>
   </div>
 
@@ -234,6 +264,7 @@
   <script src="/socket.io/socket.io.js"></script>
   <script src="/vendor/phaser.min.js"></script>
   <script src="/maps.js"></script>
+  <script src="/audioConfig.js"></script>
   <script src="/client.js"></script>
 </body>
 </html>

@@ -1779,3 +1779,33 @@ html, body, #gameWrap { background: var(--io-bg) !important; color: var(--io-tex
 .objective-card span:first-child {
   letter-spacing: 0.14em;
 }
+
+/* v92 extra survivor signal skins */
+.skin-nebula {
+  background:
+    radial-gradient(circle at 42% 38%, #fff1f8 0 14%, #ec4899 15% 44%, #38bdf8 45% 68%, #4c1d95 69% 100%);
+}
+.skin-eclipse {
+  background:
+    radial-gradient(circle at 32% 36%, #ccfbf1 0 13%, #14b8a6 14% 48%, #020617 49% 66%, #4c1d95 67% 100%);
+}
+.skin-moth {
+  background:
+    radial-gradient(circle at 28% 36%, #eff6ff 0 13%, #60a5fa 14% 45%, #c084fc 46% 72%, #111827 73% 100%);
+}
+.skin-drone {
+  background:
+    radial-gradient(circle at 42% 32%, #ecfdf5 0 13%, #34d399 14% 48%, #fbbf24 49% 68%, #064e3b 69% 100%);
+}
+
+.big-skin-picker {
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+}
+
+.skin-nebula,
+.skin-eclipse,
+.skin-moth,
+.skin-drone {
+  clip-path: none !important;
+  border: 3px solid rgba(255, 255, 255, 0.82) !important;
+}

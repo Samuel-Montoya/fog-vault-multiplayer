@@ -43,9 +43,10 @@ const TICK_RATE = PERF.tickRate;
 const SNAPSHOT_RATE = PERF.snapshotRate;
 const BOT_THINK_RATE = PERF.botThinkRate;
 const PATHFIND_LOOP_LIMIT = PERF.pathfindLoopLimit;
+const MATCH_START_FREEZE_SECONDS = 1.5;
 const SCRATCH_MARK_MAX = 45;
 const MAX_SURVIVORS = 4;
-const SURVIVOR_SKINS = new Set(["blueSquare", "yellowStar", "purplePentagon"]);
+const SURVIVOR_SKINS = new Set(["blueSquare", "yellowStar", "purplePentagon", "nebulaBloom", "eclipseWisp", "riftMoth", "signalDrone"]);
 function sanitizeSkin(value) {
   return SURVIVOR_SKINS.has(value) ? value : "blueSquare";
 }
@@ -593,11 +594,11 @@ function joinLobby(socket, lobby, requestedRole, name, skin) {
   const survivorCount = players.filter((p) => p.role === "survivor").length;
 
   if (role === "killer" && hasKiller) {
-    socket.emit("toast", { type: "error", message: "This lobby already has a killer. Tragic scarcity." });
+    socket.emit("toast", { type: "error", message: "The Void is already claimed. Tragic scarcity." });
     return false;
   }
   if (role === "survivor" && survivorCount >= MAX_SURVIVORS) {
-    socket.emit("toast", { type: "error", message: "This lobby already has four survivors." });
+    socket.emit("toast", { type: "error", message: "This lobby already has four Survivors." });
     return false;
   }
   if (lobby.phase !== "lobby") {
@@ -633,7 +634,7 @@ function leaveCurrentLobby(socket) {
       const actor = lobby.game.actors.get(socket.id);
       if (actor) {
         if (actor.role === "killer") {
-          endGame(lobby, "survivors", "The killer disconnected. Survivors win by administrative collapse.");
+          endGame(lobby, "survivors", "The Void disconnected. Survivors win by administrative collapse.");
         } else {
           actor.dead = true;
           checkWinConditions(lobby);
@@ -660,15 +661,15 @@ function addBotToLobby(lobby, role) {
   const roleValue = role === "killer" ? "killer" : "survivor";
   const players = [...lobby.players.values()];
   if (roleValue === "killer" && players.some((p) => p.role === "killer")) {
-    return { ok: false, message: "Killer is already taken." };
+    return { ok: false, message: "The Void is already claimed." };
   }
   if (roleValue === "survivor" && players.filter((p) => p.role === "survivor").length >= MAX_SURVIVORS) {
     return { ok: false, message: "Survivor slots are full." };
   }
   const id = uid("bot");
   const count = players.filter((p) => p.isBot && p.role === roleValue).length + 1;
-  const name = roleValue === "killer" ? "Bot Killer" : `Bot Survivor ${count}`;
-  const bot = makePlayer({ id }, roleValue, name, { isBot: true, skin: ["blueSquare", "yellowStar", "purplePentagon"][count % 3] });
+  const name = roleValue === "killer" ? "Bot Void" : `Bot Survivor ${count}`;
+  const bot = makePlayer({ id }, roleValue, name, { isBot: true, skin: ["blueSquare", "yellowStar", "purplePentagon", "nebulaBloom", "eclipseWisp", "riftMoth", "signalDrone"][count % 7] });
   bot.ready = true;
   lobby.players.set(id, bot);
   return { ok: true };
@@ -688,7 +689,7 @@ function startGame(lobby) {
   const survivors = players.filter((p) => p.role === "survivor");
   if (lobby.phase !== "lobby") return false;
   if (killers.length !== 1 || survivors.length < 1) {
-    io.to(lobby.id).emit("toast", { type: "error", message: "Need exactly 1 killer and at least 1 survivor." });
+    io.to(lobby.id).emit("toast", { type: "error", message: "Need exactly 1 Void and at least 1 Survivor." });
     return false;
   }
 
@@ -711,6 +712,7 @@ function startGame(lobby) {
     escapeOpen: false,
     time: 0,
     botThinkAccumulator: 0,
+    matchStartFreezeSeconds: MATCH_START_FREEZE_SECONDS,
     collectibleDots: [],
     dotRespawnQueue: 0,
     dotRespawnTimer: DOT_RESPAWN_SECONDS
@@ -747,6 +749,7 @@ function startGame(lobby) {
 function serializeMapForClient(map) {
   return {
     name: map.name,
+    startFreezeSeconds: MATCH_START_FREEZE_SECONDS,
     tile: map.tile,
     width: map.width,
     height: map.height,
@@ -2036,12 +2039,12 @@ function checkWinConditions(lobby) {
   const doneGens = game.map.generators.reduce((count, g) => count + (g.done ? 1 : 0), 0);
 
   if (survivors.length && survivors.every((p) => p.escaped)) {
-    endGame(lobby, "survivors", "All survivors escaped.");
+    endGame(lobby, "survivors", "All Survivors escaped.");
     return;
   }
 
   if (survivors.length && survivors.every((p) => p.dead || p.hooked || p.escaped) && survivors.some((p) => p.dead || p.hooked)) {
-    endGame(lobby, "killer", "All remaining survivors are hooked or dead.");
+    endGame(lobby, "killer", "All remaining Survivors are hooked or dead.");
     return;
   }
 
@@ -2708,6 +2711,23 @@ function updateGame(lobby, dt) {
   if (!game || game.phase !== "game") return;
 
   game.time = (game.time || 0) + dt;
+
+  // Hard match-start lock. The client also shows a zoomed spawn intro, but this is
+  // the real gate: no human or bot movement/actions until the intro window ends.
+  if (game.time < (game.matchStartFreezeSeconds || MATCH_START_FREEZE_SECONDS)) {
+    game.botThinkAccumulator = 0;
+    for (const actor of game.actors.values()) {
+      resetInput(actor.input);
+      actor.vault = null;
+      actor.breakTarget = null;
+      actor.attackState = null;
+      actor.attackType = null;
+      actor.attackTimer = 0;
+      actor.attackCharge = 0;
+    }
+    return;
+  }
+
   game.botThinkAccumulator = (game.botThinkAccumulator || 0) + dt;
   if (game.botThinkAccumulator >= 1 / BOT_THINK_RATE) {
     const botDt = game.botThinkAccumulator;
@@ -2966,6 +2986,7 @@ function buildSnapshotFor(lobby, socketId) {
   return {
     lobbyId: lobby.id,
     seq: game.snapshotSeq || 0,
+    matchStartFreezeRemaining: Math.max(0, (game.matchStartFreezeSeconds || MATCH_START_FREEZE_SECONDS) - (game.time || 0)),
     map: {
       width: map.width,
       height: map.height,
@@ -3061,7 +3082,7 @@ io.on("connection", (socket) => {
     if (!player) return;
     const nextRole = role === "killer" ? "killer" : "survivor";
     if (!canChangeRole(lobby, player, nextRole)) {
-      socket.emit("toast", { type: "error", message: nextRole === "killer" ? "Killer is already taken." : "Survivor slots are full." });
+      socket.emit("toast", { type: "error", message: nextRole === "killer" ? "The Void is already claimed." : "Survivor slots are full." });
       return;
     }
     player.role = nextRole;
@@ -3127,6 +3148,13 @@ io.on("connection", (socket) => {
     const actor = lobby.game.actors.get(socket.id);
     if (!actor) return;
     if (actor.role === "survivor" && actor.dead) return;
+    if ((lobby.game.time || 0) < (lobby.game.matchStartFreezeSeconds || MATCH_START_FREEZE_SECONDS)) {
+      resetInput(actor.input);
+      // Let aim update during the intro so the camera/flashlight can settle naturally,
+      // but do not allow movement, attacks, vaults, healing, or deposits yet.
+      if (Number.isFinite(input.angle)) actor.input.angle = input.angle;
+      return;
+    }
     actor.input.up = !!input.up;
     actor.input.down = !!input.down;
     actor.input.left = !!input.left;

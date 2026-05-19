@@ -45,43 +45,108 @@
     FOG_VIEW_PADDING: 240
   };
 
+  const DEFAULT_AUDIO_CONFIG = {
+    music: {
+      master: 0.55,
+      // Per-layer match music volume multipliers.
+      // layer3 is the main chase layer.
+      layerVolumes: { layer1: 1.0, layer2: 1.0, layer3: 1.0 },
+      menuMaster: 0.14,
+      fade: 0.065,
+      menu: "/menu.mp3",
+      layers: ["/layer_1.mp3", "/layer_2.mp3", "/layer_3.mp3"],
+      // Layer 3 stays normal unless the local survivor is injured.
+      // Deposit pitch is separate and always ramps upward.
+      layer3NormalPlaybackRate: 1.0,
+      layer3InjuredPlaybackRate: 1.12
+    },
+    sfx: {
+      master: 0.72,
+      // Controls randomized pitch variation for SFX listed in pitchSteps.
+      // Add any SFX key to pitchSteps and playSfx(name) will automatically use it.
+      // Deposit pitch is intentionally separate and always ramps upward.
+      enablePitchVariation: true,
+      files: {
+        hooked: "/hooked.mp3",
+        dead: "/dead.mp3",
+        gen: "/gen.mp3",
+        swing: "/swing.ogg",
+        windowVault: "/window_vault.ogg",
+        palletVault: "/pallet_vault.ogg",
+        injured: "/injured.ogg",
+        orbPickup: "/orb_pickup.mp3",
+        orbDeposit: "/orb_deposit.mp3",
+        buttonClick: "/button_click.mp3"
+      },
+      volumes: {
+        hooked: 0.82,
+        dead: 0.9,
+        gen: 0.76,
+        swing: 0.42,
+        windowVault: 0.34,
+        palletVault: 0.76,
+        injured: 0.8,
+        orbPickup: 0.68,
+        orbDeposit: 0.72,
+        buttonClick: 0.55
+      },
+      pitchSteps: {
+        hooked: [0.84, 0.92, 1.0, 1.09, 1.18, 1.28],
+        swing: [0.9, 0.96, 1.0, 1.08, 1.16, 1.25, 1.34],
+        windowVault: [0.88, 0.94, 1.0, 1.07, 1.15, 1.24],
+        orbPickup: [0.9, 0.96, 1.0, 1.08, 1.16, 1.25, 1.34],
+        buttonClick: [0.92, 0.97, 1.0, 1.05, 1.11, 1.18]
+      },
+      localRange: {
+        swing: 315,
+        hit: 440
+      }
+    }
+  };
+
+  function mergeAudioConfig(defaults, overrides) {
+    const source = overrides && typeof overrides === "object" ? overrides : {};
+    return {
+      music: {
+        ...defaults.music,
+        ...(source.music || {}),
+        layerVolumes: {
+          ...(defaults.music.layerVolumes || {}),
+          ...((source.music || {}).layerVolumes || {})
+        }
+      },
+      sfx: {
+        ...defaults.sfx,
+        ...(source.sfx || {}),
+        files: { ...defaults.sfx.files, ...((source.sfx || {}).files || {}) },
+        volumes: { ...defaults.sfx.volumes, ...((source.sfx || {}).volumes || {}) },
+        pitchSteps: { ...defaults.sfx.pitchSteps, ...((source.sfx || {}).pitchSteps || {}) },
+        localRange: { ...defaults.sfx.localRange, ...((source.sfx || {}).localRange || {}) }
+      }
+    };
+  }
+
+  const AUDIO_CONFIG = mergeAudioConfig(DEFAULT_AUDIO_CONFIG, window.GAME_AUDIO_CONFIG);
+
   const MUSIC = {
-    MASTER: 0.55,
-    MENU_MASTER: 0.14,
-    FADE: 0.065,
-    MENU: "/menu.mp3",
-    LAYERS: ["/layer_1.mp3", "/layer_2.mp3", "/layer_3.mp3"]
+    MASTER: AUDIO_CONFIG.music.master,
+    MENU_MASTER: AUDIO_CONFIG.music.menuMaster,
+    FADE: AUDIO_CONFIG.music.fade,
+    MENU: AUDIO_CONFIG.music.menu,
+    LAYERS: AUDIO_CONFIG.music.layers,
+    LAYER_VOLUMES: AUDIO_CONFIG.music.layerVolumes || {},
+    LAYER_3_NORMAL_PLAYBACK_RATE: AUDIO_CONFIG.music.layer3NormalPlaybackRate ?? 1,
+    LAYER_3_INJURED_PLAYBACK_RATE: AUDIO_CONFIG.music.layer3InjuredPlaybackRate ?? 1.12
   };
 
   const SFX = {
-    MASTER: 0.72,
-    FILES: {
-      hooked: "/hooked.mp3",
-      dead: "/dead.mp3",
-      gen: "/gen.mp3",
-      swing: "/swing.ogg",
-      windowVault: "/window_vault.ogg",
-      palletVault: "/pallet_vault.ogg",
-      injured: "/injured.ogg",
-      orbPickup1: "/orb_pickup_1.mp3",
-      orbPickup2: "/orb_pickup_2.mp3",
-      orbPickup3: "/orb_pickup_3.mp3",
-      orbDeposit: "/orb_deposit.mp3"
-    },
-    VOLUMES: {
-      hooked: 0.82,
-      dead: 0.9,
-      gen: 0.76,
-      swing: 0.42,
-      windowVault: 0.34,
-      palletVault: 0.76,
-      injured: 0.8,
-      orbPickup1: 0.68,
-      orbPickup2: 0.68,
-      orbPickup3: 0.68,
-      orbDeposit: 0.72
-    }
+    MASTER: AUDIO_CONFIG.sfx.master,
+    FILES: AUDIO_CONFIG.sfx.files,
+    VOLUMES: AUDIO_CONFIG.sfx.volumes
   };
+
+  const SFX_PITCH_STEPS = AUDIO_CONFIG.sfx.pitchSteps || {};
+  const ENABLE_SFX_PITCH_VARIATION = AUDIO_CONFIG.sfx.enablePitchVariation !== false;
 
   // Client-only fear tuning. This does not change hitboxes or movement on the server.
   // It just makes the camera and overlay behave like the chase is pulling you inward.
@@ -96,6 +161,12 @@
     KILLER_M1_HOLD_ZOOM: LOW_POWER_MODE ? 0.045 : 0.085,
     KILLER_M1_PULSE_ZOOM: LOW_POWER_MODE ? 0.035 : 0.065,
     DEPOSIT_ZOOM: LOW_POWER_MODE ? 0.055 : 0.12,
+    SPAWN_ZOOM: LOW_POWER_MODE ? 0.10 : 0.18,
+    SPAWN_ZOOM_DECAY: LOW_POWER_MODE ? 4.2 : 5.6,
+    // Server-authoritative start lock gets a held zoom so spawn-in feels intentional,
+    // not like everyone forgot which key moves their little doomed circle.
+    MATCH_START_LOCK_SECONDS: 1.5,
+    MATCH_START_LOCK_ZOOM: LOW_POWER_MODE ? 0.18 : 0.30,
     ZOOM_SMOOTHING: LOW_POWER_MODE ? 4.8 : 6.8,
     CHASE_IN_LERP: 0.055,
     CHASE_OUT_LERP: 0.04,
@@ -147,8 +218,24 @@
     // happen just because somebody is holding E. Humanity may survive this one.
     GENERATOR_FPS: LOW_POWER_MODE ? 4 : 6,
     SCRATCH_DRAW_FPS: LOW_POWER_MODE ? 6 : 8,
+    LIGHTING_FPS: LOW_POWER_MODE ? 20 : 30,
+    WALL_VISION_FPS: LOW_POWER_MODE ? 14 : 22,
     MAX_PARTICLES: LOW_POWER_MODE ? 28 : 58,
     MAX_SHOCKWAVES: LOW_POWER_MODE ? 3 : 6
+  };
+
+  const WALL_VISION = {
+    // Walls/windows are still real collision. This only controls what the client renders.
+    // Keep a small readable bubble around the player so close corners do not become unfair invisible bonks.
+    SURVIVOR_NEAR_RADIUS: LOW_POWER_MODE ? 142 : 170,
+    KILLER_NEAR_RADIUS: LOW_POWER_MODE ? 170 : 205,
+    CONE_EXTRA_LENGTH: LOW_POWER_MODE ? 34 : 72,
+    CONE_EXTRA_ANGLE: LOW_POWER_MODE ? 0.08 : 0.13,
+    EDGE_SOFTNESS: LOW_POWER_MODE ? 0.16 : 0.20,
+    DISTANCE_FEATHER: 0.16,
+    FADE_IN_PER_SECOND: LOW_POWER_MODE ? 8.5 : 12.5,
+    FADE_OUT_PER_SECOND: LOW_POWER_MODE ? 4.2 : 5.8,
+    MIN_VISIBLE_ALPHA: 0.018
   };
 
   // Visual generator tuning. Put your actual SVG at public/gen.svg.
@@ -228,12 +315,12 @@
     hook: 0x9ca3af,
     hookIron: 0x02030a,
     downed: 0xf87171,
-    wall: 0x171827,
-    wallDark: 0x070810,
-    wallLight: 0x2e3150,
-    window: 0x38bdf8,
-    pallet: 0x38bdf8,
-    palletDark: 0x6366f1,
+    wall: 0x0b1020,
+    wallDark: 0x030712,
+    wallLight: 0x27345f,
+    window: 0x38d5ff,
+    pallet: 0x8b5cf6,
+    palletDark: 0x111827,
     gen: 0x8b5cf6,
     gate: 0x34d399,
     survivor: 0x75d5ff,
@@ -297,6 +384,42 @@
       accent: 0x22d3ee,
       glow: 0xede9fe,
       outline: 0xf5f3ff
+    },
+    nebulaBloom: {
+      id: "nebulaBloom",
+      label: "Nebula Bloom",
+      shape: "bloom",
+      color: 0xec4899,
+      accent: 0x38bdf8,
+      glow: 0xfbcfe8,
+      outline: 0xfdf2f8
+    },
+    eclipseWisp: {
+      id: "eclipseWisp",
+      label: "Eclipse Wisp",
+      shape: "wisp",
+      color: 0x14b8a6,
+      accent: 0x4c1d95,
+      glow: 0x99f6e4,
+      outline: 0xccfbf1
+    },
+    riftMoth: {
+      id: "riftMoth",
+      label: "Rift Moth",
+      shape: "moth",
+      color: 0x60a5fa,
+      accent: 0xc084fc,
+      glow: 0xdbeafe,
+      outline: 0xeff6ff
+    },
+    signalDrone: {
+      id: "signalDrone",
+      label: "Signal Drone",
+      shape: "drone",
+      color: 0x34d399,
+      accent: 0xfbbf24,
+      glow: 0xd1fae5,
+      outline: 0xecfdf5
     }
   };
 
@@ -421,7 +544,12 @@
     menuActive: false,
     sfx: {},
     targets: [0, 0, 0],
-    volumes: [0, 0, 0]
+    volumes: [0, 0, 0],
+    layer3ChaseActive: false,
+    layer3InjuredPitchActive: false,
+    lastHookPitchIndex: -1,
+    lastWindowVaultPitchIndex: -1,
+    lastSfxPitchIndices: Object.create(null)
   };
 
   const MENU_MUSIC_MUTE_KEY = "surviveMenuMusicMuted";
@@ -495,6 +623,9 @@
     if (!audio.gameActive) {
       audio.targets = [0, 0, 0];
       audio.volumes = [0, 0, 0];
+      audio.layer3ChaseActive = false;
+      audio.layer3InjuredPitchActive = false;
+      applyMusicPlaybackRate(audio.layers?.[2], MUSIC.LAYER_3_NORMAL_PLAYBACK_RATE);
       for (const layer of audio.layers || []) {
         layer.volume = 0;
         if (!layer.paused) layer.pause();
@@ -565,6 +696,13 @@
 
   function dist(ax, ay, bx, by) {
     return Math.hypot(ax - bx, ay - by);
+  }
+
+  function angleDiff(a, b) {
+    let d = a - b;
+    while (d > Math.PI) d -= Math.PI * 2;
+    while (d < -Math.PI) d += Math.PI * 2;
+    return Math.abs(d);
   }
 
   function darken(hex, amount = LIGHTING.MAP_DARKNESS) {
@@ -713,11 +851,69 @@
     });
   }
 
+  function isLocalSurvivorInjuredForLayer3() {
+    const me = getLocalPlayerData();
+    return !!(
+      me
+      && me.id === myId
+      && me.role === "survivor"
+      && !me.dead
+      && !me.escaped
+      && !me.downed
+      && !me.hooked
+      && (me.injured || me.health <= 1)
+    );
+  }
+
+  function getLayer3PlaybackRateForLocalState() {
+    const rawRate = isLocalSurvivorInjuredForLayer3()
+      ? MUSIC.LAYER_3_INJURED_PLAYBACK_RATE
+      : MUSIC.LAYER_3_NORMAL_PLAYBACK_RATE;
+    const rate = Number(rawRate);
+    return Number.isFinite(rate) && rate > 0 ? clamp(rate, 0.75, 1.35) : 1;
+  }
+
+  function applyMusicPlaybackRate(layer, rate = 1) {
+    if (!layer) return;
+    layer.preservesPitch = false;
+    layer.mozPreservesPitch = false;
+    layer.webkitPreservesPitch = false;
+    layer.playbackRate = clamp(Number(rate) || 1, 0.75, 1.35);
+  }
+
   function setMusicTargets(music) {
     const m = music || { layer1: 0.06, layer2: 0, layer3: 0 };
-    audio.targets[0] = clamp((m.layer1 || 0) * MUSIC.MASTER, 0, 0.34);
-    audio.targets[1] = clamp((m.layer2 || 0) * MUSIC.MASTER, 0, 0.34);
-    audio.targets[2] = clamp((m.layer3 || 0) * MUSIC.MASTER, 0, 0.34);
+    const layerVolumes = MUSIC.LAYER_VOLUMES || {};
+    const nextTargets = [
+      clamp((m.layer1 || 0) * (layerVolumes.layer1 ?? 1) * MUSIC.MASTER, 0, 0.34),
+      clamp((m.layer2 || 0) * (layerVolumes.layer2 ?? 1) * MUSIC.MASTER, 0, 0.34),
+      clamp((m.layer3 || 0) * (layerVolumes.layer3 ?? 1) * MUSIC.MASTER, 0, 0.34)
+    ];
+
+    const nextLayer3Active = nextTargets[2] > 0.002;
+    const layer3 = audio.layers?.[2];
+    const layer3InjuredPitchActive = nextLayer3Active && isLocalSurvivorInjuredForLayer3();
+    if (nextLayer3Active && !audio.layer3ChaseActive) {
+      if (layer3) {
+        try { layer3.currentTime = 0; } catch (_) { /* Some browsers guard media seeking like it is state secrets. */ }
+        applyMusicPlaybackRate(layer3, getLayer3PlaybackRateForLocalState());
+        if (audio.ready && audio.gameActive && layer3.paused) layer3.play().catch(() => null);
+      }
+      // Fade the chase layer in from silence, but from the beginning of the actual track.
+      audio.volumes[2] = 0;
+    } else if (nextLayer3Active && audio.layer3InjuredPitchActive !== layer3InjuredPitchActive) {
+      // While layer_3 is already playing, shift pitch only when the local survivor becomes injured/healed.
+      // Do not restart here, because that would make mid-chase injury sound like the track tripped over itself.
+      applyMusicPlaybackRate(layer3, getLayer3PlaybackRateForLocalState());
+    } else if (!nextLayer3Active && audio.layer3ChaseActive) {
+      applyMusicPlaybackRate(layer3, MUSIC.LAYER_3_NORMAL_PLAYBACK_RATE);
+    }
+
+    audio.layer3ChaseActive = nextLayer3Active;
+    audio.layer3InjuredPitchActive = layer3InjuredPitchActive;
+    audio.targets[0] = nextTargets[0];
+    audio.targets[1] = nextTargets[1];
+    audio.targets[2] = nextTargets[2];
   }
 
   function updateMusic() {
@@ -744,13 +940,40 @@
     }
   }
 
+  function cleanPitchSteps(steps) {
+    if (!Array.isArray(steps)) return [];
+    return steps
+      .map((value) => Number(value))
+      .filter((value) => Number.isFinite(value) && value > 0);
+  }
+
+  function getNextSfxPitch(name) {
+    if (!ENABLE_SFX_PITCH_VARIATION) return null;
+    const steps = cleanPitchSteps(SFX_PITCH_STEPS?.[name]);
+    if (!steps.length) return null;
+
+    if (!audio.lastSfxPitchIndices) audio.lastSfxPitchIndices = Object.create(null);
+    let index = Math.floor(Math.random() * steps.length);
+    const lastIndex = audio.lastSfxPitchIndices[name];
+    if (steps.length > 1 && index === lastIndex) {
+      index = (index + 1 + Math.floor(Math.random() * (steps.length - 1))) % steps.length;
+    }
+    audio.lastSfxPitchIndices[name] = index;
+    return steps[index];
+  }
+
   function playSfx(name, options = {}) {
     const base = audio.sfx?.[name];
     if (!base) return;
     const clip = base.cloneNode(true);
     clip.loop = false;
 
-    const playbackRate = Number(options.playbackRate);
+    const explicitPlaybackRate = Number(options.playbackRate);
+    const configPlaybackRate = options.disablePitchVariation ? null : getNextSfxPitch(name);
+    const playbackRate = Number.isFinite(explicitPlaybackRate) && explicitPlaybackRate > 0
+      ? explicitPlaybackRate
+      : configPlaybackRate;
+
     if (Number.isFinite(playbackRate) && playbackRate > 0) {
       // Set these before playbackRate so browsers actually pitch-shift instead of preserving pitch like helpful little pests.
       clip.preservesPitch = false;
@@ -766,10 +989,7 @@
     });
   }
 
-  const LOCAL_SFX_RANGE = {
-    swing: 315,
-    hit: 440
-  };
+  const LOCAL_SFX_RANGE = AUDIO_CONFIG.sfx.localRange;
 
   function getLocalVisualActor() {
     const scene = phaserScene;
@@ -804,8 +1024,7 @@
 
   function playOrbPickupSfx(event) {
     if (!event || event.actorId !== myId) return;
-    const choice = 1 + Math.floor(Math.random() * 3);
-    playSfx(`orbPickup${choice}`);
+    playSfx("orbPickup");
   }
 
   function playOrbDepositSfx(event) {
@@ -866,12 +1085,12 @@
 
   function renderKillerChatHudCard(killer) {
     if (!killer?.chatText) return "";
-    const name = escapeHtml(killer.name || "Killer");
+    const name = escapeHtml(killer.name || "The Void");
     return `
       <div class="survivor-status-card killer-chat-card has-chat">
         <div class="survivor-portrait killer-portrait" aria-hidden="true"></div>
         <div class="survivor-meta">
-          <div class="survivor-name-row"><span class="survivor-name">${name}</span><span class="survivor-you">Killer</span></div>
+          <div class="survivor-name-row"><span class="survivor-name">${name}</span><span class="survivor-you">VOID</span></div>
           ${survivorHudChatLine(killer)}
         </div>
         <div class="survivor-action">chat</div>
@@ -913,7 +1132,7 @@
     ui.survivorStatusHud.innerHTML = [
       renderKillerChatHudCard(killer),
       survivorCards
-    ].filter(Boolean).join("") || '<div class="survivor-status-card dead"><div class="survivor-portrait"></div><div class="survivor-meta"><div class="survivor-name">No survivors</div><div class="survivor-state">Empty trial</div></div><div class="survivor-action">void</div></div>';
+    ].filter(Boolean).join("") || '<div class="survivor-status-card dead"><div class="survivor-portrait"></div><div class="survivor-meta"><div class="survivor-name">No survivors</div><div class="survivor-state">Quiet void</div></div><div class="survivor-action">void</div></div>';
   }
 
   function getThreatLevels(snapshot, me) {
@@ -995,6 +1214,8 @@
       this.map = null;
       this.outOfBoundsGraphics = null;
       this.worldGraphics = null;
+      this.wallVisuals = [];
+      this.wallVisionTimer = 0;
       this.dynamicGraphics = null;
       this.generatorGraphics = null;
       this.scratchGraphics = null;
@@ -1028,6 +1249,7 @@
       this.lastFogHeight = 0;
       this.lastSnapshotAt = 0;
       this.renderedMapKey = "";
+      this.wallVisionTimer = 0;
       this.chaseBlend = 0;
       this.terrorBlend = 0;
       this.heartbeatTimer = 0;
@@ -1040,6 +1262,11 @@
       this.cameraSwayTargetX = 0;
       this.cameraSwayTargetY = 0;
       this.killerM1Pulse = 0;
+      this.spawnInPulse = 0;
+      this.spawnInPlayed = false;
+      this.spawnInAt = 0;
+      this.matchStartFreezeRemaining = 0;
+      this.matchStartZoomUntil = 0;
       this.lastMoveDirX = 0;
       this.lastMoveDirY = 0;
       this.spectateTargetId = null;
@@ -1472,13 +1699,58 @@
 
     drawStaticWorld() {
       if (!this.map) return;
-      const g = this.worldGraphics;
-      g.clear();
+      this.worldGraphics?.clear();
+      this.rebuildWallVisionVisuals();
+    }
 
-      // Background is intentionally blank and dark now. Do not draw tile noise,
-      // dots, stains, patches, or decorative floor cells here. Walls/windows only.
-      for (const wall of this.map.walls || []) this.drawWall(g, wall);
-      for (const win of this.map.windows || []) this.drawWindow(g, win);
+    clearWallVisionVisuals() {
+      for (const item of this.wallVisuals || []) item.graphics?.destroy();
+      this.wallVisuals = [];
+      this.wallVisionTimer = 0;
+      this.lastPalletVisionKey = "";
+    }
+
+    rebuildWallVisionVisuals() {
+      this.clearWallVisionVisuals();
+      if (!this.map) return;
+
+      // Draw each wall/window/pallet once, then only fade its Graphics object in/out at runtime.
+      // Collision is unchanged. This is strictly a survivor POV readability/horror layer.
+      const makeItem = (rect, type) => {
+        const depth = type === "pallet" ? 3.05 : type === "window" ? 1.16 : 1.08;
+        const graphics = this.add.graphics()
+          .setDepth(depth)
+          .setScrollFactor(1, 1)
+          .setAlpha(0)
+          .setVisible(false);
+        if (type === "window") this.drawWindow(graphics, rect);
+        else if (type === "pallet") this.drawPallet(graphics, rect);
+        else this.drawWall(graphics, rect);
+        const centerX = rect.x + rect.w / 2;
+        const centerY = rect.y + rect.h / 2;
+        const radius = Math.hypot(rect.w, rect.h) / 2;
+        const outerWall = type === "wall" && this.isOuterMapWall(rect);
+        this.wallVisuals.push({
+          graphics,
+          rect,
+          id: rect.id,
+          type,
+          outerWall,
+          stateKey: type === "pallet" ? this.palletVisionStateKey(rect) : "",
+          centerX,
+          centerY,
+          radius,
+          samples: this.wallVisionSamplePoints(rect),
+          alpha: outerWall ? 1 : 0,
+          targetAlpha: outerWall ? 1 : 0
+        });
+        if (outerWall) graphics.setVisible(true).setAlpha(1);
+      };
+
+      for (const wall of this.map.walls || []) makeItem(wall, "wall");
+      for (const win of this.map.windows || []) makeItem(win, "window");
+      for (const pallet of currentSnapshot?.map?.pallets || this.map.pallets || []) makeItem(pallet, "pallet");
+      this.lastPalletVisionKey = this.getPalletVisionKey();
     }
 
     drawWall(g, wall) {
@@ -1659,12 +1931,12 @@
       const g = this.dynamicGraphics;
       g.clear();
 
-      for (const pallet of currentSnapshot.map?.pallets || this.map.pallets || []) {
-        this.drawPallet(g, pallet);
-      }
+      // Pallets are now individual vision-faded graphics, like walls/windows.
+      // Do not draw them into the shared dynamic layer or they will ignore survivor cone visibility.
+      this.syncPalletVisionVisuals();
 
-      // Generator sprites/bars live on their own layer now. Redrawing every pallet,
-      // gate, and hook because a progress bar moved was the lag monster wearing a nametag.
+      // Generator sprites/bars live on their own layer now. Redrawing every gate,
+      // hook, and dot because a progress bar moved was the lag monster wearing a nametag.
       this.syncGeneratorSprites(currentSnapshot.map?.generators || this.map.generators || []);
       for (const gate of currentSnapshot.map?.gates || this.map.gates || []) this.drawGate(g, gate);
       for (const hook of currentSnapshot.map?.hooks || this.map.hooks || []) this.drawHook(g, hook);
@@ -1734,13 +2006,93 @@
       g.strokeCircle(dot.x, dot.y, (7 + pulse * 1.5) * scale);
     }
 
+    generatorVisionSamplePoints(gen) {
+      const r = 48;
+      return [
+        { x: gen.x, y: gen.y },
+        { x: gen.x - r, y: gen.y },
+        { x: gen.x + r, y: gen.y },
+        { x: gen.x, y: gen.y - r },
+        { x: gen.x, y: gen.y + r },
+        { x: gen.x - r * 0.7, y: gen.y - r * 0.7 },
+        { x: gen.x + r * 0.7, y: gen.y - r * 0.7 },
+        { x: gen.x - r * 0.7, y: gen.y + r * 0.7 },
+        { x: gen.x + r * 0.7, y: gen.y + r * 0.7 }
+      ];
+    }
+
+    computeGeneratorVisionAlpha(gen, sourceX, sourceY, facing, length, coneAngle, nearRadius) {
+      if (!gen || !Number.isFinite(gen.x) || !Number.isFinite(gen.y)) return 0;
+      const fakeRect = { x: gen.x - 44, y: gen.y - 44, w: 88, h: 88 };
+      const item = {
+        rect: fakeRect,
+        type: "generator",
+        radius: 44,
+        samples: this.generatorVisionSamplePoints(gen)
+      };
+      return this.computeWallVisionAlpha(item, sourceX, sourceY, facing, length, coneAngle, nearRadius);
+    }
+
+    updateGeneratorVisionVisuals(dt) {
+      if (!this.generatorVisionVisual) this.generatorVisionVisual = new Map();
+      const generators = currentSnapshot?.map?.generators || this.map?.generators || [];
+      const seen = new Set();
+      const subject = this.getCameraSubjectItem();
+      const hasSubject = !!subject?.container;
+      const role = subject?.data?.role || "survivor";
+      const worldX = subject?.container?.x ?? 0;
+      const worldY = subject?.container?.y ?? 0;
+      const facing = subject?.container?.rotation || 0;
+      const baseLength = role === "killer" ? LIGHTING.KILLER_LENGTH : LIGHTING.SURVIVOR_LENGTH;
+      const baseAngle = role === "killer" ? LIGHTING.KILLER_ANGLE : LIGHTING.SURVIVOR_ANGLE;
+      const length = baseLength + WALL_VISION.CONE_EXTRA_LENGTH;
+      const coneAngle = baseAngle + WALL_VISION.CONE_EXTRA_ANGLE;
+      const nearRadius = role === "killer" ? WALL_VISION.KILLER_NEAR_RADIUS : WALL_VISION.SURVIVOR_NEAR_RADIUS;
+      let animating = false;
+
+      this.generatorVisionTimer = (this.generatorVisionTimer || 0) + dt;
+      const shouldRecompute = this.generatorVisionTimer >= 1 / PERFORMANCE.WALL_VISION_FPS;
+      if (shouldRecompute) this.generatorVisionTimer = 0;
+
+      for (const gen of generators) {
+        if (!gen?.id) continue;
+        seen.add(gen.id);
+        let state = this.generatorVisionVisual.get(gen.id);
+        if (!state) {
+          state = { alpha: role === "killer" ? 1 : 0, targetAlpha: role === "killer" ? 1 : 0 };
+          this.generatorVisionVisual.set(gen.id, state);
+          animating = true;
+        }
+        if (shouldRecompute) {
+          state.targetAlpha = role === "killer" || !hasSubject
+            ? (role === "killer" ? 1 : 0)
+            : this.computeGeneratorVisionAlpha(gen, worldX, worldY, facing, length, coneAngle, nearRadius);
+        }
+        const rate = state.targetAlpha > state.alpha ? WALL_VISION.FADE_IN_PER_SECOND : WALL_VISION.FADE_OUT_PER_SECOND;
+        const next = lerp(state.alpha, state.targetAlpha, dampAlpha(rate, dt));
+        if (Math.abs(next - state.alpha) > 0.003) animating = true;
+        state.alpha = next;
+      }
+
+      for (const id of [...this.generatorVisionVisual.keys()]) {
+        if (!seen.has(id)) {
+          this.generatorVisionVisual.delete(id);
+          animating = true;
+        }
+      }
+      return animating;
+    }
+
     drawGeneratorLayer() {
       if (!this.map || !currentSnapshot || !this.generatorGraphics) return;
       const generators = currentSnapshot.map?.generators || this.map.generators || [];
       this.syncGeneratorSprites(generators);
       const g = this.generatorGraphics;
       g.clear();
-      for (const gen of generators) this.drawGenerator(g, gen);
+      for (const gen of generators) {
+        const alpha = this.generatorVisionVisual?.get(gen.id)?.alpha ?? 1;
+        this.drawGenerator(g, gen, alpha);
+      }
     }
 
     drawPallet(g, pallet) {
@@ -1888,7 +2240,9 @@
       this.generatorSprites.clear();
     }
 
-    drawGenerator(g, gen) {
+    drawGenerator(g, gen, visibilityAlpha = 1) {
+      visibilityAlpha = clamp(visibilityAlpha, 0, 1);
+      if (visibilityAlpha <= 0.012) return;
       const showProgress = gen.showProgress !== false;
       const showRepairFx = gen.showRepairFx !== false;
       const progress = clamp(gen.progress || 0, 0, 1);
@@ -1903,29 +2257,29 @@
       const shadowAlpha = gen.done ? 0.16 : 0.22;
 
       // Soft contact shadow, like an agar cell hovering just above the field.
-      g.fillStyle(0x41536e, shadowAlpha);
+      g.fillStyle(0x41536e, shadowAlpha * visibilityAlpha);
       g.fillEllipse(gen.x, gen.y + 32, 78, 18);
 
       if (repairing || depositing || kicking) {
         const auraSize = 39 + pulse * 7;
         const auraColor = kicking ? GENERATOR_VISUAL.KICK_GLOW_COLOR : depositing ? COLORS.collectibleDot : 0x31a9ff;
-        g.fillStyle(auraColor, kicking ? 0.055 : depositing ? 0.065 : 0.045);
+        g.fillStyle(auraColor, (kicking ? 0.055 : depositing ? 0.065 : 0.045) * visibilityAlpha);
         g.fillCircle(gen.x, gen.y, auraSize + 15);
-        g.lineStyle(3, auraColor, kicking ? 0.46 : depositing ? 0.44 : 0.32);
+        g.lineStyle(3, auraColor, (kicking ? 0.46 : depositing ? 0.44 : 0.32) * visibilityAlpha);
         g.strokeCircle(gen.x, gen.y, auraSize);
       }
 
       // Main .io-style objective cell. The little bubbles sell “machine/objective”
       // without bringing back the old industrial generator sprite.
-      g.fillStyle(0xffffff, 0.94);
+      g.fillStyle(0xffffff, 0.94 * visibilityAlpha);
       g.fillCircle(gen.x, gen.y, 34);
-      g.lineStyle(4, rimColor, 0.95);
+      g.lineStyle(4, rimColor, 0.95 * visibilityAlpha);
       g.strokeCircle(gen.x, gen.y, 34);
-      g.fillStyle(coreColor, gen.done ? 0.92 : depositing ? 0.88 : 0.80);
+      g.fillStyle(coreColor, (gen.done ? 0.92 : depositing ? 0.88 : 0.80) * visibilityAlpha);
       g.fillCircle(gen.x, gen.y, 22 + pulse * (repairing || depositing ? 2.2 : 0.8));
-      g.fillStyle(0xffffff, 0.26);
+      g.fillStyle(0xffffff, 0.26 * visibilityAlpha);
       g.fillCircle(gen.x - 9, gen.y - 10, 8);
-      g.fillStyle(0x111827, 0.10);
+      g.fillStyle(0x111827, 0.10 * visibilityAlpha);
       g.fillCircle(gen.x + 8, gen.y + 9, 5);
 
       const orbitR = 39;
@@ -1933,17 +2287,17 @@
         const seed = hash2(Math.floor(gen.x / 7) + i * 13, Math.floor(gen.y / 7) + i * 17);
         const angle = seed * Math.PI * 2 + (repairing || depositing ? now / 1250 : 0) + i * 1.18;
         const dotSize = 3.2 + (i % 2) * 1.5;
-        g.fillStyle(depositing ? COLORS.collectibleDot : i % 2 ? 0x31a9ff : 0xa772ff, gen.done ? 0.26 : depositing ? 0.66 : 0.52);
+        g.fillStyle(depositing ? COLORS.collectibleDot : i % 2 ? 0x31a9ff : 0xa772ff, (gen.done ? 0.26 : depositing ? 0.66 : 0.52) * visibilityAlpha);
         g.fillCircle(gen.x + Math.cos(angle) * orbitR, gen.y + Math.sin(angle) * orbitR, dotSize);
       }
 
       if (showProgress) {
         const ringR = 44;
-        g.lineStyle(5, 0xdce7f5, 0.82);
+        g.lineStyle(5, 0xdce7f5, 0.82 * visibilityAlpha);
         g.strokeCircle(gen.x, gen.y, ringR);
         const progressColor = gen.done ? 0x4de283 : kicking ? GENERATOR_VISUAL.KICK_GLOW_COLOR : depositing ? COLORS.collectibleDot : repairing ? 0x31a9ff : 0xa772ff;
         if (progress > 0.002) {
-          g.lineStyle(6, progressColor, 0.98);
+          g.lineStyle(6, progressColor, 0.98 * visibilityAlpha);
           g.beginPath();
           g.arc(gen.x, gen.y, ringR, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress, false);
           g.strokePath();
@@ -1952,7 +2306,7 @@
 
       if (kicking) {
         const kickProgress = clamp(gen.kickProgress || 0, 0, 1);
-        g.lineStyle(3, GENERATOR_VISUAL.KICK_GLOW_COLOR, 0.95);
+        g.lineStyle(3, GENERATOR_VISUAL.KICK_GLOW_COLOR, 0.95 * visibilityAlpha);
         g.beginPath();
         g.arc(gen.x, gen.y, 52, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * kickProgress, false);
         g.strokePath();
@@ -1960,7 +2314,7 @@
 
       if (depositing && smoothedDeposit > 0.002) {
         const depositArc = smoothedDeposit >= GENERATOR_VISUAL.DEPOSIT_FULL_SNAP ? 1 : smoothedDeposit;
-        g.lineStyle(4, COLORS.collectibleDotGlow, 0.92);
+        g.lineStyle(4, COLORS.collectibleDotGlow, 0.92 * visibilityAlpha);
         if (depositArc >= 0.995) {
           // Phaser arc strokes can leave a tiny seam at 2π. A real circle closes cleanly.
           g.strokeCircle(gen.x, gen.y, 52);
@@ -1972,7 +2326,7 @@
       }
 
       if (gen.done && showProgress) {
-        g.lineStyle(3, 0x4de283, 0.55 + pulse * 0.20);
+        g.lineStyle(3, 0x4de283, (0.55 + pulse * 0.20) * visibilityAlpha);
         g.strokeCircle(gen.x, gen.y, 56 + pulse * 4);
       }
     }
@@ -1988,6 +2342,7 @@
 
     applySnapshot(snapshot) {
       currentSnapshot = snapshot;
+      this.matchStartFreezeRemaining = Math.max(0, Number(snapshot.matchStartFreezeRemaining || 0));
       setMusicTargets(snapshot.music);
       if (!this.map && snapshot.map) this.loadMap(snapshot.map);
       if (this.map && snapshot.map) this.map = { ...this.map, ...snapshot.map, walls: this.map.walls, windows: this.map.windows };
@@ -2000,6 +2355,7 @@
       this.pendingScratchMarks = snapshot.scratchMarks || [];
       this.needsScratchRedraw = true;
       this.updateActorTargets(snapshot.actors || []);
+      if (!this.spawnInPlayed && this.actors.has(myId)) this.playLocalSpawnIn();
       this.handleEvents(snapshot.events || []);
       this.updateHud(snapshot);
       this.lastSnapshotAt = performance.now();
@@ -2022,10 +2378,10 @@
       this.lastHudKey = hudKey;
       this.lastHudRenderAt = now;
       renderSurvivorStatusHud(snapshot);
-      ui.roleLabel.textContent = me.role === "killer" ? "Killer" : "Survivor";
+      ui.roleLabel.textContent = me.role === "killer" ? "The Void" : "Survivor";
       ui.controlsLabel.textContent = me.role === "killer"
         ? "WASD move • Mouse aim • M1 attack/lunge • Space vault/break • hold E hook/execute/kick rift • hold R chat"
-        : "WASD move • Shift sprint • Mouse flashlight • Space vault/drop • collect dots, stand near rifts to deposit • hold E heal/escape • hold R chat";
+        : "WASD move • Shift sprint • Mouse flashlight • Space vault/drop • collect orbs, stand near rifts to deposit • hold E heal/escape • hold R chat";
       const done = snapshot.objective?.doneGenerators ?? 0;
       const required = snapshot.objective?.requiredGenerators ?? snapshot.objective?.totalGenerators ?? 0;
       const total = snapshot.objective?.totalGenerators ?? required;
@@ -2043,12 +2399,12 @@
           ui.healthText.textContent = `${executing ? "Executing" : "Hooking"} ${hookingTarget.name || "survivor"} ${Math.round((hookingTarget.hookProgress || 0) * 100)}%`;
         } else if (readyTarget) {
           const executeReady = (readyTarget.hookCount || 0) >= 2;
-          ui.healthText.textContent = `Hold E: ${executeReady ? "Execute" : "hook"} ${readyTarget.name || "survivor"}`;
+          ui.healthText.textContent = `Hold E: ${executeReady ? "Execute" : "hook"} ${readyTarget.name || "Survivor"}`;
         } else if (me.generatorKickTargetId) {
           ui.healthText.textContent = `Kicking rift ${Math.round((me.generatorKickProgress || 0) * 100)}%`;
         } else {
           const kickable = (snapshot.map?.generators || []).some((gen) => !gen.done && !gen.kickLocked && (gen.progress || 0) > 0 && Math.hypot((me.x || 0) - gen.x, (me.y || 0) - gen.y) < 92);
-          ui.healthText.textContent = kickable ? "Hold E: Kick rift" : "Killer";
+          ui.healthText.textContent = kickable ? "Hold E: Kick rift" : "The Void";
         }
       } else if (me.dead) {
         const target = (snapshot.actors || []).find((a) => a.id === this.resolveSpectateTargetId());
@@ -2251,32 +2607,55 @@
         const attacking = data.attacking || data.attackState === "quick" || data.attackState === "lunge";
         const charging = data.attackState === "charging";
         const angry = attacking ? 1 : charging ? 0.65 : data.recovery > 0 ? 0.38 : 0.18;
-        const wobble = Math.sin(now / 145) * 1.2;
-        const coreR = 18.5 + wobble + angry * 2.8;
+        const wobble = Math.sin(now / 145) * 1.25;
+        const pulse = Math.sin(now / 210) * 0.5 + 0.5;
+        const coreR = 18.5 + wobble + angry * 3.0;
 
-        item.body.fillStyle(0x07020f, 0.96);
-        item.body.fillCircle(0, 0, coreR + 2);
+        // The Void: layered black/purple core with orbiting parasite-circles.
+        // Kept simple circles only, because scary should not require a GPU funeral.
+        item.body.fillStyle(0x020008, 0.98);
+        item.body.fillCircle(0, 0, coreR + 6 + pulse * 1.4);
+        item.body.fillStyle(0x120022, 0.94);
+        item.body.fillCircle(-2, 1, coreR + 2);
         item.body.fillStyle(0x32105f, 0.86);
-        item.body.fillCircle(-4, -2, coreR * 0.82);
-        item.body.fillStyle(0x7c3aed, 0.36 + angry * 0.22);
-        item.body.fillCircle(5, 3, coreR * 0.68);
-        item.body.fillStyle(0x000000, 0.54);
-        item.body.fillCircle(3, -5, coreR * 0.40);
+        item.body.fillCircle(-5, -3, coreR * 0.86);
+        item.body.fillStyle(0x7c3aed, 0.34 + angry * 0.24);
+        item.body.fillCircle(6, 4, coreR * 0.72);
+        item.body.fillStyle(0x000000, 0.70);
+        item.body.fillCircle(4, -5, coreR * 0.46);
+        item.body.fillStyle(0x090014, 0.78);
+        item.body.fillCircle(-7, 7, coreR * 0.34);
 
-        for (let i = 0; i < 7; i++) {
+        const orbCount = LOW_POWER_MODE ? 10 : 17;
+        for (let i = 0; i < orbCount; i++) {
           const seed = i * 1.731;
-          const a = now / (620 + i * 55) + seed;
-          const r = 11 + i * 2.15 + Math.sin(now / 220 + i) * 2.0;
-          const size = 4.4 + (i % 3) * 1.8 + angry * 1.4;
-          const color = i % 2 ? 0x8b5cf6 : 0x111827;
-          item.body.fillStyle(color, i % 2 ? 0.62 : 0.72);
-          item.body.fillCircle(Math.cos(a) * r, Math.sin(a * 1.13) * r, size);
+          const band = i % 3;
+          const a = now / (560 + i * 39) + seed + angry * 0.65;
+          const r = 12 + band * 7.8 + (i % 5) * 1.35 + Math.sin(now / (210 + i * 8) + i) * (1.8 + angry * 1.7);
+          const size = 2.9 + (i % 4) * 1.35 + angry * 1.2;
+          const color = i % 5 === 0 ? 0xd8b4fe : i % 2 ? 0x8b5cf6 : 0x05020a;
+          const alpha = i % 2 ? 0.58 + angry * 0.14 : 0.74;
+          item.body.fillStyle(color, alpha);
+          item.body.fillCircle(Math.cos(a) * r, Math.sin(a * (1.06 + band * 0.04)) * r, size);
         }
 
-        item.outline.lineStyle(2, 0xd8b4fe, 0.48 + angry * 0.34);
-        item.outline.strokeCircle(0, 0, 23 + angry * 2);
-        item.outline.lineStyle(1, 0x4c1d95, 0.70);
-        item.outline.strokeCircle(0, 0, 28 + Math.sin(now / 190) * 1.5 + angry * 3);
+        for (let i = 0; i < (LOW_POWER_MODE ? 3 : 5); i++) {
+          const a = -Math.PI * 0.85 + i * (Math.PI * 1.7 / 4) + Math.sin(now / 360 + i) * 0.08;
+          const inner = 18 + angry * 2;
+          const outer = 32 + i % 2 * 3 + angry * 4;
+          item.outline.lineStyle(1, i % 2 ? 0xa78bfa : 0x4c1d95, 0.22 + angry * 0.16);
+          item.outline.beginPath();
+          item.outline.moveTo(Math.cos(a) * inner, Math.sin(a) * inner);
+          item.outline.lineTo(Math.cos(a + 0.18) * outer, Math.sin(a + 0.18) * outer);
+          item.outline.strokePath();
+        }
+
+        item.outline.lineStyle(2, 0xd8b4fe, 0.44 + angry * 0.36);
+        item.outline.strokeCircle(0, 0, 24 + angry * 2.4);
+        item.outline.lineStyle(1, 0x7c3aed, 0.36 + pulse * 0.18);
+        item.outline.strokeCircle(0, 0, 31 + pulse * 2.5 + angry * 3.5);
+        item.outline.lineStyle(1, 0x1e063d, 0.62);
+        item.outline.strokeCircle(0, 0, 38 + Math.sin(now / 250) * 2 + angry * 4);
         return;
       }
 
@@ -2359,6 +2738,89 @@
         item.outline.strokePath();
         item.body.fillStyle(0xffffff, 0.38 * bodyAlpha);
         item.body.fillCircle(-4, -6, 5.5);
+      } else if (skin.shape === "bloom") {
+        // Nebula bloom: soft petals orbiting a bright core.
+        item.body.fillStyle(glow, 0.15 * bodyAlpha);
+        item.body.fillCircle(0, 0, 26 + Math.sin(phase) * 1.3);
+        for (let i = 0; i < 6; i++) {
+          const a = phase * 0.35 + i * Math.PI * 2 / 6;
+          const px = Math.cos(a) * 9;
+          const py = Math.sin(a) * 9;
+          item.body.fillStyle(i % 2 ? accent : fillColor, 0.52 * bodyAlpha);
+          item.body.fillCircle(px, py, 8.3);
+        }
+        item.body.fillStyle(fillColor, 0.96 * bodyAlpha);
+        item.body.fillCircle(0, 0, r * 0.78);
+        item.body.fillStyle(0xffffff, 0.46 * bodyAlpha);
+        item.body.fillCircle(-3.5, -5, 4.8);
+        item.outline.lineStyle(2, outlineColor, outlineAlpha);
+        item.outline.strokeCircle(0, 0, r + 5);
+        item.outline.lineStyle(1, accent, 0.58 * outlineAlpha);
+        item.outline.strokeCircle(0, 0, 25);
+      } else if (skin.shape === "wisp") {
+        // Eclipse wisp: crescent body with little trailing sparks.
+        item.body.fillStyle(glow, 0.13 * bodyAlpha);
+        item.body.fillCircle(0, 0, 25 + Math.sin(phase) * 1.1);
+        item.body.fillStyle(fillColor, 0.96 * bodyAlpha);
+        item.body.fillCircle(0, 0, r + 2);
+        item.body.fillStyle(0x02040a, 0.58 * bodyAlpha);
+        item.body.fillCircle(6, -2, r * 0.82);
+        for (let i = 0; i < 3; i++) {
+          const a = phase * 0.7 + i * 0.8;
+          item.body.fillStyle(i % 2 ? accent : glow, 0.58 * bodyAlpha);
+          item.body.fillCircle(-15 - i * 6 + Math.sin(a) * 1.2, 7 - i * 4 + Math.cos(a) * 1.2, 3.8 - i * 0.35);
+        }
+        item.outline.lineStyle(2, outlineColor, outlineAlpha);
+        item.outline.strokeCircle(0, 0, r + 4);
+        item.outline.lineStyle(1, accent, 0.46 * outlineAlpha);
+        item.outline.beginPath();
+        item.outline.moveTo(-16, 11);
+        item.outline.lineTo(-27, 15);
+        item.outline.lineTo(-20, 3);
+        item.outline.strokePath();
+      } else if (skin.shape === "moth") {
+        // Rift moth: butterfly/moth silhouette built from simple circles.
+        item.body.fillStyle(glow, 0.13 * bodyAlpha);
+        item.body.fillCircle(0, 0, 27 + Math.sin(phase) * 1.2);
+        item.body.fillStyle(accent, 0.42 * bodyAlpha);
+        item.body.fillCircle(-10, -3, 10.5);
+        item.body.fillCircle(10, -3, 10.5);
+        item.body.fillStyle(fillColor, 0.74 * bodyAlpha);
+        item.body.fillCircle(-8, 9, 8.3);
+        item.body.fillCircle(8, 9, 8.3);
+        item.body.fillStyle(fillColor, 0.98 * bodyAlpha);
+        item.body.fillCircle(0, 1, r * 0.72);
+        item.body.fillStyle(0xffffff, 0.42 * bodyAlpha);
+        item.body.fillCircle(-2.8, -5, 4.2);
+        item.outline.lineStyle(2, outlineColor, outlineAlpha);
+        item.outline.strokeCircle(-10, -3, 11.5);
+        item.outline.strokeCircle(10, -3, 11.5);
+        item.outline.strokeCircle(0, 1, r * 0.82);
+        item.outline.lineStyle(1, accent, 0.52 * outlineAlpha);
+        item.outline.beginPath();
+        item.outline.moveTo(0, -8);
+        item.outline.lineTo(0, 15);
+        item.outline.strokePath();
+      } else if (skin.shape === "drone") {
+        // Signal drone: a compact scout with two satellite pods.
+        item.body.fillStyle(glow, 0.14 * bodyAlpha);
+        item.body.fillCircle(0, 0, 25 + Math.sin(phase) * 1.2);
+        item.body.fillStyle(accent, 0.52 * bodyAlpha);
+        item.body.fillCircle(-17, 0, 5.8);
+        item.body.fillCircle(17, 0, 5.8);
+        item.body.fillStyle(fillColor, 0.95 * bodyAlpha);
+        item.body.fillCircle(0, 0, r);
+        item.body.fillStyle(0xffffff, 0.42 * bodyAlpha);
+        item.body.fillCircle(-4, -6, r * 0.34);
+        item.outline.lineStyle(2, outlineColor, outlineAlpha);
+        item.outline.strokeCircle(0, 0, r + 3);
+        item.outline.lineStyle(1, accent, 0.62 * outlineAlpha);
+        item.outline.strokeCircle(-17, 0, 6.8);
+        item.outline.strokeCircle(17, 0, 6.8);
+        item.outline.beginPath();
+        item.outline.moveTo(-11, 0);
+        item.outline.lineTo(11, 0);
+        item.outline.strokePath();
       } else {
         item.body.fillStyle(fillColor, bodyAlpha);
         item.body.fillCircle(0, 0, r);
@@ -2464,7 +2926,10 @@
         }
         if (event.type === "genDone") playSfx("gen");
         if (event.type === "hit" || event.type === "downed") playLocalizedHit(event);
-        if (event.type === "vault" && event.actorId === myId) playSfx(event.vaultType === "pallet" ? "palletVault" : "windowVault");
+        if (event.type === "vault" && event.actorId === myId) {
+          if (event.vaultType === "pallet") playSfx("palletVault");
+          else playSfx("windowVault");
+        }
         if (["hit", "death", "execute", "downed", "hooked", "unhooked"].includes(event.type)) {
           const color = event.type === "unhooked" ? 0x75d5ff : event.type === "hooked" ? COLORS.hook : COLORS.blood;
           const heavy = event.type === "death" || event.type === "execute" || event.type === "downed" || event.type === "hooked";
@@ -2627,8 +3092,32 @@
       }
     }
 
-    addShockwave(x, y, color = 0xffffff) {
-      this.shockwaves.push({ x, y, color, life: 0, ttl: 0.72, radius: 8 });
+    playLocalSpawnIn() {
+      const item = this.actors.get(myId);
+      if (!item || this.spawnInPlayed) return;
+      const x = item.current?.x ?? item.target?.x ?? item.container?.x;
+      const y = item.current?.y ?? item.target?.y ?? item.container?.y;
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+
+      this.spawnInPlayed = true;
+      this.spawnInAt = performance.now();
+      this.spawnInPulse = 1;
+      item.spawnScalePulse = 1;
+      item.container?.setScale(LOW_POWER_MODE ? 0.72 : 0.58);
+
+      const primary = item.data?.role === "killer" ? 0xa772ff : 0x31a9ff;
+      const secondary = item.data?.role === "killer" ? 0x4c1d95 : COLORS.collectibleDotGlow;
+      this.addShockwave(x, y, primary, LOW_POWER_MODE ? 0.62 : 0.84, LOW_POWER_MODE ? 82 : 118);
+      this.addShockwave(x, y, secondary, LOW_POWER_MODE ? 0.46 : 0.64, LOW_POWER_MODE ? 52 : 78);
+      this.burst(x, y, primary, LOW_POWER_MODE ? 18 : 34, LOW_POWER_MODE ? 145 : 210);
+      this.burst(x, y, secondary, LOW_POWER_MODE ? 12 : 24, LOW_POWER_MODE ? 95 : 145);
+
+      // A tiny camera thump makes the spawn feel physical without turning match start into a GPU crime.
+      this.cameras.main.shake(LOW_POWER_MODE ? 80 : 120, LOW_POWER_MODE ? 0.0009 : 0.0015);
+    }
+
+    addShockwave(x, y, color = 0xffffff, alpha = 0.62, maxRadius = 120) {
+      this.shockwaves.push({ x, y, color, alpha, maxRadius, life: 0, ttl: 0.72, radius: 8 });
       if (this.shockwaves.length > PERFORMANCE.MAX_SHOCKWAVES) this.shockwaves.splice(0, this.shockwaves.length - PERFORMANCE.MAX_SHOCKWAVES);
     }
 
@@ -2659,11 +3148,12 @@
       this.updateActorDisplays(dt);
       this.updateImmersion(dt);
       this.updateCamera(dt);
+      this.updateWallVision(dt);
       this.updateCollectibleDotVisuals(dt);
       this.maybeDrawDynamicWorld(dt);
       this.maybeDrawGeneratorLayer(dt);
       this.maybeUpdateScratchGraphics(dt);
-      this.drawLighting();
+      this.drawLighting(dt);
       this.drawHookIndicators();
       this.drawChatWheel();
       this.drawChargeIndicators(dt);
@@ -2741,6 +3231,170 @@
       return solids.some((r) => rectsOverlap(box, r));
     }
 
+    isOuterMapWall(rect) {
+      if (!this.map || !rect) return false;
+      const epsilon = 0.5;
+      return rect.x <= epsilon
+        || rect.y <= epsilon
+        || rect.x + rect.w >= this.map.width - epsilon
+        || rect.y + rect.h >= this.map.height - epsilon;
+    }
+
+    palletVisionStateKey(pallet) {
+      if (!pallet) return "";
+      return `${pallet.id || ""}:${pallet.x}:${pallet.y}:${pallet.w}:${pallet.h}:${pallet.orientation || ""}:${pallet.state || ""}:${pallet.broken ? 1 : 0}`;
+    }
+
+    getPalletVisionKey() {
+      const pallets = currentSnapshot?.map?.pallets || this.map?.pallets || [];
+      return pallets.map((p) => this.palletVisionStateKey(p)).join("|");
+    }
+
+    syncPalletVisionVisuals() {
+      if (!this.wallVisuals?.length || !this.map) return;
+      const pallets = currentSnapshot?.map?.pallets || this.map?.pallets || [];
+      const key = this.getPalletVisionKey();
+      if (key === this.lastPalletVisionKey) return;
+
+      const byId = new Map(pallets.map((p) => [p.id, p]));
+      let missing = false;
+      for (const pallet of pallets) {
+        if (!this.wallVisuals.some((item) => item.type === "pallet" && item.id === pallet.id)) {
+          missing = true;
+          break;
+        }
+      }
+      if (missing) {
+        this.rebuildWallVisionVisuals();
+        return;
+      }
+
+      for (const item of this.wallVisuals) {
+        if (item.type !== "pallet") continue;
+        const pallet = byId.get(item.id);
+        if (!pallet) {
+          item.targetAlpha = 0;
+          continue;
+        }
+        const stateKey = this.palletVisionStateKey(pallet);
+        if (stateKey === item.stateKey) continue;
+        item.rect = pallet;
+        item.stateKey = stateKey;
+        item.centerX = pallet.x + pallet.w / 2;
+        item.centerY = pallet.y + pallet.h / 2;
+        item.radius = Math.hypot(pallet.w, pallet.h) / 2;
+        item.samples = this.wallVisionSamplePoints(pallet);
+        item.graphics.clear();
+        this.drawPallet(item.graphics, pallet);
+      }
+      this.lastPalletVisionKey = key;
+    }
+
+
+    rectDistanceToPoint(rect, px, py) {
+      const dx = px < rect.x ? rect.x - px : px > rect.x + rect.w ? px - (rect.x + rect.w) : 0;
+      const dy = py < rect.y ? rect.y - py : py > rect.y + rect.h ? py - (rect.y + rect.h) : 0;
+      return Math.hypot(dx, dy);
+    }
+
+    wallVisionSamplePoints(rect) {
+      const x1 = rect.x;
+      const y1 = rect.y;
+      const x2 = rect.x + rect.w;
+      const y2 = rect.y + rect.h;
+      const cx = rect.x + rect.w / 2;
+      const cy = rect.y + rect.h / 2;
+      return [
+        { x: cx, y: cy },
+        { x: x1, y: y1 },
+        { x: x2, y: y1 },
+        { x: x1, y: y2 },
+        { x: x2, y: y2 },
+        { x: cx, y: y1 },
+        { x: cx, y: y2 },
+        { x: x1, y: cy },
+        { x: x2, y: cy }
+      ];
+    }
+
+    computeWallVisionAlpha(item, sourceX, sourceY, facing, length, coneAngle, nearRadius) {
+      const nearDistance = Math.max(0, this.rectDistanceToPoint(item.rect, sourceX, sourceY) - item.radius * 0.18);
+      const nearAlpha = 1 - smoothstep(nearRadius * 0.72, nearRadius, nearDistance);
+
+      let coneAlpha = 0;
+      const halfAngle = coneAngle / 2;
+      const edgeSoftness = Math.max(0.03, WALL_VISION.EDGE_SOFTNESS);
+      const distanceFeather = clamp(WALL_VISION.DISTANCE_FEATHER, 0.05, 0.35);
+      const maxDistance = length + item.radius * 0.75;
+
+      for (const p of item.samples || this.wallVisionSamplePoints(item.rect)) {
+        const dx = p.x - sourceX;
+        const dy = p.y - sourceY;
+        const d = Math.hypot(dx, dy);
+        if (d > maxDistance) continue;
+        const a = Math.atan2(dy, dx);
+        const diff = angleDiff(a, facing);
+        if (diff > halfAngle) continue;
+
+        const angleAlpha = 1 - smoothstep(Math.max(0, halfAngle - edgeSoftness), halfAngle, diff);
+        const distanceAlpha = 1 - smoothstep(length * (1 - distanceFeather), maxDistance, d);
+        coneAlpha = Math.max(coneAlpha, clamp(angleAlpha * distanceAlpha, 0, 1));
+      }
+
+      // Windows are extra important for chase readability, so give visible windows a tiny lift.
+      const readableBoost = item.type === "window" ? 0.10 : 0;
+      return clamp(Math.max(nearAlpha, coneAlpha) + readableBoost * Math.max(nearAlpha, coneAlpha), 0, 1);
+    }
+
+    updateWallVision(dt) {
+      if (!this.wallVisuals?.length) return;
+      this.syncPalletVisionVisuals();
+
+      const subject = this.getCameraSubjectItem();
+      const hasSubject = !!subject?.container;
+      const role = subject?.data?.role || "survivor";
+      const worldX = subject?.container?.x ?? 0;
+      const worldY = subject?.container?.y ?? 0;
+      const facing = subject?.container?.rotation || 0;
+      const baseLength = role === "killer" ? LIGHTING.KILLER_LENGTH : LIGHTING.SURVIVOR_LENGTH;
+      const baseAngle = role === "killer" ? LIGHTING.KILLER_ANGLE : LIGHTING.SURVIVOR_ANGLE;
+      const length = baseLength + WALL_VISION.CONE_EXTRA_LENGTH;
+      const coneAngle = baseAngle + WALL_VISION.CONE_EXTRA_ANGLE;
+      const nearRadius = role === "killer" ? WALL_VISION.KILLER_NEAR_RADIUS : WALL_VISION.SURVIVOR_NEAR_RADIUS;
+
+      this.wallVisionTimer = (this.wallVisionTimer || 0) + dt;
+      const shouldRecompute = this.wallVisionTimer >= 1 / PERFORMANCE.WALL_VISION_FPS;
+      if (shouldRecompute) this.wallVisionTimer = 0;
+
+      const fadeInRate = WALL_VISION.FADE_IN_PER_SECOND;
+      const fadeOutRate = WALL_VISION.FADE_OUT_PER_SECOND;
+      const minAlpha = WALL_VISION.MIN_VISIBLE_ALPHA;
+
+      for (const item of this.wallVisuals) {
+        if (shouldRecompute) {
+          if (!hasSubject) {
+            item.targetAlpha = 0;
+          } else if (role === "killer" || item.outerWall) {
+            // Killer gets normal map readability. Survivors get the cone/near-bubble horror effect.
+            // Outer boundary walls stay visible for everyone so the map edge never becomes invisible collision nonsense.
+            item.targetAlpha = 1;
+          } else {
+            item.targetAlpha = this.computeWallVisionAlpha(item, worldX, worldY, facing, length, coneAngle, nearRadius);
+          }
+        }
+
+        const rate = item.targetAlpha > item.alpha ? fadeInRate : fadeOutRate;
+        item.alpha = lerp(item.alpha, item.targetAlpha, dampAlpha(rate, dt));
+        if (item.alpha < minAlpha && item.targetAlpha <= minAlpha) {
+          item.alpha = 0;
+          item.graphics.setVisible(false);
+        } else {
+          item.graphics.setVisible(true);
+          item.graphics.setAlpha(clamp(item.alpha, 0, 1));
+        }
+      }
+    }
+
     updateActorDisplays(dt) {
       for (const [id, item] of this.actors.entries()) {
         if (id === myId && this.localVisual) {
@@ -2755,6 +3409,14 @@
         }
         item.container.setPosition(item.current.x, item.current.y);
         item.container.rotation = item.current.angle || 0;
+        if (item.spawnScalePulse && item.spawnScalePulse > 0.001) {
+          item.spawnScalePulse = Math.max(0, item.spawnScalePulse - dt * (LOW_POWER_MODE ? 3.8 : 4.8));
+          const pop = Math.sin((1 - item.spawnScalePulse) * Math.PI);
+          const scale = 1 + pop * (LOW_POWER_MODE ? 0.10 : 0.16) - item.spawnScalePulse * (LOW_POWER_MODE ? 0.20 : 0.32);
+          item.container.setScale(clamp(scale, 0.72, 1.16));
+        } else if (item.container.scaleX !== 1 || item.container.scaleY !== 1) {
+          item.container.setScale(1);
+        }
         if (item.data?.role === "survivor") {
           const serverDots = clamp(item.data.dots ?? 0, 0, SURVIVOR_DOT_MAX);
           const depositProgress = item.data.dotDepositProgress ?? 0;
@@ -2805,6 +3467,7 @@
       this.lightFlickerPhase += dt * LIGHTING.FLICKER_SPEED;
       this.heartbeatPulse = Math.max(0, this.heartbeatPulse - dt * 3.8);
       this.killerM1Pulse = Math.max(0, (this.killerM1Pulse || 0) - dt * 5.5);
+      this.spawnInPulse = Math.max(0, (this.spawnInPulse || 0) - dt * IMMERSION.SPAWN_ZOOM_DECAY);
 
       const interval = lerp(IMMERSION.HEARTBEAT_MAX_INTERVAL, IMMERSION.HEARTBEAT_MIN_INTERVAL, clamp(this.terrorBlend + this.chaseBlend * 0.45, 0, 1));
       this.heartbeatTimer += dt;
@@ -2845,17 +3508,25 @@
       const depositZoom = isDepositing ? IMMERSION.DEPOSIT_ZOOM : 0;
       const attackZoom = killerM1Hold * IMMERSION.KILLER_M1_HOLD_ZOOM
         + (this.killerM1Pulse || 0) * IMMERSION.KILLER_M1_PULSE_ZOOM;
+      const spawnZoom = (this.spawnInPulse || 0) * IMMERSION.SPAWN_ZOOM;
+      const localStartRemaining = Math.max(0, (this.matchStartZoomUntil || 0) - performance.now()) / 1000;
+      const startLockRemaining = Math.max(localStartRemaining, this.matchStartFreezeRemaining || 0);
+      const startLockZoom = startLockRemaining > 0 ? IMMERSION.MATCH_START_LOCK_ZOOM : 0;
       const targetZoom = clamp(
         IMMERSION.BASE_ZOOM
           + this.terrorBlend * IMMERSION.TERROR_ZOOM
           + this.chaseBlend * IMMERSION.CHASE_ZOOM
           + attackZoom
-          + depositZoom,
+          + depositZoom
+          + spawnZoom
+          + startLockZoom,
         IMMERSION.BASE_ZOOM,
         IMMERSION.BASE_ZOOM
           + IMMERSION.TERROR_ZOOM
           + IMMERSION.CHASE_ZOOM
           + IMMERSION.DEPOSIT_ZOOM
+          + IMMERSION.SPAWN_ZOOM
+          + IMMERSION.MATCH_START_LOCK_ZOOM
           + IMMERSION.KILLER_M1_HOLD_ZOOM
           + IMMERSION.KILLER_M1_PULSE_ZOOM
       );
@@ -2918,11 +3589,10 @@
     getDynamicWorldKey() {
       const map = currentSnapshot?.map || this.map;
       if (!map) return "";
-      const palletKey = (map.pallets || []).map((p) => `${p.id}:${p.state}:${p.broken ? 1 : 0}`).join("|");
       const hookKey = (map.hooks || []).map((h) => `${h.id}:${h.active ? 1 : 0}:${h.survivorId || ""}`).join("|");
       const gateKey = (map.gates || []).map((g) => `${g.id}:${g.open ? 1 : 0}`).join("|");
       const dotKey = (currentSnapshot?.collectibleDots || []).map((d) => d.id).join(",");
-      return `${palletKey}#${hookKey}#${gateKey}#${dotKey}`;
+      return `${hookKey}#${gateKey}#${dotKey}`;
     }
 
     getGeneratorWorldKey() {
@@ -3025,10 +3695,11 @@
 
     maybeDrawGeneratorLayer(dt) {
       const depositAnimating = this.updateGeneratorDepositVisuals(dt);
+      const riftVisibilityAnimating = this.updateGeneratorVisionVisuals(dt);
       this.generatorRedrawTimer += dt;
       const interval = 1 / PERFORMANCE.GENERATOR_FPS;
 
-      if (depositAnimating) {
+      if (depositAnimating || riftVisibilityAnimating) {
         this.drawGeneratorLayer();
         return;
       }
@@ -3390,8 +4061,8 @@
           continue;
         }
         const t = wave.life / wave.ttl;
-        const radius = wave.radius + t * 120;
-        g.lineStyle(3, wave.color, (1 - t) * 0.62);
+        const radius = wave.radius + t * (wave.maxRadius || 120);
+        g.lineStyle(3, wave.color, (1 - t) * (wave.alpha ?? 0.62));
         g.strokeCircle(wave.x, wave.y, radius);
         g.lineStyle(1, 0xffffff, (1 - t) * 0.24);
         g.strokeCircle(wave.x, wave.y, radius * 0.68);
@@ -3455,7 +4126,28 @@
     window.__surviveIoGame = game;
   }
 
+  let uiClickSfxBound = false;
+
+  function setupUiClickSfx() {
+    if (uiClickSfxBound) return;
+    uiClickSfxBound = true;
+
+    document.addEventListener("click", (event) => {
+      const target = event.target?.closest?.("button, a");
+      if (!target) return;
+      if (target.disabled || target.getAttribute("aria-disabled") === "true") return;
+
+      // Only UI screens get button click sounds. This avoids mobile gameplay controls
+      // and in-match canvas clicks triggering menu audio like an overeager vending machine.
+      const screen = target.closest(".screen");
+      if (!screen || !screen.classList.contains("screen-open")) return;
+
+      playSfx("buttonClick");
+    }, true);
+  }
+
   function setupUI() {
+    setupUiClickSfx();
     syncMenuMusicToggleUi();
     const bindMenuMusicToggle = (btn) => {
       btn?.addEventListener("click", () => {
@@ -3528,7 +4220,7 @@
       const item = document.createElement("div");
       item.className = "lobby-item";
       const left = document.createElement("div");
-      left.innerHTML = `<strong>${escapeHtml(lobby.name)}</strong><small>${escapeHtml(lobby.mapName || "Map")} • ${lobby.survivors}/${lobby.maxSurvivors} survivors • ${lobby.killer ? "killer taken" : "killer open"}</small>`;
+      left.innerHTML = `<strong>${escapeHtml(lobby.name)}</strong><small>${escapeHtml(lobby.mapName || "Map")} • ${lobby.survivors}/${lobby.maxSurvivors} Survivors • ${lobby.killer ? "Void claimed" : "Void open"}</small>`;
       const button = document.createElement("button");
       button.textContent = lobby.phase === "lobby" ? "Join" : "In Match";
       button.disabled = lobby.phase !== "lobby";
@@ -3545,8 +4237,9 @@
     for (const player of state.players || []) {
       const item = document.createElement("div");
       item.className = "player-item";
-      const skin = player.role === "survivor" ? getSurvivorSkin(player.skin).label : "Killer Circle";
-      item.innerHTML = `<div><strong>${escapeHtml(player.name)}${player.id === myId ? " (You)" : ""}</strong><small>${player.role}${player.isBot ? " bot" : ""} • ${escapeHtml(skin)}</small></div><small>${player.ready ? "Ready" : "Not ready"}</small>`;
+      const skin = player.role === "survivor" ? getSurvivorSkin(player.skin).label : "Void Core";
+      const displayRole = player.role === "killer" ? "The Void" : "Survivor";
+      item.innerHTML = `<div><strong>${escapeHtml(player.name)}${player.id === myId ? " (You)" : ""}</strong><small>${displayRole}${player.isBot ? " bot" : ""} • ${escapeHtml(skin)}</small></div><small>${player.ready ? "Ready" : "Not ready"}</small>`;
       ui.playersList.appendChild(item);
     }
     const mine = state.players?.find((p) => p.id === myId);
@@ -3743,7 +4436,15 @@
     socket.on("lobbyState", renderLobbyState);
     socket.on("gameStarted", (map) => {
       currentSnapshot = null;
-      if (phaserScene) phaserScene.loadMap(map);
+      if (phaserScene) {
+        phaserScene.spawnInPlayed = false;
+        phaserScene.spawnInPulse = 0;
+        phaserScene.spawnInAt = 0;
+        const lockSeconds = Number(map?.startFreezeSeconds || IMMERSION.MATCH_START_LOCK_SECONDS || 1.5);
+        phaserScene.matchStartFreezeRemaining = Math.max(0, lockSeconds);
+        phaserScene.matchStartZoomUntil = performance.now() + Math.max(0, lockSeconds) * 1000;
+        phaserScene.loadMap(map);
+      }
       showScreen("game");
       ensureAudioStarted();
     });
@@ -3757,7 +4458,7 @@
         phaserScene.spectateTargetId = null;
         phaserScene.lastSpectateEmitId = "";
       }
-      ui.winnerText.textContent = winner === "killer" ? "Killer Wins" : "Survivors Win";
+      ui.winnerText.textContent = winner === "killer" ? "The Void Wins" : "Survivors Win";
       ui.reasonText.textContent = reason || "Match ended.";
       setMusicTargets({ layer1: 0, layer2: 0, layer3: 0 });
       showScreen("end");
