@@ -33,6 +33,7 @@
         <button id="menuHowBtn" class="menu-action" type="button">How to Play</button>
         <a id="buyCoffeeBtn" class="menu-action coffee-link" href="https://www.buymeacoffee.com/replace-this" target="_blank" rel="noopener">Buy me a Coffee</a>
       </nav>
+      <button id="menuMusicToggleBtn" class="menu-music-toggle" type="button" aria-pressed="false">Menu music on</button>
       <p class="replace-note">Replace the background in <code>style.css</code>: <code>--menu-bg-image: url('/your-image.jpg')</code>. Put <code>menu.mp3</code> in <code>public/</code>.</p>
     </div>
   </div>
@@ -99,7 +100,8 @@
       <div class="option-list">
         <div class="option-card">
           <strong>Audio</strong>
-          <span>Menu music: <code>/menu.mp3</code>. Match music still uses your layered chase audio.</span>
+          <span>Menu music on lobby and menu screens. In-match chase layers are separate.</span>
+          <button id="menuMusicToggleBtnOptions" class="menu-music-toggle" type="button" aria-pressed="false">Menu music on</button>
         </div>
         <div class="option-card">
           <strong>Visual Style</strong>

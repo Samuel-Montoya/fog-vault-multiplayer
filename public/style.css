@@ -1463,6 +1463,38 @@ code {
   gap: 12px;
   margin-top: 22px;
 }
+
+.menu-music-toggle {
+  display: block;
+  width: 100%;
+  margin-top: 14px;
+  padding: 10px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--io-line);
+  background: rgba(12, 15, 26, 0.72);
+  color: var(--io-muted);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  text-align: center;
+}
+
+.menu-music-toggle:hover {
+  color: var(--io-text);
+  border-color: rgba(129, 140, 248, 0.45);
+  background: rgba(20, 24, 40, 0.92);
+}
+
+.menu-music-toggle.is-muted {
+  color: var(--io-text);
+  border-color: rgba(248, 113, 113, 0.35);
+  background: rgba(40, 16, 24, 0.55);
+}
+
+.option-card .menu-music-toggle {
+  margin-top: 4px;
+}
+
 .menu-action,
 button,
 .coffee-link,

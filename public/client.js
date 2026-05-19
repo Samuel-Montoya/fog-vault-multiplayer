@@ -47,7 +47,7 @@
 
   const MUSIC = {
     MASTER: 0.55,
-    MENU_MASTER: 0.28,
+    MENU_MASTER: 0.14,
     FADE: 0.065,
     MENU: "/menu.mp3",
     LAYERS: ["/layer_1.mp3", "/layer_2.mp3", "/layer_3.mp3"]
@@ -338,6 +338,8 @@
     menuSkinsBtn: document.getElementById("menuSkinsBtn"),
     menuOptionsBtn: document.getElementById("menuOptionsBtn"),
     menuHowBtn: document.getElementById("menuHowBtn"),
+    menuMusicToggleBtn: document.getElementById("menuMusicToggleBtn"),
+    menuMusicToggleBtnOptions: document.getElementById("menuMusicToggleBtnOptions"),
     menuBackBtns: [...document.querySelectorAll(".menu-back-btn")],
     playerName: document.getElementById("playerName"),
     roleBtns: [...document.querySelectorAll(".role-btn")],
@@ -422,12 +424,51 @@
     volumes: [0, 0, 0]
   };
 
+  const MENU_MUSIC_MUTE_KEY = "surviveMenuMusicMuted";
+
+  function isMenuMusicMuted() {
+    try { return localStorage.getItem(MENU_MUSIC_MUTE_KEY) === "1"; }
+    catch { return false; }
+  }
+
+  function setMenuMusicMuted(muted) {
+    try { localStorage.setItem(MENU_MUSIC_MUTE_KEY, muted ? "1" : "0"); }
+    catch { /* Private browsing can refuse storage. Mute still works this session. */ }
+    syncMenuMusicToggleUi();
+    applyMenuMusicVolume();
+  }
+
+  function applyMenuMusicVolume() {
+    const menu = audio.menu;
+    if (!menu) return;
+    const muted = isMenuMusicMuted();
+    menu.volume = muted ? 0 : MUSIC.MENU_MASTER;
+    if (muted) {
+      menu.pause();
+      return;
+    }
+    if (audio.menuActive) menu.play().catch(() => null);
+  }
+
+  function syncMenuMusicToggleUi() {
+    const muted = isMenuMusicMuted();
+    const label = muted ? "Menu music off" : "Menu music on";
+    for (const btn of [ui.menuMusicToggleBtn, ui.menuMusicToggleBtnOptions]) {
+      if (!btn) continue;
+      btn.textContent = label;
+      btn.setAttribute("aria-pressed", muted ? "true" : "false");
+      btn.classList.toggle("is-muted", muted);
+    }
+  }
+
+  function toggleMenuMusicMuted() {
+    setMenuMusicMuted(!isMenuMusicMuted());
+  }
+
   function setMenuAudioActive(active, options = {}) {
     audio.menuActive = !!active;
     const menu = audio.menu;
     if (!menu) return;
-
-    menu.volume = MUSIC.MENU_MASTER;
 
     if (!audio.menuActive) {
       menu.pause();
@@ -438,19 +479,15 @@
       try { menu.currentTime = 0; } catch (_) { /* Some browsers get precious about media time. */ }
     }
 
-    menu.play().catch(() => {
-      // Browser autoplay rules may block this until the first click/key press.
-      // Keep menuActive true so the unlock listener below can start it immediately.
-    });
+    applyMenuMusicVolume();
   }
 
   function ensureMenuAudioStarted(options = {}) {
     if (!audio.menuActive || !audio.menu) return;
-    audio.menu.volume = MUSIC.MENU_MASTER;
     if (options.restart) {
       try { audio.menu.currentTime = 0; } catch (_) { /* ignore */ }
     }
-    audio.menu.play().catch(() => null);
+    applyMenuMusicVolume();
   }
 
   function setGameplayAudioActive(active) {
@@ -625,7 +662,7 @@
     audio.menu = new Audio(MUSIC.MENU);
     audio.menu.loop = true;
     audio.menu.preload = "auto";
-    audio.menu.volume = MUSIC.MENU_MASTER;
+    applyMenuMusicVolume();
     audio.menu.addEventListener("error", () => null);
 
     audio.layers = MUSIC.LAYERS.map((src) => {
@@ -3390,6 +3427,16 @@
   }
 
   function setupUI() {
+    syncMenuMusicToggleUi();
+    const bindMenuMusicToggle = (btn) => {
+      btn?.addEventListener("click", () => {
+        ensureMenuAudioStarted();
+        toggleMenuMusicMuted();
+      });
+    };
+    bindMenuMusicToggle(ui.menuMusicToggleBtn);
+    bindMenuMusicToggle(ui.menuMusicToggleBtnOptions);
+
     ui.menuPlayBtn?.addEventListener("click", () => { ensureMenuAudioStarted(); showScreen("play"); });
     ui.menuSkinsBtn?.addEventListener("click", () => { ensureMenuAudioStarted(); showScreen("skins"); });
     ui.menuOptionsBtn?.addEventListener("click", () => { ensureMenuAudioStarted(); showScreen("options"); });
