@@ -452,6 +452,7 @@ function makePlayer(socket, role, name, options = {}) {
     dotDepositChain: 0,
     dead: false,
     escaped: false,
+    spectateTargetId: null,
     downed: false,
     hooked: false,
     hookId: null,
@@ -2694,6 +2695,36 @@ function updateGame(lobby, dt) {
   }
 }
 
+function isLivingSurvivor(actor) {
+  return !!actor && actor.role === "survivor" && !actor.dead && !actor.escaped;
+}
+
+function getSpectateTarget(game, viewer) {
+  if (!viewer || viewer.role !== "survivor" || (!viewer.dead && !viewer.escaped)) return null;
+  const preferred = viewer.spectateTargetId ? game.actors.get(viewer.spectateTargetId) : null;
+  if (isLivingSurvivor(preferred)) return preferred;
+  let nearest = null;
+  let nearestDist = Infinity;
+  for (const actor of game.actors.values()) {
+    if (!isLivingSurvivor(actor) || actor.id === viewer.id) continue;
+    const d = dist(viewer.x, viewer.y, actor.x, actor.y);
+    if (d < nearestDist) {
+      nearestDist = d;
+      nearest = actor;
+    }
+  }
+  return nearest;
+}
+
+/** Dead/escaped survivors spectate through a living teammate's fog and LOS rules. */
+function getViewerForVisibility(game, viewer) {
+  if (!viewer) return viewer;
+  if (viewer.role === "survivor" && (viewer.dead || viewer.escaped)) {
+    return getSpectateTarget(game, viewer) || viewer;
+  }
+  return viewer;
+}
+
 function isActorVisibleToViewer(game, viewer, actor) {
   if (!viewer || !actor) return false;
   if (viewer.id === actor.id) return true;
@@ -2832,10 +2863,11 @@ function serializeGeneratorForViewer(game, viewer, gen) {
 function buildSnapshotFor(lobby, socketId) {
   const game = lobby.game;
   const viewer = game.actors.get(socketId);
+  const pov = getViewerForVisibility(game, viewer);
   const map = game.map;
   const actors = [];
   for (const actor of game.actors.values()) {
-    actors.push(serializeActor(game, actor, isActorVisibleToViewer(game, viewer, actor)));
+    actors.push(serializeActor(game, actor, isActorVisibleToViewer(game, pov, actor)));
   }
 
   const killer = [...game.actors.values()].find((p) => p.role === "killer");
@@ -2850,11 +2882,12 @@ function buildSnapshotFor(lobby, socketId) {
     visibleHold: false
   };
 
-  if (viewer && viewer.role === "survivor" && killer && !viewer.dead && !viewer.escaped) {
-    const d = dist(viewer.x, viewer.y, killer.x, killer.y);
+  const musicViewer = (viewer?.role === "survivor" && (viewer.dead || viewer.escaped)) ? pov : viewer;
+  if (musicViewer && musicViewer.role === "survivor" && killer && isLivingSurvivor(musicViewer)) {
+    const d = dist(musicViewer.x, musicViewer.y, killer.x, killer.y);
     const terror = clamp(1 - d / TERROR_RADIUS, 0, 1);
-    const chase = viewer.chaseHold > 0;
-    const killerVisible = isActorVisibleToViewer(game, viewer, killer);
+    const chase = musicViewer.chaseHold > 0;
+    const killerVisible = isActorVisibleToViewer(game, musicViewer, killer);
 
     // Clean three-layer music ladder:
     // layer_1 = normal ambient when the survivor is safe / no meaningful terror pressure.
@@ -2875,15 +2908,15 @@ function buildSnapshotFor(lobby, socketId) {
     };
   }
 
-  const visibleScratchMarks = viewer?.role === "killer"
+  const visibleScratchMarks = pov?.role === "killer"
     ? game.scratchMarks.filter((s) => {
-        if (!viewer) return false;
-        const d = dist(viewer.x, viewer.y, s.x, s.y);
+        if (!pov) return false;
+        const d = dist(pov.x, pov.y, s.x, s.y);
         if (d > KILLER_SCRATCH_MARK_VISIBILITY_RANGE) return false;
         const target = { x: s.x, y: s.y };
-        return coneSees(viewer, target, KILLER_SCRATCH_MARK_VISIBILITY_RANGE, KILLER_CONE_ANGLE) && segmentClear(game, viewer.x, viewer.y, s.x, s.y);
+        return coneSees(pov, target, KILLER_SCRATCH_MARK_VISIBILITY_RANGE, KILLER_CONE_ANGLE) && segmentClear(game, pov.x, pov.y, s.x, s.y);
       })
-    : game.scratchMarks.filter((s) => dist(viewer?.x || 0, viewer?.y || 0, s.x, s.y) < 180);
+    : game.scratchMarks.filter((s) => dist(pov?.x || 0, pov?.y || 0, s.x, s.y) < 180);
 
   const doneGenerators = map.generators.reduce((count, g) => count + (g.done ? 1 : 0), 0);
   const requiredGenerators = game.requiredGenerators;
@@ -2896,7 +2929,7 @@ function buildSnapshotFor(lobby, socketId) {
       height: map.height,
       tile: map.tile,
       pallets: map.pallets.map((p) => ({ id: p.id, x: p.x, y: p.y, w: p.w, h: p.h, orientation: p.orientation, state: p.state, broken: p.broken })),
-      generators: map.generators.map((g) => serializeGeneratorForViewer(game, viewer, g)),
+      generators: map.generators.map((g) => serializeGeneratorForViewer(game, pov, g)),
       gates: map.gates.map((g) => ({ id: g.id, x: g.x, y: g.y, open: g.open })),
       hooks: (map.hooks || []).filter((h) => h.active).map((h) => ({ id: h.id, x: h.x, y: h.y, survivorId: h.survivorId, active: h.active }))
     },
@@ -2914,7 +2947,7 @@ function buildSnapshotFor(lobby, socketId) {
       remainingGenerators: Math.max(0, requiredGenerators - doneGenerators),
       escapeOpen: game.escapeOpen
     },
-    collectibleDots: visibleCollectibleDotsForViewer(game, viewer).map((d) => ({ id: d.id, x: d.x, y: d.y })),
+    collectibleDots: visibleCollectibleDotsForViewer(game, pov).map((d) => ({ id: d.id, x: Math.round(d.x), y: Math.round(d.y) })),
     music
   };
 }
@@ -3035,11 +3068,23 @@ io.on("connection", (socket) => {
     startGame(lobby);
   });
 
+  socket.on("spectate", (payload = {}) => {
+    const lobby = lobbies.get(socketToLobby.get(socket.id));
+    if (!lobby || !lobby.game || lobby.game.phase !== "game") return;
+    const viewer = lobby.game.actors.get(socket.id);
+    if (!viewer || viewer.role !== "survivor" || (!viewer.dead && !viewer.escaped)) return;
+    const targetId = String(payload.targetId || "");
+    const target = lobby.game.actors.get(targetId);
+    if (!isLivingSurvivor(target)) return;
+    viewer.spectateTargetId = targetId;
+  });
+
   socket.on("input", (input = {}) => {
     const lobby = lobbies.get(socketToLobby.get(socket.id));
     if (!lobby || !lobby.game) return;
     const actor = lobby.game.actors.get(socket.id);
     if (!actor) return;
+    if (actor.role === "survivor" && actor.dead) return;
     actor.input.up = !!input.up;
     actor.input.down = !!input.down;
     actor.input.left = !!input.left;

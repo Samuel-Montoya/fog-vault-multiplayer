@@ -592,8 +592,27 @@
     };
   }
 
+  function getLocalPlayerData() {
+    return currentSnapshot?.actors?.find((a) => a.id === myId)
+      || phaserScene?.actors?.get(myId)?.data
+      || null;
+  }
+
+  function isLocalSpectating() {
+    const me = getLocalPlayerData();
+    return me?.role === "survivor" && !!me.dead;
+  }
+
+  function getLivingTeammates(snapshot = currentSnapshot) {
+    return (snapshot?.actors || []).filter(
+      (a) => a.role === "survivor" && a.id !== myId && !a.dead && !a.escaped
+    );
+  }
+
   function sendInput(oneShot = {}, force = false) {
     if (!socket || !myId) return;
+    const me = getLocalPlayerData();
+    if (me?.role === "survivor" && me.dead) return;
     const payload = inputPayload(oneShot);
     const signature = JSON.stringify(payload);
     if (force || signature !== lastInputPayload || oneShot.action || oneShot.attack || oneShot.attackReleased) {
@@ -716,7 +735,10 @@
   };
 
   function getLocalVisualActor() {
-    return phaserScene?.actors?.get(myId) || null;
+    const scene = phaserScene;
+    if (!scene) return null;
+    const subjectId = scene.isSpectating?.() ? scene.resolveSpectateTargetId() : myId;
+    return scene.actors?.get(subjectId) || null;
   }
 
   function distanceToLocalEvent(event) {
@@ -774,6 +796,7 @@
   function survivorCardClass(actor) {
     const classes = ["survivor-status-card"];
     if (actor.id === myId) classes.push("self");
+    if (isLocalSpectating() && actor.id === phaserScene?.resolveSpectateTargetId()) classes.push("spectating");
     if (actor.dead) classes.push("dead");
     else if (actor.escaped) classes.push("escaped");
     else if (actor.hooked) classes.push("hooked");
@@ -954,6 +977,71 @@
       this.killerM1Pulse = 0;
       this.lastMoveDirX = 0;
       this.lastMoveDirY = 0;
+      this.spectateTargetId = null;
+      this.lastSpectateEmitId = "";
+      this.lastSpectateEmitAt = 0;
+    }
+
+    isSpectating() {
+      const me = this.actors.get(myId)?.data || getLocalPlayerData();
+      return me?.role === "survivor" && !!me.dead;
+    }
+
+    getLivingTeammates() {
+      return getLivingTeammates(currentSnapshot);
+    }
+
+    resolveSpectateTargetId() {
+      if (!this.isSpectating()) return myId;
+      const living = this.getLivingTeammates();
+      if (!living.length) return myId;
+      if (living.some((a) => a.id === this.spectateTargetId)) return this.spectateTargetId;
+      return living[0].id;
+    }
+
+    emitSpectateTarget(targetId) {
+      if (!socket || !targetId || !this.isSpectating()) return;
+      const now = performance.now();
+      if (targetId === this.lastSpectateEmitId && now - this.lastSpectateEmitAt < 180) return;
+      this.lastSpectateEmitId = targetId;
+      this.lastSpectateEmitAt = now;
+      socket.emit("spectate", { targetId });
+    }
+
+    pickDefaultSpectateTarget() {
+      const living = this.getLivingTeammates();
+      if (!living.length) {
+        this.spectateTargetId = null;
+        return null;
+      }
+      this.spectateTargetId = living[0].id;
+      this.emitSpectateTarget(this.spectateTargetId);
+      return this.spectateTargetId;
+    }
+
+    cycleSpectateTarget(step = 1) {
+      if (!this.isSpectating()) return;
+      const living = this.getLivingTeammates();
+      if (living.length <= 1) return;
+      let idx = living.findIndex((a) => a.id === this.resolveSpectateTargetId());
+      if (idx < 0) idx = 0;
+      idx = (idx + step + living.length) % living.length;
+      this.spectateTargetId = living[idx].id;
+      this.emitSpectateTarget(this.spectateTargetId);
+    }
+
+    getCameraSubjectItem() {
+      return this.actors.get(this.isSpectating() ? this.resolveSpectateTargetId() : myId) || null;
+    }
+
+    getPovSurvivorData() {
+      if (!this.isSpectating()) {
+        return this.actors.get(myId)?.data || getLocalPlayerData();
+      }
+      const id = this.resolveSpectateTargetId();
+      return this.actors.get(id)?.data
+        || (currentSnapshot?.actors || []).find((a) => a.id === id)
+        || null;
     }
 
     preload() {
@@ -1217,6 +1305,8 @@
       this.needsGeneratorRedraw = true;
       this.localVisual = null;
       this.localServerTarget = null;
+      this.spectateTargetId = null;
+      this.lastSpectateEmitId = "";
     }
 
     rebuildOutOfBoundsBackdrop() {
@@ -1894,8 +1984,15 @@
           const kickable = (snapshot.map?.generators || []).some((gen) => !gen.done && !gen.kickLocked && (gen.progress || 0) > 0 && Math.hypot((me.x || 0) - gen.x, (me.y || 0) - gen.y) < 92);
           ui.healthText.textContent = kickable ? "Hold E: Kick rift" : "Killer";
         }
+      } else if (me.dead) {
+        const target = (snapshot.actors || []).find((a) => a.id === this.resolveSpectateTargetId());
+        ui.healthText.textContent = target
+          ? `Spectating: ${target.name || "Survivor"}`
+          : "Dead";
+        ui.controlsLabel.textContent = "Tab / Shift+Tab — switch teammate camera";
       } else ui.healthText.textContent = survivorStateLabel(me);
-      updateHorrorFx(snapshot, me, { terror: this.terrorBlend, chase: this.chaseBlend });
+      const fxActor = this.getPovSurvivorData() || me;
+      updateHorrorFx(snapshot, fxActor, { terror: this.terrorBlend, chase: this.chaseBlend });
     }
 
     updateScratchGraphics(marks) {
@@ -1947,8 +2044,10 @@
         // Actors are always position-updated from the server, even when hidden.
         // We only hide the container visually. That prevents the seen-again teleport jump.
         const isVisible = data.visible !== false || data.id === myId;
+        let alpha = isVisible ? 1 : 0;
+        if (data.id === myId && this.isSpectating()) alpha = 0.32;
         item.container.setVisible(true);
-        item.container.setAlpha(isVisible ? 1 : 0);
+        item.container.setAlpha(alpha);
         item.nameText.setText(data.name || "");
         item.nameText.setVisible(isVisible && data.id !== myId);
         if (item.chatText) {
@@ -1965,6 +2064,12 @@
           }
           if (!this.localVisual || dist(this.localVisual.x, this.localVisual.y, data.x, data.y) > 180) {
             this.localVisual = { x: data.x, y: data.y, angle: data.angle, role: data.role, skin: data.skin || "blueSquare" };
+          }
+          if (data.dead && data.role === "survivor") {
+            const living = this.getLivingTeammates();
+            if (living.length && (!this.spectateTargetId || !living.some((a) => a.id === this.spectateTargetId))) {
+              this.pickDefaultSpectateTarget();
+            }
           }
         }
       }
@@ -2284,7 +2389,13 @@
             if (this.recentHookIndicators.length > 8) this.recentHookIndicators.splice(0, this.recentHookIndicators.length - 8);
           }
         }
-        if (event.type === "execute" || event.type === "death") playSfx("dead");
+        if (event.type === "execute" || event.type === "death") {
+          playSfx("dead");
+          if (event.survivorId === myId) {
+            this.pickDefaultSpectateTarget();
+            toast("Spectating teammates — Tab to switch", 2800);
+          }
+        }
         if (event.type === "genDone") playSfx("gen");
         if (event.type === "hit" || event.type === "downed") playLocalizedHit(event);
         if (event.type === "vault" && event.actorId === myId) playSfx(event.vaultType === "pallet" ? "palletVault" : "windowVault");
@@ -2619,7 +2730,7 @@
     }
 
     updateImmersion(dt) {
-      const me = this.localServerTarget?.data || this.actors.get(myId)?.data;
+      const me = this.getPovSurvivorData() || this.localServerTarget?.data || this.actors.get(myId)?.data;
       const levels = getThreatLevels(currentSnapshot, me);
       const chaseRate = levels.chase ? IMMERSION.CHASE_IN_LERP : IMMERSION.CHASE_OUT_LERP;
       this.chaseBlend = lerp(this.chaseBlend, levels.chase, chaseRate);
@@ -2649,17 +2760,22 @@
     }
 
     updateCamera(dt = 0) {
-      const item = this.actors.get(myId);
+      const item = this.getCameraSubjectItem();
       if (!item) return;
       const cam = this.cameras.main;
       const x = item.container.x;
       const y = item.container.y;
       if (!Number.isFinite(x) || !Number.isFinite(y)) return;
 
-      const localData = item.data || item.current || item.target || null;
+      const localData = this.isSpectating()
+        ? (this.actors.get(myId)?.data || item.data)
+        : (item.data || item.current || item.target || null);
       const killerCharging = localData?.role === "killer" && localData.attackState === "charging";
       const killerM1Hold = localData?.role === "killer" && (input.attackHeld || killerCharging) ? 1 : 0;
-      const isDepositing = localData?.role === "survivor" && (!!localData.dotDepositTargetId || (localData.dotDepositProgress || 0) > 0.001);
+      const povData = this.getPovSurvivorData();
+      const isDepositing = !this.isSpectating()
+        && povData?.role === "survivor"
+        && (!!povData.dotDepositTargetId || (povData.dotDepositProgress || 0) > 0.001);
       const depositZoom = isDepositing ? IMMERSION.DEPOSIT_ZOOM : 0;
       const attackZoom = killerM1Hold * IMMERSION.KILLER_M1_HOLD_ZOOM
         + (this.killerM1Pulse || 0) * IMMERSION.KILLER_M1_PULSE_ZOOM;
@@ -2870,8 +2986,13 @@
       this.scratchRedrawTimer = 0;
     }
 
-    drawLighting() {
-      const me = this.actors.get(myId);
+    drawLighting(dt = 0) {
+      this.lightingRedrawTimer = (this.lightingRedrawTimer || 0) + dt;
+      const lightingInterval = 1 / PERFORMANCE.LIGHTING_FPS;
+      if (this.fogRT && this.lightingRedrawTimer < lightingInterval) return;
+      this.lightingRedrawTimer = 0;
+
+      const me = this.getCameraSubjectItem();
       const cam = this.cameras.main;
       const pad = LIGHTING.FOG_VIEW_PADDING;
       const viewW = Math.ceil((cam.width || this.scale.width || window.innerWidth) + pad * 2);
@@ -2956,7 +3077,7 @@
       g.clear();
       if (!currentSnapshot || !this.actors.has(myId)) return;
 
-      const me = this.actors.get(myId)?.data;
+      const me = this.getPovSurvivorData();
       if (!me || me.role !== "survivor" || me.dead || me.escaped) return;
 
       const now = performance.now();
@@ -3397,6 +3518,11 @@
         phaserScene?.openChatWheel();
         return;
       }
+      if (e.code === "Tab" && phaserScene?.isSpectating()) {
+        e.preventDefault();
+        phaserScene.cycleSpectateTarget(e.shiftKey ? -1 : 1);
+        return;
+      }
       const was = JSON.stringify(inputPayload());
       if (e.code === "KeyW" || e.code === "ArrowUp") input.up = true;
       if (e.code === "KeyS" || e.code === "ArrowDown") input.down = true;
@@ -3551,6 +3677,10 @@
       if (phaserScene) phaserScene.applySnapshot(snapshot);
     });
     socket.on("matchEnded", ({ winner, reason }) => {
+      if (phaserScene) {
+        phaserScene.spectateTargetId = null;
+        phaserScene.lastSpectateEmitId = "";
+      }
       ui.winnerText.textContent = winner === "killer" ? "Killer Wins" : "Survivors Win";
       ui.reasonText.textContent = reason || "Match ended.";
       setMusicTargets({ layer1: 0, layer2: 0, layer3: 0 });
