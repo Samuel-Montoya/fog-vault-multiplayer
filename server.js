@@ -371,6 +371,46 @@ function attackBlockingRects(game) {
   return solidRects(game);
 }
 
+function attackHardBlockingRects(game) {
+  const blockers = [...game.map.walls];
+  for (const pallet of game.map.pallets) {
+    if (!pallet.broken && pallet.state === "dropped") blockers.push(pallet);
+  }
+  return blockers;
+}
+
+function segmentCrossesRect(ax, ay, bx, by, rect) {
+  return !segmentClearAgainst([rect], ax, ay, bx, by);
+}
+
+function survivorOnOppositeWindowTile(game, killerX, killerY, survivorX, survivorY, window) {
+  const survivorTile = tileAt(game, survivorX, survivorY);
+  const wx = window.tileX;
+  const wy = window.tileY;
+  if (Math.abs(survivorTile.x - wx) + Math.abs(survivorTile.y - wy) !== 1) return false;
+
+  const c = centerOf(window);
+  if (window.orientation === "horizontal") {
+    if (survivorTile.x !== wx) return false;
+    const killerSide = Math.sign(killerY - c.y);
+    const survivorSide = Math.sign(survivorTile.y - wy);
+    return killerSide !== 0 && survivorSide !== 0 && killerSide !== survivorSide;
+  }
+
+  if (survivorTile.y !== wy) return false;
+  const killerSide = Math.sign(killerX - c.x);
+  const survivorSide = Math.sign(survivorTile.x - wx);
+  return killerSide !== 0 && survivorSide !== 0 && killerSide !== survivorSide;
+}
+
+function attackSegmentClearThroughWindow(game, ax, ay, bx, by) {
+  for (const win of game.map.windows) {
+    if (!segmentCrossesRect(ax, ay, bx, by, win)) continue;
+    if (survivorOnOppositeWindowTile(game, ax, ay, bx, by, win)) return true;
+  }
+  return false;
+}
+
 function wouldCollide(game, actor, x, y) {
   const box = actorRect(actor, x, y);
   return movementBlockingRects(game, actor).some((r) => {
@@ -399,7 +439,9 @@ function segmentClear(game, ax, ay, bx, by) {
 }
 
 function attackSegmentClear(game, ax, ay, bx, by) {
-  return segmentClearAgainst(attackBlockingRects(game), ax, ay, bx, by);
+  if (!segmentClearAgainst(attackHardBlockingRects(game), ax, ay, bx, by)) return false;
+  if (segmentClearAgainst(game.map.windows, ax, ay, bx, by)) return true;
+  return attackSegmentClearThroughWindow(game, ax, ay, bx, by);
 }
 
 function coneSees(viewer, target, length, angle) {
