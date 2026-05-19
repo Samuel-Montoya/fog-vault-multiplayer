@@ -84,7 +84,8 @@ window.GAME_AUDIO_CONFIG = {
       swing: [0.9, 0.96, 1.0, 1.08, 1.16, 1.25, 1.34],
       windowVault: [0.88, 0.94, 1.0, 1.07, 1.15, 1.24],
       orbPickup: [0.9, 0.96, 1.0, 1.08, 1.16, 1.25, 1.34],
-      buttonClick: [0.92, 0.97, 1.0, 1.05, 1.11, 1.18]
+      buttonClick: [0.92, 0.97, 1.0, 1.05, 1.11, 1.18],
+	  gen: [0.92, 0.97, 1.0, 1.05, 1.11, 1.18]
     },
 
     // Distance in world pixels for nearby-only sounds.

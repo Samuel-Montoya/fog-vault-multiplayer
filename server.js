@@ -142,21 +142,16 @@ const HOOK_RESCUE_DISTANCE = 108;
 const HOOK_MIN_KILLER_DISTANCE = 430;
 const SURVIVOR_DOT_MAX = 10;
 const KILLER_DOT_MAX = 999;
-// Dot economy: survivors complete generators by collecting dots and standing near a gen.
-// No hold-E generator repair. One inserted dot takes 0.5s and each gen needs about 15 dots.
+// Dot economy: survivors complete rifts by collecting orbs and standing near a rift.
+// No hold-E rift repair. One inserted orb takes a flat 1.5s and each rift needs about 15 orbs.
 const DOTS_PER_GENERATOR = 15;
 const SURVIVOR_DOT_DROP_ON_HIT_PERCENT = 0.5;
 const SURVIVOR_DOT_PICKUP_RADIUS = 48;
 const KILLER_DOT_PICKUP_RADIUS = 92;
 const DOT_DEPOSIT_DISTANCE = 96;
-const DOT_DEPOSIT_SECONDS = 0.5;
-// Deposit balancing: the first few orbs feed quickly, then dumping a full pocket
-// into one generator gets slower. Leaving the gen, switching gens, getting hit,
-// or running out of orbs resets the chain. Tiny stamina system, because circles
-// apparently need labor laws.
-const DOT_DEPOSIT_FAST_CHAIN_COUNT = 5;
+const DOT_DEPOSIT_SECONDS = 1.5;
+// Chain is still tracked for audio pitch / UI feedback, but it no longer changes deposit speed.
 const DOT_DEPOSIT_MAX_CHAIN = SURVIVOR_DOT_MAX;
-const DOT_DEPOSIT_MAX_SECONDS = 1.65;
 const DOT_REPAIR_PROGRESS = 1 / DOTS_PER_GENERATOR;
 const DOT_MIN_TILE_SPACING = 3.0;
 const DOT_MIN_OBJECTIVE_TILE_DIST = 1.8;
@@ -200,6 +195,50 @@ const CHAT_WHEEL_MESSAGES = {
   },
   killer: ["Im going to get you", "You cant hide forever", "Ill be back...", "What the...?!"]
 };
+
+
+const MATCH_START_SURVIVOR_LINES = [
+  "I need to get back to my planet...",
+  "I have to restore our galaxy.",
+  "It's my time to shine!",
+  "Okay... don't panic. Definitely don't panic.",
+  "The rifts are calling again.",
+  "If I survive this, I am taking a nap in orbit.",
+  "Stay bright. Stay alive.",
+  "I should probably stop glowing and start moving."
+];
+
+const ORB_FULL_CHAT_MESSAGES = [
+  "I have too many orbs...",
+  "I should deposit these",
+  "I can't pick any more up.",
+  "I'm getting full..."
+];
+
+function isOrbFullChatMessage(message) {
+  return ORB_FULL_CHAT_MESSAGES.includes(message);
+}
+
+function clearOrbFullChat(actor) {
+  if (!actor || !isOrbFullChatMessage(actor.chatText)) return;
+  clearActorChat(actor);
+}
+
+function randomMatchStartSurvivorLine() {
+  return MATCH_START_SURVIVOR_LINES[Math.floor(Math.random() * MATCH_START_SURVIVOR_LINES.length)];
+}
+
+function setActorChat(actor, message, game, duration = CHAT_MESSAGE_DURATION) {
+  if (!actor || !message) return;
+  actor.chatText = message;
+  actor.chatUntil = (game?.time || 0) + duration;
+}
+
+function clearActorChat(actor) {
+  if (!actor) return;
+  actor.chatText = null;
+  actor.chatUntil = 0;
+}
 
 function getSurvivorChatState(actor) {
   if (!actor || actor.role !== "survivor") return "normal";
@@ -734,6 +773,9 @@ function startGame(lobby) {
       actor.x = spawn.x;
       actor.y = spawn.y;
     }
+    if (actor.role === "survivor") {
+      setActorChat(actor, randomMatchStartSurvivorLine(), game, 4.2);
+    }
     game.actors.set(actor.id, actor);
   }
 
@@ -1015,6 +1057,11 @@ function circleNearRect(cx, cy, r, rect) {
 
 function damageSurvivor(game, killer, survivor) {
   if (!survivor || survivor.dead || survivor.escaped || survivor.hooked || survivor.downed || survivor.invuln > 0) return false;
+  // Clear stale orb-cap chatter immediately when control is lost.
+  // Otherwise someone can get downed/hooked while still saying "I'm getting full...",
+  // which is funny once and then deeply stupid forever.
+  clearActorChat(survivor);
+  survivor.dotFullNoticeCooldown = 0;
   survivor.health -= 1;
   survivor.healProgress = 0;
   survivor.activeHealers = [];
@@ -1452,15 +1499,8 @@ function updateCollectibleDots(game, dt) {
       // Send a local-only notice event, throttled so the toast does not become spam confetti.
       if (actor.role === "survivor" && (actor.dotFullNoticeCooldown || 0) <= 0) {
         const dot = game.collectibleDots[nearestIdx];
-        const messages = [
-          "I have too many orbs...",
-          "I should deposit these",
-          "I can't pick any more up.",
-          "I'm getting full..."
-        ];
-        const message = messages[Math.floor(Math.random() * messages.length)];
-        actor.chatText = message;
-        actor.chatUntil = (game.time || 0) + CHAT_MESSAGE_DURATION;
+        const message = ORB_FULL_CHAT_MESSAGES[Math.floor(Math.random() * ORB_FULL_CHAT_MESSAGES.length)];
+        setActorChat(actor, message, game);
         actor.dotFullNoticeCooldown = 1.35;
         addEvent(game, "dotFull", { x: dot.x, y: dot.y, actorId: actor.id, message });
       }
@@ -1501,16 +1541,7 @@ function clearDotDepositState(game) {
 }
 
 function dotDepositSecondsForActor(actor) {
-  const chain = clamp(actor?.dotDepositChain || 0, 0, DOT_DEPOSIT_MAX_CHAIN);
-  const nextDepositNumber = clamp(chain + 1, 1, DOT_DEPOSIT_MAX_CHAIN);
-  if (nextDepositNumber <= DOT_DEPOSIT_FAST_CHAIN_COUNT) return DOT_DEPOSIT_SECONDS;
-
-  const slowSteps = Math.max(1, DOT_DEPOSIT_MAX_CHAIN - DOT_DEPOSIT_FAST_CHAIN_COUNT);
-  const t = clamp((nextDepositNumber - DOT_DEPOSIT_FAST_CHAIN_COUNT) / slowSteps, 0, 1);
-  // Ease slowly at first, then noticeably by deposit 8-10. This keeps early
-  // depositing snappy but makes greedier ten-orb dumps feel heavier.
-  const eased = t * t * (3 - 2 * t);
-  return DOT_DEPOSIT_SECONDS + (DOT_DEPOSIT_MAX_SECONDS - DOT_DEPOSIT_SECONDS) * eased;
+  return DOT_DEPOSIT_SECONDS;
 }
 
 function resetActorDotDeposit(actor) {
@@ -1686,6 +1717,8 @@ function sendSurvivorToHook(game, survivor) {
   survivor.dotDepositTargetId = null;
   survivor.dotDepositProgress = 0;
   survivor.dotDepositChain = 0;
+  clearActorChat(survivor);
+  survivor.dotFullNoticeCooldown = 0;
   survivor.healProgress = 0;
   survivor.activeHealers = [];
   survivor.healingTargetId = null;
@@ -2865,7 +2898,11 @@ function serializeActor(game, actor, visible = true) {
     healingTargetId: actor.healingTargetId || null,
     chase: actor.chaseHold > 0,
     killerVisibleHold: actor.killerVisibleHold || 0,
-    chatText: actor.chatUntil > (game.time || 0) ? actor.chatText : null
+    chatText: (() => {
+      const text = actor.chatUntil > (game.time || 0) ? actor.chatText : null;
+      if ((actor.downed || actor.hooked || actor.dead || actor.escaped) && isOrbFullChatMessage(text)) return null;
+      return text;
+    })()
   };
 }
 
@@ -3179,8 +3216,7 @@ io.on("connection", (socket) => {
     const messages = getChatWheelMessagesForActor(actor);
     const index = Number.isInteger(payload.index) ? payload.index : Math.floor(Number(payload.index));
     if (!Number.isInteger(index) || index < 0 || index >= messages.length) return;
-    actor.chatText = messages[index];
-    actor.chatUntil = (lobby.game.time || 0) + CHAT_MESSAGE_DURATION;
+    setActorChat(actor, messages[index], lobby.game);
   });
 
   socket.on("backToLobby", () => {

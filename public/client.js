@@ -355,6 +355,21 @@
     REMOVE_ALPHA: 0.018
   };
 
+
+  const ORB_FULL_CHAT_MESSAGES = new Set([
+    "I have too many orbs...",
+    "I should deposit these",
+    "I can't pick any more up.",
+    "I'm getting full..."
+  ]);
+
+  function visibleChatTextForActor(actor) {
+    const text = actor?.chatText || "";
+    if (!text) return "";
+    if ((actor.downed || actor.hooked || actor.dead || actor.escaped) && ORB_FULL_CHAT_MESSAGES.has(text)) return "";
+    return text;
+  }
+
   const SURVIVOR_SKINS = {
     // Keep the original IDs so existing lobby/server skin data still works.
     // The visuals are now themed as soft .io-style signal creatures instead of plain geometry.
@@ -1079,8 +1094,9 @@
   }
 
   function survivorHudChatLine(actor) {
-    if (!actor?.chatText) return "";
-    return `<div class="survivor-chat" role="status">"${escapeHtml(actor.chatText)}"</div>`;
+    const text = visibleChatTextForActor(actor);
+    if (!text) return "";
+    return `<div class="survivor-chat" role="status">"${escapeHtml(text)}"</div>`;
   }
 
   function renderKillerChatHudCard(killer) {
@@ -1115,7 +1131,7 @@
       const you = actor.id === myId ? '<span class="survivor-you">You</span>' : "";
       const dotsHeld = Math.min(SURVIVOR_DOT_MAX, actor.dots || 0);
       const depositText = actor.dotDepositTargetId ? ` • feeding ${Math.round((actor.dotDepositProgress || 0) * 100)}%` : "";
-      const chatClass = actor.chatText ? " has-chat" : "";
+      const chatClass = visibleChatTextForActor(actor) ? " has-chat" : "";
       return `
         <div class="${survivorCardClass(actor)}${chatClass}">
           <div class="survivor-portrait" aria-hidden="true"></div>
@@ -2473,8 +2489,9 @@
         item.nameText.setText(data.name || "");
         item.nameText.setVisible(isVisible && data.id !== myId);
         if (item.chatText) {
-          item.chatText.setText(data.chatText || "");
-          item.chatText.setVisible(isVisible && !!data.chatText);
+          const actorChat = visibleChatTextForActor(data);
+          item.chatText.setText(actorChat);
+          item.chatText.setVisible(isVisible && !!actorChat);
         }
         this.styleActor(item, data);
 
