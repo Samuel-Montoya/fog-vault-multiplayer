@@ -6,35 +6,15 @@
     (navigator.maxTouchPoints && navigator.maxTouchPoints > 0)
     || window.matchMedia?.("(pointer: coarse)")?.matches
   );
-  const UA = navigator.userAgent || "";
-  const IS_EDGE = /\bEdg\//.test(UA);
-  const PERF_PARAMS = new URLSearchParams(window.location.search || "");
-  const STORED_PERF = (() => {
-    try { return localStorage.getItem("survivePerfMode") || ""; }
-    catch { return ""; }
-  })();
-  const FORCE_LOW_POWER = PERF_PARAMS.has("lite") || PERF_PARAMS.get("quality") === "low" || STORED_PERF === "low";
-  const FORCE_HIGH_POWER = PERF_PARAMS.get("quality") === "high" || STORED_PERF === "high";
-  const CPU_CORES = Number(navigator.hardwareConcurrency || 4);
-  const LOW_POWER_MODE = !FORCE_HIGH_POWER && Boolean(
-    FORCE_LOW_POWER
-    || IS_TOUCH_DEVICE
-    || IS_EDGE
-    || CPU_CORES <= 6
+  const LOW_POWER_MODE = Boolean(
+    IS_TOUCH_DEVICE
+    || (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4)
     || window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches
   );
-  // Extra conservative mode for Edge / older laptops. Edge can be perfectly fine,
-  // but on older GPUs WebGL + CSS filters + frequent Graphics redraws can eat RAM.
-  const ULTRA_LOW_MODE = !FORCE_HIGH_POWER && Boolean(
-    FORCE_LOW_POWER
-    || (IS_EDGE && CPU_CORES <= 8)
-    || (navigator.deviceMemory && navigator.deviceMemory <= 4)
-  );
-  const RENDER_RESOLUTION = Math.max(0.75, Math.min(window.devicePixelRatio || 1, ULTRA_LOW_MODE ? 0.85 : LOW_POWER_MODE ? 1 : 1.25));
+  const RENDER_RESOLUTION = Math.max(1, Math.min(window.devicePixelRatio || 1, LOW_POWER_MODE ? 1 : 1.5));
 
   document.documentElement.classList.toggle("touch-device", IS_TOUCH_DEVICE);
   document.documentElement.classList.toggle("low-power", LOW_POWER_MODE);
-  document.documentElement.classList.toggle("ultra-low-power", ULTRA_LOW_MODE);
 
   // Lighting knobs. The map is drawn at normal readable brightness. A black fog
   // RenderTexture sits above it, then the local player's flashlight erases that fog.
@@ -45,14 +25,14 @@
     SURVIVOR_ANGLE: Math.PI / 2.05,
     KILLER_LENGTH: 1080,
     KILLER_ANGLE: Math.PI / 1.62,
-    CONE_TEXTURE_WIDTH: ULTRA_LOW_MODE ? 384 : LOW_POWER_MODE ? 512 : 640,
-    CONE_TEXTURE_HEIGHT: ULTRA_LOW_MODE ? 384 : LOW_POWER_MODE ? 512 : 640,
+    CONE_TEXTURE_WIDTH: LOW_POWER_MODE ? 512 : 768,
+    CONE_TEXTURE_HEIGHT: LOW_POWER_MODE ? 512 : 768,
     CONE_BASE_HALF_ANGLE: Math.atan(0.56),
     // Softness controls are baked into tiny canvas textures once, not blurred every frame.
     // This keeps the beam smooth without asking the browser to melt itself.
     CONE_EDGE_SOFTNESS: LOW_POWER_MODE ? 0.38 : 0.30,
     CONE_TAIL_FADE: LOW_POWER_MODE ? 0.88 : 0.94,
-    BLOOM_ALPHA: ULTRA_LOW_MODE ? 0 : LOW_POWER_MODE ? 0.08 : 0.13,
+    BLOOM_ALPHA: LOW_POWER_MODE ? 0.10 : 0.16,
     AURA_ALPHA: 0.90,
     AURA_RADIUS: 220,
     // Tiny flicker keeps the flashlight alive without turning it into a disco lawsuit.
@@ -62,7 +42,7 @@
     // World-space padding around the current camera view. The fog layer is
     // bigger than the viewport so zooming in/out does not require resizing it
     // every frame, which was causing the flashlight to drift and the client to hitch.
-    FOG_VIEW_PADDING: ULTRA_LOW_MODE ? 112 : LOW_POWER_MODE ? 160 : 220
+    FOG_VIEW_PADDING: 240
   };
 
   const MUSIC = {
@@ -162,16 +142,13 @@
     // Expensive world UI is redrawn at fixed rates instead of every network snapshot.
     // Lower these if a very weak laptop is still wheezing. Raise them if you want
     // smoother generator bars / scratch marks at the cost of more Graphics work.
-    DYNAMIC_WORLD_FPS: ULTRA_LOW_MODE ? 2 : LOW_POWER_MODE ? 3 : 6,
+    DYNAMIC_WORLD_FPS: LOW_POWER_MODE ? 4 : 7,
     // Generator bars update on their own cheap layer. Full-map redraws should not
     // happen just because somebody is holding E. Humanity may survive this one.
-    GENERATOR_FPS: ULTRA_LOW_MODE ? 3 : LOW_POWER_MODE ? 4 : 6,
-    DOT_DRAW_FPS: ULTRA_LOW_MODE ? 8 : LOW_POWER_MODE ? 10 : 16,
-    ACTOR_DRAW_FPS: ULTRA_LOW_MODE ? 10 : LOW_POWER_MODE ? 14 : 24,
-    LIGHTING_FPS: ULTRA_LOW_MODE ? 22 : LOW_POWER_MODE ? 28 : 45,
-    SCRATCH_DRAW_FPS: ULTRA_LOW_MODE ? 3 : LOW_POWER_MODE ? 5 : 8,
-    MAX_PARTICLES: ULTRA_LOW_MODE ? 10 : LOW_POWER_MODE ? 18 : 42,
-    MAX_SHOCKWAVES: ULTRA_LOW_MODE ? 1 : LOW_POWER_MODE ? 2 : 5
+    GENERATOR_FPS: LOW_POWER_MODE ? 4 : 6,
+    SCRATCH_DRAW_FPS: LOW_POWER_MODE ? 6 : 8,
+    MAX_PARTICLES: LOW_POWER_MODE ? 28 : 58,
+    MAX_SHOCKWAVES: LOW_POWER_MODE ? 3 : 6
   };
 
   // Visual generator tuning. Put your actual SVG at public/gen.svg.
@@ -287,7 +264,7 @@
   const DOT_FADE_VISUAL = {
     IN_SPEED: LOW_POWER_MODE ? 8.5 : 11.5,
     OUT_SPEED: LOW_POWER_MODE ? 9.5 : 13.5,
-    FPS: PERFORMANCE.DOT_DRAW_FPS,
+    FPS: LOW_POWER_MODE ? 12 : 18,
     REMOVE_ALPHA: 0.018
   };
 
@@ -714,33 +691,40 @@
   function playSfx(name, options = {}) {
     const base = audio.sfx?.[name];
     if (!base) return;
-    if (!audio.sfxPools) audio.sfxPools = {};
-    const pool = audio.sfxPools[name] || (audio.sfxPools[name] = []);
-    const maxPool = ULTRA_LOW_MODE ? 3 : LOW_POWER_MODE ? 4 : 6;
-    let clip = pool.find((candidate) => candidate.paused || candidate.ended);
-    if (!clip && pool.length < maxPool) {
-      clip = base.cloneNode(true);
-      clip.loop = false;
-      pool.push(clip);
-    }
-    if (!clip) clip = pool[0];
-    if (!clip) return;
-    try {
-      clip.pause();
-      clip.currentTime = 0;
-    } catch {}
-    clip.volume = clamp((SFX.VOLUMES[name] || 0.75) * SFX.MASTER * (options.volumeScale || 1), 0, 1);
-    const rate = clamp(Number(options.playbackRate || 1), 0.5, 2.25);
-    try {
+    const clip = base.cloneNode(true);
+    clip.loop = false;
+
+    const playbackRate = Number(options.playbackRate);
+    if (Number.isFinite(playbackRate) && playbackRate > 0) {
+      // Set these before playbackRate so browsers actually pitch-shift instead of preserving pitch like helpful little pests.
       clip.preservesPitch = false;
       clip.mozPreservesPitch = false;
       clip.webkitPreservesPitch = false;
-      clip.playbackRate = rate;
-    } catch {}
+      clip.playbackRate = clamp(playbackRate, 0.5, 2.25);
+    }
+
+    clip.volume = clamp((SFX.VOLUMES[name] || 0.75) * SFX.MASTER, 0, 1);
     clip.play().catch(() => {
       // Browser autoplay rules can still block if the user has not interacted yet.
       // Once they click or press a key, future effects will play. Naturally, browsers need consent to scream.
     });
+  }
+
+  const LOCAL_SFX_RANGE = {
+    swing: 315,
+    hit: 440
+  };
+
+  function getLocalVisualActor() {
+    return phaserScene?.actors?.get(myId) || null;
+  }
+
+  function distanceToLocalEvent(event) {
+    const me = getLocalVisualActor();
+    const x = Number(event?.x);
+    const y = Number(event?.y);
+    if (!me?.current || !Number.isFinite(x) || !Number.isFinite(y)) return Infinity;
+    return dist(me.current.x, me.current.y, x, y);
   }
 
   function playLocalizedSwing(event) {
@@ -988,20 +972,17 @@
       this.grassLayer = null;
       this.worldGraphics = this.add.graphics().setDepth(1);
       this.dynamicGraphics = this.add.graphics().setDepth(3);
-      this.collectibleDotGraphics = this.add.graphics().setDepth(3.15);
       this.generatorGraphics = this.add.graphics().setDepth(3.25);
       this.generatorDepositVisual = new Map();
       this.generatorDepositLastRaw = new Map();
       this.collectibleDotVisuals = new Map();
       this.collectibleDotsAnimating = false;
-      this.needsDotRedraw = true;
-      this.dotRedrawTimer = 0;
       this.scratchGraphics = this.add.graphics().setDepth(4);
       // Kept only as a cheap fallback container. The actual beam glow is now a pre-baked
       // soft sprite, because per-frame triangle drawing made the cone edge look harsh.
       this.flashlightGlowGraphics = this.add.graphics()
-        .setDepth(LIGHTING.FOG_DEPTH - 1);
-      if (!ULTRA_LOW_MODE) this.flashlightGlowGraphics.setBlendMode(Phaser.BlendModes.ADD);
+        .setDepth(LIGHTING.FOG_DEPTH - 1)
+        .setBlendMode(Phaser.BlendModes.ADD);
       this.chargeGraphics = this.add.graphics().setDepth(21);
       this.swipeGraphics = this.add.graphics().setDepth(22);
       this.particleGraphics = this.add.graphics().setDepth(30);
@@ -1023,8 +1004,6 @@
       }).setOrigin(0.5).setDepth(2701).setScrollFactor(0, 0).setVisible(false));
       this.swipes = [];
       this.recentHookIndicators = [];
-      this.seenEventIds = new Set();
-      this.seenEventQueue = [];
       this.createGeneratorFallbackTexture();
       this.createLightTextures();
       this.lightConeMask = this.make.image({ x: 0, y: 0, key: "softFlashlightCone", add: false })
@@ -1234,8 +1213,6 @@
       this.lastGeneratorKey = "";
       this.collectibleDotVisuals?.clear();
       this.collectibleDotsAnimating = false;
-      this.needsDotRedraw = true;
-      this.collectibleDotGraphics?.clear();
       this.needsDynamicRedraw = true;
       this.needsGeneratorRedraw = true;
       this.localVisual = null;
@@ -1536,6 +1513,7 @@
       this.syncGeneratorSprites(currentSnapshot.map?.generators || this.map.generators || []);
       for (const gate of currentSnapshot.map?.gates || this.map.gates || []) this.drawGate(g, gate);
       for (const hook of currentSnapshot.map?.hooks || this.map.hooks || []) this.drawHook(g, hook);
+      this.drawCollectibleDots(g);
     }
 
     updateCollectibleDotVisuals(dt) {
@@ -1578,23 +1556,10 @@
       }
 
       this.collectibleDotsAnimating = animating;
-      if (animating) this.needsDotRedraw = true;
       return animating;
     }
 
-    maybeDrawCollectibleDots(dt) {
-      this.dotRedrawTimer = (this.dotRedrawTimer || 0) + dt;
-      const interval = 1 / PERFORMANCE.DOT_DRAW_FPS;
-      if (!this.needsDotRedraw && !this.collectibleDotsAnimating && this.dotRedrawTimer < interval) return;
-      if (this.dotRedrawTimer < interval) return;
-      this.drawCollectibleDots(this.collectibleDotGraphics);
-      this.needsDotRedraw = false;
-      this.dotRedrawTimer = 0;
-    }
-
     drawCollectibleDots(g) {
-      if (!g) return;
-      g.clear();
       if (!this.collectibleDotVisuals?.size) return;
       for (const dot of this.collectibleDotVisuals.values()) this.drawCollectibleDot(g, dot);
     }
@@ -2294,15 +2259,8 @@
 
     handleEvents(events) {
       for (const event of events) {
-        if (!event?.id) continue;
-        if (!this.seenEventIds) { this.seenEventIds = new Set(); this.seenEventQueue = []; }
-        if (this.seenEventIds.has(event.id)) continue;
-        this.seenEventIds.add(event.id);
-        this.seenEventQueue.push(event.id);
-        while (this.seenEventQueue.length > 160) {
-          const oldId = this.seenEventQueue.shift();
-          this.seenEventIds.delete(oldId);
-        }
+        if (this[`seen_${event.id}`]) continue;
+        this[`seen_${event.id}`] = true;
         if (event.type === "swipe" || event.type === "swing") {
           this.addSwipeIndicator(event);
           playLocalizedSwing(event);
@@ -2525,11 +2483,10 @@
       this.updateImmersion(dt);
       this.updateCamera(dt);
       this.updateCollectibleDotVisuals(dt);
-      this.maybeDrawCollectibleDots(dt);
       this.maybeDrawDynamicWorld(dt);
       this.maybeDrawGeneratorLayer(dt);
       this.maybeUpdateScratchGraphics(dt);
-      this.drawLighting(dt);
+      this.drawLighting();
       this.drawHookIndicators();
       this.drawChatWheel();
       this.drawChargeIndicators(dt);
@@ -2646,21 +2603,7 @@
           item.dotDisplay = lerp(prevDisplay, targetDots, dampAlpha(smoothing, dt));
         }
         if (item.data?.role === "killer" || item.data?.role === "survivor") {
-          item.visualRedrawTimer = (item.visualRedrawTimer || 0) + dt;
-          const dotStep = Math.round((item.dotDisplay || 0) * (ULTRA_LOW_MODE ? 2 : 4));
-          const depositStep = Math.round((item.dotDepositVisual || 0) * (ULTRA_LOW_MODE ? 4 : 8));
-          const visualKey = [
-            item.data.role, item.data.health, item.data.injured ? 1 : 0, item.data.downed ? 1 : 0,
-            item.data.hooked ? 1 : 0, item.data.dead ? 1 : 0, item.data.escaped ? 1 : 0,
-            item.data.invuln > 0 ? 1 : 0, item.data.attackState || "", item.data.attacking ? 1 : 0,
-            item.data.recovery > 0 ? 1 : 0, item.data.skin || "", dotStep, depositStep,
-            Math.round((item.data.healProgress || item.data.hookProgress || item.data.unhookProgress || 0) * 10)
-          ].join(":");
-          if (visualKey !== item.lastVisualKey || item.visualRedrawTimer >= 1 / PERFORMANCE.ACTOR_DRAW_FPS) {
-            item.lastVisualKey = visualKey;
-            item.visualRedrawTimer = 0;
-            this.styleActor(item, item.data);
-          }
+          this.styleActor(item, item.data);
         }
         if (item.nameText) {
           const isKiller = item.data?.role === "killer";
@@ -2796,7 +2739,8 @@
       const palletKey = (map.pallets || []).map((p) => `${p.id}:${p.state}:${p.broken ? 1 : 0}`).join("|");
       const hookKey = (map.hooks || []).map((h) => `${h.id}:${h.active ? 1 : 0}:${h.survivorId || ""}`).join("|");
       const gateKey = (map.gates || []).map((g) => `${g.id}:${g.open ? 1 : 0}`).join("|");
-      return `${palletKey}#${hookKey}#${gateKey}`;
+      const dotKey = (currentSnapshot?.collectibleDots || []).map((d) => d.id).join(",");
+      return `${palletKey}#${hookKey}#${gateKey}#${dotKey}`;
     }
 
     getGeneratorWorldKey() {
@@ -2815,9 +2759,10 @@
 
     maybeDrawDynamicWorld(dt) {
       this.dynamicRedrawTimer += dt;
+      const animatingDots = !!this.collectibleDotsAnimating;
       const animatingHooks = (currentSnapshot?.map?.hooks || this.map?.hooks || []).some((hook) => hook && hook.active !== false);
-      const animated = animatingHooks;
-      const interval = 1 / (animatingHooks ? (ULTRA_LOW_MODE ? 6 : 10) : PERFORMANCE.DYNAMIC_WORLD_FPS);
+      const animated = animatingDots || animatingHooks;
+      const interval = 1 / (animatingDots ? DOT_FADE_VISUAL.FPS : animatingHooks ? 12 : PERFORMANCE.DYNAMIC_WORLD_FPS);
       if (!this.needsDynamicRedraw && !animated && this.dynamicRedrawTimer < interval) return;
       if (this.dynamicRedrawTimer < interval) return;
       const key = this.getDynamicWorldKey();
@@ -2925,12 +2870,7 @@
       this.scratchRedrawTimer = 0;
     }
 
-    drawLighting(dt = 0) {
-      this.lightingRedrawTimer = (this.lightingRedrawTimer || 0) + dt;
-      const lightingInterval = 1 / PERFORMANCE.LIGHTING_FPS;
-      if (this.fogRT && this.lightingRedrawTimer < lightingInterval) return;
-      this.lightingRedrawTimer = 0;
-
+    drawLighting() {
       const me = this.actors.get(myId);
       const cam = this.cameras.main;
       const pad = LIGHTING.FOG_VIEW_PADDING;
@@ -2995,7 +2935,7 @@
 
       // Visible flashlight bloom. Use one pre-baked soft sprite instead of several hard-edged
       // Graphics triangles. One additive sprite is cheaper and blends far better.
-      if (this.flashlightBloomImage && !ULTRA_LOW_MODE) {
+      if (this.flashlightBloomImage) {
         const bloomLength = length * 0.86 * flicker;
         const bloomYScale = (Math.tan(angle / 2) / Math.tan(LIGHTING.CONE_BASE_HALF_ANGLE)) * 1.06;
         this.flashlightBloomImage
@@ -3314,13 +3254,13 @@
         antialias: false,
         pixelArt: false,
         roundPixels: LOW_POWER_MODE,
-        powerPreference: ULTRA_LOW_MODE ? "low-power" : "high-performance",
+        powerPreference: "high-performance",
         preserveDrawingBuffer: false,
         clearBeforeRender: true
       },
       fps: {
-        target: ULTRA_LOW_MODE ? 45 : LOW_POWER_MODE ? 50 : 60,
-        min: ULTRA_LOW_MODE ? 18 : LOW_POWER_MODE ? 24 : 30,
+        target: 60,
+        min: LOW_POWER_MODE ? 24 : 30,
         forceSetTimeOut: false
       },
       scene: [GameScene]
