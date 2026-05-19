@@ -859,9 +859,30 @@
     return "safe";
   }
 
+  function survivorHudChatLine(actor) {
+    if (!actor?.chatText) return "";
+    return `<div class="survivor-chat" role="status">"${escapeHtml(actor.chatText)}"</div>`;
+  }
+
+  function renderKillerChatHudCard(killer) {
+    if (!killer?.chatText) return "";
+    const name = escapeHtml(killer.name || "Killer");
+    return `
+      <div class="survivor-status-card killer-chat-card has-chat">
+        <div class="survivor-portrait killer-portrait" aria-hidden="true"></div>
+        <div class="survivor-meta">
+          <div class="survivor-name-row"><span class="survivor-name">${name}</span><span class="survivor-you">Killer</span></div>
+          ${survivorHudChatLine(killer)}
+        </div>
+        <div class="survivor-action">chat</div>
+      </div>`;
+  }
+
   function renderSurvivorStatusHud(snapshot) {
     if (!ui.survivorStatusHud) return;
-    const survivors = (snapshot.actors || [])
+    const actors = snapshot.actors || [];
+    const killer = actors.find((actor) => actor.role === "killer" && actor.chatText);
+    const survivors = actors
       .filter((actor) => actor.role === "survivor")
       .sort((a, b) => {
         if (a.id === myId) return -1;
@@ -869,23 +890,30 @@
         return String(a.name || "").localeCompare(String(b.name || ""));
       });
 
-    ui.survivorStatusHud.innerHTML = survivors.map((actor) => {
+    const survivorCards = survivors.map((actor) => {
       const state = survivorStateLabel(actor);
       const name = escapeHtml(actor.name || "Survivor");
       const you = actor.id === myId ? '<span class="survivor-you">You</span>' : "";
       const dotsHeld = Math.min(SURVIVOR_DOT_MAX, actor.dots || 0);
       const depositText = actor.dotDepositTargetId ? ` • feeding ${Math.round((actor.dotDepositProgress || 0) * 100)}%` : "";
+      const chatClass = actor.chatText ? " has-chat" : "";
       return `
-        <div class="${survivorCardClass(actor)}">
+        <div class="${survivorCardClass(actor)}${chatClass}">
           <div class="survivor-portrait" aria-hidden="true"></div>
           <div class="survivor-meta">
             <div class="survivor-name-row"><span class="survivor-name">${name}</span>${you}</div>
             <div class="survivor-state">${escapeHtml(state)}</div>
+            ${survivorHudChatLine(actor)}
             <div class="survivor-dots" aria-label="Collectible dots">${dotsHeld} / ${SURVIVOR_DOT_MAX}${depositText}</div>
           </div>
           <div class="survivor-action">${escapeHtml(actionLabel(actor))}</div>
         </div>`;
-    }).join("") || '<div class="survivor-status-card dead"><div class="survivor-portrait"></div><div class="survivor-meta"><div class="survivor-name">No survivors</div><div class="survivor-state">Empty trial</div></div><div class="survivor-action">void</div></div>';
+    }).join("");
+
+    ui.survivorStatusHud.innerHTML = [
+      renderKillerChatHudCard(killer),
+      survivorCards
+    ].filter(Boolean).join("") || '<div class="survivor-status-card dead"><div class="survivor-portrait"></div><div class="survivor-meta"><div class="survivor-name">No survivors</div><div class="survivor-state">Empty trial</div></div><div class="survivor-action">void</div></div>';
   }
 
   function getThreatLevels(snapshot, me) {
@@ -1986,7 +2014,8 @@
       const hudKey = JSON.stringify({
         self: [me.id, me.role, me.health, me.dots, me.injured, me.downed, me.hooked, me.dead, me.escaped, me.chase, me.hookProgress, me.healProgress, me.generatorKickTargetId, me.generatorKickProgress],
         objective: [objective.doneGenerators, objective.requiredGenerators, objective.totalGenerators, objective.escapeOpen],
-        survivors: (snapshot.actors || []).filter((a) => a.role === "survivor").map((a) => [a.id, a.health, a.dots, a.injured, a.downed, a.hooked, a.dead, a.escaped, a.chase, a.hookProgress, a.healProgress, a.hookCount]),
+        survivors: (snapshot.actors || []).filter((a) => a.role === "survivor").map((a) => [a.id, a.health, a.dots, a.injured, a.downed, a.hooked, a.dead, a.escaped, a.chase, a.hookProgress, a.healProgress, a.hookCount, a.chatText]),
+        killerChat: (snapshot.actors || []).find((a) => a.role === "killer")?.chatText || null,
         dots: (snapshot.collectibleDots || []).map((d) => d.id).join(",")
       });
       if (hudKey === this.lastHudKey && now - this.lastHudRenderAt < 180) return;
