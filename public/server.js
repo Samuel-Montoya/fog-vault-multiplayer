@@ -1683,16 +1683,7 @@ function updateDotDeposits(game, dt) {
         gen.repairing = false;
         gen.dotDepositing = false;
         gen.activeRepairers = [];
-        const completedRifts = game.map.generators.filter((g) => g.done).length;
-        const allRiftsDone = completedRifts >= game.requiredGenerators;
-        addEvent(game, "genDone", {
-          x: gen.x,
-          y: gen.y,
-          generatorId: gen.id,
-          completedRifts,
-          requiredRifts: game.requiredGenerators,
-          allRiftsDone
-        });
+        addEvent(game, "genDone", { x: gen.x, y: gen.y });
         break;
       }
     }

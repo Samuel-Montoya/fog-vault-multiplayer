@@ -2,6 +2,12 @@
 (() => {
   "use strict";
 
+  const GAMEPLAY_CONFIG = window.GAMEPLAY_CONFIG || {};
+  function cfgNumber(value, fallback) {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : fallback;
+  }
+
   const IS_TOUCH_DEVICE = Boolean(
     (navigator.maxTouchPoints && navigator.maxTouchPoints > 0)
     || window.matchMedia?.("(pointer: coarse)")?.matches
@@ -20,11 +26,11 @@
   // RenderTexture sits above it, then the local player's flashlight erases that fog.
   // Inside the cone you see the real map, not a white overlay and not a black void.
   const LIGHTING = {
-    MAP_DARKNESS: 0.38,          // 0 = no fog, 0.85 = very dark outside vision
-    SURVIVOR_LENGTH: 880,
-    SURVIVOR_ANGLE: Math.PI / 2.05,
-    KILLER_LENGTH: 1080,
-    KILLER_ANGLE: Math.PI / 1.62,
+    MAP_DARKNESS: cfgNumber(GAMEPLAY_CONFIG.lighting?.mapDarkness, 0.38),          // 0 = no fog, 0.85 = very dark outside vision
+    SURVIVOR_LENGTH: cfgNumber(GAMEPLAY_CONFIG.survivor?.clientConeLength, cfgNumber(GAMEPLAY_CONFIG.survivor?.coneLength, 880)),
+    SURVIVOR_ANGLE: cfgNumber(GAMEPLAY_CONFIG.survivor?.clientConeAngle, cfgNumber(GAMEPLAY_CONFIG.survivor?.coneAngle, Math.PI / 2.05)),
+    KILLER_LENGTH: cfgNumber(GAMEPLAY_CONFIG.void?.clientConeLength, cfgNumber(GAMEPLAY_CONFIG.void?.coneLength, 1080)),
+    KILLER_ANGLE: cfgNumber(GAMEPLAY_CONFIG.void?.clientConeAngle, cfgNumber(GAMEPLAY_CONFIG.void?.coneAngle, Math.PI / 1.62)),
     CONE_TEXTURE_WIDTH: LOW_POWER_MODE ? 512 : 768,
     CONE_TEXTURE_HEIGHT: LOW_POWER_MODE ? 512 : 768,
     CONE_BASE_HALF_ANGLE: Math.atan(0.56),
@@ -70,32 +76,40 @@
         hooked: "/hooked.mp3",
         dead: "/dead.mp3",
         gen: "/gen.mp3",
+        riftsComplete: "/rifts_complete.mp3",
         swing: "/swing.ogg",
         windowVault: "/window_vault.ogg",
         palletVault: "/pallet_vault.ogg",
+        palletDrop: "/pallet_drop.mp3",
         injured: "/injured.ogg",
         orbPickup: "/orb_pickup.mp3",
         orbDeposit: "/orb_deposit.mp3",
-        buttonClick: "/button_click.mp3"
+        buttonClick: "/button_click.mp3",
+        playerSpeak: "/player_speak.mp3"
       },
       volumes: {
         hooked: 0.82,
         dead: 0.9,
         gen: 0.76,
+        riftsComplete: 0.86,
         swing: 0.42,
         windowVault: 0.34,
         palletVault: 0.76,
+        palletDrop: 0.72,
         injured: 0.8,
         orbPickup: 0.68,
         orbDeposit: 0.72,
-        buttonClick: 0.55
+        buttonClick: 0.55,
+        playerSpeak: 0.62
       },
       pitchSteps: {
         hooked: [0.84, 0.92, 1.0, 1.09, 1.18, 1.28],
         swing: [0.9, 0.96, 1.0, 1.08, 1.16, 1.25, 1.34],
         windowVault: [0.88, 0.94, 1.0, 1.07, 1.15, 1.24],
+        palletDrop: [0.86, 0.94, 1.0, 1.08, 1.17, 1.26],
         orbPickup: [0.9, 0.96, 1.0, 1.08, 1.16, 1.25, 1.34],
-        buttonClick: [0.92, 0.97, 1.0, 1.05, 1.11, 1.18]
+        buttonClick: [0.92, 0.97, 1.0, 1.05, 1.11, 1.18],
+        playerSpeak: [0.88, 0.94, 1.0, 1.07, 1.15, 1.24]
       },
       localRange: {
         swing: 315,
@@ -163,11 +177,11 @@
     DEPOSIT_ZOOM: LOW_POWER_MODE ? 0.055 : 0.12,
     SPAWN_ZOOM: LOW_POWER_MODE ? 0.10 : 0.18,
     SPAWN_ZOOM_DECAY: LOW_POWER_MODE ? 4.2 : 5.6,
-    // Server-authoritative start lock gets a held zoom so spawn-in feels intentional,
-    // not like everyone forgot which key moves their little doomed circle.
-    MATCH_START_LOCK_SECONDS: 1.5,
-    MATCH_START_LOCK_ZOOM: LOW_POWER_MODE ? 0.18 : 0.30,
-    ZOOM_SMOOTHING: LOW_POWER_MODE ? 4.8 : 6.8,
+    // Match start is now a cinematic pull-in: start zoomed out, then glide back
+    // to normal exactly as the server-authoritative movement lock expires.
+    MATCH_START_LOCK_SECONDS: cfgNumber(GAMEPLAY_CONFIG.match?.startFreezeSeconds, 1.5),
+    MATCH_START_ZOOM_OUT: LOW_POWER_MODE ? 0.26 : 0.48,
+    ZOOM_SMOOTHING: LOW_POWER_MODE ? 5.8 : 8.2,
     CHASE_IN_LERP: 0.055,
     CHASE_OUT_LERP: 0.04,
     TERROR_LERP: 0.07,
@@ -194,6 +208,12 @@
     TUNNEL_MAX: 0.68
   };
 
+  const MATCH_START_TRANSITION = {
+    TOTAL_MS: 1500,
+    FADE_TO_BLACK_MS: 360,
+    FADE_TO_GAME_MS: 1140
+  };
+
   const FX_SMOOTHING = {
     // Red vignette ramps quickly when you stare at the killer, then fades slowly when you look away.
     // This prevents the on/off flash that made chase feel cheap and jittery.
@@ -207,7 +227,7 @@
 
   // Keep this matched with server.js. Client uses it only for local prediction
   // so walking into generators does not feel like rubber-band soup.
-  const GENERATOR_COLLISION_SIZE = 54;
+  const GENERATOR_COLLISION_SIZE = cfgNumber(GAMEPLAY_CONFIG.rift?.collisionSize, 54);
 
   const PERFORMANCE = {
     // Expensive world UI is redrawn at fixed rates instead of every network snapshot.
@@ -296,15 +316,15 @@
   };
 
   const LOCAL_SPEEDS = {
-    survivorWalk: 170,
-    survivorSprint: 285,
-    survivorBoost: 350,
-    killer: 310,
-    killerRecoveryMult: 0.28,
-    killerLungeMult: 1.22,
-    downedCrawl: 62,
-    survivorSize: 30,
-    killerSize: 38
+    survivorWalk: cfgNumber(GAMEPLAY_CONFIG.survivor?.walkSpeed, 170),
+    survivorSprint: cfgNumber(GAMEPLAY_CONFIG.survivor?.sprintSpeed, 285),
+    survivorBoost: cfgNumber(GAMEPLAY_CONFIG.survivor?.hitBurstSpeed, 350),
+    killer: cfgNumber(GAMEPLAY_CONFIG.void?.speed, 310),
+    killerRecoveryMult: cfgNumber(GAMEPLAY_CONFIG.void?.recoverySpeedMultiplier, 0.28),
+    killerLungeMult: cfgNumber(GAMEPLAY_CONFIG.attack?.lungeSpeedMultiplier, 1.22),
+    downedCrawl: cfgNumber(GAMEPLAY_CONFIG.survivor?.downedCrawlSpeed, 62),
+    survivorSize: cfgNumber(GAMEPLAY_CONFIG.actor?.survivorSize, 30),
+    killerSize: cfgNumber(GAMEPLAY_CONFIG.actor?.voidSize, 38)
   };
 
   const COLORS = {
@@ -332,7 +352,7 @@
     collectibleDotGlow: 0xffe08a
   };
 
-  const SURVIVOR_DOT_MAX = 10;
+  const SURVIVOR_DOT_MAX = cfgNumber(GAMEPLAY_CONFIG.orbs?.survivorMax, 10);
 
   const DOT_ORBIT_VISUAL = {
     RADIUS_BASE: 22,
@@ -478,6 +498,8 @@
     menuHowBtn: document.getElementById("menuHowBtn"),
     menuMusicToggleBtn: document.getElementById("menuMusicToggleBtn"),
     menuMusicToggleBtnOptions: document.getElementById("menuMusicToggleBtnOptions"),
+    menuMusicVolumeSlider: document.getElementById("menuMusicVolumeSlider"),
+    menuMusicVolumeValue: document.getElementById("menuMusicVolumeValue"),
     menuBackBtns: [...document.querySelectorAll(".menu-back-btn")],
     playerName: document.getElementById("playerName"),
     roleBtns: [...document.querySelectorAll(".role-btn")],
@@ -509,6 +531,7 @@
     winnerText: document.getElementById("winnerText"),
     reasonText: document.getElementById("reasonText"),
     backToLobbyBtn: document.getElementById("backToLobbyBtn"),
+    spectateBtn: document.getElementById("spectateBtn"),
     mainMenuBtn: document.getElementById("mainMenuBtn"),
     mobileControls: document.getElementById("mobileControls")
   };
@@ -568,16 +591,41 @@
   };
 
   const MENU_MUSIC_MUTE_KEY = "surviveMenuMusicMuted";
+  const MENU_MUSIC_VOLUME_KEY = "surviveMenuMusicVolume";
+
+  function clamp01(value) {
+    return Math.max(0, Math.min(1, value));
+  }
 
   function isMenuMusicMuted() {
     try { return localStorage.getItem(MENU_MUSIC_MUTE_KEY) === "1"; }
     catch { return false; }
   }
 
+  function getMenuMusicVolume() {
+    const configDefault = Number.isFinite(MUSIC.MENU_MASTER) ? MUSIC.MENU_MASTER : 0.14;
+    try {
+      const saved = localStorage.getItem(MENU_MUSIC_VOLUME_KEY);
+      if (saved !== null) return clamp01(Number(saved));
+    } catch {
+      // Storage can fail in strict/private browser modes. The config default still works.
+    }
+    return clamp01(configDefault);
+  }
+
+  function setMenuMusicVolume(value) {
+    const volume = clamp01(Number(value));
+    try { localStorage.setItem(MENU_MUSIC_VOLUME_KEY, String(volume)); }
+    catch { /* Still applies for this session through the audio element. */ }
+    syncMenuMusicVolumeUi();
+    applyMenuMusicVolume();
+  }
+
   function setMenuMusicMuted(muted) {
     try { localStorage.setItem(MENU_MUSIC_MUTE_KEY, muted ? "1" : "0"); }
     catch { /* Private browsing can refuse storage. Mute still works this session. */ }
     syncMenuMusicToggleUi();
+    syncMenuMusicVolumeUi();
     applyMenuMusicVolume();
   }
 
@@ -585,8 +633,9 @@
     const menu = audio.menu;
     if (!menu) return;
     const muted = isMenuMusicMuted();
-    menu.volume = muted ? 0 : MUSIC.MENU_MASTER;
-    if (muted) {
+    const volume = getMenuMusicVolume();
+    menu.volume = muted ? 0 : volume;
+    if (muted || volume <= 0.001) {
       menu.pause();
       return;
     }
@@ -602,6 +651,28 @@
       btn.setAttribute("aria-pressed", muted ? "true" : "false");
       btn.classList.toggle("is-muted", muted);
     }
+  }
+
+  function syncMenuMusicVolumeUi() {
+    const volume = getMenuMusicVolume();
+    const percent = Math.round(volume * 100);
+    if (ui.menuMusicVolumeSlider) {
+      ui.menuMusicVolumeSlider.value = String(percent);
+      ui.menuMusicVolumeSlider.setAttribute("aria-valuetext", `${percent}%`);
+    }
+    if (ui.menuMusicVolumeValue) ui.menuMusicVolumeValue.textContent = `${percent}%`;
+  }
+
+  function bindMenuMusicVolumeSlider(slider) {
+    if (!slider) return;
+    const handleChange = () => {
+      const next = Number(slider.value || 0) / 100;
+      setMenuMusicVolume(next);
+      if (next > 0 && isMenuMusicMuted()) setMenuMusicMuted(false);
+      ensureMenuAudioStarted();
+    };
+    slider.addEventListener("input", handleChange);
+    slider.addEventListener("change", handleChange);
   }
 
   function toggleMenuMusicMuted() {
@@ -684,6 +755,65 @@
     ui.mobileControls?.classList.toggle("hidden", name !== "game" || !IS_TOUCH_DEVICE);
   }
 
+  let matchTransitionTimers = [];
+
+  function clearMatchStartTransitionTimers() {
+    for (const timer of matchTransitionTimers) clearTimeout(timer);
+    matchTransitionTimers = [];
+  }
+
+  function getMatchStartTransitionOverlay() {
+    let overlay = document.getElementById("matchStartTransition");
+    if (overlay) return overlay;
+    overlay = document.createElement("div");
+    overlay.id = "matchStartTransition";
+    overlay.setAttribute("aria-hidden", "true");
+    Object.assign(overlay.style, {
+      position: "fixed",
+      inset: "0",
+      zIndex: "9000",
+      pointerEvents: "none",
+      background: "#000",
+      opacity: "0",
+      display: "none",
+      willChange: "opacity"
+    });
+    document.body.appendChild(overlay);
+    return overlay;
+  }
+
+  function runMatchStartTransition(revealGame) {
+    const overlay = getMatchStartTransitionOverlay();
+    clearMatchStartTransitionTimers();
+
+    overlay.style.display = "block";
+    overlay.style.pointerEvents = "auto";
+    overlay.style.transition = "none";
+    overlay.style.opacity = "0";
+    overlay.getBoundingClientRect();
+
+    const fadeToBlackMs = MATCH_START_TRANSITION.FADE_TO_BLACK_MS;
+    const fadeToGameMs = MATCH_START_TRANSITION.FADE_TO_GAME_MS;
+
+    requestAnimationFrame(() => {
+      overlay.style.transition = `opacity ${fadeToBlackMs}ms cubic-bezier(.2,.72,.2,1)`;
+      overlay.style.opacity = "1";
+    });
+
+    matchTransitionTimers.push(setTimeout(() => {
+      revealGame?.();
+      overlay.style.transition = `opacity ${fadeToGameMs}ms cubic-bezier(.15,.85,.25,1)`;
+      overlay.style.opacity = "0";
+    }, fadeToBlackMs));
+
+    matchTransitionTimers.push(setTimeout(() => {
+      overlay.style.display = "none";
+      overlay.style.pointerEvents = "none";
+      overlay.style.transition = "none";
+      overlay.style.opacity = "0";
+    }, fadeToBlackMs + fadeToGameMs + 40));
+  }
+
   function getName() {
     return (ui.playerName.value || "Player").trim().slice(0, 18) || "Player";
   }
@@ -694,6 +824,98 @@
     ui.toast.classList.remove("hidden");
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => ui.toast.classList.add("hidden"), ms);
+  }
+
+
+  const ANNOUNCEMENT_LIFETIME_MS = 3200;
+  const ANNOUNCEMENT_MAX_VISIBLE = 3;
+
+  function getAnnouncementRoot() {
+    let root = document.getElementById("matchAnnouncements");
+    if (!root) {
+      root = document.createElement("div");
+      root.id = "matchAnnouncements";
+      root.className = "match-announcements";
+      root.setAttribute("aria-live", "polite");
+      root.setAttribute("aria-atomic", "false");
+      document.body.appendChild(root);
+    }
+    return root;
+  }
+
+  function actorNameFromSnapshot(actorId, fallback = "Survivor") {
+    if (!actorId) return fallback;
+    const snapshotActor = (currentSnapshot?.actors || []).find((actor) => actor.id === actorId);
+    if (snapshotActor?.name) return snapshotActor.name;
+    const sceneActor = phaserScene?.actors?.get(actorId);
+    if (sceneActor?.data?.name) return sceneActor.data.name;
+    return fallback;
+  }
+
+  function pushMatchAnnouncement({ title, detail = "", kind = "rift" }) {
+    if (!title || activeScreenName !== "game") return;
+    const root = getAnnouncementRoot();
+    const existing = [...root.querySelectorAll(".match-announcement")];
+    for (const old of existing.slice(0, Math.max(0, existing.length - ANNOUNCEMENT_MAX_VISIBLE + 1))) {
+      old.remove();
+    }
+
+    const card = document.createElement("div");
+    card.className = `match-announcement ${kind ? `is-${kind}` : ""}`;
+    card.innerHTML = `
+      <div class="match-announcement-rune" aria-hidden="true"></div>
+      <div class="match-announcement-copy">
+        <strong>${escapeHtml(title)}</strong>
+        ${detail ? `<span>${escapeHtml(detail)}</span>` : ""}
+      </div>
+    `;
+    root.appendChild(card);
+    window.setTimeout(() => card.classList.add("leaving"), ANNOUNCEMENT_LIFETIME_MS - 520);
+    window.setTimeout(() => card.remove(), ANNOUNCEMENT_LIFETIME_MS);
+  }
+
+  function announceMatchEvent(event) {
+    if (!event || !event.type) return;
+
+    if (event.type === "hooked") {
+      if (event.survivorId === myId) return;
+      const name = actorNameFromSnapshot(event.survivorId, "A Survivor");
+      pushMatchAnnouncement({
+        kind: "hook",
+        title: `${name} was hooked`,
+        detail: "The Void tightens its grip."
+      });
+      return;
+    }
+
+    if (event.type === "execute" || event.type === "death") {
+      if (event.survivorId === myId) return;
+      const name = actorNameFromSnapshot(event.survivorId, "A Survivor");
+      pushMatchAnnouncement({
+        kind: "death",
+        title: `${name} was claimed`,
+        detail: "Their signal vanished into the dark."
+      });
+      return;
+    }
+
+    if (event.type === "genDone") {
+      if (event.allRiftsDone) {
+        pushMatchAnnouncement({
+          kind: "void",
+          title: "Escape Voids Open",
+          detail: "Stand in an open Void for 4 seconds."
+        });
+      } else {
+        const completed = Number(event.completedRifts || 0);
+        const required = Number(event.requiredRifts || 0);
+        pushMatchAnnouncement({
+          kind: "rift",
+          title: "Rift restored",
+          detail: completed && required ? `${completed} / ${required} restored.` : "The escape voids grow closer."
+        });
+      }
+    }
   }
 
   function clamp(value, min, max) {
@@ -790,7 +1012,7 @@
 
   function isLocalSpectating() {
     const me = getLocalPlayerData();
-    return me?.role === "survivor" && !!me.dead;
+    return me?.role === "survivor" && (!!me.dead || !!me.escaped);
   }
 
   function getLivingTeammates(snapshot = currentSnapshot) {
@@ -815,6 +1037,8 @@
     audio.menu = new Audio(MUSIC.MENU);
     audio.menu.loop = true;
     audio.menu.preload = "auto";
+    syncMenuMusicToggleUi();
+    syncMenuMusicVolumeUi();
     applyMenuMusicVolume();
     audio.menu.addEventListener("error", () => null);
 
@@ -1054,6 +1278,7 @@
   function survivorStateLabel(actor) {
     if (actor.dead) return "Dead";
     if (actor.escaped) return "Escaped";
+    if (actor.escapeProgress > 0) return `Escaping ${Math.round((actor.escapeProgress || 0) * 100)}%`;
     if (actor.hooked) return actor.unhookProgress > 0 ? "Being Rescued" : `Hooked ${actor.hookCount || 1}/2`;
     if (actor.downed) {
       if (actor.healProgress > 0) return "Being Healed";
@@ -1282,17 +1507,20 @@
       this.spawnInPlayed = false;
       this.spawnInAt = 0;
       this.matchStartFreezeRemaining = 0;
+      this.matchStartFreezeDuration = IMMERSION.MATCH_START_LOCK_SECONDS;
       this.matchStartZoomUntil = 0;
       this.lastMoveDirX = 0;
       this.lastMoveDirY = 0;
       this.spectateTargetId = null;
       this.lastSpectateEmitId = "";
       this.lastSpectateEmitAt = 0;
+      this.localEscapeScreenShown = false;
+      this.lastLocalChatText = "";
     }
 
     isSpectating() {
       const me = this.actors.get(myId)?.data || getLocalPlayerData();
-      return me?.role === "survivor" && !!me.dead;
+      return me?.role === "survivor" && (!!me.dead || !!me.escaped);
     }
 
     getLivingTeammates() {
@@ -2348,17 +2576,72 @@
     }
 
     drawGate(g, gate) {
-      const x = gate.x - 34;
-      const y = gate.y - 34;
-      g.lineStyle(5, gate.open ? 0x86ff76 : COLORS.gate, 0.95);
-      g.strokeRoundedRect(x, y, 68, 68, 12);
-      g.fillStyle(gate.open ? 0x87ff8a : 0x342414, gate.open ? 0.22 : 0.6);
-      g.fillRoundedRect(x + 8, y + 8, 52, 52, 9);
+      if (!gate || !gate.open) return;
+      const now = performance.now();
+      const open = !!gate.open;
+      const pulse = 0.5 + Math.sin(now / 360 + hash2(Math.floor(gate.x), Math.floor(gate.y)) * Math.PI * 2) * 0.5;
+      const progress = clamp(gate.escapeProgress || 0, 0, 1);
+      const core = open ? 0x8b5cf6 : 0x293041;
+      const rim = open ? 0x67e8f9 : COLORS.gate;
+      const shadow = open ? 0x0f0526 : 0x0b0f18;
+
+      // Ground shadow / sealed field.
+      g.fillStyle(shadow, open ? 0.46 : 0.62);
+      g.fillEllipse(gate.x, gate.y + 8, 96, 72);
+
+      if (open) {
+        // Low-cost animated void portal: a few circles and rotating satellites, not a GPU sermon.
+        g.fillStyle(0xa855f7, 0.10 + pulse * 0.05);
+        g.fillCircle(gate.x, gate.y, 58 + pulse * 8);
+        g.lineStyle(2, 0x22d3ee, 0.34 + pulse * 0.22);
+        g.strokeCircle(gate.x, gate.y, 54 + pulse * 5);
+        g.lineStyle(2, 0xc084fc, 0.28 + (1 - pulse) * 0.18);
+        g.strokeCircle(gate.x, gate.y, 42 + Math.sin(now / 430) * 4);
+      }
+
+      g.fillStyle(0xffffff, open ? 0.92 : 0.72);
+      g.fillCircle(gate.x, gate.y, 34);
+      g.lineStyle(4, rim, open ? 0.96 : 0.82);
+      g.strokeCircle(gate.x, gate.y, 34);
+      g.fillStyle(core, open ? 0.95 : 0.74);
+      g.fillCircle(gate.x, gate.y, open ? 22 + pulse * 2.5 : 21);
+      g.fillStyle(0x020617, open ? 0.34 : 0.16);
+      g.fillCircle(gate.x + 7, gate.y + 8, 8);
+      g.fillStyle(0xffffff, open ? 0.22 : 0.12);
+      g.fillCircle(gate.x - 8, gate.y - 9, 7);
+
+      if (open) {
+        const orbitR = 43;
+        for (let i = 0; i < 6; i++) {
+          const a = now / 900 + i * Math.PI / 3 + hash2(i + 8, Math.floor(gate.x / 9)) * 0.7;
+          const color = i % 2 ? 0x67e8f9 : 0xc084fc;
+          g.fillStyle(color, 0.46 + pulse * 0.18);
+          g.fillCircle(gate.x + Math.cos(a) * orbitR, gate.y + Math.sin(a) * orbitR * 0.78, i % 2 ? 4 : 3);
+        }
+      }
+
+      if (open) {
+        g.lineStyle(4, 0xdbeafe, 0.72);
+        g.strokeCircle(gate.x, gate.y, 50);
+        if (progress > 0.002) {
+          g.lineStyle(6, 0xfef3c7, 0.98);
+          if (progress >= 0.995) {
+            g.strokeCircle(gate.x, gate.y, 50);
+          } else {
+            g.beginPath();
+            g.arc(gate.x, gate.y, 50, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress, false);
+            g.strokePath();
+          }
+        }
+      }
     }
 
     applySnapshot(snapshot) {
       currentSnapshot = snapshot;
       this.matchStartFreezeRemaining = Math.max(0, Number(snapshot.matchStartFreezeRemaining || 0));
+      if (this.matchStartFreezeRemaining > 0) {
+        this.matchStartFreezeDuration = Math.max(this.matchStartFreezeDuration || 0, this.matchStartFreezeRemaining);
+      }
       setMusicTargets(snapshot.music);
       if (!this.map && snapshot.map) this.loadMap(snapshot.map);
       if (this.map && snapshot.map) this.map = { ...this.map, ...snapshot.map, walls: this.map.walls, windows: this.map.windows };
@@ -2374,6 +2657,11 @@
       if (!this.spawnInPlayed && this.actors.has(myId)) this.playLocalSpawnIn();
       this.handleEvents(snapshot.events || []);
       this.updateHud(snapshot);
+      const localActor = (snapshot.actors || []).find((a) => a.id === myId);
+      if (localActor?.role === "survivor" && localActor.escaped && !this.localEscapeScreenShown && activeScreenName === "game") {
+        this.localEscapeScreenShown = true;
+        showEscapedScreen();
+      }
       this.lastSnapshotAt = performance.now();
     }
 
@@ -2384,9 +2672,9 @@
       const now = performance.now();
       const objective = snapshot.objective || {};
       const hudKey = JSON.stringify({
-        self: [me.id, me.role, me.health, me.dots, me.injured, me.downed, me.hooked, me.dead, me.escaped, me.chase, me.hookProgress, me.healProgress, me.generatorKickTargetId, me.generatorKickProgress],
+        self: [me.id, me.role, me.health, me.dots, me.injured, me.downed, me.hooked, me.dead, me.escaped, me.escapeProgress, me.escapeGateId, me.chase, me.hookProgress, me.healProgress, me.generatorKickTargetId, me.generatorKickProgress],
         objective: [objective.doneGenerators, objective.requiredGenerators, objective.totalGenerators, objective.escapeOpen],
-        survivors: (snapshot.actors || []).filter((a) => a.role === "survivor").map((a) => [a.id, a.health, a.dots, a.injured, a.downed, a.hooked, a.dead, a.escaped, a.chase, a.hookProgress, a.healProgress, a.hookCount, a.chatText]),
+        survivors: (snapshot.actors || []).filter((a) => a.role === "survivor").map((a) => [a.id, a.health, a.dots, a.injured, a.downed, a.hooked, a.dead, a.escaped, a.escapeProgress, a.escapeGateId, a.chase, a.hookProgress, a.healProgress, a.hookCount, a.chatText]),
         killerChat: (snapshot.actors || []).find((a) => a.role === "killer")?.chatText || null,
         dots: (snapshot.collectibleDots || []).map((d) => d.id).join(",")
       });
@@ -2397,7 +2685,7 @@
       ui.roleLabel.textContent = me.role === "killer" ? "The Void" : "Survivor";
       ui.controlsLabel.textContent = me.role === "killer"
         ? "WASD move • Mouse aim • M1 attack/lunge • Space vault/break • hold E hook/execute/kick rift • hold R chat"
-        : "WASD move • Shift sprint • Mouse flashlight • Space vault/drop • collect orbs, stand near rifts to deposit • hold E heal/escape • hold R chat";
+        : "WASD move • Shift sprint • Mouse flashlight • Space vault/drop • collect orbs, stand near rifts to deposit • stand in open voids to escape • hold E heal/unhook • hold R chat";
       const done = snapshot.objective?.doneGenerators ?? 0;
       const required = snapshot.objective?.requiredGenerators ?? snapshot.objective?.totalGenerators ?? 0;
       const total = snapshot.objective?.totalGenerators ?? required;
@@ -2405,7 +2693,7 @@
       ui.genText.textContent = `${shownDone} / ${required}${total > required ? ` (${total} on map)` : ""}`;
       if (ui.bigGenText) ui.bigGenText.textContent = `${shownDone} / ${required}`;
       ui.bigGenCounter?.classList.toggle("is-complete", required > 0 && shownDone >= required);
-      ui.gateText.textContent = snapshot.objective?.escapeOpen ? "Open" : "Closed";
+      ui.gateText.textContent = snapshot.objective?.escapeOpen ? "Voids Open" : "Sealed";
       if (me.role === "killer") {
         const actors = snapshot.actors || [];
         const hookingTarget = actors.find((a) => a.id === me.hookActionTargetId);
@@ -2492,6 +2780,15 @@
           const actorChat = visibleChatTextForActor(data);
           item.chatText.setText(actorChat);
           item.chatText.setVisible(isVisible && !!actorChat);
+
+          // Play the speak chirp only when the local player's own chat bubble appears/changes.
+          // Other players can talk all they want without hijacking your ears, a radical concept.
+          if (data.id === myId) {
+            if (actorChat && actorChat !== this.lastLocalChatText && activeScreenName === "game") {
+              playSfx("playerSpeak");
+            }
+            this.lastLocalChatText = actorChat || "";
+          }
         }
         this.styleActor(item, data);
 
@@ -2911,6 +3208,7 @@
       for (const event of events) {
         if (this[`seen_${event.id}`]) continue;
         this[`seen_${event.id}`] = true;
+        announceMatchEvent(event);
         if (event.type === "swipe" || event.type === "swing") {
           this.addSwipeIndicator(event);
           playLocalizedSwing(event);
@@ -2941,7 +3239,7 @@
             toast("Spectating teammates — Tab to switch", 2800);
           }
         }
-        if (event.type === "genDone") playSfx("gen");
+        if (event.type === "genDone") playSfx(event.allRiftsDone ? "riftsComplete" : "gen");
         if (event.type === "hit" || event.type === "downed") playLocalizedHit(event);
         if (event.type === "vault" && event.actorId === myId) {
           if (event.vaultType === "pallet") playSfx("palletVault");
@@ -2968,12 +3266,23 @@
           this.addShockwave(event.x, event.y, 0xff4b4b);
         }
         if (event.type === "vault") this.burst(event.x, event.y, 0xd8d0bd, 12, 90);
-        if (event.type === "palletDrop") this.burst(event.x, event.y, COLORS.pallet, 16, 130);
+        if (event.type === "palletDrop") {
+          playSfx("palletDrop");
+          this.burst(event.x, event.y, COLORS.pallet, 16, 130);
+        }
         if (event.type === "palletBreak" || event.type === "palletBreakStart") this.burst(event.x, event.y, 0xffc36a, 18, 150);
         if (event.type === "killerStun") this.burst(event.x, event.y, 0xfff1a8, 30, 110);
         if (event.type === "escape") {
-          this.burst(event.x, event.y, 0x9eff91, 36, 150);
-          this.addShockwave(event.x, event.y, 0x9eff91);
+          this.burst(event.x, event.y, 0xa78bfa, 54, 190);
+          this.addShockwave(event.x, event.y, 0x67e8f9);
+          if (event.survivorId === myId && !this.localEscapeScreenShown) {
+            this.localEscapeScreenShown = true;
+            showEscapedScreen();
+          }
+        }
+        if (event.type === "voidOpen") {
+          this.burst(event.x, event.y, 0xa78bfa, 44, 170);
+          this.addShockwave(event.x, event.y, 0x67e8f9);
         }
         if (event.type === "healDone") this.burst(event.x, event.y, 0x8dff9a, 24, 120);
         if (event.type === "dotPickup") {
@@ -3528,7 +3837,12 @@
       const spawnZoom = (this.spawnInPulse || 0) * IMMERSION.SPAWN_ZOOM;
       const localStartRemaining = Math.max(0, (this.matchStartZoomUntil || 0) - performance.now()) / 1000;
       const startLockRemaining = Math.max(localStartRemaining, this.matchStartFreezeRemaining || 0);
-      const startLockZoom = startLockRemaining > 0 ? IMMERSION.MATCH_START_LOCK_ZOOM : 0;
+      const startLockDuration = Math.max(0.001, this.matchStartFreezeDuration || IMMERSION.MATCH_START_LOCK_SECONDS || 1.5);
+      const startLockT = clamp(startLockRemaining / startLockDuration, 0, 1);
+      // Negative zoom offset: start pulled way out, then smoothly land at normal zoom
+      // as the lock ends. Squared easing keeps the final half gentle.
+      const startLockZoom = startLockT > 0 ? -IMMERSION.MATCH_START_ZOOM_OUT * startLockT * startLockT : 0;
+      const minIntroZoom = Math.max(0.34, IMMERSION.BASE_ZOOM - IMMERSION.MATCH_START_ZOOM_OUT - 0.06);
       const targetZoom = clamp(
         IMMERSION.BASE_ZOOM
           + this.terrorBlend * IMMERSION.TERROR_ZOOM
@@ -3537,13 +3851,12 @@
           + depositZoom
           + spawnZoom
           + startLockZoom,
-        IMMERSION.BASE_ZOOM,
+        minIntroZoom,
         IMMERSION.BASE_ZOOM
           + IMMERSION.TERROR_ZOOM
           + IMMERSION.CHASE_ZOOM
           + IMMERSION.DEPOSIT_ZOOM
           + IMMERSION.SPAWN_ZOOM
-          + IMMERSION.MATCH_START_LOCK_ZOOM
           + IMMERSION.KILLER_M1_HOLD_ZOOM
           + IMMERSION.KILLER_M1_PULSE_ZOOM
       );
@@ -3607,7 +3920,7 @@
       const map = currentSnapshot?.map || this.map;
       if (!map) return "";
       const hookKey = (map.hooks || []).map((h) => `${h.id}:${h.active ? 1 : 0}:${h.survivorId || ""}`).join("|");
-      const gateKey = (map.gates || []).map((g) => `${g.id}:${g.open ? 1 : 0}`).join("|");
+      const gateKey = (map.gates || []).map((g) => `${g.id}:${g.open ? 1 : 0}:${Math.round((g.escapeProgress || 0) * 20)}`).join("|");
       const dotKey = (currentSnapshot?.collectibleDots || []).map((d) => d.id).join(",");
       return `${hookKey}#${gateKey}#${dotKey}`;
     }
@@ -3630,8 +3943,9 @@
       this.dynamicRedrawTimer += dt;
       const animatingDots = !!this.collectibleDotsAnimating;
       const animatingHooks = (currentSnapshot?.map?.hooks || this.map?.hooks || []).some((hook) => hook && hook.active !== false);
-      const animated = animatingDots || animatingHooks;
-      const interval = 1 / (animatingDots ? DOT_FADE_VISUAL.FPS : animatingHooks ? 12 : PERFORMANCE.DYNAMIC_WORLD_FPS);
+      const animatingGates = (currentSnapshot?.map?.gates || this.map?.gates || []).some((gate) => gate && gate.open);
+      const animated = animatingDots || animatingHooks || animatingGates;
+      const interval = 1 / (animatingDots ? DOT_FADE_VISUAL.FPS : (animatingHooks || animatingGates) ? 12 : PERFORMANCE.DYNAMIC_WORLD_FPS);
       if (!this.needsDynamicRedraw && !animated && this.dynamicRedrawTimer < interval) return;
       if (this.dynamicRedrawTimer < interval) return;
       const key = this.getDynamicWorldKey();
@@ -4163,6 +4477,64 @@
     }, true);
   }
 
+  function showEscapedScreen() {
+    if (ui.winnerText) ui.winnerText.textContent = "You Escaped";
+    if (ui.reasonText) ui.reasonText.textContent = "You slipped through the void. The match is still going.";
+    ui.spectateBtn?.classList.remove("hidden");
+    if (ui.backToLobbyBtn) ui.backToLobbyBtn.textContent = "Back To Lobby";
+    showScreen("end");
+  }
+
+  function showSpectateResultScreen() {
+    const me = getLocalPlayerData();
+    const isSurvivor = me?.role === "survivor";
+    if (!isSurvivor) return false;
+
+    if (me.escaped) {
+      showEscapedScreen();
+      return true;
+    }
+
+    if (me.dead || me.hooked || me.downed || Number(me.health || 0) <= 0) {
+      if (ui.winnerText) ui.winnerText.textContent = "You Perished...";
+      if (ui.reasonText) ui.reasonText.textContent = "The match is still going. You can keep spectating.";
+      ui.spectateBtn?.classList.remove("hidden");
+      if (ui.backToLobbyBtn) ui.backToLobbyBtn.textContent = "Back To Lobby";
+      showScreen("end");
+      return true;
+    }
+
+    return false;
+  }
+
+  function getFinalActorData(finalActors = []) {
+    const fromEvent = (finalActors || []).find((a) => a.id === myId);
+    return fromEvent || getLocalPlayerData();
+  }
+
+  function showFinalMatchScreen({ winner, reason, escapedCount = 0, finalActors = [] }) {
+    const me = getFinalActorData(finalActors);
+    const localSurvivor = me?.role === "survivor";
+    const localEscaped = localSurvivor && !!me.escaped;
+    const localPerished = localSurvivor && !localEscaped && !!escapedCount && (me.dead || me.hooked || me.downed);
+
+    ui.spectateBtn?.classList.add("hidden");
+
+    if (localEscaped) {
+      if (ui.winnerText) ui.winnerText.textContent = "You Escaped";
+      if (ui.reasonText) ui.reasonText.textContent = "You slipped through the void. The trial is over.";
+    } else if (localPerished) {
+      if (ui.winnerText) ui.winnerText.textContent = "You Perished...";
+      if (ui.reasonText) ui.reasonText.textContent = "The others escaped, but The Void claimed you.";
+    } else {
+      if (ui.winnerText) ui.winnerText.textContent = winner === "killer" ? "The Void Wins" : "Survivors Win";
+      if (ui.reasonText) ui.reasonText.textContent = reason || "Match ended.";
+    }
+
+    if (ui.backToLobbyBtn) ui.backToLobbyBtn.textContent = "Back To Lobby";
+    showScreen("end");
+  }
+
   function setupUI() {
     setupUiClickSfx();
     syncMenuMusicToggleUi();
@@ -4174,6 +4546,8 @@
     };
     bindMenuMusicToggle(ui.menuMusicToggleBtn);
     bindMenuMusicToggle(ui.menuMusicToggleBtnOptions);
+    bindMenuMusicVolumeSlider(ui.menuMusicVolumeSlider);
+    syncMenuMusicVolumeUi();
 
     ui.menuPlayBtn?.addEventListener("click", () => { ensureMenuAudioStarted(); showScreen("play"); });
     ui.menuSkinsBtn?.addEventListener("click", () => { ensureMenuAudioStarted(); showScreen("skins"); });
@@ -4218,6 +4592,11 @@
     ui.backToLobbyBtn.addEventListener("click", () => {
       socket.emit("backToLobby");
       showScreen("lobby");
+    });
+    ui.spectateBtn?.addEventListener("click", () => {
+      showScreen("game");
+      ensureAudioStarted();
+      phaserScene?.pickDefaultSpectateTarget?.();
     });
     ui.mainMenuBtn.addEventListener("click", () => {
       socket.emit("leaveLobby");
@@ -4303,6 +4682,10 @@
         e.preventDefault();
         phaserScene?.openChatWheel();
         return;
+      }
+      if (e.code === "Escape" && activeScreenName === "game" && phaserScene?.isSpectating()) {
+        e.preventDefault();
+        if (showSpectateResultScreen()) return;
       }
       if (e.code === "Tab" && phaserScene?.isSpectating()) {
         e.preventDefault();
@@ -4453,32 +4836,38 @@
     socket.on("lobbyState", renderLobbyState);
     socket.on("gameStarted", (map) => {
       currentSnapshot = null;
+      let lockSeconds = Number(map?.startFreezeSeconds || IMMERSION.MATCH_START_LOCK_SECONDS || 1.5);
+      if (!Number.isFinite(lockSeconds) || lockSeconds < 0) lockSeconds = IMMERSION.MATCH_START_LOCK_SECONDS || 1.5;
       if (phaserScene) {
         phaserScene.spawnInPlayed = false;
         phaserScene.spawnInPulse = 0;
         phaserScene.spawnInAt = 0;
-        const lockSeconds = Number(map?.startFreezeSeconds || IMMERSION.MATCH_START_LOCK_SECONDS || 1.5);
+        phaserScene.localEscapeScreenShown = false;
         phaserScene.matchStartFreezeRemaining = Math.max(0, lockSeconds);
+        phaserScene.matchStartFreezeDuration = Math.max(0.001, lockSeconds);
         phaserScene.matchStartZoomUntil = performance.now() + Math.max(0, lockSeconds) * 1000;
         phaserScene.loadMap(map);
+        const introZoom = Math.max(0.34, IMMERSION.BASE_ZOOM - IMMERSION.MATCH_START_ZOOM_OUT);
+        phaserScene.cameras?.main?.setZoom(introZoom);
       }
-      showScreen("game");
-      ensureAudioStarted();
+
+      runMatchStartTransition(() => {
+        showScreen("game");
+        ensureAudioStarted();
+      });
     });
     socket.on("snapshot", (snapshot) => {
       if (snapshot?.seq && currentSnapshot?.seq && snapshot.seq <= currentSnapshot.seq) return;
       currentSnapshot = snapshot;
       if (phaserScene) phaserScene.applySnapshot(snapshot);
     });
-    socket.on("matchEnded", ({ winner, reason }) => {
+    socket.on("matchEnded", ({ winner, reason, escapedCount = 0, totalSurvivors = 0, finalActors = [] }) => {
       if (phaserScene) {
         phaserScene.spectateTargetId = null;
         phaserScene.lastSpectateEmitId = "";
       }
-      ui.winnerText.textContent = winner === "killer" ? "The Void Wins" : "Survivors Win";
-      ui.reasonText.textContent = reason || "Match ended.";
       setMusicTargets({ layer1: 0, layer2: 0, layer3: 0 });
-      showScreen("end");
+      showFinalMatchScreen({ winner, reason, escapedCount, totalSurvivors, finalActors });
     });
   }
 

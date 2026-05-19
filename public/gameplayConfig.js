@@ -1,0 +1,153 @@
+// public/gameplayConfig.js
+// Shared gameplay knobs for both the Node server and browser client.
+// Edit numbers here, restart the server, then hard-refresh the browser.
+// Internal role names stay "survivor" and "killer" because networking enjoys not exploding.
+
+const GAMEPLAY_CONFIG = {
+  server: {
+    hostProfileDefault: "boosted",
+    tickRate: 60,
+    snapshotRateBoosted: 20,
+    snapshotRateStandard: 16,
+    botThinkRateBoosted: 12,
+    botThinkRateStandard: 8,
+    pathfindLoopLimitBoosted: 1600,
+    pathfindLoopLimitStandard: 950,
+    pathCacheMaxBoosted: 900,
+    pathCacheMaxStandard: 300,
+    metricsIntervalMs: 30000
+  },
+
+  match: {
+    startFreezeSeconds: 1.5,
+    maxSurvivors: 4,
+    requiredRiftsToComplete: 5,
+    scratchMarkMax: 45
+  },
+
+  lighting: {
+    mapDarkness: 0.38
+  },
+
+  actor: {
+    survivorSize: 30,
+    voidSize: 38
+  },
+
+  survivor: {
+    walkSpeed: 170,
+    sprintSpeed: 285,
+    downedCrawlSpeed: 62,
+    hitBurstSpeed: 350,
+    hitBoostDuration: 1.0,
+    invulnerableSeconds: 1.45,
+    vaultTime: 0.38,
+    healTime: 4.2,
+    healDistance: 82,
+    unhookTime: 2.15,
+    hookRescueDistance: 108,
+    coneLength: 620,
+    coneAngle: Math.PI / 2.6,
+    clientConeLength: 880,
+    clientConeAngle: Math.PI / 2.05
+  },
+
+  void: {
+    speed: 310,
+    recoverySpeedMultiplier: 0.28,
+    vaultTime: 1.05,
+    breakTime: 1.25,
+    coneLength: 920,
+    coneAngle: Math.PI / 1.75,
+    scratchMarkVisibilityRange: 520,
+    hookMinDistance: 430,
+    clientConeLength: 1080,
+    clientConeAngle: Math.PI / 1.62
+  },
+
+  attack: {
+    quickRange: 62,
+    lungeRange: 118,
+    arcRadians: Math.PI * 0.44,
+    sideRadius: 24,
+    closeAoeRadius: 26,
+    tapMaxSeconds: 0.18,
+    lungeChargeSeconds: 0.32,
+    quickActiveSeconds: 0.20,
+    lungeActiveSeconds: 0.42,
+    quickStartupSeconds: 0.075,
+    lungeStartupSeconds: 0.075,
+    lungeSpeedMultiplier: 1.42,
+    quickMissRecoverySeconds: 1.05,
+    quickHitRecoverySeconds: 1.55,
+    lungeMissRecoverySeconds: 1.35,
+    lungeHitRecoverySeconds: 1.85,
+    cooldownSeconds: 0.24
+  },
+
+  rift: {
+    collisionSize: 54,
+    // Rifts are completed by deposits now. repairTime is kept only for old/fallback code paths.
+    repairTime: 28.0,
+    kickTime: 1.0,
+    kickRegression: 0.15,
+    escapeTime: 4.0,
+    dotsPerRift: 15,
+    depositDistance: 96,
+    depositSecondsPerOrb: 0.5,
+    maxDepositChain: 10
+  },
+
+  orbs: {
+    survivorMax: 10,
+    voidMax: 999,
+    survivorDropOnHitPercent: 0.5,
+    survivorPickupRadius: 48,
+    voidPickupRadius: 92,
+    minTileSpacing: 3.0,
+    minObjectiveTileDistance: 1.8,
+    spawnFloorRatio: 0.032,
+    spawnMin: 16,
+    maxOnMap: 38,
+    respawnSeconds: 2.2,
+    respawnBatch: 3
+  },
+
+  hook: {
+    channelTime: 1.35,
+    executeTime: 2.15,
+    hooksBeforeExecution: 2,
+    interactDistance: 128
+  },
+
+  chase: {
+    terrorRadius: 760,
+    startRadius: 520,
+    holdSeconds: 2.5,
+    closeRevealRadius: 120,
+    musicLayer1Volume: 0.12,
+    musicLayer2MaxVolume: 0.30,
+    musicLayer3Volume: 0.30
+  },
+
+  bots: {
+    repathMin: 0.32,
+    repathMax: 0.68,
+    survivorThreatRadius: 640,
+    survivorPanicRadius: 285,
+    survivorLoopRadius: 430,
+    voidMemorySeconds: 6.0,
+    voidScratchMemorySeconds: 2.5,
+    voidInteractCooldown: 1.25,
+    voidWindowReuseCooldown: 0.95,
+    voidStuckSeconds: 0.85
+  }
+};
+
+if (typeof window !== "undefined") {
+  window.GAMEPLAY_CONFIG = GAMEPLAY_CONFIG;
+}
+
+if (typeof module !== "undefined" && module.exports) {
+  module.exports = GAMEPLAY_CONFIG;
+}
