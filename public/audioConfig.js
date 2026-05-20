@@ -23,14 +23,14 @@ window.GAME_AUDIO_CONFIG = {
     // How quickly music layers fade toward their target volume. Higher = faster fades.
     fade: 0.065,
 
-    // Menu music file.
-    menu: "/menu.mp3",
+    // Menu music file. Put this in public/sfx.
+    menu: "/sfx/menu.mp3",
 
-    // Layered match music. layer_3 restarts from the beginning when chase starts.
+    // Layered match music. Put these in public/sfx. layer_3 restarts from the beginning when chase starts.
     layers: [
-      "/layer_1.mp3",
-      "/layer_2.mp3",
-      "/layer_3.mp3"
+      "/sfx/layer_1.mp3",
+      "/sfx/layer_2.mp3",
+      "/sfx/layer_3.mp3"
     ],
 
     // Layer 3 stays normal unless the local survivor is injured.
@@ -47,22 +47,22 @@ window.GAME_AUDIO_CONFIG = {
     // Rift/orb deposit pitch is separate and ALWAYS ramps upward per deposit.
     enablePitchVariation: true,
 
-    // Sound effect file paths. Put these files in your public folder.
+    // Sound effect file paths. Put these files in public/sfx.
     files: {
-      hooked: "/hooked.mp3",
-      dead: "/dead.mp3",
-      gen: "/gen.mp3",
-      riftsComplete: "/rifts_complete.mp3",
-      swing: "/swing.ogg",
-      windowVault: "/window_vault.ogg",
-      palletVault: "/pallet_vault.ogg",
-      palletDrop: "/pallet_drop.mp3",
-      palletStun: "/pallet_stun.mp3",
-      injured: "/injured.ogg",
-      orbPickup: "/orb_pickup.mp3",
-      orbDeposit: "/orb_deposit.mp3",
-      buttonClick: "/button_click.mp3",
-      playerSpeak: "/player_speak.mp3"
+      hooked: "/sfx/hooked.mp3",
+      dead: "/sfx/dead.mp3",
+      gen: "/sfx/gen.mp3",
+      riftsComplete: "/sfx/rifts_complete.mp3",
+      swing: "/sfx/swing.ogg",
+      windowVault: "/sfx/window_vault.ogg",
+      palletVault: "/sfx/pallet_vault.ogg",
+      palletDrop: "/sfx/pallet_drop.mp3",
+      palletStun: "/sfx/pallet_stun.mp3",
+      injured: "/sfx/injured.ogg",
+      orbPickup: "/sfx/orb_pickup.mp3",
+      orbDeposit: "/sfx/orb_deposit.mp3",
+      buttonClick: "/sfx/button_click.mp3",
+      playerSpeak: "/sfx/player_speak.mp3"
     },
 
     // Per-sound volume before the global SFX master multiplier is applied.

@@ -6,7 +6,10 @@
 // + = vault window, placed inside wall runs like XXX+XXX or X above/below
 // - = horizontal pallet, best used between walls like XX-XX
 // | = vertical pallet, best used between walls above/below it
-// G = generator
+// G = possible rift/generator spawn point. The server randomly picks active rifts each match.
+//     Default active count is requiredGenerators + 2, clamped to available G tiles.
+//     Example: requiredGenerators: 5 => 7 active rifts. requiredGenerators: 7 => 9 active rifts.
+//     Optional override: spawnedGenerators: 9 or spawnedGenerators: "all".
 // P = survivor spawn
 // K = killer spawn
 // E = exit gate

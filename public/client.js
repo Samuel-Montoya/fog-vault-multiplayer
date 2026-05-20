@@ -72,8 +72,8 @@
       layerVolumes: { layer1: 1.0, layer2: 1.0, layer3: 1.0 },
       menuMaster: 0.14,
       fade: 0.065,
-      menu: "/menu.mp3",
-      layers: ["/layer_1.mp3", "/layer_2.mp3", "/layer_3.mp3"],
+      menu: "/sfx/menu.mp3",
+      layers: ["/sfx/layer_1.mp3", "/sfx/layer_2.mp3", "/sfx/layer_3.mp3"],
       // Layer 3 stays normal unless the local survivor is injured.
       // Deposit pitch is separate and always ramps upward.
       layer3NormalPlaybackRate: 1.0,
@@ -86,20 +86,20 @@
       // Deposit pitch is intentionally separate and always ramps upward.
       enablePitchVariation: true,
       files: {
-        hooked: "/hooked.mp3",
-        dead: "/dead.mp3",
-        gen: "/gen.mp3",
-        riftsComplete: "/rifts_complete.mp3",
-        swing: "/swing.ogg",
-        windowVault: "/window_vault.ogg",
-        palletVault: "/pallet_vault.ogg",
-        palletDrop: "/pallet_drop.mp3",
-        palletStun: "/pallet_stun.mp3",
-        injured: "/injured.ogg",
-        orbPickup: "/orb_pickup.mp3",
-        orbDeposit: "/orb_deposit.mp3",
-        buttonClick: "/button_click.mp3",
-        playerSpeak: "/player_speak.mp3"
+        hooked: "/sfx/hooked.mp3",
+        dead: "/sfx/dead.mp3",
+        gen: "/sfx/gen.mp3",
+        riftsComplete: "/sfx/rifts_complete.mp3",
+        swing: "/sfx/swing.ogg",
+        windowVault: "/sfx/window_vault.ogg",
+        palletVault: "/sfx/pallet_vault.ogg",
+        palletDrop: "/sfx/pallet_drop.mp3",
+        palletStun: "/sfx/pallet_stun.mp3",
+        injured: "/sfx/injured.ogg",
+        orbPickup: "/sfx/orb_pickup.mp3",
+        orbDeposit: "/sfx/orb_deposit.mp3",
+        buttonClick: "/sfx/button_click.mp3",
+        playerSpeak: "/sfx/player_speak.mp3"
       },
       volumes: {
         hooked: 0.82,
@@ -482,26 +482,18 @@
     }
   };
 
-  // In-match radial chat. Hold R, aim with the mouse, release R to send.
-  const CHAT_WHEEL = {
-    RADIUS: 126,
-    INNER_RADIUS: 34,
-    LABEL_RADIUS: 100,
-    CENTER_ALPHA: 0.76,
-    SEGMENT_ALPHA: 0.58,
-    SELECTED_ALPHA: 0.88,
-    DIM_ALPHA: 0.30,
-    TEXT_SIZE: "13px",
-    MESSAGES: {
-      survivor: {
-        normal: ["Let's feed a rift.", "I'm so scared...", "Here he comes!", "What was that?!"],
-        chase: ["He's on me...!", "Leave me alone!", "I'm so scared!", "AHHHH!"],
-        injured: ["I need healing...", "Please, help me...", "I need to hide.", "Over here..."],
-        downed: ["Pick me up!", "Help, please...", "I don't wanna die...", "I'm down...!"],
-        hooked: ["Save me!", "Unhook me!", "Grab me!", "He's here..."]
-      },
-      killer: ["Im going to get you", "You cant hide forever", "Ill be back...", "What the...?!"]
-    }
+  // In-match radial chat. React renders the wheel; the game client only supplies context
+  // and sends the final selected message to the server. Screen-space UI belongs in React,
+  // not in a Phaser scene pretending to be a haunted CSS engine.
+  const CHAT_WHEEL_MESSAGES = {
+    survivor: {
+      normal: ["Let's feed a rift.", "I'm so scared...", "Here he comes!", "What was that?!"],
+      chase: ["He's on me...!", "Leave me alone!", "I'm so scared!", "AHHHH!"],
+      injured: ["I need healing...", "Please, help me...", "I need to hide.", "Over here..."],
+      downed: ["Pick me up!", "Help, please...", "I don't wanna die...", "I'm down...!"],
+      hooked: ["Save me!", "Unhook me!", "Grab me!", "He's here..."]
+    },
+    killer: ["Im going to get you", "You cant hide forever", "Ill be back...", "What the...?!"]
   };
 
   function getSurvivorSkin(id) {
@@ -718,7 +710,9 @@
   }
 
   function toggleMenuMusicMuted() {
-    setMenuMusicMuted(!isMenuMusicMuted());
+    const nextMuted = !isMenuMusicMuted();
+    setMenuMusicMuted(nextMuted);
+    if (!nextMuted) ensureMenuAudioStarted();
   }
 
   function setMenuAudioActive(active, options = {}) {
@@ -736,14 +730,19 @@
     }
 
     applyMenuMusicVolume();
+    ensureMenuAudioStarted();
   }
 
   function ensureMenuAudioStarted(options = {}) {
-    if (!audio.menuActive || !audio.menu) return;
+    if (!audio.menuActive || !audio.menu || !hasManagedAudioSource(audio.menu)) return;
     if (options.restart) {
       try { audio.menu.currentTime = 0; } catch (_) { /* ignore */ }
     }
     applyMenuMusicVolume();
+    if (isMenuMusicMuted()) return;
+    audio.menu.play().catch(() => {
+      // Browser autoplay rules require a click/key first. The global unlock listeners retry this.
+    });
   }
 
   function setGameplayAudioActive(active) {
@@ -765,7 +764,7 @@
     // until a user input happens, so ensureAudioStarted() keeps the polite retry path.
     if (audio.ready) {
       for (const layer of audio.layers || []) {
-        if (layer.paused) layer.play().catch(() => null);
+        if (hasManagedAudioSource(layer) && layer.paused) layer.play().catch(() => null);
       }
     }
   }
@@ -776,6 +775,7 @@
     activeScreenName = name;
 
     const isGameScreen = name === "game";
+    if (!isGameScreen) closeReactChatWheel(false);
     const menuLike = !isGameScreen;
     const shouldRestartMenuMusic = menuLike && wasGameScreen;
 
@@ -1052,6 +1052,65 @@
       || null;
   }
 
+  let reactChatWheelOpen = false;
+
+  function getSurvivorChatState(actor) {
+    if (!actor || actor.role !== "survivor") return "normal";
+    if (actor.hooked) return "hooked";
+    if (actor.downed || actor.health <= 0) return "downed";
+    if (actor.chase) return "chase";
+    if (actor.injured || actor.health <= 1) return "injured";
+    return "normal";
+  }
+
+  function getChatWheelDetail(pointerEvent = null) {
+    const me = getLocalPlayerData();
+    const role = me?.role === "killer" ? "killer" : "survivor";
+    const state = role === "killer" ? "killer" : getSurvivorChatState(me);
+    const messages = role === "killer"
+      ? CHAT_WHEEL_MESSAGES.killer
+      : (CHAT_WHEEL_MESSAGES.survivor[state] || CHAT_WHEEL_MESSAGES.survivor.normal);
+
+    return {
+      role,
+      state,
+      messages,
+      pointer: Number.isFinite(pointerEvent?.clientX) && Number.isFinite(pointerEvent?.clientY)
+        ? { x: pointerEvent.clientX, y: pointerEvent.clientY }
+        : null
+    };
+  }
+
+  function dispatchChatWheelEvent(name, detail = {}) {
+    window.dispatchEvent(new CustomEvent(name, { detail }));
+  }
+
+  function openReactChatWheel(pointerEvent = null) {
+    if (reactChatWheelOpen) return;
+    if (!currentSnapshot || currentSnapshot.phase !== "game" || !getLocalPlayerData()) return;
+    reactChatWheelOpen = true;
+    dispatchChatWheelEvent("voidrift:chat-wheel-open", getChatWheelDetail(pointerEvent));
+  }
+
+  function closeReactChatWheel(submit = true) {
+    if (!reactChatWheelOpen) return;
+    reactChatWheelOpen = false;
+    dispatchChatWheelEvent("voidrift:chat-wheel-close", { submit: !!submit });
+  }
+
+  function sendReactChatWheelSelection(index) {
+    const selected = Number(index);
+    if (!Number.isInteger(selected) || selected < 0 || selected > 3) return;
+    if (!socket || currentSnapshot?.phase !== "game") return;
+    socket.emit("chatWheel", { index: selected });
+  }
+
+  function setupReactChatWheelBridge() {
+    window.addEventListener("voidrift:chat-wheel-submit", (event) => {
+      sendReactChatWheelSelection(event.detail?.index);
+    });
+  }
+
   function isLocalSpectating() {
     const me = getLocalPlayerData();
     return me?.role === "survivor" && (!!me.dead || !!me.escaped);
@@ -1075,33 +1134,99 @@
     }
   }
 
+
+  const audioAssetCache = new Map();
+
+  function normalizeAudioSources(sources) {
+    return (Array.isArray(sources) ? sources : [sources])
+      .map((src) => String(src || "").trim())
+      .filter(Boolean);
+  }
+
+  function isUsableAudioResponse(response) {
+    if (!response || !response.ok) return false;
+    const type = String(response.headers?.get?.("content-type") || "").toLowerCase();
+    // Vite serves index.html for unknown SPA paths. That is not an audio file, despite the browser's brave little attempt.
+    return !type.includes("text/html");
+  }
+
+  async function resolveAudioSource(sources, label = "audio") {
+    const candidates = normalizeAudioSources(sources);
+    for (const src of candidates) {
+      if (audioAssetCache.has(src)) {
+        if (audioAssetCache.get(src)) return src;
+        continue;
+      }
+      try {
+        const response = await fetch(src, { method: "HEAD", cache: "no-store" });
+        const usable = isUsableAudioResponse(response);
+        audioAssetCache.set(src, usable);
+        if (usable) return src;
+      } catch (_) {
+        audioAssetCache.set(src, false);
+      }
+    }
+    console.warn(`[audio] Missing ${label}: ${candidates.join(", ") || "no source configured"}`);
+    return null;
+  }
+
+  function createManagedAudio(label, sources, options = {}) {
+    const el = new Audio();
+    el.loop = !!options.loop;
+    el.preload = options.preload || "auto";
+    if (Number.isFinite(options.volume)) el.volume = clamp(options.volume, 0, 1);
+    el._voidriftReady = false;
+    el._voidriftMissing = false;
+    el._voidriftPending = resolveAudioSource(sources, label).then((src) => {
+      if (!src) {
+        el._voidriftMissing = true;
+        return el;
+      }
+      el.src = src;
+      el.load();
+      el._voidriftReady = true;
+      options.onReady?.(el);
+      return el;
+    });
+    el.addEventListener("error", () => {
+      el._voidriftMissing = true;
+      el._voidriftReady = false;
+    });
+    return el;
+  }
+
+  function hasManagedAudioSource(el) {
+    return !!(el && el._voidriftReady && !el._voidriftMissing && (el.currentSrc || el.src));
+  }
+
   function setupAudio() {
-    audio.menu = new Audio(MUSIC.MENU);
-    audio.menu.loop = true;
-    audio.menu.preload = "auto";
+    audio.menu = createManagedAudio("menu music", MUSIC.MENU, {
+      loop: true,
+      preload: "auto",
+      onReady: () => {
+        applyMenuMusicVolume();
+        if (audio.menuActive && !isMenuMusicMuted()) ensureMenuAudioStarted();
+      }
+    });
     syncMenuMusicToggleUi();
     syncMenuMusicVolumeUi();
     applyMenuMusicVolume();
-    audio.menu.addEventListener("error", () => null);
 
-    audio.layers = MUSIC.LAYERS.map((src) => {
-      const a = new Audio(src);
-      a.loop = true;
-      a.preload = "auto";
-      a.volume = 0;
-      a.addEventListener("error", () => {
-        // Missing music files should not break the game. A rare act of mercy.
-      });
-      return a;
-    });
+    audio.layers = MUSIC.LAYERS.map((src, index) => createManagedAudio(`music layer ${index + 1}`, src, {
+      loop: true,
+      preload: "auto",
+      volume: 0,
+      onReady: (layer) => {
+        layer.volume = 0;
+        if (audio.gameActive) ensureAudioStarted();
+      }
+    }));
 
     audio.sfx = Object.fromEntries(Object.entries(SFX.FILES).map(([name, src]) => {
-      const a = new Audio(src);
-      a.loop = false;
-      a.preload = "auto";
-      a.volume = clamp((SFX.VOLUMES[name] || 0.75) * SFX.MASTER, 0, 1);
-      a.addEventListener("error", () => {
-        // Missing SFX files should not brick the match. The void can stay quiet.
+      const a = createManagedAudio(`sfx:${name}`, src, {
+        loop: false,
+        preload: "auto",
+        volume: clamp((SFX.VOLUMES[name] || 0.75) * SFX.MASTER, 0, 1)
       });
       return [name, a];
     }));
@@ -1112,7 +1237,7 @@
 
     if (audio.ready) {
       for (const a of audio.layers) {
-        if (a.paused) a.play().catch(() => null);
+        if (hasManagedAudioSource(a) && a.paused) a.play().catch(() => null);
       }
       return;
     }
@@ -1122,12 +1247,12 @@
     audio.tried = true;
     audio.lastTryAt = now;
 
-    const plays = audio.layers.map((a) => {
+    const plays = audio.layers.filter(hasManagedAudioSource).map((a) => {
       if (a.paused && a.currentTime === 0) a.currentTime = 0;
       return a.play().catch(() => null);
     });
     Promise.allSettled(plays).then(() => {
-      audio.ready = audio.layers.some((a) => !a.paused);
+      audio.ready = audio.layers.some((a) => hasManagedAudioSource(a) && !a.paused);
       if (ui.audioText) ui.audioText.textContent = audio.ready ? "On" : "Blocked";
     });
   }
@@ -1178,7 +1303,7 @@
       if (layer3) {
         try { layer3.currentTime = 0; } catch (_) { /* Some browsers guard media seeking like it is state secrets. */ }
         applyMusicPlaybackRate(layer3, getLayer3PlaybackRateForLocalState());
-        if (audio.ready && audio.gameActive && layer3.paused) layer3.play().catch(() => null);
+        if (audio.ready && audio.gameActive && hasManagedAudioSource(layer3) && layer3.paused) layer3.play().catch(() => null);
       }
       // Fade the chase layer in from silence, but from the beginning of the actual track.
       audio.volumes[2] = 0;
@@ -1211,7 +1336,7 @@
 
     if (audio.ready) {
       for (const layer of audio.layers) {
-        if (layer.paused) layer.play().catch(() => null);
+        if (hasManagedAudioSource(layer) && layer.paused) layer.play().catch(() => null);
       }
     }
 
@@ -1245,7 +1370,7 @@
 
   function playSfx(name, options = {}) {
     const base = audio.sfx?.[name];
-    if (!base) return;
+    if (!hasManagedAudioSource(base)) return;
     const clip = base.cloneNode(true);
     clip.loop = false;
 
@@ -1640,12 +1765,11 @@
     }
 
     preload() {
-      // Phaser can load SVG directly. The game still creates a fallback texture in create(),
-      // so missing art will not break testing builds.
-      this.load.svg(GENERATOR_VISUAL.TEXTURE_KEY, GENERATOR_VISUAL.FILE, {
-        width: GENERATOR_VISUAL.SIZE,
-        height: GENERATOR_VISUAL.SIZE
-      });
+      // No external rift/generator art is required. The original build tried to load /gen.svg,
+      // and Vite helpfully returned index.html when the file was missing, which made Phaser
+      // parse HTML as SVG and die with a useless XML error. Humanity marches on.
+      // Rifts are drawn with Graphics in drawGenerator(), and create() still builds a small
+      // fallback canvas texture for any legacy code path that asks for one.
     }
 
     create() {
@@ -1672,19 +1796,6 @@
       this.hookIndicatorGraphics = this.add.graphics()
         .setDepth(2500)
         .setScrollFactor(0, 0);
-      this.chatWheelGraphics = this.add.graphics()
-        .setDepth(2700)
-        .setScrollFactor(0, 0);
-      this.chatWheelLabels = Array.from({ length: 4 }, () => this.add.text(0, 0, "", {
-        fontFamily: "system-ui, sans-serif",
-        fontSize: CHAT_WHEEL.TEXT_SIZE,
-        fontStyle: "900",
-        color: "#fff5e7",
-        align: "center",
-        stroke: "#000000",
-        strokeThickness: 4,
-        wordWrap: { width: 112 }
-      }).setOrigin(0.5).setDepth(2701).setScrollFactor(0, 0).setVisible(false));
       this.swipes = [];
       this.recentHookIndicators = [];
       this.createGeneratorFallbackTexture();
@@ -3601,7 +3712,6 @@
       this.maybeUpdateScratchGraphics(dt);
       this.drawLighting(dt);
       this.drawHookIndicators();
-      this.drawChatWheel();
       this.drawChargeIndicators(dt);
       this.drawSwipes(dt);
       this.updateParticles(dt);
@@ -4435,144 +4545,6 @@
       }
     }
 
-    getChatWheelRole() {
-      const me = this.actors.get(myId)?.data;
-      return me?.role === "killer" ? "killer" : "survivor";
-    }
-
-    getChatWheelMessages() {
-      const me = this.actors.get(myId)?.data;
-      if (me?.role === "killer") return CHAT_WHEEL.MESSAGES.killer;
-
-      const survivorMessages = CHAT_WHEEL.MESSAGES.survivor;
-      const state = this.getSurvivorChatState(me);
-      return survivorMessages[state] || survivorMessages.normal;
-    }
-
-    getSurvivorChatState(actor) {
-      if (!actor || actor.role !== "survivor") return "normal";
-      if (actor.hooked) return "hooked";
-      if (actor.downed || actor.health <= 0) return "downed";
-      if (actor.chase) return "chase";
-      if (actor.injured || actor.health <= 1) return "injured";
-      return "normal";
-    }
-
-    openChatWheel() {
-      if (!currentSnapshot || !this.actors.has(myId)) return;
-      this.chatWheelOpen = true;
-      this.chatWheelSelected = -1;
-      this.updateChatWheelSelection();
-    }
-
-    closeChatWheel(submit = true) {
-      if (!this.chatWheelOpen) return;
-      this.updateChatWheelSelection();
-      const selected = this.chatWheelSelected;
-      this.chatWheelOpen = false;
-      this.chatWheelSelected = -1;
-      this.chatWheelGraphics?.clear();
-      for (const label of this.chatWheelLabels || []) label.setVisible(false);
-      if (submit && selected >= 0 && socket && currentSnapshot?.phase === "game") {
-        socket.emit("chatWheel", { index: selected });
-      }
-    }
-
-    updateChatWheelSelection() {
-      if (!this.chatWheelOpen) return -1;
-      const cam = this.cameras.main;
-      const pointer = this.input.activePointer;
-      const cx = cam.width / 2;
-      const cy = cam.height / 2;
-      const dx = pointer.x - cx;
-      const dy = pointer.y - cy;
-      const d = Math.hypot(dx, dy);
-      if (d < CHAT_WHEEL.INNER_RADIUS) {
-        this.chatWheelSelected = -1;
-        return -1;
-      }
-      const angle = Math.atan2(dy, dx);
-      // 0 = top, 1 = right, 2 = bottom, 3 = left.
-      let selected = 0;
-      if (angle >= -Math.PI * 0.25 && angle < Math.PI * 0.25) selected = 1;
-      else if (angle >= Math.PI * 0.25 && angle < Math.PI * 0.75) selected = 2;
-      else if (angle <= -Math.PI * 0.25 && angle > -Math.PI * 0.75) selected = 0;
-      else selected = 3;
-      this.chatWheelSelected = selected;
-      return selected;
-    }
-
-    drawChatWheel() {
-      const g = this.chatWheelGraphics;
-      if (!g) return;
-      if (!this.chatWheelOpen || !currentSnapshot || currentSnapshot.phase !== "game") {
-        g.clear();
-        for (const label of this.chatWheelLabels || []) label.setVisible(false);
-        return;
-      }
-
-      this.updateChatWheelSelection();
-      const messages = this.getChatWheelMessages();
-      const cam = this.cameras.main;
-      const cx = cam.width / 2;
-      const cy = cam.height / 2;
-      const r = CHAT_WHEEL.RADIUS;
-      const inner = CHAT_WHEEL.INNER_RADIUS;
-      const selected = this.chatWheelSelected;
-      const wheelColor = this.getChatWheelRole() === "killer" ? 0x7a1010 : 0x131927;
-      const selectedColor = this.getChatWheelRole() === "killer" ? 0xff3b3b : 0xffd15c;
-
-      g.clear();
-      g.fillStyle(0x050505, 0.34);
-      g.fillRect(0, 0, cam.width, cam.height);
-
-      // Segment order: top, right, bottom, left. Draw as fat pie slices.
-      const segments = [
-        { start: -Math.PI * 0.75, end: -Math.PI * 0.25, lx: 0, ly: -1 },
-        { start: -Math.PI * 0.25, end: Math.PI * 0.25, lx: 1, ly: 0 },
-        { start: Math.PI * 0.25, end: Math.PI * 0.75, lx: 0, ly: 1 },
-        { start: Math.PI * 0.75, end: Math.PI * 1.25, lx: -1, ly: 0 }
-      ];
-
-      segments.forEach((seg, i) => {
-        const isSelected = i === selected;
-        g.fillStyle(isSelected ? selectedColor : wheelColor, isSelected ? CHAT_WHEEL.SELECTED_ALPHA : CHAT_WHEEL.SEGMENT_ALPHA);
-        g.beginPath();
-        g.moveTo(cx, cy);
-        g.arc(cx, cy, r, seg.start, seg.end, false);
-        g.closePath();
-        g.fillPath();
-        g.lineStyle(2, isSelected ? 0xfff3d0 : 0xffffff, isSelected ? 0.74 : 0.15);
-        g.beginPath();
-        g.moveTo(cx, cy);
-        g.lineTo(cx + Math.cos(seg.start) * r, cy + Math.sin(seg.start) * r);
-        g.arc(cx, cy, r, seg.start, seg.end, false);
-        g.lineTo(cx, cy);
-        g.strokePath();
-      });
-
-      g.fillStyle(0x070707, CHAT_WHEEL.CENTER_ALPHA);
-      g.fillCircle(cx, cy, inner);
-      g.lineStyle(3, selected >= 0 ? selectedColor : 0xffffff, selected >= 0 ? 0.78 : 0.24);
-      g.strokeCircle(cx, cy, r);
-      g.lineStyle(2, 0xffffff, 0.18);
-      g.strokeCircle(cx, cy, inner);
-
-      const labelPositions = [
-        { x: cx, y: cy - CHAT_WHEEL.LABEL_RADIUS },
-        { x: cx + CHAT_WHEEL.LABEL_RADIUS, y: cy },
-        { x: cx, y: cy + CHAT_WHEEL.LABEL_RADIUS },
-        { x: cx - CHAT_WHEEL.LABEL_RADIUS, y: cy }
-      ];
-      for (let i = 0; i < 4; i++) {
-        const label = this.chatWheelLabels[i];
-        label.setText(messages[i] || "");
-        label.setPosition(labelPositions[i].x, labelPositions[i].y);
-        label.setAlpha(i === selected ? 1 : 0.66);
-        label.setVisible(true);
-      }
-    }
-
     updateParticles(dt) {
       const g = this.particleGraphics;
       g.clear();
@@ -4732,7 +4704,6 @@
     syncMenuMusicToggleUi();
     const bindMenuMusicToggle = (btn) => {
       btn?.addEventListener("click", () => {
-        ensureMenuAudioStarted();
         toggleMenuMusicMuted();
       });
     };
@@ -4855,7 +4826,7 @@
     input.sprint = false;
     input.repair = false;
     input.attackHeld = false;
-    phaserScene?.closeChatWheel(false);
+    closeReactChatWheel(false);
   }
 
   function setupKeyboard() {
@@ -4872,7 +4843,7 @@
       ensureAudioStarted();
       if (e.code === "KeyR") {
         e.preventDefault();
-        phaserScene?.openChatWheel();
+        if (!e.repeat) openReactChatWheel(e);
         return;
       }
       if (e.code === "Escape" && activeScreenName === "game" && phaserScene?.isSpectating()) {
@@ -4905,7 +4876,7 @@
       if (e.code === "KeyE") input.repair = false;
       if (e.code === "KeyR") {
         e.preventDefault();
-        phaserScene?.closeChatWheel(true);
+        closeReactChatWheel(true);
         return;
       }
       sendInput({}, true);
@@ -4994,7 +4965,7 @@
           input.attackHeld = true;
           sendInput({}, true);
         }
-        if (action === "chat") phaserScene?.openChatWheel();
+        if (action === "chat") openReactChatWheel(e);
         sendTouchInput(true);
       }, { passive: false });
 
@@ -5008,7 +4979,7 @@
           return;
         }
         if (action === "chat") {
-          phaserScene?.closeChatWheel(true);
+          closeReactChatWheel(true);
           return;
         }
         sendTouchInput(true);
@@ -5066,6 +5037,7 @@
   function start() {
     setupAudio();
     setupUI();
+    setupReactChatWheelBridge();
     setupKeyboard();
     setupMobileControls();
     setupSockets();

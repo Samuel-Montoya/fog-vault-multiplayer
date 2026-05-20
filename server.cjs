@@ -1,11 +1,35 @@
 const path = require("path");
 const fs = require("fs");
+const vm = require("vm");
 const express = require("express");
 const http = require("http");
 const { monitorEventLoopDelay, performance } = require("perf_hooks");
 const { Server } = require("socket.io");
-const GAME_MAPS = require("./public/maps.js");
-const GAMEPLAY_CONFIG = require("./public/gameplayConfig.js");
+
+function loadPublicScriptGlobal(relativeFile, globalName) {
+  const filePath = path.join(__dirname, relativeFile);
+  const source = fs.readFileSync(filePath, "utf8");
+  const sandbox = {
+    console,
+    window: {},
+    module: { exports: {} },
+    exports: {}
+  };
+  sandbox.globalThis = sandbox;
+
+  vm.createContext(sandbox);
+  vm.runInContext(source, sandbox, { filename: filePath });
+
+  const moduleExports = sandbox.module?.exports;
+  if (moduleExports && (typeof moduleExports !== "object" || Object.keys(moduleExports).length > 0)) {
+    return moduleExports;
+  }
+
+  return sandbox.window?.[globalName] || sandbox[globalName] || {};
+}
+
+const GAME_MAPS = loadPublicScriptGlobal("public/maps.js", "GAME_MAPS");
+const GAMEPLAY_CONFIG = loadPublicScriptGlobal("public/gameplayConfig.js", "GAMEPLAY_CONFIG");
 
 function cfgNumber(value, fallback) {
   const n = Number(value);
@@ -30,6 +54,17 @@ const PHASER_FILE = path.join(ROOT_DIR, "node_modules", "phaser", "dist", "phase
 
 app.get("/vendor/phaser.min.js", (req, res) => res.sendFile(PHASER_FILE));
 app.use(express.static(PUBLIC_DIR, { index: false }));
+
+// Do not let the SPA fallback serve index.html for missing audio files.
+// Browsers then try to decode HTML as MP3/OGG and flood the console with useless MIME errors.
+app.use((req, res, next) => {
+  if (req.method === "GET" || req.method === "HEAD") {
+    if (/\.(mp3|ogg|wav|m4a|flac)$/i.test(req.path)) {
+      return res.status(404).type("text/plain").send(`Audio file not found: ${req.path}`);
+    }
+  }
+  return next();
+});
 
 async function setupFrontend() {
   const forceVite = process.argv.includes("--dev") || process.env.VITE_DEV_SERVER === "1";
@@ -359,8 +394,8 @@ function orientationForWindow(rows, cx, cy) {
   return left || right ? "horizontal" : "vertical";
 }
 
-function resolveRequiredGenerators(mapDef, generatorCount, fallback = DEFAULT_REQUIRED_GENERATORS_TO_COMPLETE) {
-  if (generatorCount <= 0) return 0;
+function resolveRequiredGenerators(mapDef, generatorCandidateCount, fallback = DEFAULT_REQUIRED_GENERATORS_TO_COMPLETE) {
+  if (generatorCandidateCount <= 0) return 0;
 
   const raw = mapDef?.requiredGenerators
     ?? mapDef?.requiredRifts
@@ -369,21 +404,128 @@ function resolveRequiredGenerators(mapDef, generatorCount, fallback = DEFAULT_RE
 
   if (typeof raw === "string") {
     const value = raw.trim().toLowerCase();
-    if (value === "all") return generatorCount;
+    if (value === "all") return generatorCandidateCount;
     const parsed = Number(value);
     if (Number.isFinite(parsed)) {
-      return clamp(Math.floor(parsed), 1, generatorCount);
+      return clamp(Math.floor(parsed), 1, generatorCandidateCount);
     }
   }
 
   if (Number.isFinite(raw)) {
-    return clamp(Math.floor(raw), 1, generatorCount);
+    return clamp(Math.floor(raw), 1, generatorCandidateCount);
   }
 
-  return clamp(Math.floor(fallback), 1, generatorCount);
+  return clamp(Math.floor(fallback), 1, generatorCandidateCount);
+}
+
+function resolveSpawnedGeneratorCount(mapDef, generatorCandidateCount, requiredCount) {
+  if (generatorCandidateCount <= 0) return 0;
+
+  const explicit = mapDef?.spawnedGenerators
+    ?? mapDef?.spawnedRifts
+    ?? mapDef?.totalGeneratorsToSpawn
+    ?? mapDef?.totalRiftsToSpawn
+    ?? mapDef?.generatorsToSpawn
+    ?? mapDef?.riftsToSpawn
+    ?? mapDef?.activeGenerators
+    ?? mapDef?.activeRifts;
+
+  let desired;
+
+  if (typeof explicit === "string") {
+    const value = explicit.trim().toLowerCase();
+    if (value === "all") desired = generatorCandidateCount;
+    else {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) desired = Math.floor(parsed);
+    }
+  } else if (Number.isFinite(explicit)) {
+    desired = Math.floor(explicit);
+  }
+
+  // DBD-style default: spawn two more rifts than Survivors must seal.
+  // Example: requiredGenerators: 5 -> 7 spawn. requiredGenerators: 7 -> 9 spawn.
+  // If the map does not have enough G tiles, clamp safely instead of inventing rifts in a wall.
+  if (!Number.isFinite(desired)) desired = requiredCount + 2;
+
+  return clamp(desired, requiredCount, generatorCandidateCount);
+}
+
+function generatorSpreadScore(generators) {
+  if (!Array.isArray(generators) || generators.length < 2) return 0;
+  let minDistance = Infinity;
+  let totalDistance = 0;
+  let pairs = 0;
+
+  for (let i = 0; i < generators.length; i++) {
+    for (let j = i + 1; j < generators.length; j++) {
+      const d = dist(generators[i].x, generators[i].y, generators[j].x, generators[j].y);
+      minDistance = Math.min(minDistance, d);
+      totalDistance += d;
+      pairs++;
+    }
+  }
+
+  return (Number.isFinite(minDistance) ? minDistance : 0) * 2.35 + (pairs ? totalDistance / pairs : 0);
+}
+
+function chooseSpreadGenerators(candidates, count, tile) {
+  if (!Array.isArray(candidates) || candidates.length <= count) return [...(candidates || [])];
+  if (count <= 0) return [];
+
+  const attempts = Math.min(72, Math.max(18, candidates.length * 6));
+  const layouts = [];
+
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    const remaining = candidates.map((candidate, index) => ({ ...candidate, originalIndex: index }));
+    const chosen = [];
+
+    // Random first pick keeps every match from feeling stamped out by a bored factory.
+    chosen.push(remaining.splice(Math.floor(Math.random() * remaining.length), 1)[0]);
+
+    while (chosen.length < count && remaining.length) {
+      const scored = remaining.map((candidate, index) => {
+        let minToChosen = Infinity;
+        let totalToChosen = 0;
+        for (const picked of chosen) {
+          const d = dist(candidate.x, candidate.y, picked.x, picked.y);
+          minToChosen = Math.min(minToChosen, d);
+          totalToChosen += d;
+        }
+        const avgToChosen = totalToChosen / chosen.length;
+        const jitter = Math.random() * Math.max(24, tile * 0.45);
+        return { index, score: minToChosen * 1.85 + avgToChosen * 0.22 + jitter };
+      }).sort((a, b) => b.score - a.score);
+
+      // Pick from the top cluster instead of always taking the absolute farthest point.
+      // This keeps spacing strong while still letting each match vary.
+      const eliteCount = Math.max(1, Math.ceil(scored.length * 0.45));
+      const picked = scored[Math.floor(Math.random() * Math.min(eliteCount, 8))];
+      chosen.push(remaining.splice(picked.index, 1)[0]);
+    }
+
+    layouts.push({ score: generatorSpreadScore(chosen), chosen });
+  }
+
+  layouts.sort((a, b) => b.score - a.score);
+  // Use one of the best layouts instead of the single mathematical winner.
+  // The single winner often repeats on small maps, which technically spaces rifts well
+  // but feels about as random as a tax form.
+  const strongLayouts = layouts.slice(0, Math.min(28, layouts.length));
+  const selected = strongLayouts[Math.floor(Math.random() * strongLayouts.length)] || layouts[0] || { chosen: [] };
+
+  return selected.chosen
+    .map((candidate) => {
+      const { originalIndex, ...generator } = candidate;
+      return generator;
+    })
+    .sort((a, b) => (a.tileY - b.tileY) || (a.tileX - b.tileX));
 }
 
 function parseMap(mapDef) {
+  if (!mapDef || !Array.isArray(mapDef.rows) || mapDef.rows.length === 0) {
+    throw new Error("No valid Voidrift map definition was found. Check public/maps.js and make sure at least one map has a rows array.");
+  }
   const rows = normalizeRows(mapDef.rows);
   const tile = mapDef.tile || 72;
   const map = {
@@ -418,6 +560,8 @@ function parseMap(mapDef) {
         id: uid("gen"),
         x: rx + tile / 2,
         y: ry + tile / 2,
+        tileX: x,
+        tileY: y,
         progress: 0,
         done: false,
         activeRepairers: [],
@@ -435,13 +579,59 @@ function parseMap(mapDef) {
 
   if (!map.survivorSpawns.length) map.survivorSpawns.push({ x: tile * 2, y: tile * 2 });
   if (!map.killerSpawns.length) map.killerSpawns.push({ x: map.width - tile * 3, y: map.height - tile * 3 });
-  map.requiredGenerators = resolveRequiredGenerators(mapDef, map.generators.length);
+
+  const generatorCandidates = map.generators;
+  const requiredGenerators = resolveRequiredGenerators(mapDef, generatorCandidates.length);
+  const spawnedGenerators = resolveSpawnedGeneratorCount(mapDef, generatorCandidates.length, requiredGenerators);
+  const activeGenerators = chooseSpreadGenerators(generatorCandidates, spawnedGenerators, tile);
+
+  map.generatorCandidateCount = generatorCandidates.length;
+  map.spawnedGenerators = activeGenerators.length;
+  map.requiredGenerators = clamp(requiredGenerators, 0, activeGenerators.length);
+  map.generators = activeGenerators;
   return map;
 }
 
+function getMapRegistry() {
+  return GAME_MAPS && typeof GAME_MAPS === "object" ? GAME_MAPS : {};
+}
+
+function getMapEntries() {
+  return Object.entries(getMapRegistry())
+    .filter(([id, mapDef]) => id !== "active" && mapDef && typeof mapDef === "object" && Array.isArray(mapDef.rows) && mapDef.rows.length > 0);
+}
+
+function getDefaultMapId() {
+  const maps = getMapRegistry();
+  const entries = getMapEntries();
+  const activeId = typeof maps.active === "string" ? maps.active : null;
+
+  if (activeId && entries.some(([id]) => id === activeId)) return activeId;
+  if (entries.some(([id]) => id === "bloodyard")) return "bloodyard";
+  return entries[0]?.[0] || null;
+}
+
+function resolveMapSelection(requestedMapId) {
+  const maps = getMapRegistry();
+  const entries = getMapEntries();
+  const requestedId = typeof requestedMapId === "string" ? requestedMapId.trim() : "";
+  const fallbackId = getDefaultMapId();
+  const mapId = entries.some(([id]) => id === requestedId) ? requestedId : fallbackId;
+
+  if (!mapId || !maps[mapId]) return null;
+  return { id: mapId, def: maps[mapId] };
+}
+
 function getActiveMapDef() {
-  const active = GAME_MAPS[GAME_MAPS.active] || GAME_MAPS.bloodyard || Object.values(GAME_MAPS).find((m) => m && m.rows);
-  return active;
+  return resolveMapSelection()?.def || null;
+}
+
+function getMapListForClient() {
+  return getMapEntries().map(([id, mapDef]) => ({
+    id,
+    name: mapDef.name || id,
+    requiredGenerators: mapDef.requiredGenerators ?? mapDef.requiredRifts ?? mapDef.requiredGens ?? mapDef.required ?? null
+  }));
 }
 
 function solidRects(game) {
@@ -586,6 +776,7 @@ function getLobbySummary(lobby) {
   return {
     id: lobby.id,
     name: lobby.name,
+    mapId: lobby.mapId,
     mapName: lobby.mapName,
     phase: lobby.phase,
     playerCount: players.length,
@@ -696,13 +887,18 @@ function makePlayer(socket, role, name, options = {}) {
   };
 }
 
-function createLobby(name) {
+function createLobby(name, requestedMapId) {
+  const selection = resolveMapSelection(requestedMapId);
+  if (!selection) {
+    throw new Error("Cannot create a lobby because public/maps.js does not contain any valid maps.");
+  }
+
   const id = uid("lobby");
-  const mapDef = getActiveMapDef();
   const lobby = {
     id,
     name: String(name || `Open Lobby ${nextLobbyNumber++}`).slice(0, 28),
-    mapName: mapDef.name,
+    mapId: selection.id,
+    mapName: selection.def.name || selection.id,
     phase: "lobby",
     createdAt: nowMs(),
     players: new Map(),
@@ -778,6 +974,7 @@ function broadcastLobbyState(lobby) {
     id: lobby.id,
     name: lobby.name,
     phase: lobby.phase,
+    mapId: lobby.mapId,
     mapName: lobby.mapName,
     players: [...lobby.players.values()].map((p) => ({ id: p.id, name: p.name, role: p.role, skin: p.skin || "blueSquare", ready: p.ready, isBot: !!p.isBot }))
   });
@@ -820,7 +1017,15 @@ function startGame(lobby) {
     return false;
   }
 
-  const map = parseMap(getActiveMapDef());
+  const selection = resolveMapSelection(lobby.mapId);
+  if (!selection) {
+    io.to(lobby.id).emit("toast", { type: "error", message: "No valid map was found. Check public/maps.js." });
+    return false;
+  }
+
+  lobby.mapId = selection.id;
+  lobby.mapName = selection.def.name || selection.id;
+  const map = parseMap(selection.def);
   chooseActiveExitGates(map, 2);
   const game = {
     map,
@@ -887,6 +1092,8 @@ function serializeMapForClient(map) {
     rows: map.rawRows,
     requiredGenerators: map.requiredGenerators,
     totalGenerators: map.generators.length,
+    generatorCandidateCount: map.generatorCandidateCount || map.generators.length,
+    spawnedGenerators: map.spawnedGenerators || map.generators.length,
     walls: map.walls.map(stripRect),
     windows: map.windows.map((w) => ({ ...stripRect(w), orientation: w.orientation })),
     pallets: map.pallets.map((p) => ({ ...stripRect(p), orientation: p.orientation, state: p.state, broken: p.broken })),
@@ -3294,6 +3501,8 @@ function buildSnapshotFor(lobby, socketId) {
       doneGenerators,
       requiredGenerators,
       totalGenerators: map.generators.length,
+      generatorCandidateCount: map.generatorCandidateCount || map.generators.length,
+      spawnedGenerators: map.spawnedGenerators || map.generators.length,
       remainingGenerators: Math.max(0, requiredGenerators - doneGenerators),
       riftsHidden: riftsComplete,
       escapeOpen: game.escapeOpen
@@ -3333,12 +3542,17 @@ setInterval(() => {
 setInterval(sendSnapshots, 1000 / SNAPSHOT_RATE);
 
 io.on("connection", (socket) => {
-  socket.emit("hello", { id: socket.id });
+  socket.emit("hello", { id: socket.id, maps: getMapListForClient(), activeMapId: getDefaultMapId() });
   socket.emit("lobbyList", [...lobbies.values()].map(getLobbySummary));
 
-  socket.on("createLobby", ({ name, role, playerName, skin } = {}) => {
-    const lobby = createLobby(name);
-    joinLobby(socket, lobby, role, playerName, skin);
+  socket.on("createLobby", ({ name, role, playerName, skin, mapId } = {}) => {
+    try {
+      const lobby = createLobby(name, mapId);
+      joinLobby(socket, lobby, role, playerName, skin);
+    } catch (error) {
+      console.error("Failed to create lobby", error);
+      socket.emit("toast", { type: "error", message: error.message || "Failed to create lobby." });
+    }
   });
 
   socket.on("joinLobby", ({ lobbyId, role, playerName, skin } = {}) => {
@@ -3350,15 +3564,20 @@ io.on("connection", (socket) => {
     joinLobby(socket, lobby, role, playerName, skin);
   });
 
-  socket.on("quickJoin", ({ role, playerName, skin } = {}) => {
-    const available = [...lobbies.values()].filter((l) => l.phase === "lobby");
-    const roleValue = role === "killer" ? "killer" : "survivor";
-    const lobby = available.find((l) => {
-      const players = [...l.players.values()];
-      if (roleValue === "killer") return !players.some((p) => p.role === "killer");
-      return players.filter((p) => p.role === "survivor").length < MAX_SURVIVORS;
-    }) || createLobby("Open Lobby");
-    joinLobby(socket, lobby, roleValue, playerName, skin);
+  socket.on("quickJoin", ({ role, playerName, skin, mapId } = {}) => {
+    try {
+      const available = [...lobbies.values()].filter((l) => l.phase === "lobby");
+      const roleValue = role === "killer" ? "killer" : "survivor";
+      const lobby = available.find((l) => {
+        const players = [...l.players.values()];
+        if (roleValue === "killer") return !players.some((p) => p.role === "killer");
+        return players.filter((p) => p.role === "survivor").length < MAX_SURVIVORS;
+      }) || createLobby("Open Lobby", mapId);
+      joinLobby(socket, lobby, roleValue, playerName, skin);
+    } catch (error) {
+      console.error("Failed to quick join", error);
+      socket.emit("toast", { type: "error", message: error.message || "Failed to quick join." });
+    }
   });
 
   socket.on("leaveLobby", () => leaveCurrentLobby(socket));
