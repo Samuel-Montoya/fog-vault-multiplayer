@@ -381,10 +381,10 @@ function GameHud() {
 const CHAT_WHEEL_FALLBACK_MESSAGES = ["Let's feed a rift.", "I'm so scared...", "Here he comes!", "What was that?!"]
 
 const CHAT_WHEEL_SEGMENTS = [
-  { index: 0, className: "top", hint: "Up" },
-  { index: 1, className: "right", hint: "Right" },
-  { index: 2, className: "bottom", hint: "Down" },
-  { index: 3, className: "left", hint: "Left" }
+  { index: 0, className: "top" },
+  { index: 1, className: "right" },
+  { index: 2, className: "bottom" },
+  { index: 3, className: "left" }
 ]
 
 function getChatWheelSelectionFromPoint(point) {
@@ -479,10 +479,7 @@ function ChatWheel() {
     <div className={`chat-wheel-overlay ${wheel.open ? "is-open" : ""} ${wheel.role === "killer" ? "is-killer" : "is-survivor"}`} aria-hidden={!wheel.open}>
       <div className="chat-wheel-backdrop" />
       <div className="chat-wheel" role="menu" aria-label="Quick chat wheel">
-        <div className="chat-wheel-center">
-          <span>{wheel.selected >= 0 ? "release" : "aim"}</span>
-          <strong>{wheel.role === "killer" ? "Void" : wheel.state}</strong>
-        </div>
+        <div className="chat-wheel-center" aria-hidden="true" />
         {CHAT_WHEEL_SEGMENTS.map((segment) => {
           const selected = wheel.selected === segment.index
           return (
@@ -492,13 +489,11 @@ function ChatWheel() {
               aria-label={wheel.messages[segment.index]}
               key={segment.index}
             >
-              <small>{segment.hint}</small>
               <span>{wheel.messages[segment.index]}</span>
             </div>
           )
         })}
       </div>
-      <div className="chat-wheel-instruction">Hold <b>R</b>, aim, release to speak</div>
     </div>
   )
 }
