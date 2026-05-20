@@ -1,4 +1,5 @@
 const path = require("path");
+const fs = require("fs");
 const express = require("express");
 const http = require("http");
 const { monitorEventLoopDelay, performance } = require("perf_hooks");
@@ -22,12 +23,36 @@ const io = new Server(server, {
 });
 
 const PORT = process.env.PORT || 3000;
-const PUBLIC_DIR = path.join(__dirname, "public");
-const PHASER_FILE = path.join(__dirname, "node_modules", "phaser", "dist", "phaser.min.js");
+const ROOT_DIR = __dirname;
+const PUBLIC_DIR = path.join(ROOT_DIR, "public");
+const DIST_DIR = path.join(ROOT_DIR, "dist");
+const PHASER_FILE = path.join(ROOT_DIR, "node_modules", "phaser", "dist", "phaser.min.js");
 
 app.get("/vendor/phaser.min.js", (req, res) => res.sendFile(PHASER_FILE));
-app.use(express.static(PUBLIC_DIR));
-app.get("/", (req, res) => res.sendFile(path.join(PUBLIC_DIR, "index.html")));
+app.use(express.static(PUBLIC_DIR, { index: false }));
+
+async function setupFrontend() {
+  const forceVite = process.argv.includes("--dev") || process.env.VITE_DEV_SERVER === "1";
+  const hasBuiltClient = fs.existsSync(path.join(DIST_DIR, "index.html"));
+
+  if (forceVite || !hasBuiltClient) {
+    const { createServer: createViteServer } = await import("vite");
+    const vite = await createViteServer({
+      root: ROOT_DIR,
+      server: { middlewareMode: true },
+      appType: "spa"
+    });
+    app.use(vite.middlewares);
+    return;
+  }
+
+  app.use(express.static(DIST_DIR, { index: false }));
+  app.use((req, res, next) => {
+    if (req.method !== "GET") return next();
+    res.sendFile(path.join(DIST_DIR, "index.html"));
+  });
+}
+
 
 const HOST_PROFILE = String(process.env.HOST_PROFILE || GAMEPLAY_CONFIG.server?.hostProfileDefault || "boosted").toLowerCase();
 const IS_BOOSTED_HOST = HOST_PROFILE === "boosted" || HOST_PROFILE === "2gb" || HOST_PROFILE === "performance";
@@ -3460,6 +3485,14 @@ io.on("connection", (socket) => {
   socket.on("disconnect", () => leaveCurrentLobby(socket));
 });
 
-server.listen(PORT, () => {
-  console.log(`survive.io running at http://localhost:${PORT}`);
-});
+setupFrontend()
+  .then(() => {
+    server.listen(PORT, () => {
+      console.log(`voidrift running at http://localhost:${PORT}`);
+    });
+  })
+  .catch((error) => {
+    console.error("Failed to start Voidrift server", error);
+    process.exit(1);
+  });
+

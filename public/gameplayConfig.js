@@ -21,7 +21,6 @@ const GAMEPLAY_CONFIG = {
   match: {
     startFreezeSeconds: 1.5,
     maxSurvivors: 4,
-    // Fallback only. Prefer requiredGenerators on each map in maps.js.
     requiredRiftsToComplete: 4,
     scratchMarkMax: 45
   },

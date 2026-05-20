@@ -632,8 +632,8 @@
     lastSfxPitchIndices: Object.create(null)
   };
 
-  const MENU_MUSIC_MUTE_KEY = "surviveMenuMusicMuted";
-  const MENU_MUSIC_VOLUME_KEY = "surviveMenuMusicVolume";
+  const MENU_MUSIC_MUTE_KEY = "voidriftMenuMusicMuted";
+  const MENU_MUSIC_VOLUME_KEY = "voidriftMenuMusicVolume";
 
   function clamp01(value) {
     return Math.max(0, Math.min(1, value));
@@ -4646,7 +4646,7 @@
       },
       scene: [GameScene]
     });
-    window.__surviveIoGame = game;
+    window.__voidriftGame = game;
   }
 
   let uiClickSfxBound = false;
