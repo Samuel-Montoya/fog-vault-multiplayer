@@ -328,15 +328,11 @@
   };
 
   const HOOK_INDICATOR = {
-    // Survivor-only edge bubble that points toward hooked teammates.
-    // Raise EDGE_PADDING if your HUD overlaps the screen border.
-    EDGE_PADDING: 66,
-    ON_SCREEN_PADDING: 92,
-    RADIUS: 27,
-    PULSE: 3.5,
-    LINE_ALPHA: 0.82,
-    FILL_ALPHA: 0.74,
-    ARROW_ALPHA: 0.92
+    // Survivor-only React edge indicator for hooked teammates.
+    // These are screen-space values, so camera zoom cannot shove them off-screen.
+    EDGE_PADDING: 64,
+    ON_SCREEN_PADDING: 96,
+    POSITION_ROUNDING: 1
   };
 
   const LOCAL_SPEEDS = {
@@ -775,7 +771,10 @@
     activeScreenName = name;
 
     const isGameScreen = name === "game";
-    if (!isGameScreen) closeReactChatWheel(false);
+    if (!isGameScreen) {
+      closeReactChatWheel(false);
+      dispatchHookIndicators([]);
+    }
     const menuLike = !isGameScreen;
     const shouldRestartMenuMusic = menuLike && wasGameScreen;
 
@@ -1083,6 +1082,12 @@
 
   function dispatchChatWheelEvent(name, detail = {}) {
     window.dispatchEvent(new CustomEvent(name, { detail }));
+  }
+
+  function dispatchHookIndicators(items = []) {
+    window.dispatchEvent(new CustomEvent("voidrift:hook-indicators", {
+      detail: { items: Array.isArray(items) ? items : [] }
+    }));
   }
 
   function openReactChatWheel(pointerEvent = null) {
@@ -1793,9 +1798,7 @@
       this.chargeGraphics = this.add.graphics().setDepth(21);
       this.swipeGraphics = this.add.graphics().setDepth(22);
       this.particleGraphics = this.add.graphics().setDepth(30);
-      this.hookIndicatorGraphics = this.add.graphics()
-        .setDepth(2500)
-        .setScrollFactor(0, 0);
+      this.lastHookIndicatorSignature = "";
       this.swipes = [];
       this.recentHookIndicators = [];
       this.createGeneratorFallbackTexture();
@@ -3711,7 +3714,7 @@
       this.maybeDrawGeneratorLayer(dt);
       this.maybeUpdateScratchGraphics(dt);
       this.drawLighting(dt);
-      this.drawHookIndicators();
+      this.updateHookIndicators();
       this.drawChargeIndicators(dt);
       this.drawSwipes(dt);
       this.updateParticles(dt);
@@ -4441,14 +4444,23 @@
       this.drawVisionConeGraphic(g, vx, vy, vfacing, vlength, vangle, lightColor, coneAlpha, segments);
     }
 
-    drawHookIndicators() {
-      const g = this.hookIndicatorGraphics;
-      if (!g) return;
-      g.clear();
-      if (!currentSnapshot || !this.actors.has(myId)) return;
+    updateHookIndicators() {
+      if (!currentSnapshot || !this.actors.has(myId) || activeScreenName !== "game") {
+        if (this.lastHookIndicatorSignature) {
+          this.lastHookIndicatorSignature = "";
+          dispatchHookIndicators([]);
+        }
+        return;
+      }
 
       const me = this.getPovSurvivorData();
-      if (!me || me.role !== "survivor" || me.dead || me.escaped) return;
+      if (!me || me.role !== "survivor" || me.dead || me.escaped) {
+        if (this.lastHookIndicatorSignature) {
+          this.lastHookIndicatorSignature = "";
+          dispatchHookIndicators([]);
+        }
+        return;
+      }
 
       const now = performance.now();
       this.recentHookIndicators = (this.recentHookIndicators || []).filter((h) => h.until > now);
@@ -4471,20 +4483,31 @@
         hookedSurvivors.push({ ...recent, role: "survivor", hooked: true, source: "event" });
       }
 
-      if (!hookedSurvivors.length) return;
+      if (!hookedSurvivors.length) {
+        if (this.lastHookIndicatorSignature) {
+          this.lastHookIndicatorSignature = "";
+          dispatchHookIndicators([]);
+        }
+        return;
+      }
 
       const cam = this.cameras.main;
-      const viewW = cam.width;
-      const viewH = cam.height;
+      const viewW = cam.width || window.innerWidth || 1;
+      const viewH = cam.height || window.innerHeight || 1;
       const centerX = viewW / 2;
       const centerY = viewH / 2;
       const edgePadding = HOOK_INDICATOR.EDGE_PADDING;
       const onScreenPadding = HOOK_INDICATOR.ON_SCREEN_PADDING;
-      const pulse = 0.5 + Math.sin(performance.now() * 0.008) * 0.5;
+      const worldView = cam.worldView;
+      const worldLeft = Number.isFinite(worldView?.x) ? worldView.x : cam.scrollX;
+      const worldTop = Number.isFinite(worldView?.y) ? worldView.y : cam.scrollY;
+      const worldWidth = Math.max(1, Number.isFinite(worldView?.width) ? worldView.width : viewW / Math.max(0.001, cam.zoom || 1));
+      const worldHeight = Math.max(1, Number.isFinite(worldView?.height) ? worldView.height : viewH / Math.max(0.001, cam.zoom || 1));
+      const indicators = [];
 
       for (const actor of hookedSurvivors) {
-        const screenX = (actor.x - cam.scrollX) * cam.zoom;
-        const screenY = (actor.y - cam.scrollY) * cam.zoom;
+        const screenX = ((actor.x - worldLeft) / worldWidth) * viewW;
+        const screenY = ((actor.y - worldTop) / worldHeight) * viewH;
 
         const clearlyOnScreen = screenX > onScreenPadding
           && screenX < viewW - onScreenPadding
@@ -4505,43 +4528,28 @@
           Math.abs(dy) > 0.0001 ? halfH / Math.abs(dy) : Infinity
         );
 
-        const x = centerX + dx * scale;
-        const y = centerY + dy * scale;
-        const danger = (actor.hookCount || 1) >= 2;
-        const mainColor = danger ? 0xff2222 : 0xff3030;
-        const ringAlpha = danger ? 0.82 : 0.68;
-        const r = HOOK_INDICATOR.RADIUS + pulse * HOOK_INDICATOR.PULSE;
+        const x = Math.round((centerX + dx * scale) / HOOK_INDICATOR.POSITION_ROUNDING) * HOOK_INDICATOR.POSITION_ROUNDING;
+        const y = Math.round((centerY + dy * scale) / HOOK_INDICATOR.POSITION_ROUNDING) * HOOK_INDICATOR.POSITION_ROUNDING;
+        const angle = Math.atan2(dy, dx);
+        const id = actor.id || actor.survivorId || `${Math.round(actor.x)}:${Math.round(actor.y)}`;
 
-        // Direction pointer, slightly outside the bubble.
-        const arrowX = x + dx * 24;
-        const arrowY = y + dy * 24;
-        const tangentX = -dy;
-        const tangentY = dx;
-        g.fillStyle(mainColor, HOOK_INDICATOR.ARROW_ALPHA);
-        g.fillTriangle(
-          arrowX + dx * 10,
-          arrowY + dy * 10,
-          arrowX - dx * 8 + tangentX * 7,
-          arrowY - dy * 8 + tangentY * 7,
-          arrowX - dx * 8 - tangentX * 7,
-          arrowY - dy * 8 - tangentY * 7
-        );
+        indicators.push({
+          id,
+          x,
+          y,
+          angle,
+          danger: (actor.hookCount || 1) >= 2,
+          name: actor.name || "Survivor"
+        });
+      }
 
-        g.fillStyle(0x120807, HOOK_INDICATOR.FILL_ALPHA);
-        g.fillCircle(x, y, HOOK_INDICATOR.RADIUS - 4);
-        g.lineStyle(3, mainColor, ringAlpha * HOOK_INDICATOR.LINE_ALPHA);
-        g.strokeCircle(x, y, r);
-        g.lineStyle(1, 0xffffff, 0.22);
-        g.strokeCircle(x, y, 15);
+      const signature = indicators
+        .map((item) => `${item.id}:${Math.round(item.x)}:${Math.round(item.y)}:${item.danger ? 1 : 0}`)
+        .join("|");
 
-        // Red exclamation marker. No hook glyph, no prop, just "someone is in trouble".
-        g.lineStyle(5, 0xff3030, 0.98);
-        g.beginPath();
-        g.moveTo(x, y - 12);
-        g.lineTo(x, y + 4);
-        g.strokePath();
-        g.fillStyle(0xff3030, 0.98);
-        g.fillCircle(x, y + 12, 3.7);
+      if (signature !== this.lastHookIndicatorSignature) {
+        this.lastHookIndicatorSignature = signature;
+        dispatchHookIndicators(indicators);
       }
     }
 

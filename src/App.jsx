@@ -498,6 +498,40 @@ function ChatWheel() {
   )
 }
 
+function HookEdgeIndicators() {
+  const [indicators, setIndicators] = useState([])
+
+  useEffect(() => {
+    const handleIndicators = (event) => {
+      const items = Array.isArray(event.detail?.items) ? event.detail.items : []
+      setIndicators(items)
+    }
+
+    window.addEventListener("voidrift:hook-indicators", handleIndicators)
+    return () => window.removeEventListener("voidrift:hook-indicators", handleIndicators)
+  }, [])
+
+  return (
+    <div className={`hook-edge-indicators ${indicators.length ? "is-active" : ""}`} aria-hidden={!indicators.length}>
+      {indicators.map((indicator) => (
+        <div
+          className={`hook-edge-indicator ${indicator.danger ? "danger" : ""}`}
+          style={{
+            left: `${Number(indicator.x) || 0}px`,
+            top: `${Number(indicator.y) || 0}px`,
+            "--hook-angle": `${Number(indicator.angle) || 0}rad`
+          }}
+          title={`${indicator.name || "Survivor"} is hooked`}
+          key={indicator.id}
+        >
+          <span className="hook-edge-arrow" aria-hidden="true" />
+          <span className="hook-edge-mark">!</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function MobileControls() {
   return (
     <div id="mobileControls" className="mobile-controls hidden" aria-label="Touch controls">
@@ -545,6 +579,7 @@ export default function App() {
       <LobbyScreen />
       <GameHud />
       <ChatWheel />
+      <HookEdgeIndicators />
       <div id="toast" className="toast hidden" />
       <MobileControls />
       <EndScreen />
