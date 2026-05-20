@@ -11,10 +11,10 @@ const LEGACY_SCRIPT_CHAIN = [
 ]
 
 const MENU_ACTIONS = [
-  { id: "menuPlayBtn", label: "Enter the Fog", className: "menu-action primary" },
+  { id: "menuPlayBtn", label: "Play Online", className: "menu-action primary" },
   { id: "menuSkinsBtn", label: "Signal Skins", className: "menu-action" },
   { id: "menuOptionsBtn", label: "Options", className: "menu-action" },
-  { id: "menuHowBtn", label: "How to Survive", className: "menu-action" }
+  { id: "menuHowBtn", label: "Field Manual", className: "menu-action" }
 ]
 
 const SKINS = [
@@ -30,19 +30,19 @@ const SKINS = [
 const HOW_TO_PLAY = [
   {
     title: "Survivors",
-    text: "Gather orbs, seal rifts, heal teammates, drop pallets, vault windows, open the exit, and leave before The Void turns you into background lore."
+    text: "Collect orbs, seal active rifts, rescue teammates, use pallets and windows, then open the exit once the objective is complete."
   },
   {
     title: "The Void",
-    text: "Track survivors, charge lunges with M1, kick rifts, break pallets, hook downed players, and control the map."
+    text: "Track survivors, charge lunges with M1, kick rifts, break pallets, hook downed players, and pressure the map."
   },
   {
-    title: "Objectives",
-    text: "Only the active rifts count. Maps can spawn extra rifts, but survivors only need the required amount to open the escape."
+    title: "Rifts",
+    text: "Each map chooses active rifts at match start. Extra rifts can spawn, but survivors only need the required amount to unlock escape."
   },
   {
     title: "Controls",
-    text: "WASD move, mouse aim, Shift sprint, Space vault/drop/break, E interact, R quick chat. Mobile controls appear on touch screens."
+    text: "WASD move, mouse aim, Shift sprint, Space vault/drop/break, E interact, R quick chat. Touch controls appear on mobile."
   }
 ]
 
@@ -91,7 +91,7 @@ function useVoidriftClient() {
         console.error(error)
         const toast = document.getElementById("toast")
         if (toast) {
-          toast.textContent = "Voidrift failed to load. Check the console before the browser starts writing poetry about it."
+          toast.textContent = "Voidrift failed to load. Check the console for details."
           toast.classList.remove("hidden")
         }
       })
@@ -138,29 +138,23 @@ function MenuBackground() {
 function MainMenu() {
   return (
     <div id="menu" className="screen screen-open io-screen menu-screen">
-      <div className="void-card main-menu-card">
-        <div className="brand-lockup">
-          <div className="brand-rift" aria-hidden="true">
-            <span />
+      <div className="main-menu-stage">
+        <div className="main-title-block">
+          <div className="brand-lockup portal-brand-lockup">
+            <div className="brand-rift" aria-hidden="true">
+              <span />
+            </div>
+            <div>
+              <div className="eyebrow">asymmetric void survival</div>
+              <h1>Voidrift</h1>
+            </div>
           </div>
-          <div>
-            <div className="eyebrow">asymmetric void survival</div>
-            <h1>Voidrift</h1>
-          </div>
+          <p className="hero-copy">
+            Seal the rifts. Keep your team alive. Escape before the dark finishes learning your route.
+          </p>
         </div>
 
-        <p className="hero-copy">
-          Seal unstable rifts while a living anomaly hunts the board. Clean arena readability, horror pressure,
-          and just enough cosmic nonsense to make OSHA give up.
-        </p>
-
-        <div className="menu-stats" aria-label="Game highlights">
-          <div><strong>4v1</strong><span>Survivors vs Void</span></div>
-          <div><strong>Rifts</strong><span>Random map objectives</span></div>
-          <div><strong>Escape</strong><span>Open the way out</span></div>
-        </div>
-
-        <nav className="main-menu-actions" aria-label="Main menu">
+        <nav className="main-menu-actions floating-menu-actions" aria-label="Main menu">
           {MENU_ACTIONS.map((action) => (
             <button id={action.id} className={action.className} type="button" key={action.id}>{action.label}</button>
           ))}
@@ -169,9 +163,13 @@ function MainMenu() {
           </a>
         </nav>
 
-        <button id="menuMusicToggleBtn" className="menu-music-toggle" type="button" aria-pressed="false">
-          Menu music on
-        </button>
+        <div className="menu-footer-strip">
+          <span className="enrichment-mark" aria-hidden="true" />
+          <span>Void Enrichment</span>
+          <button id="menuMusicToggleBtn" className="menu-music-toggle" type="button" aria-pressed="false">
+            Menu music on
+          </button>
+        </div>
       </div>
     </div>
   )
@@ -225,7 +223,7 @@ function SkinScreen() {
         <ScreenHeader
           eyebrow="survivor signals"
           title="Signal Skins"
-          description="Pick a readable survivor style. The Void still gets to be a nightmare blob because fairness apparently has limits."
+          description="Pick a readable survivor signal. Simple shapes keep the match clean while each skin keeps its own identity."
         />
         <div className="skin-picker big-skin-picker" aria-label="Survivor skin selector">
           {SKINS.map((skin) => <SkinButton skin={skin} key={skin.id} />)}
@@ -242,7 +240,7 @@ function OptionsScreen() {
         <ScreenHeader
           eyebrow="calibration"
           title="Options"
-          description="Fast toggles for the stuff humans immediately blame when they miss a pallet."
+          description="Tune the match presentation, audio, and interface feel."
         />
         <div className="option-list">
           <div className="option-card audio-option-card featured-option">
@@ -266,7 +264,7 @@ function OptionsScreen() {
           </div>
           <div className="option-card">
             <div className="option-icon performance-icon" aria-hidden="true" />
-            <div><strong>Performance</strong><span>React handles UI. Phaser handles real-time rendering. Civilization briefly functions.</span></div>
+            <div><strong>Performance</strong><span>React handles the interface while Phaser handles real-time rendering.</span></div>
           </div>
         </div>
       </div>
@@ -306,7 +304,9 @@ function LobbyScreen() {
             <h1 id="lobbyTitle">Lobby</h1>
             <p id="lobbySubtitle" className="screen-copy">Choose a role, ready up, then start the match.</p>
           </div>
-          <div className="lobby-rift-mark" aria-hidden="true" />
+          <div id="lobbyRoleMark" className="lobby-role-mark survivor" aria-hidden="true">
+            <span />
+          </div>
         </div>
 
         <div id="playersList" className="players-list" />
@@ -337,10 +337,16 @@ function LobbyScreen() {
 function GameHud() {
   return (
     <>
-      <div id="hud" className="hud hidden">
-        <div className="hud-card compact-card hud-help-card">
-          <h2 id="roleLabel">Role</h2>
-          <p id="controlsLabel">Controls</p>
+      <div id="hud" className="hud hidden" data-role="survivor">
+        <div id="roleHudCard" className="hud-card compact-card role-hud-card">
+          <div id="roleHudIcon" className="role-hud-icon" aria-hidden="true">
+            <span className="role-hud-core" />
+          </div>
+          <div className="role-hud-copy">
+            <span>Playing as</span>
+            <h2 id="roleLabel">Survivor</h2>
+            <p id="controlsLabel">Controls</p>
+          </div>
         </div>
         <div className="hud-card objective-card compact-card">
           <div><span>Rifts</span><b id="genText">0 / 0</b></div>

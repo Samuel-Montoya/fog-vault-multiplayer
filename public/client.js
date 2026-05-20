@@ -252,17 +252,6 @@
   // Keep this matched with server.js. Client uses it only for local prediction
   // so walking into generators does not feel like rubber-band soup.
   const GENERATOR_COLLISION_SIZE = cfgNumber(GAMEPLAY_CONFIG.rift?.collisionSize, 54);
-  const SURVIVOR_VAULT_TIME = cfgNumber(GAMEPLAY_CONFIG.survivor?.vaultTime, 0.38);
-  const KILLER_VAULT_TIME = cfgNumber(GAMEPLAY_CONFIG.void?.vaultTime, 1.05);
-
-  function vaultEase(t) {
-    const x = clamp(t, 0, 1);
-    return x < 0.5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2;
-  }
-
-  function vaultDurationForRole(role) {
-    return role === "killer" ? KILLER_VAULT_TIME : SURVIVOR_VAULT_TIME;
-  }
 
   const PERFORMANCE = {
     // Expensive world UI is redrawn at fixed rates instead of every network snapshot.
@@ -291,14 +280,6 @@
     FADE_IN_PER_SECOND: LOW_POWER_MODE ? 8.5 : 12.5,
     FADE_OUT_PER_SECOND: LOW_POWER_MODE ? 4.2 : 5.8,
     MIN_VISIBLE_ALPHA: 0.018
-  };
-
-  const ACTOR_VISION = {
-    POINT_RADIUS: 18,
-    FADE_IN_PER_SECOND: LOW_POWER_MODE ? 7.5 : 11,
-    FADE_OUT_PER_SECOND: LOW_POWER_MODE ? 3.4 : 4.6,
-    MIN_VISIBLE_ALPHA: 0.02,
-    NAME_CHAT_ALPHA: 0.14
   };
 
   // Visual generator tuning. Put your actual SVG at public/gen.svg.
@@ -539,6 +520,7 @@
     createLobbyBtn: document.getElementById("createLobbyBtn"),
     lobbyList: document.getElementById("lobbyList"),
     lobbyTitle: document.getElementById("lobbyTitle"),
+    lobbyRoleMark: document.getElementById("lobbyRoleMark"),
     playersList: document.getElementById("playersList"),
     beSurvivorBtn: document.getElementById("beSurvivorBtn"),
     beKillerBtn: document.getElementById("beKillerBtn"),
@@ -606,6 +588,16 @@
   function setSelectedSkin(skinId) {
     selectedSkin = SURVIVOR_SKINS[skinId] ? skinId : "blueSquare";
     ui.skinBtns.forEach((b) => b.classList.toggle("selected", b.dataset.skin === selectedSkin));
+  }
+
+  function setSelectedRole(role) {
+    selectedRole = role === "killer" ? "killer" : "survivor";
+    ui.roleBtns.forEach((b) => b.classList.toggle("selected", b.dataset.role === selectedRole));
+    if (ui.lobbyRoleMark) {
+      ui.lobbyRoleMark.classList.toggle("killer", selectedRole === "killer");
+      ui.lobbyRoleMark.classList.toggle("survivor", selectedRole !== "killer");
+      ui.lobbyRoleMark.setAttribute("aria-label", selectedRole === "killer" ? "Playing as The Void" : "Playing as Survivor");
+    }
   }
 
   const input = {
@@ -2112,8 +2104,6 @@
     destroyActorDisplay(item) {
       if (!item) return;
       item.container?.destroy();
-      item.healBarBg?.destroy();
-      item.healBar?.destroy();
       item.nameText?.destroy();
       item.chatText?.destroy();
     }
@@ -2884,6 +2874,7 @@
       this.lastHudKey = hudKey;
       this.lastHudRenderAt = now;
       renderSurvivorStatusHud(snapshot);
+      ui.hud.dataset.role = me.role === "killer" ? "killer" : "survivor";
       ui.roleLabel.textContent = me.role === "killer" ? "The Void" : "Survivor";
       ui.controlsLabel.textContent = me.role === "killer"
         ? "WASD move • Mouse aim • M1 attack/lunge • Space vault/break • hold E hook/execute/kick rift • hold R chat"
@@ -3003,12 +2994,17 @@
         // Actors are always position-updated from the server, even when hidden.
         // We only hide the container visually. That prevents the seen-again teleport jump.
         const hookedLocalCanSeeVoid = this.shouldRevealVoidToHookedLocal(data, actors);
-        item.serverVisible = data.visible !== false || data.id === myId || hookedLocalCanSeeVoid;
-        item.forceFullVision = !!hookedLocalCanSeeVoid;
+        const isVisible = data.visible !== false || data.id === myId || hookedLocalCanSeeVoid;
+        let alpha = isVisible ? 1 : 0;
+        if (data.id === myId && this.isSpectating()) alpha = 0.32;
+        item.container.setVisible(true);
+        item.container.setAlpha(alpha);
         item.nameText.setText(data.name || "");
+        item.nameText.setVisible(isVisible && data.id !== myId);
         if (item.chatText) {
           const actorChat = visibleChatTextForActor(data);
           item.chatText.setText(actorChat);
+          item.chatText.setVisible(isVisible && !!actorChat);
 
           // Play the speak chirp only when the local player's own chat bubble appears/changes.
           // Other players can talk all they want without hijacking your ears, a radical concept.
@@ -3053,9 +3049,8 @@
       const outline = this.add.graphics();
       const body = this.add.graphics();
       const facing = this.add.rectangle(isKiller ? 24 : 21, 0, isKiller ? 22 : 18, isKiller ? 7 : 5, 0xffffff, 0.42).setOrigin(0, 0.5);
-      // World-space bars stay upright when the survivor rotates their flashlight.
-      const healBarBg = this.add.rectangle(data.x || 0, (data.y || 0) - 29, 38, 5, 0x000000, 0.55).setVisible(false).setDepth(13);
-      const healBar = this.add.rectangle((data.x || 0) - 19, (data.y || 0) - 29, 0, 5, 0x8dff9a, 0.95).setOrigin(0, 0.5).setVisible(false).setDepth(14);
+      const healBarBg = this.add.rectangle(0, -29, 38, 5, 0x000000, 0.55).setVisible(false);
+      const healBar = this.add.rectangle(-19, -29, 0, 5, 0x8dff9a, 0.95).setOrigin(0, 0.5).setVisible(false);
       const nameText = this.add.text(data.x || 0, (data.y || 0) + 34, data.name || "", {
         fontFamily: "system-ui, sans-serif",
         fontSize: "12px",
@@ -3074,7 +3069,7 @@
         strokeThickness: 5,
         wordWrap: { width: 180 }
       }).setOrigin(0.5, 0).setDepth((data.role === "killer" ? 17 : 14)).setVisible(false);
-      container.add([outline, body, facing]);
+      container.add([outline, body, facing, healBarBg, healBar]);
       return {
         role: data.role,
         skin: data.skin || "blueSquare",
@@ -3091,11 +3086,7 @@
         target: { x: data.x || 0, y: data.y || 0, angle: data.angle || 0 },
         dotDisplay: clamp(data.dots ?? 0, 0, SURVIVOR_DOT_MAX),
         dotDepositVisual: 0,
-        dotOrbitPhase: hash2((data.id || "survivor").length, (data.id || "s").charCodeAt(0) || 0) * Math.PI * 2,
-        visionAlpha: data.id === myId ? 1 : 0,
-        visionTargetAlpha: data.id === myId ? 1 : 0,
-        serverVisible: data.id === myId,
-        forceFullVision: false
+        dotOrbitPhase: hash2((data.id || "survivor").length, (data.id || "s").charCodeAt(0) || 0) * Math.PI * 2
       };
     }
 
@@ -3435,9 +3426,8 @@
         if (data.hooked && !disabled) this.drawHookedSurvivorPulse(item, data);
         item.facing.setFillStyle(0xffffff, disabled || data.hooked ? 0.15 : 0.42);
         if (item.healBarBg && item.healBar) {
-          const barVisible = showProgress && (item.visionAlpha ?? 0) > ACTOR_VISION.MIN_VISIBLE_ALPHA;
-          item.healBarBg.setVisible(barVisible);
-          item.healBar.setVisible(barVisible);
+          item.healBarBg.setVisible(showProgress);
+          item.healBar.setVisible(showProgress);
           item.healBar.setFillStyle(progressColor, 0.95);
           item.healBar.width = 38 * clamp(progress, 0, 1);
         }
@@ -3757,58 +3747,11 @@
       if (me) input.angle = Math.atan2(worldPoint.y - me.y, worldPoint.x - me.x);
     }
 
-    syncVaultPlayback(playback, data, dt) {
-      const duration = vaultDurationForRole(data.role);
-      const hasEndpoints = Number.isFinite(data.vaultFromX)
-        && Number.isFinite(data.vaultFromY)
-        && Number.isFinite(data.vaultToX)
-        && Number.isFinite(data.vaultToY);
-      if (!hasEndpoints) return null;
-
-      const signature = `${data.vaultFromX},${data.vaultFromY},${data.vaultToX},${data.vaultToY}`;
-      if (!playback || playback.signature !== signature) {
-        playback = {
-          signature,
-          fromX: data.vaultFromX,
-          fromY: data.vaultFromY,
-          toX: data.vaultToX,
-          toY: data.vaultToY,
-          t: 0,
-          duration
-        };
-      }
-
-      playback.t = Math.min(playback.duration, playback.t + dt);
-      if (Number.isFinite(data.vaultProgress) && data.vaultProgress > 0) {
-        playback.t = Math.max(playback.t, data.vaultProgress * playback.duration);
-      }
-
-      const eased = vaultEase(playback.t / playback.duration);
-      return {
-        playback,
-        x: playback.fromX + (playback.toX - playback.fromX) * eased,
-        y: playback.fromY + (playback.toY - playback.fromY) * eased
-      };
-    }
-
     predictLocal(dt) {
       if (!this.map || !this.localVisual || !this.localServerTarget?.data) return;
       const data = this.localServerTarget.data;
       this.localVisual.angle = input.angle;
-
-      if (data.vaulting) {
-        const vault = this.syncVaultPlayback(this.localVaultPlayback, data, dt);
-        if (vault) {
-          this.localVaultPlayback = vault.playback;
-          this.localVisual.x = vault.x;
-          this.localVisual.y = vault.y;
-          return;
-        }
-      } else {
-        this.localVaultPlayback = null;
-      }
-
-      if (data.dead || data.escaped || data.hooked || data.breaking) {
+      if (data.dead || data.escaped || data.hooked || data.vaulting || data.breaking) {
         this.localVisual.x += (this.localServerTarget.x - this.localVisual.x) * 0.45;
         this.localVisual.y += (this.localServerTarget.y - this.localVisual.y) * 0.45;
         return;
@@ -3946,70 +3889,6 @@
       ];
     }
 
-    computeActorPointVisionAlpha(worldX, worldY, subject) {
-      if (!subject) return 0;
-      const role = subject.data?.role || "survivor";
-      const sourceX = subject.current?.x ?? subject.container?.x ?? 0;
-      const sourceY = subject.current?.y ?? subject.container?.y ?? 0;
-      const facing = subject.current?.angle ?? subject.container?.rotation ?? 0;
-      const length = (role === "killer" ? LIGHTING.KILLER_LENGTH : LIGHTING.SURVIVOR_LENGTH) + WALL_VISION.CONE_EXTRA_LENGTH;
-      const coneAngle = (role === "killer" ? LIGHTING.KILLER_ANGLE : LIGHTING.SURVIVOR_ANGLE) + WALL_VISION.CONE_EXTRA_ANGLE;
-      const nearRadius = role === "killer" ? WALL_VISION.KILLER_NEAR_RADIUS : WALL_VISION.SURVIVOR_NEAR_RADIUS;
-      const r = ACTOR_VISION.POINT_RADIUS;
-      const pointItem = {
-        rect: { x: worldX - r, y: worldY - r, w: r * 2, h: r * 2 },
-        radius: r,
-        samples: [{ x: worldX, y: worldY }]
-      };
-      return this.computeWallVisionAlpha(pointItem, sourceX, sourceY, facing, length, coneAngle, nearRadius);
-    }
-
-    updateActorVisionAlpha(dt) {
-      const subject = this.getCameraSubjectItem();
-      const fadeInRate = ACTOR_VISION.FADE_IN_PER_SECOND;
-      const fadeOutRate = ACTOR_VISION.FADE_OUT_PER_SECOND;
-      const minAlpha = ACTOR_VISION.MIN_VISIBLE_ALPHA;
-      const nameAlpha = ACTOR_VISION.NAME_CHAT_ALPHA;
-
-      for (const [id, item] of this.actors.entries()) {
-        const data = item.data || {};
-        let target = 0;
-
-        if (id === myId) {
-          target = this.isSpectating() ? 0.32 : 1;
-        } else if (item.forceFullVision) {
-          target = 1;
-        } else if (item.serverVisible) {
-          target = subject ? this.computeActorPointVisionAlpha(item.current.x, item.current.y, subject) : 1;
-        }
-
-        item.visionTargetAlpha = target;
-        const rate = target > (item.visionAlpha ?? 0) ? fadeInRate : fadeOutRate;
-        item.visionAlpha = lerp(item.visionAlpha ?? 0, target, dampAlpha(rate, dt));
-
-        let alpha = item.visionAlpha;
-        if (alpha < minAlpha && target <= minAlpha) alpha = 0;
-
-        item.container.setVisible(true);
-        item.container.setAlpha(clamp(alpha, 0, 1));
-
-        const showLabels = alpha > nameAlpha && id !== myId;
-        if (item.nameText) {
-          item.nameText.setVisible(showLabels);
-          item.nameText.setAlpha(alpha);
-        }
-        if (item.chatText) {
-          const actorChat = visibleChatTextForActor(data);
-          item.chatText.setVisible(showLabels && !!actorChat);
-          item.chatText.setAlpha(alpha);
-        }
-        if (item.healBarBg && item.healBar) {
-          item.healBarBg.setAlpha(alpha);
-          item.healBar.setAlpha(alpha);
-        }
-      }
-    }
-
     computeWallVisionAlpha(item, sourceX, sourceY, facing, length, coneAngle, nearRadius) {
       const nearDistance = Math.max(0, this.rectDistanceToPoint(item.rect, sourceX, sourceY) - item.radius * 0.18);
       const nearAlpha = 1 - smoothstep(nearRadius * 0.72, nearRadius, nearDistance);
@@ -4055,9 +3934,8 @@
       const coneAngle = baseAngle + WALL_VISION.CONE_EXTRA_ANGLE;
       const nearRadius = role === "killer" ? WALL_VISION.KILLER_NEAR_RADIUS : WALL_VISION.SURVIVOR_NEAR_RADIUS;
 
-      const subjectVaulting = !!subject?.data?.vaulting;
       this.wallVisionTimer = (this.wallVisionTimer || 0) + dt;
-      const shouldRecompute = subjectVaulting || this.wallVisionTimer >= 1 / PERFORMANCE.WALL_VISION_FPS;
+      const shouldRecompute = this.wallVisionTimer >= 1 / PERFORMANCE.WALL_VISION_FPS;
       if (shouldRecompute) this.wallVisionTimer = 0;
 
       const fadeInRate = WALL_VISION.FADE_IN_PER_SECOND;
@@ -4095,21 +3973,10 @@
           item.current.x = this.localVisual.x;
           item.current.y = this.localVisual.y;
           item.current.angle = this.localVisual.angle;
-        } else if (item.data?.vaulting) {
-          const vault = this.syncVaultPlayback(item.vaultPlayback, item.data, dt);
-          if (vault) {
-            item.vaultPlayback = vault.playback;
-            item.current.x = vault.x;
-            item.current.y = vault.y;
-          } else {
-            item.current.x = lerp(item.current.x, item.target.x, 0.35);
-            item.current.y = lerp(item.current.y, item.target.y, 0.35);
-          }
-          item.current.angle = lerpAngle(item.current.angle, item.target.angle, 0.24);
         } else {
-          item.vaultPlayback = null;
-          item.current.x = lerp(item.current.x, item.target.x, 0.22);
-          item.current.y = lerp(item.current.y, item.target.y, 0.22);
+          const factor = item.data?.vaulting ? 0.5 : 0.22;
+          item.current.x = lerp(item.current.x, item.target.x, factor);
+          item.current.y = lerp(item.current.y, item.target.y, factor);
           item.current.angle = lerpAngle(item.current.angle, item.target.angle, 0.24);
         }
         item.container.setPosition(item.current.x, item.current.y);
@@ -4146,11 +4013,6 @@
           item.dotOrbitPhase = (item.dotOrbitPhase || 0) + dt * DOT_ORBIT_VISUAL.SPIN_SPEED;
           item.dotDisplay = lerp(prevDisplay, targetDots, dampAlpha(smoothing, dt));
         }
-      }
-
-      this.updateActorVisionAlpha(dt);
-
-      for (const [id, item] of this.actors.entries()) {
         if (item.data?.role === "killer" || item.data?.role === "survivor") {
           this.styleActor(item, item.data);
         }
@@ -4163,13 +4025,6 @@
           const isKiller = item.data?.role === "killer";
           item.chatText.setPosition(item.current.x, item.current.y + (isKiller ? 47 : 43));
           item.chatText.setRotation(0);
-        }
-        if (item.healBarBg && item.healBar) {
-          const barY = item.current.y - 29;
-          item.healBarBg.setPosition(item.current.x, barY);
-          item.healBarBg.setRotation(0);
-          item.healBar.setPosition(item.current.x - 19, barY);
-          item.healBar.setRotation(0);
         }
       }
     }
@@ -4876,6 +4731,7 @@
     bindMenuMusicToggle(ui.menuMusicToggleBtnOptions);
     bindMenuMusicVolumeSlider(ui.menuMusicVolumeSlider);
     syncMenuMusicVolumeUi();
+    setSelectedRole(selectedRole);
 
     ui.menuPlayBtn?.addEventListener("click", () => { ensureMenuAudioStarted(); showScreen("play"); });
     ui.menuSkinsBtn?.addEventListener("click", () => { ensureMenuAudioStarted(); showScreen("skins"); });
@@ -4887,8 +4743,7 @@
 
     ui.roleBtns.forEach((btn) => {
       btn.addEventListener("click", () => {
-        selectedRole = btn.dataset.role;
-        ui.roleBtns.forEach((b) => b.classList.toggle("selected", b === btn));
+        setSelectedRole(btn.dataset.role);
       });
     });
 
@@ -4960,13 +4815,26 @@
     ui.playersList.innerHTML = "";
     for (const player of state.players || []) {
       const item = document.createElement("div");
-      item.className = "player-item";
-      const skin = player.role === "survivor" ? getSurvivorSkin(player.skin).label : "Void Core";
-      const displayRole = player.role === "killer" ? "The Void" : "Survivor";
-      item.innerHTML = `<div><strong>${escapeHtml(player.name)}${player.id === myId ? " (You)" : ""}</strong><small>${displayRole}${player.isBot ? " bot" : ""} • ${escapeHtml(skin)}</small></div><small>${player.ready ? "Ready" : "Not ready"}</small>`;
+      const isKiller = player.role === "killer";
+      item.className = `player-item ${isKiller ? "is-killer" : "is-survivor"}${player.id === myId ? " is-you" : ""}`;
+      const skin = isKiller ? "Void Core" : getSurvivorSkin(player.skin).label;
+      const displayRole = isKiller ? "The Void" : "Survivor";
+      item.innerHTML = `
+        <span class="player-role-emblem ${isKiller ? "killer" : "survivor"}" aria-hidden="true"></span>
+        <div class="player-summary">
+          <strong title="${escapeHtml(player.name)}">${escapeHtml(player.name)}${player.id === myId ? " <em>(You)</em>" : ""}</strong>
+          <small>
+            <span class="player-role-name">${displayRole}${player.isBot ? " bot" : ""}</span>
+            <span class="player-dot">•</span>
+            <span class="player-skin-name" title="${escapeHtml(skin)}">${escapeHtml(skin)}</span>
+          </small>
+        </div>
+        <small class="player-ready ${player.ready ? "is-ready" : ""}">${player.ready ? "Ready" : "Not ready"}</small>
+      `;
       ui.playersList.appendChild(item);
     }
     const mine = state.players?.find((p) => p.id === myId);
+    if (mine?.role) setSelectedRole(mine.role);
     if (mine?.role === "survivor" && SURVIVOR_SKINS[mine.skin]) {
       setSelectedSkin(mine.skin);
     }
