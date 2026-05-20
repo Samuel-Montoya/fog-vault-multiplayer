@@ -1976,8 +1976,15 @@
       this.generatorGraphics?.clear();
     }
 
+    destroyActorDisplay(item) {
+      if (!item) return;
+      item.container?.destroy();
+      item.nameText?.destroy();
+      item.chatText?.destroy();
+    }
+
     clearActors() {
-      for (const actor of this.actors.values()) actor.container.destroy();
+      for (const actor of this.actors.values()) this.destroyActorDisplay(actor);
       this.actors.clear();
     }
 
@@ -2830,11 +2837,7 @@
         seen.add(data.id);
         let item = this.actors.get(data.id);
         if (!item || item.role !== data.role) {
-          if (item) {
-            item.container.destroy();
-            item.nameText?.destroy();
-            item.chatText?.destroy();
-          }
+          if (item) this.destroyActorDisplay(item);
           item = this.createActorDisplay(data);
           this.actors.set(data.id, item);
         }
@@ -2891,9 +2894,7 @@
 
       for (const [id, item] of this.actors.entries()) {
         if (!seen.has(id)) {
-          item.container.destroy();
-          item.nameText?.destroy();
-          item.chatText?.destroy();
+          this.destroyActorDisplay(item);
           this.actors.delete(id);
         }
       }

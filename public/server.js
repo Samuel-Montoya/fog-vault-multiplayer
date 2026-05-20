@@ -150,8 +150,8 @@ const HOOK_MIN_KILLER_DISTANCE = cfgNumber(GAMEPLAY_CONFIG.void?.hookMinDistance
 const SURVIVOR_DOT_MAX = cfgNumber(GAMEPLAY_CONFIG.orbs?.survivorMax, 10);
 const KILLER_DOT_MAX = cfgNumber(GAMEPLAY_CONFIG.orbs?.voidMax, 999);
 // Dot economy: survivors complete rifts by collecting orbs and standing near a rift.
-// No hold-E rift repair. One inserted orb takes a flat 1.5s and each rift needs about 15 orbs.
-const DOTS_PER_GENERATOR = cfgNumber(GAMEPLAY_CONFIG.rift?.dotsPerRift, 15);
+// No hold-E rift repair. One inserted orb takes a flat 1.5s and each rift needs dotsPerRift orbs.
+const DOTS_PER_GENERATOR = cfgNumber(GAMEPLAY_CONFIG.rift?.dotsPerRift, 25);
 const SURVIVOR_DOT_DROP_ON_HIT_PERCENT = cfgNumber(GAMEPLAY_CONFIG.orbs?.survivorDropOnHitPercent, 0.5);
 const SURVIVOR_DOT_PICKUP_RADIUS = cfgNumber(GAMEPLAY_CONFIG.orbs?.survivorPickupRadius, 48);
 const KILLER_DOT_PICKUP_RADIUS = cfgNumber(GAMEPLAY_CONFIG.orbs?.voidPickupRadius, 92);

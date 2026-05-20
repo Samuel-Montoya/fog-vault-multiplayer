@@ -65,7 +65,7 @@ const CONFIG = {
 
   objective: {
     // Add as many G symbols as you want to maps.js. The match still needs only this many.
-    requiredGenerators: 5,
+    requiredGenerators: 4,
     generatorRepairSeconds: 32.0,
     // Killer generator kick: hold E for this long to remove this much total bar progress.
     generatorKickSeconds: 1.0,

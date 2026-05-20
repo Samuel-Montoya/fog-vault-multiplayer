@@ -21,7 +21,7 @@ const GAMEPLAY_CONFIG = {
   match: {
     startFreezeSeconds: 1.5,
     maxSurvivors: 4,
-    requiredRiftsToComplete: 5,
+    requiredRiftsToComplete: 4,
     scratchMarkMax: 45
   },
 
@@ -150,7 +150,7 @@ const GAMEPLAY_CONFIG = {
     kickTime: 1.0,
     kickRegression: 0.10,
     escapeTime: 4.0,
-    dotsPerRift: 15,
+    dotsPerRift: 25,
     depositDistance: 96,
     depositSecondsPerOrb: 1.5,
     maxDepositChain: 10
