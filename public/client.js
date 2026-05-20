@@ -83,8 +83,9 @@
       master: 0.72,
       // Controls randomized pitch variation for SFX listed in pitchSteps.
       // Add any SFX key to pitchSteps and playSfx(name) will automatically use it.
-      // Deposit pitch is intentionally separate and always ramps upward.
+      // Orb pickup and deposit pitch are intentionally separate and ramp from carried counts.
       enablePitchVariation: true,
+      orbPickupPitch: { min: 1.0, max: 1.45, countMax: 10 },
       files: {
         hooked: "/sfx/hooked.mp3",
         dead: "/sfx/dead.mp3",
@@ -100,7 +101,8 @@
         orbPickup: "/sfx/orb_pickup.mp3",
         orbDeposit: "/sfx/orb_deposit.mp3",
         buttonClick: "/sfx/button_click.mp3",
-        playerSpeak: "/sfx/player_speak.mp3"
+        playerSpeak: "/sfx/player_speak.mp3",
+        healing: "/sfx/healing.mp3"
       },
       volumes: {
         hooked: 0.82,
@@ -117,7 +119,8 @@
         orbPickup: 0.68,
         orbDeposit: 0.72,
         buttonClick: 0.55,
-        playerSpeak: 0.62
+        playerSpeak: 0.62,
+        healing: 0.34
       },
       pitchSteps: {
         hooked: [0.84, 0.92, 1.0, 1.09, 1.18, 1.28],
@@ -126,15 +129,16 @@
         palletDrop: [0.86, 0.94, 1.0, 1.08, 1.17, 1.26],
         voidStun: [0.78, 0.86, 0.94, 1.0, 1.08],
         palletStun: [0.78, 0.86, 0.94, 1.0, 1.08],
-        orbPickup: [0.9, 0.96, 1.0, 1.08, 1.16, 1.25, 1.34],
         buttonClick: [0.92, 0.97, 1.0, 1.05, 1.11, 1.18],
-        playerSpeak: [0.88, 0.94, 1.0, 1.07, 1.15, 1.24]
+        playerSpeak: [0.88, 0.94, 1.0, 1.07, 1.15, 1.24],
+        healing: [1.0]
       },
       localRange: {
         swing: 315,
         hit: 440,
         palletStun: 300,
-        voidStun: 360
+        voidStun: 360,
+        healing: 340
       }
     }
   };
@@ -599,6 +603,27 @@
     lastUpdate: performance.now()
   };
 
+  let survivorHitImpactTimer = null;
+
+  function triggerSurvivorHitImpact(heavy = false) {
+    const body = document.body;
+    if (!body) return;
+
+    clearTimeout(survivorHitImpactTimer);
+    body.classList.remove("survivor-hit-impact", "survivor-hit-heavy");
+
+    // Restart the impact animation for rapid back-to-back hits. It only runs on hits,
+    // so this tiny forced reflow is cheaper than making every frame do interpretive dance.
+    void body.offsetWidth;
+
+    if (heavy) body.classList.add("survivor-hit-heavy");
+    body.classList.add("survivor-hit-impact");
+
+    survivorHitImpactTimer = window.setTimeout(() => {
+      body.classList.remove("survivor-hit-impact", "survivor-hit-heavy");
+    }, heavy ? 640 : 460);
+  }
+
   let socket = null;
   let myId = null;
   let selectedRole = "survivor";
@@ -653,7 +678,11 @@
     layer3InjuredPitchActive: false,
     lastHookPitchIndex: -1,
     lastWindowVaultPitchIndex: -1,
-    lastSfxPitchIndices: Object.create(null)
+    lastSfxPitchIndices: Object.create(null),
+    healingLoop: null,
+    healingLoopVolume: 0,
+    healingLoopPitch: 1,
+    healingLoopLastTryAt: 0
   };
 
   const MENU_MUSIC_MUTE_KEY = "voidriftMenuMusicMuted";
@@ -789,6 +818,7 @@
         layer.volume = 0;
         if (!layer.paused) layer.pause();
       }
+      stopHealingLoop(true);
       return;
     }
 
@@ -810,6 +840,7 @@
     if (!isGameScreen) {
       closeReactChatWheel(false);
       dispatchHookIndicators([]);
+      stopHealingLoop(true);
     }
     const menuLike = !isGameScreen;
     const shouldRestartMenuMusic = menuLike && wasGameScreen;
@@ -829,6 +860,10 @@
     ui.survivorStatusHud?.classList.toggle("hidden", name !== "game");
     ui.bigGenCounter?.classList.toggle("hidden", name !== "game");
     ui.horrorFx?.classList.toggle("hidden", name !== "game");
+    if (name !== "game") {
+      clearTimeout(survivorHitImpactTimer);
+      document.body.classList.remove("survivor-hit-impact", "survivor-hit-heavy");
+    }
     ui.mobileControls?.classList.toggle("hidden", name !== "game" || !IS_TOUCH_DEVICE);
   }
 
@@ -1447,6 +1482,112 @@
     });
   }
 
+  function ensureHealingLoopElement() {
+    if (audio.healingLoop && hasManagedAudioSource(audio.healingLoop)) return audio.healingLoop;
+    const base = audio.sfx?.healing;
+    if (!hasManagedAudioSource(base)) return null;
+
+    const loop = base.cloneNode(true);
+    loop.loop = true;
+    loop.volume = 0;
+    loop.preservesPitch = false;
+    loop.mozPreservesPitch = false;
+    loop.webkitPreservesPitch = false;
+    loop.playbackRate = audio.healingLoopPitch || 1;
+    loop._voidriftReady = true;
+    loop._voidriftMissing = false;
+    audio.healingLoop = loop;
+    return loop;
+  }
+
+  function stopHealingLoop(reset = false) {
+    audio.healingLoopVolume = 0;
+    const loop = audio.healingLoop;
+    if (!loop) return;
+    loop.volume = 0;
+    if (!loop.paused) loop.pause();
+    if (reset) {
+      try { loop.currentTime = 0; } catch (_) { /* Some browsers guard media time like crown jewels. */ }
+    }
+  }
+
+  function healingActorCount(actor) {
+    if (!actor || (actor.healProgress || 0) <= 0.001 || actor.dead || actor.escaped || actor.hooked) return 0;
+    const healers = Array.isArray(actor.activeHealers) ? actor.activeHealers.filter(Boolean) : [];
+    return healers.length;
+  }
+
+  function getHealingAudioActivity(snapshot = currentSnapshot) {
+    if (!snapshot || snapshot.phase !== "game" || activeScreenName !== "game") return { active: false, healerCount: 0 };
+    const actors = snapshot.actors || [];
+    if (!actors.length) return { active: false, healerCount: 0 };
+
+    const localItem = getLocalVisualActor();
+    const localData = localItem?.data || actors.find((actor) => actor.id === myId);
+    if (!localData) return { active: false, healerCount: 0 };
+
+    const lx = Number(localItem?.current?.x ?? localData.x);
+    const ly = Number(localItem?.current?.y ?? localData.y);
+    const localId = localData.id || myId;
+    const range = Math.max(90, Number(LOCAL_SFX_RANGE?.healing) || 340);
+
+    let best = { active: false, healerCount: 0, distance: Infinity, linked: false };
+    for (const actor of actors) {
+      const healerCount = healingActorCount(actor);
+      if (!healerCount) continue;
+
+      const healerIds = Array.isArray(actor.activeHealers) ? actor.activeHealers : [];
+      const linked = actor.id === localId || healerIds.includes(localId) || localData.healingTargetId === actor.id;
+      const d = Number.isFinite(lx) && Number.isFinite(ly) ? dist(lx, ly, actor.x || 0, actor.y || 0) : Infinity;
+      const audible = linked || d <= range;
+      if (!audible) continue;
+
+      if (!best.active || healerCount > best.healerCount || (healerCount === best.healerCount && d < best.distance)) {
+        best = { active: true, healerCount, distance: d, linked };
+      }
+    }
+    return best;
+  }
+
+  function updateHealingSfx(dt = 0.016) {
+    const loop = ensureHealingLoopElement();
+    if (!loop) return;
+
+    const activity = getHealingAudioActivity(currentSnapshot);
+    const healerCount = Math.max(0, Number(activity.healerCount) || 0);
+    const active = !!activity.active && healerCount > 0 && audio.gameActive && activeScreenName === "game";
+    const countBoost = clamp(healerCount - 1, 0, 4);
+    const distanceScale = Number.isFinite(activity.distance) && !activity.linked
+      ? clamp(1 - (activity.distance / Math.max(90, Number(LOCAL_SFX_RANGE?.healing) || 340)) * 0.55, 0.38, 1)
+      : 1;
+    const targetVolume = active
+      ? clamp((SFX.VOLUMES.healing || 0.34) * SFX.MASTER * distanceScale * (1 + countBoost * 0.10), 0, 0.72)
+      : 0;
+
+    audio.healingLoopVolume = lerp(audio.healingLoopVolume || 0, targetVolume, dampAlpha(active ? 7.5 : 10.5, dt));
+    loop.volume = clamp(audio.healingLoopVolume, 0, 0.72);
+
+    const pitch = clamp(1 + countBoost * 0.055, 1, 1.24);
+    if (Math.abs((audio.healingLoopPitch || 1) - pitch) > 0.005) {
+      audio.healingLoopPitch = pitch;
+      loop.preservesPitch = false;
+      loop.mozPreservesPitch = false;
+      loop.webkitPreservesPitch = false;
+      loop.playbackRate = pitch;
+    }
+
+    if (active) {
+      const now = performance.now();
+      if (loop.paused && now - (audio.healingLoopLastTryAt || 0) > 650) {
+        audio.healingLoopLastTryAt = now;
+        loop.play().catch(() => null);
+      }
+    } else if (audio.healingLoopVolume <= 0.006 && !loop.paused) {
+      loop.pause();
+      try { loop.currentTime = 0; } catch (_) { /* ignore */ }
+    }
+  }
+
   const LOCAL_SFX_RANGE = AUDIO_CONFIG.sfx.localRange;
 
   function getLocalVisualActor() {
@@ -1500,9 +1641,26 @@
     }
   }
 
+  function getOrbPickupPitch(event) {
+    const pitchConfig = AUDIO_CONFIG.sfx?.orbPickupPitch || {};
+    const minPitch = clamp(cfgNumber(pitchConfig.min, 1.0), 0.5, 2.25);
+    const maxPitch = clamp(cfgNumber(pitchConfig.max, 1.45), 0.5, 2.25);
+    const countMax = Math.max(1, Math.round(cfgNumber(pitchConfig.countMax, 10)));
+    const carried = clamp(
+      Math.round(cfgNumber(event?.dotsAfter ?? event?.carriedDots ?? event?.dotCount ?? 1, 1)),
+      1,
+      countMax
+    );
+    const t = countMax <= 1 ? 1 : (carried - 1) / (countMax - 1);
+    return minPitch + (maxPitch - minPitch) * t;
+  }
+
   function playOrbPickupSfx(event) {
     if (!event || event.actorId !== myId) return;
-    playSfx("orbPickup");
+    playSfx("orbPickup", {
+      playbackRate: getOrbPickupPitch(event),
+      disablePitchVariation: true
+    });
   }
 
   function playOrbDepositSfx(event) {
@@ -2131,6 +2289,7 @@
       item.container?.destroy();
       item.nameText?.destroy();
       item.chatText?.destroy();
+      item.healAura?.destroy();
       item.healBarBg?.destroy();
       item.healBar?.destroy();
     }
@@ -3013,6 +3172,16 @@
       return this.hasClearWallLineOfSight(lx, ly, kx, ky);
     }
 
+    shouldAlwaysRevealHookedSurvivor(data) {
+      const pov = this.getPovSurvivorData();
+      return pov?.role === "survivor"
+        && data?.role === "survivor"
+        && !!data.hooked
+        && !data.dead
+        && !data.escaped
+        && data.id !== myId;
+    }
+
     updateActorTargets(actors) {
       const seen = new Set();
       for (const data of actors) {
@@ -3047,8 +3216,9 @@
         // We only hide the container visually. That prevents the seen-again teleport jump.
         // Killers skip hook-teleport coordinates until they have LOS on the hooked survivor.
         const hookedLocalCanSeeVoid = this.shouldRevealVoidToHookedLocal(data, actors);
-        item.serverVisible = data.visible !== false || data.id === myId || hookedLocalCanSeeVoid;
-        item.forceFullVision = !!hookedLocalCanSeeVoid;
+        const hookedSurvivorGlobalReveal = this.shouldAlwaysRevealHookedSurvivor(data);
+        item.serverVisible = data.visible !== false || data.id === myId || hookedLocalCanSeeVoid || hookedSurvivorGlobalReveal;
+        item.forceFullVision = !!hookedLocalCanSeeVoid || !!hookedSurvivorGlobalReveal;
         item.nameText.setText(data.name || "");
         if (item.chatText) {
           const actorChat = visibleChatTextForActor(data);
@@ -3097,6 +3267,10 @@
       const outline = this.add.graphics();
       const body = this.add.graphics();
       const facing = this.add.rectangle(isKiller ? 24 : 21, 0, isKiller ? 22 : 18, isKiller ? 7 : 5, 0xffffff, 0.42).setOrigin(0, 0.5);
+      const healAura = this.add.graphics()
+        .setDepth(isKiller ? 14 : 11)
+        .setScrollFactor(1, 1)
+        .setVisible(false);
       // Action bars are scene-level objects, not children of the rotating actor
       // container. Keeping them separate makes healing / rescue / hook / execute
       // bars stay fixed underneath the player instead of rotating or drifting away
@@ -3139,6 +3313,7 @@
         body,
         outline,
         facing,
+        healAura,
         healBarBg,
         healBar,
         nameText,
@@ -3440,6 +3615,39 @@
       this.drawHeldDotOrbits(item, item.body, bodyAlpha, accent, glow, item.current?.angle ?? 0);
     }
 
+    drawHealingAura(item, data) {
+      if (!item?.healAura || data?.role !== "survivor") return;
+
+      const healerCount = healingActorCount(data);
+      const alphaBase = clamp(item.visionAlpha ?? 0, 0, 1);
+      const active = healerCount > 0
+        && !data.dead
+        && !data.escaped
+        && !data.hooked
+        && alphaBase > ACTOR_VISION.MIN_VISIBLE_ALPHA;
+
+      item.healAura.clear();
+      item.healAura.setVisible(active);
+      if (!active) return;
+
+      const now = performance.now();
+      const seed = hash2((data.id || "heal").length, (data.id || "h").charCodeAt(0) || 0);
+      const countBoost = clamp(healerCount - 1, 0, 4);
+      const pulse = 0.5 + Math.sin(now / 190 + seed * Math.PI * 2) * 0.5;
+      const slowPulse = 0.5 + Math.sin(now / 420 + seed * Math.PI) * 0.5;
+      const radius = 27 + countBoost * 3.5 + pulse * 7;
+      const alpha = alphaBase * (0.28 + pulse * 0.28);
+
+      item.healAura.setPosition(item.current.x, item.current.y);
+      item.healAura.setRotation(0);
+      item.healAura.fillStyle(0x45ff8a, alphaBase * (0.035 + slowPulse * 0.025));
+      item.healAura.fillCircle(0, 0, radius * 0.92);
+      item.healAura.lineStyle(2 + Math.min(countBoost, 2) * 0.35, 0x8dff9a, alpha);
+      item.healAura.strokeCircle(0, 0, radius);
+      item.healAura.lineStyle(1, 0xd7ffdf, alphaBase * (0.18 + pulse * 0.18));
+      item.healAura.strokeCircle(0, 0, radius + 7 + slowPulse * 3);
+    }
+
     drawHookedSurvivorPulse(item, data) {
       if (!item?.outline || !data?.hooked) return;
       const now = performance.now();
@@ -3471,6 +3679,10 @@
 
     styleActor(item, data) {
       if (data.role === "killer") {
+        if (item.healAura) {
+          item.healAura.clear();
+          item.healAura.setVisible(false);
+        }
         const charging = data.attackState === "charging";
         const attacking = data.attacking || data.attackState === "quick" || data.attackState === "lunge";
         const now = performance.now();
@@ -3497,6 +3709,7 @@
         const progressColor = data.hooked ? 0x75d5ff : downedHealProgress ? 0x8dff9a : hookOrExecuteProgress ? 0xff4040 : data.downed ? 0xffb36b : 0x8dff9a;
         const outlineColor = showProgress ? progressColor : data.invuln > 0 ? 0xffffff : data.hooked ? 0xffc06a : skin.outline;
         this.drawActorShape(item, data, data.dead ? 0x555555 : color, disabled ? 0.45 : 1, outlineColor, showProgress || data.invuln > 0 ? 1 : 0.82);
+        this.drawHealingAura(item, data);
         if (data.hooked && !disabled && (item.visionAlpha ?? 0) > ACTOR_VISION.MIN_VISIBLE_ALPHA) {
           this.drawHookedSurvivorPulse(item, data);
         }
@@ -3555,12 +3768,12 @@
           else playSfx("windowVault");
         }
         if (["hit", "death", "execute", "downed", "hooked", "unhooked"].includes(event.type)) {
+          const heavy = event.type === "death" || event.type === "execute" || event.type === "downed" || event.type === "hooked";
           const hookBurstHidden = event.type === "hooked"
             && this.getPovSurvivorData()?.role === "killer"
             && !this.killerCanRevealWorldPoint(event.x, event.y);
           if (!hookBurstHidden) {
             const color = event.type === "unhooked" ? 0x75d5ff : event.type === "hooked" ? COLORS.hook : COLORS.blood;
-            const heavy = event.type === "death" || event.type === "execute" || event.type === "downed" || event.type === "hooked";
             this.burst(event.x, event.y, color, event.type === "hooked" ? 52 : event.type === "execute" || event.type === "death" ? 62 : 38, event.type === "unhooked" ? 140 : 220);
           }
 
@@ -3568,7 +3781,14 @@
           const shouldShakeForImpact = (event.type === "hit" || event.type === "downed") && isLocalSurvivorEvent;
           const shouldShakeForStateChange = ["death", "execute", "hooked"].includes(event.type) && isLocalSurvivorEvent;
           if (shouldShakeForImpact || shouldShakeForStateChange) {
-            this.cameras.main.shake(heavy ? 210 : 110, heavy ? 0.0055 : 0.0032);
+            const impactDuration = shouldShakeForImpact
+              ? (heavy ? (LOW_POWER_MODE ? 220 : 280) : (LOW_POWER_MODE ? 130 : 175))
+              : (heavy ? 210 : 110);
+            const impactStrength = shouldShakeForImpact
+              ? (heavy ? (LOW_POWER_MODE ? 0.0058 : 0.0074) : (LOW_POWER_MODE ? 0.0038 : 0.0052))
+              : (heavy ? 0.0055 : 0.0032);
+            this.cameras.main.shake(impactDuration, impactStrength);
+            if (shouldShakeForImpact) triggerSurvivorHitImpact(heavy);
           }
         }
         if (event.type === "genDone") {
@@ -3804,6 +4024,7 @@
     update(time, deltaMs) {
       const dt = Math.min(0.04, deltaMs / 1000);
       updateMusic();
+      updateHealingSfx(dt);
       this.updateAimAngle();
       this.predictLocal(dt);
       this.updateActorDisplays(dt);
@@ -4092,6 +4313,7 @@
           item.chatText.setVisible(showChat);
           item.chatText.setAlpha(id === myId ? 1 : alpha);
         }
+        if (item.healAura) item.healAura.setAlpha(alpha);
         if (item.healBarBg && item.healBar) {
           item.healBarBg.setAlpha(alpha);
           item.healBar.setAlpha(alpha);

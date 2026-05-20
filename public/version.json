@@ -1,11 +1,53 @@
 {
   "latest": {
-    "version": "0.1.2",
-    "title": "Auto Rescue",
-    "summary": "Proximity healing and rescues",
-    "description": "Survivors now heal and rescue hooked teammates by standing still very close to them instead of holding E. Nearby stationary allies can contribute at the same time, and moving cancels the assist progress."
+    "version": "0.1.8",
+    "title": "Pallet Commitment",
+    "summary": "Stronger orb pitch and pallet vault lockout",
+    "description": "Orb pickup pitch now ramps more noticeably from 1.00 to 1.45 by the tenth carried orb. Dropped pallet vaulting now uses the same one-at-a-time lock and survivor cooldown style as windows, and the local hit-impact event handler no longer references the heavy impact flag outside its scope.",
+    "date": "2026-05-20"
   },
   "history": [
+    {
+      "version": "0.1.8",
+      "title": "Pallet Commitment",
+      "summary": "Stronger orb pitch and pallet vault lockout",
+      "description": "Orb pickup pitch now ramps more noticeably from 1.00 to 1.45 by the tenth carried orb. Dropped pallet vaulting now uses the same one-at-a-time lock and survivor cooldown style as windows, and the local hit-impact event handler no longer references the heavy impact flag outside its scope.",
+      "date": "2026-05-20"
+    },
+    {
+      "version": "0.1.7",
+      "title": "Orb Pickup Pitch",
+      "summary": "Orb pickup sound climbs with carried orbs",
+      "description": "Orb pickup audio now uses the player's carried orb count instead of random pitch variation. The pitch starts at 1.00 on the first carried orb and ramps up to 1.10 by the tenth orb.",
+      "date": "2026-05-20"
+    },
+    {
+      "version": "0.1.6",
+      "title": "Window Commitment",
+      "summary": "One-at-a-time windows with survivor cooldown",
+      "description": "Window vaulting is now server-locked so only one player can pass through a window at a time, including survivors and The Void. Survivors also get a short cooldown after window vaults so they cannot spam back-and-forth jumps.",
+      "date": "2026-05-20"
+    },
+    {
+      "version": "0.1.5",
+      "title": "Hit Impact",
+      "summary": "Survivor hit shake and grayscale flash",
+      "description": "Adds a stronger local impact effect when the survivor is hit or downed, including screen shake, a brief grayscale/desaturation flash, and a quick hit overlay pulse.",
+      "date": "2026-05-20"
+    },
+    {
+      "version": "0.1.4",
+      "title": "Healing Pulse",
+      "summary": "Green healing rings and scaling healing audio",
+      "description": "Adds a green pulsing circle around survivors while they are being healed and loops sfx/healing.mp3 with a slightly higher pitch when more nearby survivors are helping.",
+      "date": "2026-05-20"
+    },
+    {
+      "version": "0.1.3",
+      "title": "Pallet Control",
+      "summary": "Cleaner pallet drops and hooked visibility",
+      "description": "Fixed stale pallet action direction so standing still beside an upright pallet drops it instead of moving/vaulting across. Hooked survivors now remain visible to survivor teammates anywhere on the map, independent of cone and line of sight."
+    },
     {
       "version": "0.1.2",
       "title": "Auto Rescue",

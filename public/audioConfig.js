@@ -43,9 +43,14 @@ window.GAME_AUDIO_CONFIG = {
     // Overall SFX volume multiplier.
     master: 0.72,
 
-    // Toggle randomized pitch variation for hook/window vault/orb pickup sounds.
-    // Rift/orb deposit pitch is separate and ALWAYS ramps upward per deposit.
+    // Toggle randomized pitch variation for SFX listed in pitchSteps.
+    // Orb pickup and rift/orb deposit pitch are separate and ramp from carried counts.
     enablePitchVariation: true,
+
+    // Orb pickup pitch follows carried orb count.
+    // 1 carried orb = 1.00 pitch, 10 carried orbs = 1.45 pitch.
+    // This is intentionally more dramatic so the full-orb climb is actually noticeable.
+    orbPickupPitch: { min: 1.0, max: 1.45, countMax: 10 },
 
     // Sound effect file paths. Put these files in public/sfx.
     files: {
@@ -63,7 +68,8 @@ window.GAME_AUDIO_CONFIG = {
       orbPickup: "/sfx/orb_pickup.mp3",
       orbDeposit: "/sfx/orb_deposit.mp3",
       buttonClick: "/sfx/button_click.mp3",
-      playerSpeak: "/sfx/player_speak.mp3"
+      playerSpeak: "/sfx/player_speak.mp3",
+      healing: "/sfx/healing.mp3"
     },
 
     // Per-sound volume before the global SFX master multiplier is applied.
@@ -82,7 +88,8 @@ window.GAME_AUDIO_CONFIG = {
       orbPickup: 0.68,
       orbDeposit: 0.72,
       buttonClick: 0.13,
-      playerSpeak: 0.18
+      playerSpeak: 0.18,
+      healing: 0.34
     },
 
     // Pitch variation lists. Used only when enablePitchVariation is true.
@@ -97,9 +104,9 @@ window.GAME_AUDIO_CONFIG = {
       palletDrop: [0.86, 0.94, 1.0, 1.08, 1.17, 1.26],
       voidStun: [0.78, 0.86, 0.94, 1.0, 1.08],
       palletStun: [0.78, 0.86, 0.94, 1.0, 1.08],
-      orbPickup: [0.9, 0.96, 1.0, 1.08, 1.16, 1.25, 1.34],
       buttonClick: [0.92, 0.97, 1.0, 1.05, 1.11, 1.18],
       playerSpeak: [0.88, 0.94, 1.0, 1.07, 1.15, 1.24],
+      healing: [1.0],
 	  gen: [0.92, 0.97, 1.0, 1.05, 1.11, 1.18]
     },
 
@@ -108,7 +115,8 @@ window.GAME_AUDIO_CONFIG = {
       swing: 315,
       hit: 440,
       palletStun: 300,
-      voidStun: 360
+      voidStun: 360,
+      healing: 340
     }
   }
 };

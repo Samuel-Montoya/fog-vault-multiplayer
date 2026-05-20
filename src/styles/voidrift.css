@@ -1067,6 +1067,7 @@ p,
 
 .fx-vignette,
 .fx-blood,
+.fx-hit,
 .fx-terror,
 .fx-focus,
 .fx-grain {
@@ -1086,6 +1087,41 @@ p,
     radial-gradient(circle at center, transparent 52%, rgba(180,0,42, calc(var(--blood) * 0.32)) 100%),
     linear-gradient(90deg, rgba(160,0,28, calc(var(--blood) * 0.16)), transparent 20% 80%, rgba(160,0,28, calc(var(--blood) * 0.16)));
   opacity: calc(var(--blood) * 0.86);
+}
+
+.fx-hit {
+  opacity: 0;
+  background:
+    radial-gradient(circle at center, rgba(245, 248, 255, 0.18), transparent 28%),
+    radial-gradient(circle at center, transparent 42%, rgba(255, 255, 255, 0.16) 54%, rgba(15, 23, 42, 0.42) 100%);
+  mix-blend-mode: screen;
+}
+
+body.survivor-hit-impact #gameWrap {
+  animation: survivorHitScreenShake 420ms cubic-bezier(.18,.84,.35,1) both;
+  will-change: transform;
+}
+
+body.survivor-hit-impact #gameWrap canvas {
+  filter: grayscale(0.92) contrast(1.2) brightness(0.86) saturate(0.3) !important;
+  animation: survivorHitDesaturate 420ms ease-out both;
+}
+
+body.survivor-hit-impact .horror-fx .fx-hit {
+  animation: survivorHitFlash 420ms ease-out both;
+}
+
+body.survivor-hit-heavy #gameWrap {
+  animation-duration: 560ms;
+}
+
+body.survivor-hit-heavy #gameWrap canvas {
+  filter: grayscale(1) contrast(1.26) brightness(0.78) saturate(0.2) !important;
+  animation-duration: 560ms;
+}
+
+body.survivor-hit-heavy .horror-fx .fx-hit {
+  animation-duration: 560ms;
 }
 
 .fx-terror {
@@ -1120,6 +1156,31 @@ body.in-chase.is-injured #gameWrap canvas {
 
 body.is-void-stunned .horror-fx .fx-vignette {
   animation: voidStunBlink 120ms ease-in-out infinite alternate;
+}
+
+@keyframes survivorHitScreenShake {
+  0% { transform: translate3d(0, 0, 0); }
+  10% { transform: translate3d(-7px, 4px, 0); }
+  21% { transform: translate3d(8px, -5px, 0); }
+  34% { transform: translate3d(-5px, -3px, 0); }
+  48% { transform: translate3d(5px, 3px, 0); }
+  64% { transform: translate3d(-3px, 2px, 0); }
+  82% { transform: translate3d(2px, -1px, 0); }
+  100% { transform: translate3d(0, 0, 0); }
+}
+
+@keyframes survivorHitDesaturate {
+  0% { filter: grayscale(0) contrast(1) brightness(1) saturate(1); }
+  12% { filter: grayscale(0.96) contrast(1.22) brightness(0.82) saturate(0.25); }
+  38% { filter: grayscale(0.72) contrast(1.12) brightness(0.92) saturate(0.48); }
+  100% { filter: grayscale(0) contrast(1) brightness(1) saturate(1); }
+}
+
+@keyframes survivorHitFlash {
+  0% { opacity: 0; transform: scale(0.98); }
+  10% { opacity: 0.76; transform: scale(1.02); }
+  42% { opacity: 0.22; transform: scale(1.035); }
+  100% { opacity: 0; transform: scale(1.06); }
 }
 
 @keyframes voidStunBlink {
@@ -1519,6 +1580,18 @@ body.is-void-stunned .horror-fx .fx-vignette {
 .ultra-low-power .chat-wheel::before,
 .ultra-low-power .chat-wheel::after {
   animation: none !important;
+}
+
+body.low-power.survivor-hit-impact #gameWrap,
+body.ultra-low-power.survivor-hit-impact #gameWrap {
+  animation: survivorHitScreenShakeLow 300ms ease-out both;
+}
+
+@keyframes survivorHitScreenShakeLow {
+  0% { transform: translate3d(0, 0, 0); }
+  28% { transform: translate3d(-3px, 2px, 0); }
+  54% { transform: translate3d(3px, -1px, 0); }
+  100% { transform: translate3d(0, 0, 0); }
 }
 
 .low-power .void-card,

@@ -100,6 +100,9 @@ const GAMEPLAY_CONFIG = {
     hitBoostDuration: 1.0,
     invulnerableSeconds: 1.45,
     vaultTime: 0.38,
+    // After a survivor vaults a window/pallet, they must commit for a moment before vaulting again.
+    windowVaultCooldown: 1.15,
+    palletVaultCooldown: 1.15,
     healTime: 4.2,
     healDistance: 82,
     unhookTime: 2.15,
@@ -158,9 +161,9 @@ const GAMEPLAY_CONFIG = {
     kickTime: 1.0,
     kickRegression: 0.10,
     escapeTime: 4.0,
-    dotsPerRift: 25,
+    dotsPerRift: 20,
     depositDistance: 96,
-    depositSecondsPerOrb: 1.5,
+    depositSecondsPerOrb: 1,
     maxDepositChain: 10
   },
 

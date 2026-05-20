@@ -431,6 +431,7 @@ function GameHud() {
       <div id="horrorFx" className="horror-fx hidden" aria-hidden="true">
         <div className="fx-vignette" />
         <div className="fx-blood" />
+        <div className="fx-hit" />
         <div className="fx-terror" />
         <div className="fx-focus" />
         <div className="fx-grain" />

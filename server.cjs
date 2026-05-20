@@ -185,6 +185,8 @@ const KILLER_ATTACK_COOLDOWN = cfgNumber(GAMEPLAY_CONFIG.attack?.cooldownSeconds
 const SURVIVOR_INVULN = cfgNumber(GAMEPLAY_CONFIG.survivor?.invulnerableSeconds, 1.45);
 const SURVIVOR_HIT_BOOST = cfgNumber(GAMEPLAY_CONFIG.survivor?.hitBoostDuration, 1.0);
 const SURVIVOR_VAULT_TIME = cfgNumber(GAMEPLAY_CONFIG.survivor?.vaultTime, 0.38);
+const SURVIVOR_WINDOW_VAULT_COOLDOWN = cfgNumber(GAMEPLAY_CONFIG.survivor?.windowVaultCooldown, 1.15);
+const SURVIVOR_PALLET_VAULT_COOLDOWN = cfgNumber(GAMEPLAY_CONFIG.survivor?.palletVaultCooldown, SURVIVOR_WINDOW_VAULT_COOLDOWN);
 const KILLER_VAULT_TIME = cfgNumber(GAMEPLAY_CONFIG.void?.vaultTime, 1.05);
 const KILLER_BREAK_TIME = cfgNumber(GAMEPLAY_CONFIG.void?.breakTime, 1.25);
 const VOID_STUN_TIME = cfgNumber(GAMEPLAY_CONFIG.pallet?.voidStunSeconds, 1.0);
@@ -835,6 +837,8 @@ function makePlayer(socket, role, name, options = {}) {
     recovery: 0,
     voidStun: 0,
     actionLock: 0,
+    windowVaultCooldown: 0,
+    palletVaultCooldown: 0,
     vault: null,
     breakTarget: null,
     attackCooldown: 0,
@@ -1272,7 +1276,45 @@ function nearestInteractable(game, actor, includePalletDrop = true) {
   return options[0] || null;
 }
 
+function isVaultObjectLocked(game, object, vaultType, actorToIgnore = null) {
+  if (!object || !vaultType) return false;
+  for (const other of game.actors.values()) {
+    if (!other || other === actorToIgnore) continue;
+    if (!other.vault) continue;
+    if (other.vault.vaultType !== vaultType) continue;
+    if (other.vault.objectId === object.id) return true;
+  }
+  return false;
+}
+
+function canStartVault(game, actor, object, vaultType = "window") {
+  if (!actor || !object) return false;
+
+  if (vaultType === "window") {
+    // One body through the window at a time, regardless of survivor/killer role.
+    // This prevents the classic multiplayer clown-car vault where two survivors and The Void
+    // all squeeze through the same rectangle because the server was too polite to say no.
+    if (isVaultObjectLocked(game, object, "window", actor)) return false;
+
+    // Survivors need a short commitment window after vaulting so they cannot instantly
+    // spam the same window back and forth.
+    if (actor.role === "survivor" && (actor.windowVaultCooldown || 0) > 0) return false;
+  }
+
+  if (vaultType === "pallet") {
+    // Same idea for dropped pallets: one survivor vaulting the pallet at a time, plus
+    // a short survivor-only commitment cooldown so spacebar spam does not turn pallets
+    // into tiny indecision treadmills.
+    if (isVaultObjectLocked(game, object, "pallet", actor)) return false;
+    if (actor.role === "survivor" && (actor.palletVaultCooldown || 0) > 0) return false;
+  }
+
+  return true;
+}
+
 function startVault(game, actor, object, vaultType = "window") {
+  if (!canStartVault(game, actor, object, vaultType)) return false;
+
   const c = centerOf(object);
   const duration = actor.role === "killer" ? KILLER_VAULT_TIME : SURVIVOR_VAULT_TIME;
   let toX = actor.x;
@@ -1295,9 +1337,20 @@ function startVault(game, actor, object, vaultType = "window") {
     fromX: actor.x,
     fromY: actor.y,
     toX: clamp(toX, 44, game.map.width - 44),
-    toY: clamp(toY, 44, game.map.height - 44)
+    toY: clamp(toY, 44, game.map.height - 44),
+    objectId: object.id || null,
+    vaultType
   };
+
+  if (actor.role === "survivor" && vaultType === "window") {
+    actor.windowVaultCooldown = Math.max(actor.windowVaultCooldown || 0, SURVIVOR_WINDOW_VAULT_COOLDOWN);
+  }
+  if (actor.role === "survivor" && vaultType === "pallet") {
+    actor.palletVaultCooldown = Math.max(actor.palletVaultCooldown || 0, SURVIVOR_PALLET_VAULT_COOLDOWN);
+  }
+
   addEvent(game, "vault", { x: c.x, y: c.y, role: actor.role, actorId: actor.id, vaultType });
+  return true;
 }
 
 function movementDirection(input) {
@@ -1308,9 +1361,14 @@ function movementDirection(input) {
 }
 
 function directionFromInput(input) {
-  if (["up", "down", "left", "right"].includes(input.actionDir)) return input.actionDir;
   const { dx, dy } = movementDirection(input);
   if (dx === 0 && dy === 0) return null;
+
+  // actionDir is a one-frame hint from the client. Never trust a stale value when
+  // the player is no longer pressing a movement key. That stale direction was what
+  // made standing pallet drops behave like accidental vaults/side swaps. Delightful.
+  if (["up", "down", "left", "right"].includes(input.actionDir)) return input.actionDir;
+
   if (Math.abs(dy) >= Math.abs(dx)) return dy < 0 ? "up" : "down";
   return dx < 0 ? "left" : "right";
 }
@@ -1675,6 +1733,8 @@ function updateTimers(game, dt) {
     actor.hitBoost = Math.max(0, actor.hitBoost - dt);
     actor.recovery = Math.max(0, actor.recovery - dt);
     actor.voidStun = Math.max(0, (actor.voidStun || 0) - dt);
+    actor.windowVaultCooldown = Math.max(0, (actor.windowVaultCooldown || 0) - dt);
+    actor.palletVaultCooldown = Math.max(0, (actor.palletVaultCooldown || 0) - dt);
     actor.attackCooldown = Math.max(0, actor.attackCooldown - dt);
     actor.chaseHold = Math.max(0, actor.chaseHold - dt);
     actor.killerVisibleHold = Math.max(0, (actor.killerVisibleHold || 0) - dt);
@@ -1923,9 +1983,20 @@ function updateCollectibleDots(game, dt) {
 
     const dot = game.collectibleDots.splice(nearestIdx, 1)[0];
     const maxDots = actor.role === "killer" ? KILLER_DOT_MAX : SURVIVOR_DOT_MAX;
-    actor.dots = Math.min(maxDots, (actor.dots || 0) + 1);
+    const dotsBefore = actor.dots || 0;
+    actor.dots = Math.min(maxDots, dotsBefore + 1);
     queueDotRespawns(game, 1);
-    addEvent(game, "dotPickup", { x: dot.x, y: dot.y, actorId: actor.id, survivorId: actor.role === "survivor" ? actor.id : null, role: actor.role });
+    addEvent(game, "dotPickup", {
+      x: dot.x,
+      y: dot.y,
+      actorId: actor.id,
+      survivorId: actor.role === "survivor" ? actor.id : null,
+      role: actor.role,
+      dotsBefore,
+      dotsAfter: actor.dots,
+      carriedDots: actor.dots,
+      carryMax: maxDots
+    });
   }
 }
 
@@ -3370,6 +3441,9 @@ function isActorVisibleToViewer(game, viewer, actor) {
   }
 
   if (viewer.role === "survivor" && actor.role === "survivor") {
+    // Hooked teammates are global survivor information. They should be visible on
+    // the map even outside cone/LOS so rescue pathing is readable and not a fog lottery.
+    if (actor.hooked) return true;
     if (!los) return false;
     if (d <= CLOSE_REVEAL_RADIUS) return true;
     return coneSees(viewer, actor, SURVIVOR_CONE_LENGTH, SURVIVOR_CONE_ANGLE);
@@ -3443,6 +3517,7 @@ function serializeActor(game, actor, visible = true) {
     vaultToX: actor.vault ? Number(actor.vault.toX.toFixed(2)) : null,
     vaultToY: actor.vault ? Number(actor.vault.toY.toFixed(2)) : null,
     vaultProgress: actor.vault ? quantizedProgress(actor.vault.t / actor.vault.duration) : 0,
+    windowVaultCooldown: actor.role === "survivor" ? Number((actor.windowVaultCooldown || 0).toFixed(2)) : 0,
     breaking: !!actor.breakTarget,
     invuln: actor.invuln,
     hitBoost: actor.hitBoost,
@@ -3781,7 +3856,9 @@ io.on("connection", (socket) => {
     actor.input.sprint = actor.role === "survivor" && !!input.sprint;
     actor.input.repair = !!input.repair;
     actor.input.action = actor.input.action || !!input.action;
-    if (["up", "down", "left", "right"].includes(input.actionDir)) actor.input.actionDir = input.actionDir;
+    actor.input.actionDir = ["up", "down", "left", "right"].includes(input.actionDir)
+      ? input.actionDir
+      : null;
     if (actor.role === "killer") {
       actor.input.attack = actor.input.attack || !!input.attack;
       actor.input.attackHeld = !!input.attackHeld;
