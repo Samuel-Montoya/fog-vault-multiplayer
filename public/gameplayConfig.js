@@ -29,6 +29,64 @@ const GAMEPLAY_CONFIG = {
     mapDarkness: 0.38
   },
 
+  // Client camera / immersion knobs. These only affect how the camera feels, not server hitboxes.
+  camera: {
+    baseZoom: 1,
+    // Minimum allowed camera zoom. Negative zoom offsets, like injuredZoom: -0.5,
+    // cannot zoom farther out than this floor.
+    minZoom: 0.34,
+    lowPowerMinZoom: 0.42,
+
+    terrorZoom: 0.04,
+    lowPowerTerrorZoom: 0.025,
+    chaseZoom: 0.45,
+    lowPowerChaseZoom: 0.42,
+
+    voidM1HoldZoom: 0.085,
+    lowPowerVoidM1HoldZoom: 0.045,
+    voidM1PulseZoom: 0.065,
+    lowPowerVoidM1PulseZoom: 0.035,
+
+    riftDepositZoom: 0.12,
+    lowPowerRiftDepositZoom: 0.055,
+    riftKickZoom: 0.075,
+    lowPowerRiftKickZoom: 0.04,
+    healZoom: 0.045,
+    lowPowerHealZoom: 0.025,
+    unhookZoom: 0.12,
+    lowPowerUnhookZoom: 0.06,
+    hookedZoom: -0.3,
+    lowPowerHookedZoom: 0.055,
+    injuredZoom: 0.035,
+    lowPowerInjuredZoom: 0.018,
+    downedZoom: 0.55,
+    lowPowerDownedZoom: 0.075,
+    escapeZoom: 0.12,
+    lowPowerEscapeZoom: 0.06,
+
+    spawnPopZoom: 0.18,
+    lowPowerSpawnPopZoom: 0.10,
+    spawnPopZoomDecay: 5.6,
+    lowPowerSpawnPopZoomDecay: 4.2,
+    matchStartZoomOut: 0.48,
+    lowPowerMatchStartZoomOut: 0.26,
+
+    zoomSmoothing: 6.4,
+    lowPowerZoomSmoothing: 4.4,
+    chaseInLerp: 0.055,
+    lowPowerChaseInLerp: 0.045,
+    chaseOutLerp: 0.04,
+    lowPowerChaseOutLerp: 0.035,
+    terrorLerp: 0.07,
+    lowPowerTerrorLerp: 0.055,
+    zoomUpdateThreshold: 0.0035,
+    lowPowerZoomUpdateThreshold: 0.0065,
+    breathSway: 4,
+    lowPowerBreathSway: 2.5,
+    chaseSway: 5,
+    lowPowerChaseSway: 3
+  },
+
   actor: {
     survivorSize: 30,
     voidSize: 38
@@ -90,11 +148,11 @@ const GAMEPLAY_CONFIG = {
     // Rifts are completed by deposits now. repairTime is kept only for old/fallback code paths.
     repairTime: 28.0,
     kickTime: 1.0,
-    kickRegression: 0.15,
+    kickRegression: 0.10,
     escapeTime: 4.0,
     dotsPerRift: 15,
     depositDistance: 96,
-    depositSecondsPerOrb: 0.5,
+    depositSecondsPerOrb: 1.5,
     maxDepositChain: 10
   },
 
@@ -123,7 +181,7 @@ const GAMEPLAY_CONFIG = {
   chase: {
     terrorRadius: 760,
     startRadius: 520,
-    holdSeconds: 2.5,
+    holdSeconds: 3,
     closeRevealRadius: 120,
     musicLayer1Volume: 0.12,
     musicLayer2MaxVolume: 0.30,

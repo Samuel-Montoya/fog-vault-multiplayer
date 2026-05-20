@@ -2086,3 +2086,12 @@ html, body, #gameWrap { background: var(--io-bg) !important; color: var(--io-tex
     font-size: 10px;
   }
 }
+
+
+/* vPerf: Phaser chase zoom already provides pressure. Avoid CSS filters on the WebGL canvas,
+   because filter + camera zoom is a lovely way to make older laptops cough up frames. */
+body.in-chase #gameWrap canvas,
+body.is-injured #gameWrap canvas,
+body.in-chase.is-injured #gameWrap canvas {
+  filter: none !important;
+}

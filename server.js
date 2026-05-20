@@ -1096,12 +1096,12 @@ function handleAction(game, actor) {
     moveToPalletSideByInput(game, actor, hit.object);
     hit.object.state = "dropped";
     bumpPathCache(game);
-    addEvent(game, "palletDrop", { x: hit.object.x + hit.object.w / 2, y: hit.object.y + hit.object.h / 2 });
+    addEvent(game, "palletDrop", { actorId: actor.id, x: hit.object.x + hit.object.w / 2, y: hit.object.y + hit.object.h / 2 });
 
     const killer = [...game.actors.values()].find((p) => p.role === "killer" && !p.dead);
     if (killer && circleNearRect(killer.x, killer.y, KILLER_SIZE * 0.65, hit.object)) {
       killer.recovery = Math.max(killer.recovery, 2.4);
-      addEvent(game, "killerStun", { x: killer.x, y: killer.y });
+      addEvent(game, "killerStun", { actorId: actor.id, killerId: killer.id, x: killer.x, y: killer.y });
     }
   } else if (hit.type === "palletBreak") {
     actor.breakTarget = hit.object.id;

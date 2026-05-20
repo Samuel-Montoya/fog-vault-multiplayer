@@ -57,6 +57,7 @@ window.GAME_AUDIO_CONFIG = {
       windowVault: "/window_vault.ogg",
       palletVault: "/pallet_vault.ogg",
       palletDrop: "/pallet_drop.mp3",
+      palletStun: "/pallet_stun.mp3",
       injured: "/injured.ogg",
       orbPickup: "/orb_pickup.mp3",
       orbDeposit: "/orb_deposit.mp3",
@@ -74,6 +75,7 @@ window.GAME_AUDIO_CONFIG = {
       windowVault: 0.66,
       palletVault: 0.76,
       palletDrop: 0.23,
+      palletStun: 0.72,
       injured: 0.8,
       orbPickup: 0.68,
       orbDeposit: 0.72,
@@ -91,6 +93,7 @@ window.GAME_AUDIO_CONFIG = {
       windowVault: [0.88, 0.94, 1.0, 1.07, 1.15, 1.24],
       palletVault: [0.88, 0.94, 1.0, 1.07, 1.15, 1.24],
       palletDrop: [0.86, 0.94, 1.0, 1.08, 1.17, 1.26],
+      palletStun: [0.82, 0.90, 1.0, 1.10, 1.22],
       orbPickup: [0.9, 0.96, 1.0, 1.08, 1.16, 1.25, 1.34],
       buttonClick: [0.92, 0.97, 1.0, 1.05, 1.11, 1.18],
       playerSpeak: [0.88, 0.94, 1.0, 1.07, 1.15, 1.24],
@@ -100,7 +103,8 @@ window.GAME_AUDIO_CONFIG = {
     // Distance in world pixels for nearby-only sounds.
     localRange: {
       swing: 315,
-      hit: 440
+      hit: 440,
+      palletStun: 300
     }
   }
 };

@@ -8,6 +8,12 @@
     return Number.isFinite(n) ? n : fallback;
   }
 
+  function cameraNumber(key, lowPowerKey, fallback) {
+    const cameraCfg = GAMEPLAY_CONFIG.camera || {};
+    const value = LOW_POWER_MODE && lowPowerKey ? cameraCfg[lowPowerKey] : cameraCfg[key];
+    return cfgNumber(value, fallback);
+  }
+
   const IS_TOUCH_DEVICE = Boolean(
     (navigator.maxTouchPoints && navigator.maxTouchPoints > 0)
     || window.matchMedia?.("(pointer: coarse)")?.matches
@@ -22,9 +28,9 @@
   document.documentElement.classList.toggle("touch-device", IS_TOUCH_DEVICE);
   document.documentElement.classList.toggle("low-power", LOW_POWER_MODE);
 
-  // Lighting knobs. The map is drawn at normal readable brightness. A black fog
-  // RenderTexture sits above it, then the local player's flashlight erases that fog.
-  // Inside the cone you see the real map, not a white overlay and not a black void.
+  // Minimal vision knobs. The map itself is dark; there is no simulated fog RenderTexture.
+  // Instead, gameplay objects fade in when they are inside the local POV cone / near bubble,
+  // and a tiny additive cone graphic gives the player readable direction without GPU soup.
   const LIGHTING = {
     MAP_DARKNESS: cfgNumber(GAMEPLAY_CONFIG.lighting?.mapDarkness, 0.38),          // 0 = no fog, 0.85 = very dark outside vision
     SURVIVOR_LENGTH: cfgNumber(GAMEPLAY_CONFIG.survivor?.clientConeLength, cfgNumber(GAMEPLAY_CONFIG.survivor?.coneLength, 880)),
@@ -48,7 +54,12 @@
     // World-space padding around the current camera view. The fog layer is
     // bigger than the viewport so zooming in/out does not require resizing it
     // every frame, which was causing the flashlight to drift and the client to hitch.
-    FOG_VIEW_PADDING: 240
+    FOG_VIEW_PADDING: 240,
+    // Smooth the visible guide cone so mouse/network jitter does not make it twitch.
+    // This is only visual smoothing; server/client visibility rules still use the real facing.
+    CONE_VISUAL_SMOOTHING: LOW_POWER_MODE ? 13 : 18,
+    CONE_FEATHER_ANGLE: LOW_POWER_MODE ? 0.055 : 0.075,
+    CONE_FEATHER_ALPHA: LOW_POWER_MODE ? 0.18 : 0.24
   };
 
   const DEFAULT_AUDIO_CONFIG = {
@@ -81,6 +92,7 @@
         windowVault: "/window_vault.ogg",
         palletVault: "/pallet_vault.ogg",
         palletDrop: "/pallet_drop.mp3",
+        palletStun: "/pallet_stun.mp3",
         injured: "/injured.ogg",
         orbPickup: "/orb_pickup.mp3",
         orbDeposit: "/orb_deposit.mp3",
@@ -96,6 +108,7 @@
         windowVault: 0.34,
         palletVault: 0.76,
         palletDrop: 0.72,
+        palletStun: 0.72,
         injured: 0.8,
         orbPickup: 0.68,
         orbDeposit: 0.72,
@@ -107,13 +120,15 @@
         swing: [0.9, 0.96, 1.0, 1.08, 1.16, 1.25, 1.34],
         windowVault: [0.88, 0.94, 1.0, 1.07, 1.15, 1.24],
         palletDrop: [0.86, 0.94, 1.0, 1.08, 1.17, 1.26],
+        palletStun: [0.82, 0.90, 1.0, 1.10, 1.22],
         orbPickup: [0.9, 0.96, 1.0, 1.08, 1.16, 1.25, 1.34],
         buttonClick: [0.92, 0.97, 1.0, 1.05, 1.11, 1.18],
         playerSpeak: [0.88, 0.94, 1.0, 1.07, 1.15, 1.24]
       },
       localRange: {
         swing: 315,
-        hit: 440
+        hit: 440,
+        palletStun: 300
       }
     }
   };
@@ -165,28 +180,35 @@
   // Client-only fear tuning. This does not change hitboxes or movement on the server.
   // It just makes the camera and overlay behave like the chase is pulling you inward.
   const IMMERSION = {
-    BASE_ZOOM: 1,
-    // Camera zoom is back, but kept small and smoothed so chase feels intense
-    // without forcing Phaser to violently rescale the whole scene in one frame.
-    TERROR_ZOOM: LOW_POWER_MODE ? 0.025 : 0.04,
-    CHASE_ZOOM: 0.66,
-    // Killer-only attack pressure. Holding M1 subtly pushes the camera in,
-    // and a real server-confirmed swing gives a tiny punch. Small numbers on purpose.
-    KILLER_M1_HOLD_ZOOM: LOW_POWER_MODE ? 0.045 : 0.085,
-    KILLER_M1_PULSE_ZOOM: LOW_POWER_MODE ? 0.035 : 0.065,
-    DEPOSIT_ZOOM: LOW_POWER_MODE ? 0.055 : 0.12,
-    SPAWN_ZOOM: LOW_POWER_MODE ? 0.10 : 0.18,
-    SPAWN_ZOOM_DECAY: LOW_POWER_MODE ? 4.2 : 5.6,
-    // Match start is now a cinematic pull-in: start zoomed out, then glide back
-    // to normal exactly as the server-authoritative movement lock expires.
+    BASE_ZOOM: cameraNumber("baseZoom", "lowPowerBaseZoom", 1),
+    // Camera zoom offsets are added to BASE_ZOOM after a single winner is chosen.
+    // Negative values are supported now, so injuredZoom: -0.5 can zoom the camera out.
+    TERROR_ZOOM: cameraNumber("terrorZoom", "lowPowerTerrorZoom", LOW_POWER_MODE ? 0.025 : 0.04),
+    CHASE_ZOOM: cameraNumber("chaseZoom", "lowPowerChaseZoom", LOW_POWER_MODE ? 0.42 : 0.66),
+
+    KILLER_M1_HOLD_ZOOM: cameraNumber("voidM1HoldZoom", "lowPowerVoidM1HoldZoom", LOW_POWER_MODE ? 0.045 : 0.085),
+    KILLER_M1_PULSE_ZOOM: cameraNumber("voidM1PulseZoom", "lowPowerVoidM1PulseZoom", LOW_POWER_MODE ? 0.035 : 0.065),
+    DEPOSIT_ZOOM: cameraNumber("riftDepositZoom", "lowPowerRiftDepositZoom", LOW_POWER_MODE ? 0.055 : 0.12),
+    RIFT_KICK_ZOOM: cameraNumber("riftKickZoom", "lowPowerRiftKickZoom", LOW_POWER_MODE ? 0.04 : 0.075),
+    HEAL_ZOOM: cameraNumber("healZoom", "lowPowerHealZoom", LOW_POWER_MODE ? 0.025 : 0.045),
+    UNHOOK_ZOOM: cameraNumber("unhookZoom", "lowPowerUnhookZoom", LOW_POWER_MODE ? 0.06 : 0.12),
+    HOOKED_ZOOM: cameraNumber("hookedZoom", "lowPowerHookedZoom", LOW_POWER_MODE ? 0.055 : 0.10),
+    INJURED_ZOOM: cameraNumber("injuredZoom", "lowPowerInjuredZoom", LOW_POWER_MODE ? 0.018 : 0.035),
+    DOWNED_ZOOM: cameraNumber("downedZoom", "lowPowerDownedZoom", LOW_POWER_MODE ? 0.075 : 0.14),
+    ESCAPE_ZOOM: cameraNumber("escapeZoom", "lowPowerEscapeZoom", LOW_POWER_MODE ? 0.06 : 0.12),
+
+    SPAWN_ZOOM: cameraNumber("spawnPopZoom", "lowPowerSpawnPopZoom", LOW_POWER_MODE ? 0.10 : 0.18),
+    SPAWN_ZOOM_DECAY: cameraNumber("spawnPopZoomDecay", "lowPowerSpawnPopZoomDecay", LOW_POWER_MODE ? 4.2 : 5.6),
     MATCH_START_LOCK_SECONDS: cfgNumber(GAMEPLAY_CONFIG.match?.startFreezeSeconds, 1.5),
-    MATCH_START_ZOOM_OUT: LOW_POWER_MODE ? 0.26 : 0.48,
-    ZOOM_SMOOTHING: LOW_POWER_MODE ? 5.8 : 8.2,
-    CHASE_IN_LERP: 0.055,
-    CHASE_OUT_LERP: 0.04,
-    TERROR_LERP: 0.07,
-    BREATH_SWAY: 4,
-    CHASE_SWAY: 5,
+    MATCH_START_ZOOM_OUT: cameraNumber("matchStartZoomOut", "lowPowerMatchStartZoomOut", LOW_POWER_MODE ? 0.26 : 0.48),
+    MIN_ZOOM: cameraNumber("minZoom", "lowPowerMinZoom", LOW_POWER_MODE ? 0.42 : 0.34),
+
+    ZOOM_SMOOTHING: cameraNumber("zoomSmoothing", "lowPowerZoomSmoothing", LOW_POWER_MODE ? 4.4 : 6.4),
+    CHASE_IN_LERP: cameraNumber("chaseInLerp", "lowPowerChaseInLerp", LOW_POWER_MODE ? 0.045 : 0.055),
+    CHASE_OUT_LERP: cameraNumber("chaseOutLerp", "lowPowerChaseOutLerp", LOW_POWER_MODE ? 0.035 : 0.04),
+    TERROR_LERP: cameraNumber("terrorLerp", "lowPowerTerrorLerp", LOW_POWER_MODE ? 0.055 : 0.07),
+    BREATH_SWAY: cameraNumber("breathSway", "lowPowerBreathSway", LOW_POWER_MODE ? 2.5 : 4),
+    CHASE_SWAY: cameraNumber("chaseSway", "lowPowerChaseSway", LOW_POWER_MODE ? 3 : 5),
     // Direction-change camera sway. No constant running bob. The camera only leans
     // when the player changes movement direction, then smoothly settles back.
     // Smooth direction-change camera sway. The old impulse added pixels instantly,
@@ -238,7 +260,7 @@
     // happen just because somebody is holding E. Humanity may survive this one.
     GENERATOR_FPS: LOW_POWER_MODE ? 4 : 6,
     SCRATCH_DRAW_FPS: LOW_POWER_MODE ? 6 : 8,
-    LIGHTING_FPS: LOW_POWER_MODE ? 20 : 30,
+    LIGHTING_FPS: LOW_POWER_MODE ? 30 : 60,
     WALL_VISION_FPS: LOW_POWER_MODE ? 14 : 22,
     MAX_PARTICLES: LOW_POWER_MODE ? 28 : 58,
     MAX_SHOCKWAVES: LOW_POWER_MODE ? 3 : 6
@@ -249,8 +271,8 @@
     // Keep a small readable bubble around the player so close corners do not become unfair invisible bonks.
     SURVIVOR_NEAR_RADIUS: LOW_POWER_MODE ? 142 : 170,
     KILLER_NEAR_RADIUS: LOW_POWER_MODE ? 170 : 205,
-    CONE_EXTRA_LENGTH: LOW_POWER_MODE ? 34 : 72,
-    CONE_EXTRA_ANGLE: LOW_POWER_MODE ? 0.08 : 0.13,
+    CONE_EXTRA_LENGTH: 0,
+    CONE_EXTRA_ANGLE: 0,
     EDGE_SOFTNESS: LOW_POWER_MODE ? 0.16 : 0.20,
     DISTANCE_FEATHER: 0.16,
     FADE_IN_PER_SECOND: LOW_POWER_MODE ? 8.5 : 12.5,
@@ -535,6 +557,24 @@
     mainMenuBtn: document.getElementById("mainMenuBtn"),
     mobileControls: document.getElementById("mobileControls")
   };
+
+  function ensureFpsCounter() {
+    if (ui.fpsText) return ui.fpsText;
+    const card = document.querySelector(".objective-card");
+    if (!card) return null;
+    const row = document.createElement("div");
+    row.id = "fpsCounterRow";
+    row.className = "fps-counter-row";
+    const label = document.createElement("span");
+    label.textContent = "FPS";
+    const value = document.createElement("b");
+    value.id = "fpsText";
+    value.textContent = "--";
+    row.append(label, value);
+    card.appendChild(row);
+    ui.fpsText = value;
+    return value;
+  }
 
   const fxState = {
     redChase: 0,
@@ -1261,6 +1301,15 @@
     if (isMyHit || d <= LOCAL_SFX_RANGE.hit) playSfx("injured");
   }
 
+
+  function playLocalizedPalletStun(event) {
+    if (!event) return;
+    const isThrower = event.actorId === myId;
+    const d = distanceToLocalEvent(event);
+    // The Survivor who dropped the pallet always hears the stun. Others only hear it if close.
+    if (isThrower || d <= (LOCAL_SFX_RANGE.palletStun || 300)) playSfx("palletStun");
+  }
+
   function playOrbPickupSfx(event) {
     if (!event || event.actorId !== myId) return;
     playSfx("orbPickup");
@@ -1592,7 +1641,7 @@
     create() {
       phaserScene = this;
       this.cameras.main.setBackgroundColor("#03040a");
-      this.scale.on("resize", () => this.rebuildFogTexture());
+      // No fog RenderTexture anymore. Resize no longer allocates/rebuilds a GPU texture.
       this.grassLayer = null;
       this.worldGraphics = this.add.graphics().setDepth(1);
       this.dynamicGraphics = this.add.graphics().setDepth(3);
@@ -1602,8 +1651,8 @@
       this.collectibleDotVisuals = new Map();
       this.collectibleDotsAnimating = false;
       this.scratchGraphics = this.add.graphics().setDepth(4);
-      // Kept only as a cheap fallback container. The actual beam glow is now a pre-baked
-      // soft sprite, because per-frame triangle drawing made the cone edge look harsh.
+      // Minimal visibility cone. One small Graphics object, redrawn at a capped FPS.
+      // No RenderTexture, no masks, no per-frame erasing. Just a cheap "what I can see" hint.
       this.flashlightGlowGraphics = this.add.graphics()
         .setDepth(LIGHTING.FOG_DEPTH - 1)
         .setBlendMode(Phaser.BlendModes.ADD);
@@ -1629,16 +1678,8 @@
       this.swipes = [];
       this.recentHookIndicators = [];
       this.createGeneratorFallbackTexture();
-      this.createLightTextures();
-      this.lightConeMask = this.make.image({ x: 0, y: 0, key: "softFlashlightCone", add: false })
-        .setOrigin(0, 0.5);
-      this.lightAuraMask = this.make.image({ x: 0, y: 0, key: "softFlashlightAura", add: false })
-        .setOrigin(0.5, 0.5);
-      this.flashlightBloomImage = this.add.image(0, 0, "softFlashlightBloom")
-        .setOrigin(0, 0.5)
-        .setDepth(LIGHTING.FOG_DEPTH - 1)
-        .setBlendMode(Phaser.BlendModes.ADD)
-        .setVisible(false);
+      // Legacy soft cone textures are intentionally not created here. The minimal
+      // system below uses vector alpha + object visibility, which is much cheaper.
       this.input.on("pointerdown", (pointer) => {
         ensureAudioStarted();
         if (pointer.leftButtonDown()) {
@@ -1907,27 +1948,16 @@
     }
 
     rebuildFogTexture() {
+      // Legacy compatibility hook. The old version allocated a camera-sized
+      // RenderTexture and erased a flashlight cone out of it. That looked nice,
+      // and also gave weak laptops a reason to write goodbye letters.
       if (this.fogRT) {
         this.fogRT.destroy();
         this.fogRT = null;
       }
-      if (!this.map) return;
-
-      // The fog is a camera-window-sized world-space RenderTexture. It moves with
-      // the camera in world coordinates, while the cone/aura are erased using local
-      // positions inside that texture. That keeps the light anchored to the player
-      // during zoom without repainting a full-map texture every frame.
-      const cam = this.cameras.main;
-      const pad = LIGHTING.FOG_VIEW_PADDING;
-      const viewW = Math.ceil((cam.width || this.scale.width || window.innerWidth) + pad * 2);
-      const viewH = Math.ceil((cam.height || this.scale.height || window.innerHeight) + pad * 2);
-      this.lastFogWidth = viewW;
-      this.lastFogHeight = viewH;
-      this.fogRT = this.add.renderTexture(0, 0, viewW, viewH)
-        .setOrigin(0, 0)
-        .setDepth(LIGHTING.FOG_DEPTH)
-        .setScrollFactor(1, 1);
-      this.fogRT.fill(0x000000, LIGHTING.MAP_DARKNESS);
+      this.lastFogWidth = 0;
+      this.lastFogHeight = 0;
+      this.flashlightGlowGraphics?.clear();
     }
 
     clearGeneratorSprites() {
@@ -2940,7 +2970,7 @@
         item.body.fillStyle(0x090014, 0.78);
         item.body.fillCircle(-7, 7, coreR * 0.34);
 
-        const orbCount = LOW_POWER_MODE ? 10 : 17;
+        const orbCount = LOW_POWER_MODE ? 5 : 9;
         for (let i = 0; i < orbCount; i++) {
           const seed = i * 1.731;
           const band = i % 3;
@@ -2953,7 +2983,7 @@
           item.body.fillCircle(Math.cos(a) * r, Math.sin(a * (1.06 + band * 0.04)) * r, size);
         }
 
-        for (let i = 0; i < (LOW_POWER_MODE ? 3 : 5); i++) {
+        for (let i = 0; i < (LOW_POWER_MODE ? 2 : 3); i++) {
           const a = -Math.PI * 0.85 + i * (Math.PI * 1.7 / 4) + Math.sin(now / 360 + i) * 0.08;
           const inner = 18 + angry * 2;
           const outer = 32 + i % 2 * 3 + angry * 4;
@@ -2966,10 +2996,8 @@
 
         item.outline.lineStyle(2, 0xd8b4fe, 0.44 + angry * 0.36);
         item.outline.strokeCircle(0, 0, 24 + angry * 2.4);
-        item.outline.lineStyle(1, 0x7c3aed, 0.36 + pulse * 0.18);
-        item.outline.strokeCircle(0, 0, 31 + pulse * 2.5 + angry * 3.5);
-        item.outline.lineStyle(1, 0x1e063d, 0.62);
-        item.outline.strokeCircle(0, 0, 38 + Math.sin(now / 250) * 2 + angry * 4);
+        item.outline.lineStyle(1, 0x7c3aed, 0.34 + pulse * 0.18);
+        item.outline.strokeCircle(0, 0, 34 + pulse * 2.0 + angry * 3.2);
         return;
       }
 
@@ -3178,7 +3206,16 @@
       if (data.role === "killer") {
         const charging = data.attackState === "charging";
         const attacking = data.attacking || data.attackState === "quick" || data.attackState === "lunge";
-        this.drawActorShape(item, data, COLORS.killer, 1, 0xd8b4fe, attacking ? 1 : 0.84);
+        const now = performance.now();
+        const voidStateKey = `${data.attackState || "idle"}:${data.attacking ? 1 : 0}:${data.recovery > 0 ? 1 : 0}`;
+        const redrawEvery = LOW_POWER_MODE ? 150 : 95;
+        // The Void still animates, but not by redrawing 20+ circles every single frame.
+        // Position updates remain smooth because the container moves independently.
+        if (item.lastVoidStateKey !== voidStateKey || !item.lastVoidDrawAt || now - item.lastVoidDrawAt >= redrawEvery) {
+          item.lastVoidStateKey = voidStateKey;
+          item.lastVoidDrawAt = now;
+          this.drawActorShape(item, data, COLORS.killer, 1, 0xd8b4fe, attacking ? 1 : 0.84);
+        }
         item.facing.setFillStyle(attacking ? 0xf5d0fe : 0xc084fc, attacking ? 0.82 : data.recovery > 0 ? 0.24 : charging ? 0.72 : 0.48);
       } else {
         const skin = getSurvivorSkin(data.skin);
@@ -3271,7 +3308,10 @@
           this.burst(event.x, event.y, COLORS.pallet, 16, 130);
         }
         if (event.type === "palletBreak" || event.type === "palletBreakStart") this.burst(event.x, event.y, 0xffc36a, 18, 150);
-        if (event.type === "killerStun") this.burst(event.x, event.y, 0xfff1a8, 30, 110);
+        if (event.type === "killerStun") {
+          playLocalizedPalletStun(event);
+          this.burst(event.x, event.y, 0xfff1a8, 30, 110);
+        }
         if (event.type === "escape") {
           this.burst(event.x, event.y, 0xa78bfa, 54, 190);
           this.addShockwave(event.x, event.y, 0x67e8f9);
@@ -3466,6 +3506,19 @@
       }
     }
 
+    updateFpsCounter(dt) {
+      const node = ensureFpsCounter();
+      if (!node) return;
+      this.fpsAccum = (this.fpsAccum || 0) + dt;
+      this.fpsFrames = (this.fpsFrames || 0) + 1;
+      if (this.fpsAccum < 0.35) return;
+      const fps = Math.max(0, Math.round(this.fpsFrames / Math.max(0.001, this.fpsAccum)));
+      node.textContent = String(fps);
+      node.style.color = fps >= 55 ? "#bcffb8" : fps >= 35 ? "#fff3b0" : "#ff9a9a";
+      this.fpsAccum = 0;
+      this.fpsFrames = 0;
+    }
+
     update(time, deltaMs) {
       const dt = Math.min(0.04, deltaMs / 1000);
       updateMusic();
@@ -3485,6 +3538,7 @@
       this.drawChargeIndicators(dt);
       this.drawSwipes(dt);
       this.updateParticles(dt);
+      this.updateFpsCounter(dt);
 
       this.inputTimer += dt;
       if (this.inputTimer >= 1 / 60) {
@@ -3825,94 +3879,168 @@
       const localData = this.isSpectating()
         ? (this.actors.get(myId)?.data || item.data)
         : (item.data || item.current || item.target || null);
+      const subjectData = item.data || item.current || item.target || localData || null;
       const killerCharging = localData?.role === "killer" && localData.attackState === "charging";
       const killerM1Hold = localData?.role === "killer" && (input.attackHeld || killerCharging) ? 1 : 0;
       const povData = this.getPovSurvivorData();
+
       const isDepositing = !this.isSpectating()
         && povData?.role === "survivor"
         && (!!povData.dotDepositTargetId || (povData.dotDepositProgress || 0) > 0.001);
-      const depositZoom = isDepositing ? IMMERSION.DEPOSIT_ZOOM : 0;
-      const attackZoom = killerM1Hold * IMMERSION.KILLER_M1_HOLD_ZOOM
-        + (this.killerM1Pulse || 0) * IMMERSION.KILLER_M1_PULSE_ZOOM;
-      const spawnZoom = (this.spawnInPulse || 0) * IMMERSION.SPAWN_ZOOM;
+      const isKickingRift = !this.isSpectating()
+        && localData?.role === "killer"
+        && (!!localData.generatorKickTargetId || (localData.generatorKickProgress || 0) > 0.001);
+      const isHealingSomeone = !this.isSpectating()
+        && localData?.role === "survivor"
+        && !!localData.healingTargetId;
+      const isBeingHealed = subjectData?.role === "survivor"
+        && !subjectData?.hooked
+        && (subjectData?.healProgress || 0) > 0.001;
+      const isUnhookingSomeone = !this.isSpectating()
+        && localData?.role === "survivor"
+        && !!localData.unhookTargetId;
+      const isBeingUnhooked = subjectData?.role === "survivor"
+        && !!subjectData?.hooked
+        && (subjectData?.unhookProgress || 0) > 0.001;
+      const isHookingSomeone = !this.isSpectating()
+        && localData?.role === "killer"
+        && !!localData.hookActionTargetId;
+      const isHooked = subjectData?.role === "survivor" && !!subjectData?.hooked;
+      const isDowned = subjectData?.role === "survivor" && !!subjectData?.downed && !subjectData?.escaped && !subjectData?.dead;
+      const isInjured = subjectData?.role === "survivor"
+        && (!!subjectData?.injured || (subjectData?.health || 2) <= 1)
+        && !isDowned
+        && !isHooked
+        && !subjectData?.escaped
+        && !subjectData?.dead;
+      const isEscaping = subjectData?.role === "survivor"
+        && (!!subjectData?.escapeGateId || (subjectData?.escapeProgress || 0) > 0.001);
+
+      const hardSurvivorStateZoom = isHooked
+        ? IMMERSION.HOOKED_ZOOM
+        : isDowned
+          ? IMMERSION.DOWNED_ZOOM
+          : null;
+
+      const zoomCandidates = hardSurvivorStateZoom !== null
+        ? [hardSurvivorStateZoom]
+        : [
+          this.terrorBlend > 0.001 ? this.terrorBlend * IMMERSION.TERROR_ZOOM : null,
+          this.chaseBlend > 0.001 ? this.chaseBlend * IMMERSION.CHASE_ZOOM : null,
+          killerM1Hold ? IMMERSION.KILLER_M1_HOLD_ZOOM : null,
+          (this.killerM1Pulse || 0) > 0.001 ? (this.killerM1Pulse || 0) * IMMERSION.KILLER_M1_PULSE_ZOOM : null,
+          isDepositing ? IMMERSION.DEPOSIT_ZOOM : null,
+          isKickingRift ? IMMERSION.RIFT_KICK_ZOOM : null,
+          (isHealingSomeone || isBeingHealed) ? IMMERSION.HEAL_ZOOM : null,
+          (isUnhookingSomeone || isBeingUnhooked) ? IMMERSION.UNHOOK_ZOOM : null,
+          isHookingSomeone ? IMMERSION.HOOKED_ZOOM : null,
+          isInjured ? IMMERSION.INJURED_ZOOM : null,
+          isEscaping ? IMMERSION.ESCAPE_ZOOM : null,
+          (this.spawnInPulse || 0) > 0.001 ? (this.spawnInPulse || 0) * IMMERSION.SPAWN_ZOOM : null
+        ].filter((value) => Number.isFinite(value));
+
+      // Camera zoom states do not stack. Most of the time, choose the strongest
+      // absolute offset so negative values work too. Hard survivor states like
+      // hooked/downed override chase/terror completely, otherwise chase can keep
+      // winning and a configured hookedZoom: -0.5 never gets to breathe. Rude.
+      const strongestZoom = zoomCandidates.length
+        ? zoomCandidates.reduce((best, value) => (Math.abs(value) > Math.abs(best) ? value : best), zoomCandidates[0])
+        : 0;
+
       const localStartRemaining = Math.max(0, (this.matchStartZoomUntil || 0) - performance.now()) / 1000;
       const startLockRemaining = Math.max(localStartRemaining, this.matchStartFreezeRemaining || 0);
       const startLockDuration = Math.max(0.001, this.matchStartFreezeDuration || IMMERSION.MATCH_START_LOCK_SECONDS || 1.5);
       const startLockT = clamp(startLockRemaining / startLockDuration, 0, 1);
-      // Negative zoom offset: start pulled way out, then smoothly land at normal zoom
-      // as the lock ends. Squared easing keeps the final half gentle.
       const startLockZoom = startLockT > 0 ? -IMMERSION.MATCH_START_ZOOM_OUT * startLockT * startLockT : 0;
-      const minIntroZoom = Math.max(0.34, IMMERSION.BASE_ZOOM - IMMERSION.MATCH_START_ZOOM_OUT - 0.06);
+
+      const positiveCeiling = Math.max(
+        0,
+        IMMERSION.TERROR_ZOOM,
+        IMMERSION.CHASE_ZOOM,
+        IMMERSION.KILLER_M1_HOLD_ZOOM,
+        IMMERSION.KILLER_M1_PULSE_ZOOM,
+        IMMERSION.DEPOSIT_ZOOM,
+        IMMERSION.RIFT_KICK_ZOOM,
+        IMMERSION.HEAL_ZOOM,
+        IMMERSION.UNHOOK_ZOOM,
+        IMMERSION.HOOKED_ZOOM,
+        IMMERSION.INJURED_ZOOM,
+        IMMERSION.DOWNED_ZOOM,
+        IMMERSION.ESCAPE_ZOOM,
+        IMMERSION.SPAWN_ZOOM
+      );
+      const negativeFloor = Math.min(
+        0,
+        IMMERSION.TERROR_ZOOM,
+        IMMERSION.CHASE_ZOOM,
+        IMMERSION.KILLER_M1_HOLD_ZOOM,
+        IMMERSION.KILLER_M1_PULSE_ZOOM,
+        IMMERSION.DEPOSIT_ZOOM,
+        IMMERSION.RIFT_KICK_ZOOM,
+        IMMERSION.HEAL_ZOOM,
+        IMMERSION.UNHOOK_ZOOM,
+        IMMERSION.HOOKED_ZOOM,
+        IMMERSION.INJURED_ZOOM,
+        IMMERSION.DOWNED_ZOOM,
+        IMMERSION.ESCAPE_ZOOM,
+        IMMERSION.SPAWN_ZOOM,
+        -IMMERSION.MATCH_START_ZOOM_OUT
+      );
+
+      const minZoom = Math.max(0.12, Math.min(IMMERSION.MIN_ZOOM, IMMERSION.BASE_ZOOM + negativeFloor - 0.04));
+      const maxZoom = Math.max(IMMERSION.BASE_ZOOM + 0.05, IMMERSION.BASE_ZOOM + positiveCeiling + 0.04);
       const targetZoom = clamp(
-        IMMERSION.BASE_ZOOM
-          + this.terrorBlend * IMMERSION.TERROR_ZOOM
-          + this.chaseBlend * IMMERSION.CHASE_ZOOM
-          + attackZoom
-          + depositZoom
-          + spawnZoom
-          + startLockZoom,
-        minIntroZoom,
-        IMMERSION.BASE_ZOOM
-          + IMMERSION.TERROR_ZOOM
-          + IMMERSION.CHASE_ZOOM
-          + IMMERSION.DEPOSIT_ZOOM
-          + IMMERSION.SPAWN_ZOOM
-          + IMMERSION.KILLER_M1_HOLD_ZOOM
-          + IMMERSION.KILLER_M1_PULSE_ZOOM
+        IMMERSION.BASE_ZOOM + strongestZoom + startLockZoom,
+        minZoom,
+        maxZoom
       );
       const zoomAlpha = dampAlpha(IMMERSION.ZOOM_SMOOTHING, dt);
       const nextZoom = lerp(cam.zoom || IMMERSION.BASE_ZOOM, targetZoom, zoomAlpha);
-      if (Math.abs((cam.zoom || IMMERSION.BASE_ZOOM) - nextZoom) > 0.0004) {
+      const zoomDelta = Math.abs((cam.zoom || IMMERSION.BASE_ZOOM) - nextZoom);
+      const zoomThreshold = cameraNumber("zoomUpdateThreshold", "lowPowerZoomUpdateThreshold", LOW_POWER_MODE ? 0.0065 : 0.0035);
+      if (zoomDelta > zoomThreshold) {
         cam.setZoom(nextZoom);
+      } else if (zoomDelta > 0.0001 && Math.abs((cam.zoom || IMMERSION.BASE_ZOOM) - targetZoom) < zoomThreshold * 1.35) {
+        cam.setZoom(targetZoom);
       }
 
-      const moveX = (input.right ? 1 : 0) - (input.left ? 1 : 0);
-      const moveY = (input.down ? 1 : 0) - (input.up ? 1 : 0);
-      const moveLen = Math.hypot(moveX, moveY);
-
-      if (moveLen > 0.001) {
-        const nx = moveX / moveLen;
-        const ny = moveY / moveLen;
-        const prevLen = Math.hypot(this.lastMoveDirX || 0, this.lastMoveDirY || 0);
-        const directionDelta = prevLen > 0.001
-          ? Math.hypot(nx - this.lastMoveDirX, ny - this.lastMoveDirY)
-          : 0;
-
-        // Direction changes create a small target offset, not an instant camera jump.
-        // The actual camera eases toward this target below, then the target fades out.
-        if (prevLen > 0.001 && directionDelta >= IMMERSION.DIRECTION_CHANGE_THRESHOLD) {
-          this.cameraSwayTargetX = nx * IMMERSION.DIRECTION_SWAY_IMPULSE;
-          this.cameraSwayTargetY = ny * IMMERSION.DIRECTION_SWAY_IMPULSE;
-          const targetLen = Math.hypot(this.cameraSwayTargetX, this.cameraSwayTargetY);
-          if (targetLen > IMMERSION.DIRECTION_SWAY_MAX) {
-            const scale = IMMERSION.DIRECTION_SWAY_MAX / targetLen;
-            this.cameraSwayTargetX *= scale;
-            this.cameraSwayTargetY *= scale;
+      // DBD-like soft camera pressure. No constant sprint bob, just subtle lean
+      // when movement direction changes and a bit of chase breathing.
+      const now = performance.now();
+      const moveInput = input?.move || { x: 0, y: 0 };
+      const moveX = Number.isFinite(moveInput.x) ? moveInput.x : 0;
+      const moveY = Number.isFinite(moveInput.y) ? moveInput.y : 0;
+      const moving = Math.hypot(moveX, moveY) > 0.2;
+      const moveAngle = moving ? Math.atan2(moveY, moveX) : this.lastMoveAngle;
+      if (moving && Number.isFinite(moveAngle)) {
+        if (Number.isFinite(this.lastMoveAngle)) {
+          const diff = angleDiff(moveAngle, this.lastMoveAngle);
+          if (diff > IMMERSION.DIRECTION_CHANGE_THRESHOLD) {
+            const impulse = IMMERSION.DIRECTION_SWAY_IMPULSE * clamp(diff / Math.PI, 0, 1);
+            this.cameraSwayTargetX += Math.cos(moveAngle) * impulse;
+            this.cameraSwayTargetY += Math.sin(moveAngle) * impulse;
+            const mag = Math.hypot(this.cameraSwayTargetX || 0, this.cameraSwayTargetY || 0);
+            if (mag > IMMERSION.DIRECTION_SWAY_MAX) {
+              this.cameraSwayTargetX = (this.cameraSwayTargetX / mag) * IMMERSION.DIRECTION_SWAY_MAX;
+              this.cameraSwayTargetY = (this.cameraSwayTargetY / mag) * IMMERSION.DIRECTION_SWAY_MAX;
+            }
           }
         }
-
-        this.lastMoveDirX = nx;
-        this.lastMoveDirY = ny;
-      } else {
-        this.lastMoveDirX = 0;
-        this.lastMoveDirY = 0;
-        this.cameraSwayTargetX = 0;
-        this.cameraSwayTargetY = 0;
+        this.lastMoveAngle = moveAngle;
       }
 
-      const targetDecay = dampAlpha(IMMERSION.DIRECTION_SWAY_TARGET_DECAY, dt);
-      this.cameraSwayTargetX = lerp(this.cameraSwayTargetX || 0, 0, targetDecay);
-      this.cameraSwayTargetY = lerp(this.cameraSwayTargetY || 0, 0, targetDecay);
-
-      const smoothRate = moveLen > 0.001
-        ? IMMERSION.DIRECTION_SWAY_SMOOTHING
-        : IMMERSION.DIRECTION_SWAY_IDLE_SMOOTHING;
-      const smooth = dampAlpha(smoothRate, dt);
+      const breath = Math.sin(now * 0.0042) * (IMMERSION.BREATH_SWAY * this.terrorBlend + IMMERSION.CHASE_SWAY * this.chaseBlend);
+      const desiredX = Math.cos((localData?.angle ?? item.container.rotation) || 0) * breath;
+      const desiredY = Math.sin((localData?.angle ?? item.container.rotation) || 0) * breath;
+      const dtClamped = clamp(dt || 0, 0, 0.05);
+      const targetDecay = 1 - Math.exp(-IMMERSION.DIRECTION_SWAY_TARGET_DECAY * dtClamped);
+      this.cameraSwayTargetX = lerp(this.cameraSwayTargetX || 0, desiredX, targetDecay);
+      this.cameraSwayTargetY = lerp(this.cameraSwayTargetY || 0, desiredY, targetDecay);
+      const swayRate = moving ? IMMERSION.DIRECTION_SWAY_SMOOTHING : IMMERSION.DIRECTION_SWAY_IDLE_SMOOTHING;
+      const smooth = 1 - Math.exp(-swayRate * dtClamped);
       this.cameraSwayX = lerp(this.cameraSwayX || 0, this.cameraSwayTargetX || 0, smooth);
       this.cameraSwayY = lerp(this.cameraSwayY || 0, this.cameraSwayTargetY || 0, smooth);
 
-      // Keep the local player centered even at map corners. Phaser's black
-      // background fills outside the map. Small direction-change sway is visual only.
       cam.centerOn(x + this.cameraSwayX, y + this.cameraSwayY);
     }
 
@@ -4054,90 +4182,106 @@
       this.scratchRedrawTimer = 0;
     }
 
+    drawVisionConeGraphic(g, x, y, facing, length, angle, color, alpha, segments = 10) {
+      if (!g || alpha <= 0 || length <= 0 || angle <= 0) return;
+      const half = angle / 2;
+      g.fillStyle(color, alpha);
+      g.beginPath();
+      g.moveTo(x, y);
+      for (let i = 0; i <= segments; i += 1) {
+        const t = i / segments;
+        const a = facing - half + angle * t;
+        // Slightly rounded cone end so it reads like light, not a debug triangle.
+        const edgeEase = 0.94 + Math.sin(t * Math.PI) * 0.06;
+        g.lineTo(x + Math.cos(a) * length * edgeEase, y + Math.sin(a) * length * edgeEase);
+      }
+      g.closePath();
+      g.fillPath();
+    }
+
     drawLighting(dt = 0) {
-      this.lightingRedrawTimer = (this.lightingRedrawTimer || 0) + dt;
-      const lightingInterval = 1 / PERFORMANCE.LIGHTING_FPS;
-      if (this.fogRT && this.lightingRedrawTimer < lightingInterval) return;
-      this.lightingRedrawTimer = 0;
+      const g = this.flashlightGlowGraphics;
+      if (!g) return;
+      g.clear();
 
       const me = this.getCameraSubjectItem();
-      const cam = this.cameras.main;
-      const pad = LIGHTING.FOG_VIEW_PADDING;
-      const viewW = Math.ceil((cam.width || this.scale.width || window.innerWidth) + pad * 2);
-      const viewH = Math.ceil((cam.height || this.scale.height || window.innerHeight) + pad * 2);
-
-      if (!this.fogRT || this.lastFogWidth !== viewW || this.lastFogHeight !== viewH) {
-        this.rebuildFogTexture();
-        if (!this.fogRT) return;
+      if (!me?.container) {
+        this.visionConeVisual = null;
+        return;
       }
-
-      // Anchor the fog layer in world space around the current camera viewport.
-      // Do not multiply by camera zoom here. Phaser applies the camera transform to
-      // the RenderTexture, so local fog coordinates stay in the same world units as
-      // actors, walls, windows, and pallets.
-      const zoom = Math.max(0.001, cam.zoom || 1);
-      const visibleW = (cam.width || this.scale.width || window.innerWidth) / zoom;
-      const visibleH = (cam.height || this.scale.height || window.innerHeight) / zoom;
-      const viewX = cam.scrollX;
-      const viewY = cam.scrollY;
-      const fogX = viewX - pad;
-      const fogY = viewY - pad;
-      this.fogRT.setPosition(fogX, fogY);
-      this.fogRT.clear();
-      this.fogRT.fill(0x000000, LIGHTING.MAP_DARKNESS);
-      this.flashlightGlowGraphics?.clear();
-      this.flashlightBloomImage?.setVisible(false);
-
-      if (!me || !this.lightConeMask || !this.lightAuraMask) return;
 
       const role = me.data?.role || "survivor";
       const length = role === "killer" ? LIGHTING.KILLER_LENGTH : LIGHTING.SURVIVOR_LENGTH;
       const angle = role === "killer" ? LIGHTING.KILLER_ANGLE : LIGHTING.SURVIVOR_ANGLE;
-      const worldX = me.container.x;
-      const worldY = me.container.y;
-      const facing = me.container.rotation || 0;
-      const localX = worldX - fogX;
-      const localY = worldY - fogY;
+      const targetX = me.container.x;
+      const targetY = me.container.y;
+      const targetFacing = me.container.rotation || 0;
+      const nearRadius = role === "killer" ? WALL_VISION.KILLER_NEAR_RADIUS : WALL_VISION.SURVIVOR_NEAR_RADIUS;
 
-      // If the player has somehow left the fog window, skip erasing this frame instead
-      // of drawing at a bad coordinate. The window is padded, so this should only happen
-      // during resize/camera edge cases.
-      if (localX < -64 || localY < -64 || localX > viewW + 64 || localY > viewH + 64) return;
+      const flicker = 1 - LIGHTING.FLICKER_STRENGTH * 0.22
+        + Math.sin(this.lightFlickerPhase) * LIGHTING.FLICKER_STRENGTH * 0.16
+        + Math.sin(this.lightFlickerPhase * 2.37) * LIGHTING.FLICKER_STRENGTH * 0.06;
 
-      const flicker = 1 - LIGHTING.FLICKER_STRENGTH * 0.5
-        + Math.sin(this.lightFlickerPhase) * LIGHTING.FLICKER_STRENGTH * 0.35
-        + Math.sin(this.lightFlickerPhase * 2.37) * LIGHTING.FLICKER_STRENGTH * 0.15;
-      const xScale = (length * flicker) / LIGHTING.CONE_TEXTURE_WIDTH;
-      const angleScale = Math.tan(angle / 2) / Math.tan(LIGHTING.CONE_BASE_HALF_ANGLE);
-
-      this.lightAuraMask
-        .setPosition(localX, localY)
-        .setRotation(0)
-        .setScale((LIGHTING.AURA_RADIUS * 2 * (0.96 + flicker * 0.04)) / 512)
-        .setAlpha(LIGHTING.AURA_ALPHA);
-
-      this.lightConeMask
-        .setPosition(localX, localY)
-        .setRotation(facing)
-        .setScale(xScale, xScale * angleScale)
-        .setAlpha(clamp(0.98 + flicker * 0.06, 0.92, 1));
-
-      // Visible flashlight bloom. Use one pre-baked soft sprite instead of several hard-edged
-      // Graphics triangles. One additive sprite is cheaper and blends far better.
-      if (this.flashlightBloomImage) {
-        const bloomLength = length * 0.86 * flicker;
-        const bloomYScale = (Math.tan(angle / 2) / Math.tan(LIGHTING.CONE_BASE_HALF_ANGLE)) * 1.06;
-        this.flashlightBloomImage
-          .setVisible(true)
-          .setPosition(worldX, worldY)
-          .setRotation(facing)
-          .setScale(bloomLength / LIGHTING.CONE_TEXTURE_WIDTH, (bloomLength / LIGHTING.CONE_TEXTURE_WIDTH) * bloomYScale)
-          .setAlpha(role === "killer" ? 0.55 : 0.86);
+      const targetLength = length * flicker;
+      const smooth = dampAlpha(LIGHTING.CONE_VISUAL_SMOOTHING, dt || 1 / 60);
+      if (!this.visionConeVisual) {
+        this.visionConeVisual = {
+          x: targetX,
+          y: targetY,
+          facing: targetFacing,
+          length: targetLength,
+          angle
+        };
+      } else {
+        // Anchor the cone to the actor every frame. Only smooth the direction/size.
+        // Smoothing x/y made the light look like it inherited camera/WASD drift.
+        this.visionConeVisual.x = targetX;
+        this.visionConeVisual.y = targetY;
+        this.visionConeVisual.facing = lerpAngle(this.visionConeVisual.facing, targetFacing, smooth);
+        this.visionConeVisual.length = lerp(this.visionConeVisual.length, targetLength, smooth);
+        this.visionConeVisual.angle = lerp(this.visionConeVisual.angle, angle, smooth);
       }
-      this.fogRT.erase(this.lightAuraMask);
-      this.fogRT.erase(this.lightConeMask);
-    }
 
+      const vx = targetX;
+      const vy = targetY;
+      const vfacing = this.visionConeVisual.facing;
+      const vlength = this.visionConeVisual.length;
+      const vangle = this.visionConeVisual.angle;
+
+      const lightColor = role === "killer" ? 0x9f5cff : 0xa7dcff;
+      const coreColor = role === "killer" ? 0x5b21b6 : 0x38bdf8;
+      const coneAlpha = role === "killer" ? (LOW_POWER_MODE ? 0.040 : 0.060) : (LOW_POWER_MODE ? 0.048 : 0.074);
+      const nearAlpha = role === "killer" ? 0.040 : 0.052;
+
+      // Near bubble keeps close corners readable. It is intentionally faint so it does not read as a second cone.
+      g.fillStyle(coreColor, nearAlpha);
+      g.fillCircle(vx, vy, nearRadius * 0.92);
+      g.fillStyle(lightColor, nearAlpha * 0.32);
+      g.fillCircle(vx, vy, nearRadius * 0.46);
+
+      // One accurate cone. It uses the same length/angle as survivor visibility.
+      // The tiny low-alpha feather pass softens the edge without using an actual blur filter.
+      const segments = LOW_POWER_MODE ? 16 : 24;
+      this.drawVisionConeGraphic(
+        g,
+        vx,
+        vy,
+        vfacing,
+        vlength * 1.012,
+        vangle + LIGHTING.CONE_FEATHER_ANGLE,
+        lightColor,
+        coneAlpha * LIGHTING.CONE_FEATHER_ALPHA,
+        segments
+      );
+      this.drawVisionConeGraphic(g, vx, vy, vfacing, vlength, vangle, lightColor, coneAlpha, segments);
+
+      // Small direction core, shorter than the cone, so aim remains readable without drawing a whole second beam.
+      g.lineStyle(2, lightColor, role === "killer" ? 0.12 : 0.17);
+      g.beginPath();
+      g.moveTo(vx, vy);
+      g.lineTo(vx + Math.cos(vfacing) * Math.min(vlength, 120), vy + Math.sin(vfacing) * Math.min(vlength, 120));
+      g.strokePath();
+    }
 
     drawHookIndicators() {
       const g = this.hookIndicatorGraphics;
