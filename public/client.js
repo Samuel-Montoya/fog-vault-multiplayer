@@ -293,6 +293,14 @@
     MIN_VISIBLE_ALPHA: 0.018
   };
 
+  const ACTOR_VISION = {
+    POINT_RADIUS: 18,
+    FADE_IN_PER_SECOND: LOW_POWER_MODE ? 7.5 : 11,
+    FADE_OUT_PER_SECOND: LOW_POWER_MODE ? 3.4 : 4.6,
+    MIN_VISIBLE_ALPHA: 0.02,
+    NAME_CHAT_ALPHA: 0.14
+  };
+
   // Visual generator tuning. Put your actual SVG at public/gen.svg.
   // The fallback canvas texture below keeps the game from collapsing if the file is missing,
   // because browsers are apparently dramatic about absent art assets.
