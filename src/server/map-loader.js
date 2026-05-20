@@ -21,6 +21,31 @@ function activeMapDefinition() {
   return GAME_MAPS[GAME_MAPS.active] || GAME_MAPS.bloodyard || Object.values(GAME_MAPS).find((m) => m && m.rows);
 }
 
+function resolveRequiredGenerators(mapDef, generatorCount) {
+  if (generatorCount <= 0) return 0;
+
+  const raw = mapDef?.requiredGenerators
+    ?? mapDef?.requiredRifts
+    ?? mapDef?.requiredGens
+    ?? mapDef?.required;
+
+  if (typeof raw === "string") {
+    const value = raw.trim().toLowerCase();
+    if (value === "all") return generatorCount;
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return Math.min(generatorCount, Math.max(1, Math.floor(parsed)));
+    }
+  }
+
+  if (Number.isFinite(raw)) {
+    return Math.min(generatorCount, Math.max(1, Math.floor(raw)));
+  }
+
+  const fallback = CONFIG.objective?.requiredGenerators ?? 5;
+  return Math.min(generatorCount, Math.max(1, Math.floor(fallback)));
+}
+
 function parseMap(mapDef = activeMapDefinition()) {
   const rows = normalizeRows(mapDef.rows);
   const tile = mapDef.tile || CONFIG.map.defaultTile;
@@ -71,12 +96,14 @@ function parseMap(mapDef = activeMapDefinition()) {
   }
   if (!map.survivorSpawns.length) map.survivorSpawns.push({ x: tile * 2, y: tile * 2 });
   if (!map.killerSpawns.length) map.killerSpawns.push({ x: map.width - tile * 3, y: map.height - tile * 3 });
+  map.requiredGenerators = resolveRequiredGenerators(mapDef, map.generators.length);
   return map;
 }
 
-function publicMapState(map, actors = []) {
+function publicMapState(map, actors = [], options = {}) {
   const actorList = Array.from(actors || []);
   const channelActors = actorList.filter((actor) => actor.channel);
+  const hideGenerators = !!options.hideGenerators;
   return {
     id: map.id,
     name: map.name,
@@ -85,10 +112,13 @@ function publicMapState(map, actors = []) {
     rows: map.rows,
     width: map.width,
     height: map.height,
+    requiredGenerators: map.requiredGenerators,
+    totalGenerators: map.generators.length,
+    riftsHidden: hideGenerators,
     walls: map.walls,
     windows: map.windows,
     pallets: map.pallets.map((p) => ({ id: p.id, x: p.x, y: p.y, w: p.w, h: p.h, orientation: p.orientation, state: p.state, broken: p.broken })),
-    generators: map.generators.map((g) => {
+    generators: hideGenerators ? [] : map.generators.map((g) => {
       const repairers = channelActors.filter((actor) => actor.channel.type === "repair" && actor.channel.targetId === g.id);
       const kicker = channelActors.find((actor) => actor.channel.type === "kickGen" && actor.channel.targetId === g.id);
       return {

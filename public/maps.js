@@ -6,11 +6,16 @@
 // + = vault window, placed inside wall runs like XXX+XXX or X above/below
 // - = horizontal pallet, best used between walls like XX-XX
 // | = vertical pallet, best used between walls above/below it
-// G = generator
+// G = rift/generator
 // P = survivor spawn
 // K = killer spawn
 // E = exit gate
 // . = floor
+//
+// Per-map objective:
+//   requiredGenerators: 5      -> Survivors must complete 5 rifts on this map.
+//   requiredGenerators: "all"  -> Survivors must complete every G on this map.
+// The server clamps this to the number of G tiles, because apparently maps can lie too.
 
 const GAME_MAPS = {
   active: "bloodyard",

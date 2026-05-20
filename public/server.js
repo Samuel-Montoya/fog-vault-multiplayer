@@ -129,9 +129,8 @@ const KILLER_VAULT_TIME = cfgNumber(GAMEPLAY_CONFIG.void?.vaultTime, 1.05);
 const KILLER_BREAK_TIME = cfgNumber(GAMEPLAY_CONFIG.void?.breakTime, 1.25);
 // Adjustable generator speed: raise this number to make generators slower.
 const GENERATOR_REPAIR_TIME = cfgNumber(GAMEPLAY_CONFIG.rift?.repairTime, 28.0);
-// Max completed generators required to power the gates / finish the objective.
-// Add 8, 12, or 40 gens to the map if you want. The match still only asks for this many.
-const REQUIRED_GENERATORS_TO_COMPLETE = cfgNumber(GAMEPLAY_CONFIG.match?.requiredRiftsToComplete, 5);
+// Fallback only. The real match requirement should live on each map in maps.js.
+const DEFAULT_REQUIRED_GENERATORS_TO_COMPLETE = cfgNumber(GAMEPLAY_CONFIG.match?.requiredRiftsToComplete, 5);
 const GENERATOR_COLLISION_SIZE = cfgNumber(GAMEPLAY_CONFIG.rift?.collisionSize, 54);
 // Killer generator kick: hold E near a partially repaired gen to regress it.
 const GENERATOR_KICK_TIME = cfgNumber(GAMEPLAY_CONFIG.rift?.kickTime, 1.0);
@@ -335,6 +334,30 @@ function orientationForWindow(rows, cx, cy) {
   return left || right ? "horizontal" : "vertical";
 }
 
+function resolveRequiredGenerators(mapDef, generatorCount, fallback = DEFAULT_REQUIRED_GENERATORS_TO_COMPLETE) {
+  if (generatorCount <= 0) return 0;
+
+  const raw = mapDef?.requiredGenerators
+    ?? mapDef?.requiredRifts
+    ?? mapDef?.requiredGens
+    ?? mapDef?.required;
+
+  if (typeof raw === "string") {
+    const value = raw.trim().toLowerCase();
+    if (value === "all") return generatorCount;
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) {
+      return clamp(Math.floor(parsed), 1, generatorCount);
+    }
+  }
+
+  if (Number.isFinite(raw)) {
+    return clamp(Math.floor(raw), 1, generatorCount);
+  }
+
+  return clamp(Math.floor(fallback), 1, generatorCount);
+}
+
 function parseMap(mapDef) {
   const rows = normalizeRows(mapDef.rows);
   const tile = mapDef.tile || 72;
@@ -387,6 +410,7 @@ function parseMap(mapDef) {
 
   if (!map.survivorSpawns.length) map.survivorSpawns.push({ x: tile * 2, y: tile * 2 });
   if (!map.killerSpawns.length) map.killerSpawns.push({ x: map.width - tile * 3, y: map.height - tile * 3 });
+  map.requiredGenerators = resolveRequiredGenerators(mapDef, map.generators.length);
   return map;
 }
 
@@ -403,7 +427,25 @@ function solidRects(game) {
   return solids;
 }
 
+function completedRiftCount(game) {
+  return game?.map?.generators?.filter((g) => g.done).length || 0;
+}
+
+function areRiftsComplete(game) {
+  const generators = game?.map?.generators || [];
+  if (!generators.length) return false;
+  const required = Number(game?.requiredGenerators ?? game?.map?.requiredGenerators ?? generators.length);
+  if (!Number.isFinite(required) || required <= 0) return false;
+  return completedRiftCount(game) >= required;
+}
+
+function visibleGeneratorsForSnapshot(game) {
+  if (areRiftsComplete(game)) return [];
+  return game?.map?.generators || [];
+}
+
 function generatorCollisionRects(game) {
+  if (areRiftsComplete(game)) return [];
   const size = GENERATOR_COLLISION_SIZE;
   return game.map.generators.map((g) => ({
     id: g.id,
@@ -769,7 +811,7 @@ function startGame(lobby) {
     snapshotSeq: 0,
     pathCache: new Map(),
     pathCacheEpoch: 0,
-    requiredGenerators: Math.min(REQUIRED_GENERATORS_TO_COMPLETE, map.generators.length),
+    requiredGenerators: map.requiredGenerators,
     escapeOpen: false,
     time: 0,
     botThinkAccumulator: 0,
@@ -818,6 +860,8 @@ function serializeMapForClient(map) {
     width: map.width,
     height: map.height,
     rows: map.rawRows,
+    requiredGenerators: map.requiredGenerators,
+    totalGenerators: map.generators.length,
     walls: map.walls.map(stripRect),
     windows: map.windows.map((w) => ({ ...stripRect(w), orientation: w.orientation })),
     pallets: map.pallets.map((p) => ({ ...stripRect(p), orientation: p.orientation, state: p.state, broken: p.broken })),
@@ -1577,6 +1621,7 @@ function updateCollectibleDots(game, dt) {
 }
 
 function nearestDotDepositGenerator(game, actor) {
+  if (areRiftsComplete(game)) return null;
   if (!actor || actor.role !== "survivor" || (actor.dots || 0) <= 0) return null;
   if (actor.dead || actor.escaped || actor.downed || actor.hooked || actor.vault || actor.actionLock > 0) return null;
   if (actor.healingTargetId || actor.unhookTargetId || (actor.activeHealers && actor.activeHealers.length > 0)) return null;
@@ -1683,7 +1728,16 @@ function updateDotDeposits(game, dt) {
         gen.repairing = false;
         gen.dotDepositing = false;
         gen.activeRepairers = [];
-        addEvent(game, "genDone", { x: gen.x, y: gen.y });
+        const completedRifts = game.map.generators.filter((g) => g.done).length;
+        const allRiftsDone = completedRifts >= game.requiredGenerators;
+        addEvent(game, "genDone", {
+          x: gen.x,
+          y: gen.y,
+          generatorId: gen.id,
+          completedRifts,
+          requiredRifts: game.requiredGenerators,
+          allRiftsDone
+        });
         break;
       }
     }
@@ -1968,6 +2022,7 @@ function updateHealing(game, dt) {
 
 
 function nearestKickableGenerator(game, killer) {
+  if (areRiftsComplete(game)) return null;
   if (!killer || killer.role !== "killer" || killer.dead || killer.escaped) return null;
   let best = null;
   let bestD2 = Infinity;
@@ -2043,6 +2098,7 @@ function updateGeneratorKicks(game, dt) {
 }
 
 function nearestRepairableGenerator(game, actor) {
+  if (areRiftsComplete(game)) return null;
   let gen = null;
   let bestD2 = INTERACT_DISTANCE * INTERACT_DISTANCE;
   for (const candidate of game.map.generators) {
@@ -2068,8 +2124,17 @@ function updateGeneratorsAndGates(game, dt) {
     else gen.activeRepairers = [];
   }
 
-  const doneCount = game.map.generators.filter((g) => g.done).length;
-  const riftsDone = game.map.generators.length > 0 && doneCount >= game.requiredGenerators;
+  const doneCount = completedRiftCount(game);
+  const riftsDone = areRiftsComplete(game);
+  if (riftsDone) {
+    for (const gen of game.map.generators) {
+      gen.repairing = false;
+      gen.dotDepositing = false;
+      gen.beingKicked = false;
+      gen.kickProgress = 0;
+      if (Array.isArray(gen.activeRepairers)) gen.activeRepairers.length = 0;
+    }
+  }
   if (riftsDone && !game.escapeOpen) {
     game.escapeOpen = true;
     for (const gate of game.map.gates) {
@@ -3169,6 +3234,7 @@ function buildSnapshotFor(lobby, socketId) {
 
   const doneGenerators = map.generators.reduce((count, g) => count + (g.done ? 1 : 0), 0);
   const requiredGenerators = game.requiredGenerators;
+  const riftsComplete = areRiftsComplete(game);
 
   return {
     lobbyId: lobby.id,
@@ -3179,7 +3245,8 @@ function buildSnapshotFor(lobby, socketId) {
       height: map.height,
       tile: map.tile,
       pallets: map.pallets.map((p) => ({ id: p.id, x: p.x, y: p.y, w: p.w, h: p.h, orientation: p.orientation, state: p.state, broken: p.broken })),
-      generators: map.generators.map((g) => serializeGeneratorForViewer(game, pov, g)),
+      generators: visibleGeneratorsForSnapshot(game).map((g) => serializeGeneratorForViewer(game, pov, g)),
+      riftsHidden: riftsComplete,
       gates: map.gates.map((g) => ({
         id: g.id,
         x: g.x,
@@ -3203,6 +3270,7 @@ function buildSnapshotFor(lobby, socketId) {
       requiredGenerators,
       totalGenerators: map.generators.length,
       remainingGenerators: Math.max(0, requiredGenerators - doneGenerators),
+      riftsHidden: riftsComplete,
       escapeOpen: game.escapeOpen
     },
     collectibleDots: visibleCollectibleDotsForViewer(game, pov).map((d) => ({ id: d.id, x: Math.round(d.x), y: Math.round(d.y) })),

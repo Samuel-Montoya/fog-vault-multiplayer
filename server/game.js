@@ -109,7 +109,7 @@ class Game {
     this.startedAt = 0;
     this.winner = null;
     this.message = "Waiting for players";
-    this.requiredGenerators = CONFIG.objective.requiredGenerators;
+    this.requiredGenerators = this.map.requiredGenerators;
     this.nextBotNumber = 1;
     this.snapshotSeq = 0;
     this.compactMapSnapshotCache = null;
@@ -117,6 +117,7 @@ class Game {
 
   resetRound() {
     this.map = parseMap();
+    this.requiredGenerators = this.map.requiredGenerators;
     this.scratchMarks = [];
     this.snapshotSeq = 0;
     this.compactMapSnapshotCache = null;
@@ -300,6 +301,7 @@ class Game {
   }
 
   generatorCollisionRects() {
+    if (this.riftsComplete()) return [];
     const size = CONFIG.objective.generatorCollisionSize;
     return this.map.generators.map((g) => ({ id: g.id, x: g.x - size / 2, y: g.y - size / 2, w: size, h: size }));
   }
@@ -628,12 +630,14 @@ class Game {
   }
 
   nearestGenerator(actor) {
+    if (this.riftsComplete()) return null;
     return this.map.generators
       .filter((g) => !g.done && dist(actor.x, actor.y, g.x, g.y) <= CONFIG.actor.interactDistance)
       .sort((a, b) => dist(actor.x, actor.y, a.x, a.y) - dist(actor.x, actor.y, b.x, b.y))[0] || null;
   }
 
   nearestGeneratorForKick(actor) {
+    if (this.riftsComplete()) return null;
     return this.map.generators
       .filter((g) => !g.done && (g.progress || 0) > 0 && dist(actor.x, actor.y, g.x, g.y) <= CONFIG.actor.interactDistance)
       .sort((a, b) => dist(actor.x, actor.y, a.x, a.y) - dist(actor.x, actor.y, b.x, b.y))[0] || null;
@@ -667,8 +671,12 @@ class Game {
     return this.map.generators.filter((g) => g.done).length;
   }
 
+  riftsComplete() {
+    return this.map.generators.length > 0 && this.completedGenerators() >= this.requiredGenerators;
+  }
+
   gatesPowered() {
-    return this.completedGenerators() >= this.requiredGenerators;
+    return this.riftsComplete();
   }
 
   maybeCreateScratchMark(actor, dt) {
@@ -850,16 +858,18 @@ class Game {
   }
 
   compactMapSnapshotForClients() {
-    if (!PERF.enableSnapshotCache) return compactMapStateForSnapshot(publicMapState(this.map, this.actors.values()));
+    const hideGenerators = this.riftsComplete();
+    if (!PERF.enableSnapshotCache) return compactMapStateForSnapshot(publicMapState(this.map, this.actors.values(), { hideGenerators }));
 
+    const hiddenKey = hideGenerators ? "rifts-hidden" : "rifts-visible";
     const genKey = this.map.generators.map((g) => `${g.id}:${quantizedProgress(g.progress)}:${g.done ? 1 : 0}:${g.repairing ? 1 : 0}:${quantizedProgress(g.kickProgress || 0)}`).join("|");
     const palletKey = this.map.pallets.map((p) => `${p.id}:${p.state}:${p.broken ? 1 : 0}`).join("|");
     const gateKey = this.map.gates.map((g) => `${g.id}:${g.open ? 1 : 0}`).join("|");
     const hookKey = (this.map.hooks || []).map((h) => `${h.id}:${h.active ? 1 : 0}:${h.survivorId || ""}`).join("|");
-    const key = `${genKey}#${palletKey}#${gateKey}#${hookKey}`;
+    const key = `${hiddenKey}#${genKey}#${palletKey}#${gateKey}#${hookKey}`;
 
     if (this.compactMapSnapshotCache?.key === key) return this.compactMapSnapshotCache.value;
-    const value = compactMapStateForSnapshot(publicMapState(this.map, this.actors.values()));
+    const value = compactMapStateForSnapshot(publicMapState(this.map, this.actors.values(), { hideGenerators }));
     this.compactMapSnapshotCache = { key, value };
     return value;
   }

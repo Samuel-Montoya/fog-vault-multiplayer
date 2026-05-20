@@ -75,12 +75,13 @@ class Game {
     this.startedAt = 0;
     this.winner = null;
     this.message = "Waiting for players";
-    this.requiredGenerators = CONFIG.objective.requiredGenerators;
+    this.requiredGenerators = this.map.requiredGenerators;
     this.nextBotNumber = 1;
   }
 
   resetRound() {
     this.map = parseMap();
+    this.requiredGenerators = this.map.requiredGenerators;
     this.scratchMarks = [];
     this.startedAt = Date.now();
     this.winner = null;
@@ -261,6 +262,7 @@ class Game {
   }
 
   generatorCollisionRects() {
+    if (this.riftsComplete()) return [];
     const size = CONFIG.objective.generatorCollisionSize;
     return this.map.generators.map((g) => ({ id: g.id, x: g.x - size / 2, y: g.y - size / 2, w: size, h: size }));
   }
@@ -579,12 +581,14 @@ class Game {
   }
 
   nearestGenerator(actor) {
+    if (this.riftsComplete()) return null;
     return this.map.generators
       .filter((g) => !g.done && dist(actor.x, actor.y, g.x, g.y) <= CONFIG.actor.interactDistance)
       .sort((a, b) => dist(actor.x, actor.y, a.x, a.y) - dist(actor.x, actor.y, b.x, b.y))[0] || null;
   }
 
   nearestGeneratorForKick(actor) {
+    if (this.riftsComplete()) return null;
     return this.map.generators
       .filter((g) => !g.done && (g.progress || 0) > 0 && dist(actor.x, actor.y, g.x, g.y) <= CONFIG.actor.interactDistance)
       .sort((a, b) => dist(actor.x, actor.y, a.x, a.y) - dist(actor.x, actor.y, b.x, b.y))[0] || null;
@@ -618,8 +622,12 @@ class Game {
     return this.map.generators.filter((g) => g.done).length;
   }
 
+  riftsComplete() {
+    return this.map.generators.length > 0 && this.completedGenerators() >= this.requiredGenerators;
+  }
+
   gatesPowered() {
-    return this.completedGenerators() >= this.requiredGenerators;
+    return this.riftsComplete();
   }
 
   maybeCreateScratchMark(actor, dt) {
@@ -797,7 +805,7 @@ class Game {
       winner: this.winner,
       message: this.message,
       selfId: viewer.id,
-      map: publicMapState(this.map, this.actors.values()),
+      map: publicMapState(this.map, this.actors.values(), { hideGenerators: this.riftsComplete() }),
       objective: {
         completed: this.completedGenerators(),
         required: this.requiredGenerators,

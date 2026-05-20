@@ -2217,6 +2217,21 @@
       g.fillRoundedRect(win.x + 11, win.y + 11, win.w - 22, win.h - 22, 5);
     }
 
+    riftsAreComplete(snapshot = currentSnapshot) {
+      const objective = snapshot?.objective;
+      if (snapshot?.map?.riftsHidden) return true;
+      if (!objective) return false;
+      if (objective.riftsHidden) return true;
+      const required = Number(objective.requiredGenerators ?? objective.required ?? 0);
+      const completed = Number(objective.doneGenerators ?? objective.completed ?? 0);
+      return required > 0 && completed >= required;
+    }
+
+    visibleGenerators(snapshot = currentSnapshot) {
+      if (this.riftsAreComplete(snapshot)) return [];
+      return snapshot?.map?.generators || this.map?.generators || [];
+    }
+
     drawDynamicWorld() {
       if (!this.map || !currentSnapshot) return;
       const g = this.dynamicGraphics;
@@ -2228,7 +2243,7 @@
 
       // Generator sprites/bars live on their own layer now. Redrawing every gate,
       // hook, and dot because a progress bar moved was the lag monster wearing a nametag.
-      this.syncGeneratorSprites(currentSnapshot.map?.generators || this.map.generators || []);
+      this.syncGeneratorSprites(this.visibleGenerators());
       for (const gate of currentSnapshot.map?.gates || this.map.gates || []) this.drawGate(g, gate);
       for (const hook of currentSnapshot.map?.hooks || this.map.hooks || []) this.drawHook(g, hook);
       this.drawCollectibleDots(g);
@@ -2326,7 +2341,7 @@
 
     updateGeneratorVisionVisuals(dt) {
       if (!this.generatorVisionVisual) this.generatorVisionVisual = new Map();
-      const generators = currentSnapshot?.map?.generators || this.map?.generators || [];
+      const generators = this.visibleGenerators();
       const seen = new Set();
       const subject = this.getCameraSubjectItem();
       const hasSubject = !!subject?.container;
@@ -2376,10 +2391,11 @@
 
     drawGeneratorLayer() {
       if (!this.map || !currentSnapshot || !this.generatorGraphics) return;
-      const generators = currentSnapshot.map?.generators || this.map.generators || [];
+      const generators = this.visibleGenerators();
       this.syncGeneratorSprites(generators);
       const g = this.generatorGraphics;
       g.clear();
+      if (!generators.length) return;
       for (const gen of generators) {
         const alpha = this.generatorVisionVisual?.get(gen.id)?.alpha ?? 1;
         this.drawGenerator(g, gen, alpha);
@@ -2718,9 +2734,13 @@
 
       const now = performance.now();
       const objective = snapshot.objective || {};
+      const done = objective.doneGenerators ?? objective.completed ?? 0;
+      const required = objective.requiredGenerators ?? objective.required ?? objective.totalGenerators ?? objective.total ?? 0;
+      const total = objective.totalGenerators ?? objective.total ?? required;
+      const escapeOpen = objective.escapeOpen ?? objective.gatesPowered ?? false;
       const hudKey = JSON.stringify({
         self: [me.id, me.role, me.health, me.dots, me.injured, me.downed, me.hooked, me.dead, me.escaped, me.escapeProgress, me.escapeGateId, me.chase, me.hookProgress, me.healProgress, me.generatorKickTargetId, me.generatorKickProgress],
-        objective: [objective.doneGenerators, objective.requiredGenerators, objective.totalGenerators, objective.escapeOpen],
+        objective: [done, required, total, escapeOpen],
         survivors: (snapshot.actors || []).filter((a) => a.role === "survivor").map((a) => [a.id, a.health, a.dots, a.injured, a.downed, a.hooked, a.dead, a.escaped, a.escapeProgress, a.escapeGateId, a.chase, a.hookProgress, a.healProgress, a.hookCount, a.chatText]),
         killerChat: (snapshot.actors || []).find((a) => a.role === "killer")?.chatText || null,
         dots: (snapshot.collectibleDots || []).map((d) => d.id).join(",")
@@ -2733,14 +2753,11 @@
       ui.controlsLabel.textContent = me.role === "killer"
         ? "WASD move • Mouse aim • M1 attack/lunge • Space vault/break • hold E hook/execute/kick rift • hold R chat"
         : "WASD move • Shift sprint • Mouse flashlight • Space vault/drop • collect orbs, stand near rifts to deposit • stand in open voids to escape • hold E heal/unhook • hold R chat";
-      const done = snapshot.objective?.doneGenerators ?? 0;
-      const required = snapshot.objective?.requiredGenerators ?? snapshot.objective?.totalGenerators ?? 0;
-      const total = snapshot.objective?.totalGenerators ?? required;
       const shownDone = Math.min(done, required);
       ui.genText.textContent = `${shownDone} / ${required}${total > required ? ` (${total} on map)` : ""}`;
       if (ui.bigGenText) ui.bigGenText.textContent = `${shownDone} / ${required}`;
       ui.bigGenCounter?.classList.toggle("is-complete", required > 0 && shownDone >= required);
-      ui.gateText.textContent = snapshot.objective?.escapeOpen ? "Voids Open" : "Sealed";
+      ui.gateText.textContent = escapeOpen ? "Voids Open" : "Sealed";
       if (me.role === "killer") {
         const actors = snapshot.actors || [];
         const hookingTarget = actors.find((a) => a.id === me.hookActionTargetId);
@@ -3653,7 +3670,7 @@
         if (!p.broken && p.state === "dropped") solids.push(p);
       }
       if (role === "survivor") {
-        for (const gen of currentSnapshot?.map?.generators || this.map.generators || []) {
+        for (const gen of this.visibleGenerators()) {
           const size = GENERATOR_COLLISION_SIZE;
           solids.push({ id: gen.id, x: gen.x - size / 2, y: gen.y - size / 2, w: size, h: size });
         }
@@ -4106,7 +4123,8 @@
     getGeneratorWorldKey() {
       const map = currentSnapshot?.map || this.map;
       if (!map) return "";
-      return (map.generators || []).map((g) => {
+      if (this.riftsAreComplete()) return "rifts-hidden";
+      return this.visibleGenerators().map((g) => {
         const showProgress = g.showProgress !== false ? 1 : 0;
         const repairOn = (g.showRepairFx !== false && (g.repairing || (Array.isArray(g.activeRepairers) && g.activeRepairers.length > 0))) ? 1 : 0;
         const depositOn = (g.showRepairFx !== false && g.dotDepositing) ? 1 : 0;
@@ -4138,7 +4156,7 @@
     updateGeneratorDepositVisuals(dt) {
       if (!this.generatorDepositVisual) this.generatorDepositVisual = new Map();
       if (!this.generatorDepositLastRaw) this.generatorDepositLastRaw = new Map();
-      const generators = currentSnapshot?.map?.generators || this.map?.generators || [];
+      const generators = this.visibleGenerators();
       const seen = new Set();
       let animating = false;
 
