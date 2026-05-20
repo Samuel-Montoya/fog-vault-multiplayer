@@ -33,10 +33,12 @@
   // and a tiny additive cone graphic gives the player readable direction without GPU soup.
   const LIGHTING = {
     MAP_DARKNESS: cfgNumber(GAMEPLAY_CONFIG.lighting?.mapDarkness, 0.38),          // 0 = no fog, 0.85 = very dark outside vision
-    SURVIVOR_LENGTH: cfgNumber(GAMEPLAY_CONFIG.survivor?.clientConeLength, cfgNumber(GAMEPLAY_CONFIG.survivor?.coneLength, 880)),
-    SURVIVOR_ANGLE: cfgNumber(GAMEPLAY_CONFIG.survivor?.clientConeAngle, cfgNumber(GAMEPLAY_CONFIG.survivor?.coneAngle, Math.PI / 2.05)),
-    KILLER_LENGTH: cfgNumber(GAMEPLAY_CONFIG.void?.clientConeLength, cfgNumber(GAMEPLAY_CONFIG.void?.coneLength, 1080)),
-    KILLER_ANGLE: cfgNumber(GAMEPLAY_CONFIG.void?.clientConeAngle, cfgNumber(GAMEPLAY_CONFIG.void?.coneAngle, Math.PI / 1.62)),
+    // Use the same cone values as gameplay visibility by default.
+    // The old clientCone values were wider/longer, which made the guide show more than the player could actually see.
+    SURVIVOR_LENGTH: cfgNumber(GAMEPLAY_CONFIG.survivor?.coneLength, cfgNumber(GAMEPLAY_CONFIG.survivor?.clientConeLength, 620)),
+    SURVIVOR_ANGLE: cfgNumber(GAMEPLAY_CONFIG.survivor?.coneAngle, cfgNumber(GAMEPLAY_CONFIG.survivor?.clientConeAngle, Math.PI / 2.6)),
+    KILLER_LENGTH: cfgNumber(GAMEPLAY_CONFIG.void?.coneLength, cfgNumber(GAMEPLAY_CONFIG.void?.clientConeLength, 920)),
+    KILLER_ANGLE: cfgNumber(GAMEPLAY_CONFIG.void?.coneAngle, cfgNumber(GAMEPLAY_CONFIG.void?.clientConeAngle, Math.PI / 1.75)),
     CONE_TEXTURE_WIDTH: LOW_POWER_MODE ? 512 : 768,
     CONE_TEXTURE_HEIGHT: LOW_POWER_MODE ? 512 : 768,
     CONE_BASE_HALF_ANGLE: Math.atan(0.56),
@@ -58,8 +60,8 @@
     // Smooth the visible guide cone so mouse/network jitter does not make it twitch.
     // This is only visual smoothing; server/client visibility rules still use the real facing.
     CONE_VISUAL_SMOOTHING: LOW_POWER_MODE ? 13 : 18,
-    CONE_FEATHER_ANGLE: LOW_POWER_MODE ? 0.055 : 0.075,
-    CONE_FEATHER_ALPHA: LOW_POWER_MODE ? 0.18 : 0.24
+    CONE_FEATHER_ANGLE: LOW_POWER_MODE ? 0.09 : 0.13,
+    CONE_FEATHER_ALPHA: LOW_POWER_MODE ? 0.16 : 0.22
   };
 
   const DEFAULT_AUDIO_CONFIG = {
@@ -1301,6 +1303,14 @@
     if (isMyHit || d <= LOCAL_SFX_RANGE.hit) playSfx("injured");
   }
 
+
+  function playLocalizedPalletDrop(event) {
+    if (!event) return;
+    const isThrower = event.actorId === myId;
+    const d = distanceToLocalEvent(event);
+    // The Survivor who drops the pallet hears it. Others only hear it when close enough.
+    if (isThrower || d <= (LOCAL_SFX_RANGE.palletDrop || 280)) playSfx("palletDrop");
+  }
 
   function playLocalizedPalletStun(event) {
     if (!event) return;
@@ -2776,6 +2786,44 @@
       }
     }
 
+    pointInsideRect(x, y, rect, pad = 0) {
+      if (!rect) return false;
+      return x >= rect.x - pad
+        && x <= rect.x + rect.w + pad
+        && y >= rect.y - pad
+        && y <= rect.y + rect.h + pad;
+    }
+
+    hasClearWallLineOfSight(x1, y1, x2, y2) {
+      const blockers = this.map?.walls || [];
+      if (!blockers.length) return true;
+      const dist = Math.hypot(x2 - x1, y2 - y1);
+      const steps = Math.max(2, Math.ceil(dist / 28));
+      for (let i = 1; i < steps; i += 1) {
+        const t = i / steps;
+        const x = lerp(x1, x2, t);
+        const y = lerp(y1, y2, t);
+        for (const wall of blockers) {
+          if (this.pointInsideRect(x, y, wall, 2)) return false;
+        }
+      }
+      return true;
+    }
+
+    shouldRevealVoidToHookedLocal(data, actors) {
+      if (data?.role !== "killer" || data.dead || data.escaped) return false;
+      const local = actors?.find?.((a) => a.id === myId) || this.actors.get(myId)?.data || getLocalPlayerData();
+      if (!local?.hooked) return false;
+      const lx = Number(local.x);
+      const ly = Number(local.y);
+      const kx = Number(data.x);
+      const ky = Number(data.y);
+      if (![lx, ly, kx, ky].every(Number.isFinite)) return false;
+      const maxDistance = Math.max(LIGHTING.SURVIVOR_LENGTH * 1.25, 760);
+      if (Math.hypot(kx - lx, ky - ly) > maxDistance) return false;
+      return this.hasClearWallLineOfSight(lx, ly, kx, ky);
+    }
+
     updateActorTargets(actors) {
       const seen = new Set();
       for (const data of actors) {
@@ -2799,7 +2847,8 @@
 
         // Actors are always position-updated from the server, even when hidden.
         // We only hide the container visually. That prevents the seen-again teleport jump.
-        const isVisible = data.visible !== false || data.id === myId;
+        const hookedLocalCanSeeVoid = this.shouldRevealVoidToHookedLocal(data, actors);
+        const isVisible = data.visible !== false || data.id === myId || hookedLocalCanSeeVoid;
         let alpha = isVisible ? 1 : 0;
         if (data.id === myId && this.isSpectating()) alpha = 0.32;
         item.container.setVisible(true);
@@ -3304,7 +3353,7 @@
         }
         if (event.type === "vault") this.burst(event.x, event.y, 0xd8d0bd, 12, 90);
         if (event.type === "palletDrop") {
-          playSfx("palletDrop");
+          playLocalizedPalletDrop(event);
           this.burst(event.x, event.y, COLORS.pallet, 16, 130);
         }
         if (event.type === "palletBreak" || event.type === "palletBreakStart") this.burst(event.x, event.y, 0xffc36a, 18, 150);
@@ -4250,8 +4299,8 @@
 
       const lightColor = role === "killer" ? 0x9f5cff : 0xa7dcff;
       const coreColor = role === "killer" ? 0x5b21b6 : 0x38bdf8;
-      const coneAlpha = role === "killer" ? (LOW_POWER_MODE ? 0.040 : 0.060) : (LOW_POWER_MODE ? 0.048 : 0.074);
-      const nearAlpha = role === "killer" ? 0.040 : 0.052;
+      const coneAlpha = role === "killer" ? (LOW_POWER_MODE ? 0.036 : 0.052) : (LOW_POWER_MODE ? 0.044 : 0.066);
+      const nearAlpha = role === "killer" ? 0.036 : 0.048;
 
       // Near bubble keeps close corners readable. It is intentionally faint so it does not read as a second cone.
       g.fillStyle(coreColor, nearAlpha);
@@ -4259,28 +4308,20 @@
       g.fillStyle(lightColor, nearAlpha * 0.32);
       g.fillCircle(vx, vy, nearRadius * 0.46);
 
-      // One accurate cone. It uses the same length/angle as survivor visibility.
-      // The tiny low-alpha feather pass softens the edge without using an actual blur filter.
+      // One cone, with a soft cheap feather pass. No forward line, no RenderTexture, no blur filter.
       const segments = LOW_POWER_MODE ? 16 : 24;
       this.drawVisionConeGraphic(
         g,
         vx,
         vy,
         vfacing,
-        vlength * 1.012,
+        vlength * 1.02,
         vangle + LIGHTING.CONE_FEATHER_ANGLE,
         lightColor,
         coneAlpha * LIGHTING.CONE_FEATHER_ALPHA,
         segments
       );
       this.drawVisionConeGraphic(g, vx, vy, vfacing, vlength, vangle, lightColor, coneAlpha, segments);
-
-      // Small direction core, shorter than the cone, so aim remains readable without drawing a whole second beam.
-      g.lineStyle(2, lightColor, role === "killer" ? 0.12 : 0.17);
-      g.beginPath();
-      g.moveTo(vx, vy);
-      g.lineTo(vx + Math.cos(vfacing) * Math.min(vlength, 120), vy + Math.sin(vfacing) * Math.min(vlength, 120));
-      g.strokePath();
     }
 
     drawHookIndicators() {
