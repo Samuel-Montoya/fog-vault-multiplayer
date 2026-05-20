@@ -50,7 +50,7 @@
     AURA_ALPHA: 0.90,
     AURA_RADIUS: 220,
     // Tiny flicker keeps the flashlight alive without turning it into a disco lawsuit.
-    FLICKER_STRENGTH: LOW_POWER_MODE ? 0.018 : 0.038,
+    FLICKER_STRENGTH: LOW_POWER_MODE ? 0.0 : 0.012,
     FLICKER_SPEED: LOW_POWER_MODE ? 5.0 : 7.5,
     FOG_DEPTH: 900,
     // World-space padding around the current camera view. The fog layer is
@@ -59,9 +59,9 @@
     FOG_VIEW_PADDING: 240,
     // Smooth the visible guide cone so mouse/network jitter does not make it twitch.
     // This is only visual smoothing; server/client visibility rules still use the real facing.
-    CONE_VISUAL_SMOOTHING: LOW_POWER_MODE ? 13 : 18,
-    CONE_FEATHER_ANGLE: LOW_POWER_MODE ? 0.09 : 0.13,
-    CONE_FEATHER_ALPHA: LOW_POWER_MODE ? 0.16 : 0.22
+    CONE_VISUAL_SMOOTHING: LOW_POWER_MODE ? 12 : 16,
+    // Feather pass removed: one cone draw is much cheaper than layered cone blending.
+    CONE_SEGMENTS: LOW_POWER_MODE ? 8 : 12
   };
 
   const DEFAULT_AUDIO_CONFIG = {
@@ -1661,8 +1661,8 @@
       this.collectibleDotVisuals = new Map();
       this.collectibleDotsAnimating = false;
       this.scratchGraphics = this.add.graphics().setDepth(4);
-      // Minimal visibility cone. One small Graphics object, redrawn at a capped FPS.
-      // No RenderTexture, no masks, no per-frame erasing. Just a cheap "what I can see" hint.
+      // Minimal visibility cone. One small Graphics object.
+      // No RenderTexture, no masks, no layered feather pass. Just a cheap "what I can see" hint.
       this.flashlightGlowGraphics = this.add.graphics()
         .setDepth(LIGHTING.FOG_DEPTH - 1)
         .setBlendMode(Phaser.BlendModes.ADD);
@@ -4302,25 +4302,13 @@
       const coneAlpha = role === "killer" ? (LOW_POWER_MODE ? 0.036 : 0.052) : (LOW_POWER_MODE ? 0.044 : 0.066);
       const nearAlpha = role === "killer" ? 0.036 : 0.048;
 
-      // Near bubble keeps close corners readable. It is intentionally faint so it does not read as a second cone.
+      // Near bubble keeps close corners readable. Single fill only for cheaper redraws.
       g.fillStyle(coreColor, nearAlpha);
-      g.fillCircle(vx, vy, nearRadius * 0.92);
-      g.fillStyle(lightColor, nearAlpha * 0.32);
-      g.fillCircle(vx, vy, nearRadius * 0.46);
+      g.fillCircle(vx, vy, nearRadius * 0.82);
 
-      // One cone, with a soft cheap feather pass. No forward line, no RenderTexture, no blur filter.
-      const segments = LOW_POWER_MODE ? 16 : 24;
-      this.drawVisionConeGraphic(
-        g,
-        vx,
-        vy,
-        vfacing,
-        vlength * 1.02,
-        vangle + LIGHTING.CONE_FEATHER_ANGLE,
-        lightColor,
-        coneAlpha * LIGHTING.CONE_FEATHER_ALPHA,
-        segments
-      );
+      // One cone only. The previous feather pass looked smoother, but doubled the Graphics work
+      // during movement/zoom and caused noticeable hitches on weaker browsers.
+      const segments = LIGHTING.CONE_SEGMENTS;
       this.drawVisionConeGraphic(g, vx, vy, vfacing, vlength, vangle, lightColor, coneAlpha, segments);
     }
 
