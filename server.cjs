@@ -3287,7 +3287,9 @@ function isActorVisibleToViewer(game, viewer, actor) {
   }
 
   if (viewer.role === "survivor" && actor.role === "survivor") {
-    return d < 1200 || los;
+    if (!los) return false;
+    if (d <= CLOSE_REVEAL_RADIUS) return true;
+    return coneSees(viewer, actor, SURVIVOR_CONE_LENGTH, SURVIVOR_CONE_ANGLE);
   }
 
   return true;
@@ -3337,6 +3339,11 @@ function serializeActor(game, actor, visible = true) {
     attackStartup: actor.attackStartup,
     attacking: actor.attackState === "quick" || actor.attackState === "lunge",
     vaulting: !!actor.vault,
+    vaultFromX: actor.vault ? Number(actor.vault.fromX.toFixed(2)) : null,
+    vaultFromY: actor.vault ? Number(actor.vault.fromY.toFixed(2)) : null,
+    vaultToX: actor.vault ? Number(actor.vault.toX.toFixed(2)) : null,
+    vaultToY: actor.vault ? Number(actor.vault.toY.toFixed(2)) : null,
+    vaultProgress: actor.vault ? quantizedProgress(actor.vault.t / actor.vault.duration) : 0,
     breaking: !!actor.breakTarget,
     invuln: actor.invuln,
     hitBoost: actor.hitBoost,
