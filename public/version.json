@@ -1,0 +1,16 @@
+{
+  "latest": {
+    "version": "0.1.0",
+    "title": "Version Tracking",
+    "summary": "Main menu version log online",
+    "description": "Added a version.json changelog and a bottom-right main menu badge that displays the latest version and short title."
+  },
+  "history": [
+    {
+      "version": "0.1.0",
+      "title": "Version Tracking",
+      "summary": "Main menu version log online",
+      "description": "Added a version.json changelog and a bottom-right main menu badge that displays the latest version and short title."
+    }
+  ]
+}

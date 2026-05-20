@@ -94,7 +94,8 @@
         windowVault: "/sfx/window_vault.ogg",
         palletVault: "/sfx/pallet_vault.ogg",
         palletDrop: "/sfx/pallet_drop.mp3",
-        palletStun: "/sfx/pallet_stun.mp3",
+        voidStun: "/sfx/void_stun.mp3",
+        palletStun: "/sfx/void_stun.mp3",
         injured: "/sfx/injured.ogg",
         orbPickup: "/sfx/orb_pickup.mp3",
         orbDeposit: "/sfx/orb_deposit.mp3",
@@ -110,7 +111,8 @@
         windowVault: 0.34,
         palletVault: 0.76,
         palletDrop: 0.72,
-        palletStun: 0.72,
+        voidStun: 0.82,
+        palletStun: 0.82,
         injured: 0.8,
         orbPickup: 0.68,
         orbDeposit: 0.72,
@@ -122,7 +124,8 @@
         swing: [0.9, 0.96, 1.0, 1.08, 1.16, 1.25, 1.34],
         windowVault: [0.88, 0.94, 1.0, 1.07, 1.15, 1.24],
         palletDrop: [0.86, 0.94, 1.0, 1.08, 1.17, 1.26],
-        palletStun: [0.82, 0.90, 1.0, 1.10, 1.22],
+        voidStun: [0.78, 0.86, 0.94, 1.0, 1.08],
+        palletStun: [0.78, 0.86, 0.94, 1.0, 1.08],
         orbPickup: [0.9, 0.96, 1.0, 1.08, 1.16, 1.25, 1.34],
         buttonClick: [0.92, 0.97, 1.0, 1.05, 1.11, 1.18],
         playerSpeak: [0.88, 0.94, 1.0, 1.07, 1.15, 1.24]
@@ -130,7 +133,8 @@
       localRange: {
         swing: 315,
         hit: 440,
-        palletStun: 300
+        palletStun: 300,
+        voidStun: 360
       }
     }
   };
@@ -353,6 +357,8 @@
     ON_SCREEN_PADDING: 96,
     POSITION_ROUNDING: 1
   };
+
+  const VOID_STUN_SECONDS = cfgNumber(GAMEPLAY_CONFIG.pallet?.voidStunSeconds, 1.0);
 
   const LOCAL_SPEEDS = {
     survivorWalk: cfgNumber(GAMEPLAY_CONFIG.survivor?.walkSpeed, 170),
@@ -1483,12 +1489,15 @@
     if (isThrower || d <= (LOCAL_SFX_RANGE.palletDrop || 280)) playSfx("palletDrop");
   }
 
-  function playLocalizedPalletStun(event) {
+  function playLocalizedVoidStun(event) {
     if (!event) return;
-    const isThrower = event.actorId === myId;
+    const isThrower = event.actorId === myId || event.survivorId === myId;
+    const isStunnedKiller = event.killerId === myId;
     const d = distanceToLocalEvent(event);
-    // The Survivor who dropped the pallet always hears the stun. Others only hear it if close.
-    if (isThrower || d <= (LOCAL_SFX_RANGE.palletStun || 300)) playSfx("palletStun");
+    // The survivor who slammed it and The Void who ate it always hear the stun. Others hear it nearby.
+    if (isThrower || isStunnedKiller || d <= (LOCAL_SFX_RANGE.voidStun || LOCAL_SFX_RANGE.palletStun || 360)) {
+      playSfx("voidStun");
+    }
   }
 
   function playOrbPickupSfx(event) {
@@ -1577,8 +1586,9 @@
     const terror = clamp(Number(music.terror || 0), 0, 1);
     const chase = (music.chase || me?.chase) ? 1 : 0;
     const injured = me?.role === "survivor" && !me.dead && !me.escaped && (me.health <= 1 || me.injured || me.downed || me.hooked);
+    const voidStun = me?.role === "killer" ? clamp(Number(me.voidStun || 0) / Math.max(0.001, VOID_STUN_SECONDS), 0, 1) : 0;
     const blood = me?.hooked ? 0.95 : me?.downed ? 1 : injured ? 0.82 : me?.dead ? 1 : 0;
-    return { terror, chase, blood, injured };
+    return { terror, chase, blood, injured, voidStun };
   }
 
   function isLookingAtKiller(snapshot, me) {
@@ -1638,8 +1648,10 @@
     ui.horrorFx.style.setProperty("--chase", chase.toFixed(3));
     ui.horrorFx.style.setProperty("--red-chase", fxState.redChase.toFixed(3));
     ui.horrorFx.style.setProperty("--blood", fxState.blood.toFixed(3));
+    ui.horrorFx.style.setProperty("--void-stun", (raw.voidStun || 0).toFixed(3));
     ui.horrorFx.style.setProperty("--tunnel", fxState.tunnel.toFixed(3));
     ui.horrorFx.style.setProperty("--pulse-speed", pulseSpeed);
+    document.body.classList.toggle("is-void-stunned", (raw.voidStun || 0) > 0.02);
     document.body.classList.toggle("in-chase", raw.chase > 0);
     document.body.classList.toggle("is-looking-at-killer", fxState.redChase > 0.04);
     document.body.classList.toggle("is-injured", !!raw.injured);
@@ -2887,7 +2899,7 @@
       const total = objective.totalGenerators ?? objective.total ?? required;
       const escapeOpen = objective.escapeOpen ?? objective.gatesPowered ?? false;
       const hudKey = JSON.stringify({
-        self: [me.id, me.role, me.health, me.dots, me.injured, me.downed, me.hooked, me.dead, me.escaped, me.escapeProgress, me.escapeGateId, me.chase, me.hookProgress, me.healProgress, me.generatorKickTargetId, me.generatorKickProgress],
+        self: [me.id, me.role, me.health, me.dots, me.injured, me.downed, me.hooked, me.dead, me.escaped, me.escapeProgress, me.escapeGateId, me.chase, me.hookProgress, me.healProgress, me.generatorKickTargetId, me.generatorKickProgress, me.voidStun],
         objective: [done, required, total, escapeOpen],
         survivors: (snapshot.actors || []).filter((a) => a.role === "survivor").map((a) => [a.id, a.health, a.dots, a.injured, a.downed, a.hooked, a.dead, a.escaped, a.escapeProgress, a.escapeGateId, a.chase, a.hookProgress, a.healProgress, a.hookCount, a.chatText]),
         killerChat: (snapshot.actors || []).find((a) => a.role === "killer")?.chatText || null,
@@ -2911,7 +2923,9 @@
         const actors = snapshot.actors || [];
         const hookingTarget = actors.find((a) => a.id === me.hookActionTargetId);
         const readyTarget = actors.find((a) => a.id === me.hookReadyTargetId);
-        if (hookingTarget) {
+        if ((me.voidStun || 0) > 0) {
+          ui.healthText.textContent = `Stunned ${Math.ceil(me.voidStun || 0)}s`;
+        } else if (hookingTarget) {
           const executing = me.hookActionType === "execute" || (hookingTarget.hookCount || 0) >= 2;
           ui.healthText.textContent = `${executing ? "Executing" : "Hooking"} ${hookingTarget.name || "survivor"} ${Math.round((hookingTarget.hookProgress || 0) * 100)}%`;
         } else if (readyTarget) {
@@ -3179,7 +3193,8 @@
         const now = performance.now();
         const attacking = data.attacking || data.attackState === "quick" || data.attackState === "lunge";
         const charging = data.attackState === "charging";
-        const angry = attacking ? 1 : charging ? 0.65 : data.recovery > 0 ? 0.38 : 0.18;
+        const stunned = (data.voidStun || 0) > 0;
+        const angry = stunned ? 0.82 : attacking ? 1 : charging ? 0.65 : data.recovery > 0 ? 0.38 : 0.18;
         const wobble = Math.sin(now / 145) * 1.25;
         const pulse = Math.sin(now / 210) * 0.5 + 0.5;
         const coreR = 18.5 + wobble + angry * 3.0;
@@ -3223,10 +3238,17 @@
           item.outline.strokePath();
         }
 
-        item.outline.lineStyle(2, 0xd8b4fe, 0.44 + angry * 0.36);
+        item.outline.lineStyle(2, stunned ? 0xff2a45 : 0xd8b4fe, 0.44 + angry * 0.36);
         item.outline.strokeCircle(0, 0, 24 + angry * 2.4);
-        item.outline.lineStyle(1, 0x7c3aed, 0.34 + pulse * 0.18);
+        item.outline.lineStyle(1, stunned ? 0xff6b7a : 0x7c3aed, 0.34 + pulse * 0.18);
         item.outline.strokeCircle(0, 0, 34 + pulse * 2.0 + angry * 3.2);
+        if (stunned) {
+          const stunPulse = 0.5 + Math.sin(now / 70) * 0.5;
+          item.outline.lineStyle(3, 0xff2438, 0.58 + stunPulse * 0.30);
+          item.outline.strokeCircle(0, 0, 39 + stunPulse * 5);
+          item.outline.lineStyle(1, 0xffa1ad, 0.42);
+          item.outline.strokeCircle(0, 0, 50 + stunPulse * 8);
+        }
         return;
       }
 
@@ -3436,7 +3458,7 @@
         const charging = data.attackState === "charging";
         const attacking = data.attacking || data.attackState === "quick" || data.attackState === "lunge";
         const now = performance.now();
-        const voidStateKey = `${data.attackState || "idle"}:${data.attacking ? 1 : 0}:${data.recovery > 0 ? 1 : 0}`;
+        const voidStateKey = `${data.attackState || "idle"}:${data.attacking ? 1 : 0}:${data.recovery > 0 ? 1 : 0}:${data.voidStun > 0 ? 1 : 0}`;
         const redrawEvery = LOW_POWER_MODE ? 150 : 95;
         // The Void still animates, but not by redrawing 20+ circles every single frame.
         // Position updates remain smooth because the container moves independently.
@@ -3445,7 +3467,7 @@
           item.lastVoidDrawAt = now;
           this.drawActorShape(item, data, COLORS.killer, 1, 0xd8b4fe, attacking ? 1 : 0.84);
         }
-        item.facing.setFillStyle(attacking ? 0xf5d0fe : 0xc084fc, attacking ? 0.82 : data.recovery > 0 ? 0.24 : charging ? 0.72 : 0.48);
+        item.facing.setFillStyle(data.voidStun > 0 ? 0xff3048 : attacking ? 0xf5d0fe : 0xc084fc, data.voidStun > 0 ? 0.76 : attacking ? 0.82 : data.recovery > 0 ? 0.24 : charging ? 0.72 : 0.48);
       } else {
         const skin = getSurvivorSkin(data.skin);
         let color = data.health <= 1 || data.injured ? COLORS.survivorInjured : skin.color;
@@ -3547,9 +3569,14 @@
           this.burst(event.x, event.y, COLORS.pallet, 16, 130);
         }
         if (event.type === "palletBreak" || event.type === "palletBreakStart") this.burst(event.x, event.y, 0xffc36a, 18, 150);
-        if (event.type === "killerStun") {
-          playLocalizedPalletStun(event);
-          this.burst(event.x, event.y, 0xfff1a8, 30, 110);
+        if (event.type === "voidStun" || event.type === "killerStun") {
+          playLocalizedVoidStun(event);
+          this.burst(event.x, event.y, 0xff3048, LOW_POWER_MODE ? 26 : 46, LOW_POWER_MODE ? 150 : 230);
+          this.addShockwave(event.x, event.y, 0xff1f3a, 0.88, LOW_POWER_MODE ? 105 : 165);
+          this.addShockwave(event.palletX || event.x, event.palletY || event.y, 0xff5268, 0.54, LOW_POWER_MODE ? 84 : 125);
+          if (event.killerId === myId) {
+            this.cameras.main.shake(LOW_POWER_MODE ? 140 : 190, LOW_POWER_MODE ? 0.0032 : 0.0052);
+          }
         }
         if (event.type === "escape") {
           this.burst(event.x, event.y, 0xa78bfa, 54, 190);
@@ -3844,7 +3871,7 @@
         this.localVaultPlayback = null;
       }
 
-      if (data.dead || data.escaped || data.hooked || data.breaking) {
+      if (data.dead || data.escaped || data.hooked || data.breaking || (data.role === "killer" && data.voidStun > 0)) {
         this.localVisual.x += (this.localServerTarget.x - this.localVisual.x) * 0.45;
         this.localVisual.y += (this.localServerTarget.y - this.localVisual.y) * 0.45;
         return;

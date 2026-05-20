@@ -143,6 +143,14 @@ const GAMEPLAY_CONFIG = {
     cooldownSeconds: 0.24
   },
 
+  pallet: {
+    // If a survivor drops a pallet while The Void is inside/near it, The Void is stunned.
+    // Swinging extends the catch distance slightly so risky M1s at pallets can be punished.
+    voidStunSeconds: 1.0,
+    voidStunCloseRadius: 42,
+    voidStunSwingRadius: 64
+  },
+
   rift: {
     collisionSize: 54,
     // Rifts are completed by deposits now. repairTime is kept only for old/fallback code paths.

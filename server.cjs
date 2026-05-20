@@ -187,6 +187,9 @@ const SURVIVOR_HIT_BOOST = cfgNumber(GAMEPLAY_CONFIG.survivor?.hitBoostDuration,
 const SURVIVOR_VAULT_TIME = cfgNumber(GAMEPLAY_CONFIG.survivor?.vaultTime, 0.38);
 const KILLER_VAULT_TIME = cfgNumber(GAMEPLAY_CONFIG.void?.vaultTime, 1.05);
 const KILLER_BREAK_TIME = cfgNumber(GAMEPLAY_CONFIG.void?.breakTime, 1.25);
+const VOID_STUN_TIME = cfgNumber(GAMEPLAY_CONFIG.pallet?.voidStunSeconds, 1.0);
+const VOID_STUN_CLOSE_RADIUS = cfgNumber(GAMEPLAY_CONFIG.pallet?.voidStunCloseRadius, 42);
+const VOID_STUN_SWING_RADIUS = cfgNumber(GAMEPLAY_CONFIG.pallet?.voidStunSwingRadius, 64);
 // Adjustable generator speed: raise this number to make generators slower.
 const GENERATOR_REPAIR_TIME = cfgNumber(GAMEPLAY_CONFIG.rift?.repairTime, 28.0);
 // Fallback only. The real match requirement should live on each map in maps.js.
@@ -830,6 +833,7 @@ function makePlayer(socket, role, name, options = {}) {
     activeHealers: [],
     healingTargetId: null,
     recovery: 0,
+    voidStun: 0,
     actionLock: 0,
     vault: null,
     breakTarget: null,
@@ -1192,6 +1196,15 @@ function moveActor(game, actor, dt) {
     return;
   }
 
+  if (actor.role === "killer" && (actor.voidStun || 0) > 0) {
+    actor.actionLock = Math.max(0, actor.actionLock - dt);
+    actor.input.up = actor.input.down = actor.input.left = actor.input.right = false;
+    actor.input.attack = false;
+    actor.input.attackHeld = false;
+    actor.input.attackReleased = false;
+    return;
+  }
+
   if (actor.actionLock > 0) {
     actor.actionLock = Math.max(0, actor.actionLock - dt);
     return;
@@ -1362,7 +1375,7 @@ function moveToPalletSideByInput(game, actor, pallet) {
 }
 
 function handleAction(game, actor) {
-  if (actor.dead || actor.escaped || actor.hooked || actor.downed || actor.vault || actor.breakTarget || actor.actionLock > 0) return;
+  if (actor.dead || actor.escaped || actor.hooked || actor.downed || actor.vault || actor.breakTarget || actor.actionLock > 0 || (actor.role === "killer" && (actor.voidStun || 0) > 0)) return;
   const hit = nearestInteractable(game, actor, actor.role === "survivor");
   if (!hit) return;
 
@@ -1375,10 +1388,7 @@ function handleAction(game, actor) {
     addEvent(game, "palletDrop", { actorId: actor.id, x: hit.object.x + hit.object.w / 2, y: hit.object.y + hit.object.h / 2 });
 
     const killer = [...game.actors.values()].find((p) => p.role === "killer" && !p.dead);
-    if (killer && circleNearRect(killer.x, killer.y, KILLER_SIZE * 0.65, hit.object)) {
-      killer.recovery = Math.max(killer.recovery, 2.4);
-      addEvent(game, "killerStun", { actorId: actor.id, killerId: killer.id, x: killer.x, y: killer.y });
-    }
+    if (killer) applyVoidStun(game, actor, killer, hit.object);
   } else if (hit.type === "palletBreak") {
     actor.breakTarget = hit.object.id;
     actor.actionLock = KILLER_BREAK_TIME;
@@ -1390,6 +1400,64 @@ function circleNearRect(cx, cy, r, rect) {
   const closestX = clamp(cx, rect.x, rect.x + rect.w);
   const closestY = clamp(cy, rect.y, rect.y + rect.h);
   return dist(cx, cy, closestX, closestY) <= r;
+}
+
+function pointRectDistance(px, py, rect) {
+  if (!rect) return Infinity;
+  const closestX = clamp(px, rect.x, rect.x + rect.w);
+  const closestY = clamp(py, rect.y, rect.y + rect.h);
+  return dist(px, py, closestX, closestY);
+}
+
+function killerIsSwingingForVoidStun(killer) {
+  return killer?.attackState === "quick" || killer?.attackState === "lunge";
+}
+
+function shouldVoidStunKiller(killer, pallet) {
+  if (!killer || killer.role !== "killer" || killer.dead || killer.escaped) return false;
+  if ((killer.voidStun || 0) > 0) return false;
+  const d = pointRectDistance(killer.x, killer.y, pallet);
+  if (d <= VOID_STUN_CLOSE_RADIUS) return true;
+  return killerIsSwingingForVoidStun(killer) && d <= VOID_STUN_SWING_RADIUS;
+}
+
+function clearKillerAttackState(killer) {
+  killer.attackState = null;
+  killer.attackType = null;
+  killer.attackTimer = 0;
+  killer.attackDuration = 0;
+  killer.attackStartup = 0;
+  killer.attackCharge = 0;
+  killer.attackHasHit = false;
+  killer.attackNeedsRelease = true;
+}
+
+function applyVoidStun(game, survivor, killer, pallet) {
+  if (!shouldVoidStunKiller(killer, pallet)) return false;
+
+  killer.voidStun = Math.max(killer.voidStun || 0, VOID_STUN_TIME);
+  killer.recovery = Math.max(killer.recovery || 0, VOID_STUN_TIME);
+  killer.attackCooldown = Math.max(killer.attackCooldown || 0, VOID_STUN_TIME);
+  killer.actionLock = Math.max(killer.actionLock || 0, VOID_STUN_TIME);
+  killer.input.up = killer.input.down = killer.input.left = killer.input.right = false;
+  killer.input.sprint = false;
+  killer.input.attack = false;
+  killer.input.attackHeld = false;
+  killer.input.attackReleased = false;
+  clearKillerAttackState(killer);
+
+  addEvent(game, "voidStun", {
+    actorId: survivor?.id || null,
+    survivorId: survivor?.id || null,
+    killerId: killer.id,
+    palletId: pallet?.id || null,
+    x: Number(killer.x.toFixed(2)),
+    y: Number(killer.y.toFixed(2)),
+    palletX: pallet ? pallet.x + pallet.w / 2 : Number(killer.x.toFixed(2)),
+    palletY: pallet ? pallet.y + pallet.h / 2 : Number(killer.y.toFixed(2)),
+    duration: VOID_STUN_TIME
+  });
+  return true;
 }
 
 function damageSurvivor(game, killer, survivor) {
@@ -1549,6 +1617,14 @@ function resolveKillerAttackHit(game, killer) {
 function updateKillerAttack(game, killer, dt) {
   if (!killer || killer.dead) return;
 
+  if ((killer.voidStun || 0) > 0) {
+    clearKillerAttackState(killer);
+    killer.input.attack = false;
+    killer.input.attackHeld = false;
+    killer.input.attackReleased = false;
+    return;
+  }
+
   if (killer.input.attackReleased) killer.attackNeedsRelease = false;
 
   if (killer.actionLock > 0 || killer.vault || killer.breakTarget) {
@@ -1598,6 +1674,7 @@ function updateTimers(game, dt) {
     actor.invuln = Math.max(0, actor.invuln - dt);
     actor.hitBoost = Math.max(0, actor.hitBoost - dt);
     actor.recovery = Math.max(0, actor.recovery - dt);
+    actor.voidStun = Math.max(0, (actor.voidStun || 0) - dt);
     actor.attackCooldown = Math.max(0, actor.attackCooldown - dt);
     actor.chaseHold = Math.max(0, actor.chaseHold - dt);
     actor.killerVisibleHold = Math.max(0, (actor.killerVisibleHold || 0) - dt);
@@ -3346,6 +3423,7 @@ function serializeActor(game, actor, visible = true) {
     generatorKickProgress: actor.generatorKickProgress || 0,
     unhookTargetId: actor.unhookTargetId || null,
     recovery: actor.recovery,
+    voidStun: actor.role === "killer" ? actor.voidStun || 0 : 0,
     attackState: actor.attackState,
     attackType: actor.attackType,
     attackCharge: actor.attackCharge,
@@ -3684,6 +3762,12 @@ io.on("connection", (socket) => {
       if (Number.isFinite(input.angle)) actor.input.angle = input.angle;
       return;
     }
+    if (actor.role === "killer" && (actor.voidStun || 0) > 0) {
+      resetInput(actor.input);
+      if (Number.isFinite(input.angle)) actor.input.angle = input.angle;
+      return;
+    }
+
     actor.input.up = !!input.up;
     actor.input.down = !!input.down;
     actor.input.left = !!input.left;

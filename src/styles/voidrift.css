@@ -1056,6 +1056,7 @@ p,
   --chase: 0;
   --red-chase: 0;
   --tunnel: 0;
+  --void-stun: 0;
   --pulse-speed: 760ms;
   position: fixed;
   inset: 0;
@@ -1075,7 +1076,7 @@ p,
 
 .fx-vignette {
   background:
-    radial-gradient(circle at center, transparent calc(44% - var(--tunnel) * 10%), rgba(0,0,0, calc(0.22 + var(--terror) * 0.2 + var(--chase) * 0.2)) 100%),
+    radial-gradient(circle at center, transparent calc(44% - var(--tunnel) * 10% - var(--void-stun) * 8%), rgba(0,0,0, calc(0.22 + var(--terror) * 0.2 + var(--chase) * 0.2 + var(--void-stun) * 0.32)) 100%),
     linear-gradient(180deg, rgba(0,0,0,0.10), transparent 34%, rgba(0,0,0,0.24));
   opacity: calc(0.54 + var(--tunnel) * 0.25);
 }
@@ -1090,12 +1091,12 @@ p,
 .fx-terror {
   background: radial-gradient(circle at center, transparent 56%, rgba(255,59,106, calc(var(--red-chase) * 0.20)) 100%);
   animation: terrorHeartbeat var(--pulse-speed) ease-in-out infinite;
-  opacity: calc(var(--terror) * 0.20 + var(--red-chase) * 0.50);
+  opacity: calc(var(--terror) * 0.20 + var(--red-chase) * 0.50 + var(--void-stun) * 0.42);
 }
 
 .fx-focus {
   background: radial-gradient(circle at center, transparent 46%, rgba(103,232,249, calc(var(--chase) * 0.08)) 68%, rgba(255,59,106, calc(var(--red-chase) * 0.16)) 100%);
-  opacity: calc(var(--chase) * 0.30 + var(--red-chase) * 0.54 + var(--terror) * 0.12);
+  opacity: calc(var(--chase) * 0.30 + var(--red-chase) * 0.54 + var(--terror) * 0.12 + var(--void-stun) * 0.34);
   animation: focusBreath calc(var(--pulse-speed) * 1.35) ease-in-out infinite;
 }
 
@@ -1114,6 +1115,16 @@ body.in-chase #gameWrap canvas,
 body.is-injured #gameWrap canvas,
 body.in-chase.is-injured #gameWrap canvas {
   filter: none !important;
+}
+
+
+body.is-void-stunned .horror-fx .fx-vignette {
+  animation: voidStunBlink 120ms ease-in-out infinite alternate;
+}
+
+@keyframes voidStunBlink {
+  from { filter: brightness(0.88) saturate(1.05); }
+  to { filter: brightness(0.68) saturate(1.24); }
 }
 
 @keyframes terrorHeartbeat {
@@ -2488,5 +2499,49 @@ body.in-chase.is-injured #gameWrap canvas {
 
   .role-hud-copy h2 {
     font-size: 15px;
+  }
+}
+
+.version-badge {
+  position: absolute;
+  right: clamp(18px, 4vw, 52px);
+  bottom: clamp(18px, 4vw, 44px);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(360px, 42vw);
+  padding: 8px 12px;
+  border-left: 1px solid rgba(229, 234, 244, 0.34);
+  color: rgba(229, 234, 244, 0.56);
+  background: linear-gradient(90deg, rgba(224, 230, 240, 0.08), rgba(224, 230, 240, 0.015));
+  font-size: 11px;
+  font-weight: 850;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  pointer-events: none;
+  user-select: none;
+  backdrop-filter: blur(10px);
+}
+
+.version-badge-number {
+  color: rgba(244, 247, 252, 0.82);
+  white-space: nowrap;
+}
+
+.version-badge-title {
+  min-width: 0;
+  overflow: hidden;
+  color: rgba(211, 221, 234, 0.58);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .version-badge {
+    right: 18px;
+    bottom: 14px;
+    max-width: calc(100vw - 36px);
+    font-size: 10px;
   }
 }

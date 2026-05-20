@@ -54,6 +54,30 @@ const MOBILE_BUTTONS = [
   { action: "sprint", label: "RUN", className: "mobile-btn small" }
 ]
 
+const VERSION_FALLBACK = {
+  version: "0.1.0",
+  title: "Version Tracking",
+  summary: "Main menu version log online"
+}
+
+function resolveLatestVersion(payload) {
+  if (!payload || typeof payload !== "object") return VERSION_FALLBACK
+
+  const latest = payload.latest && typeof payload.latest === "object"
+    ? payload.latest
+    : Array.isArray(payload.history)
+      ? payload.history[0]
+      : null
+
+  if (!latest || typeof latest !== "object") return VERSION_FALLBACK
+
+  return {
+    version: String(latest.version || VERSION_FALLBACK.version),
+    title: String(latest.title || latest.shortTitle || VERSION_FALLBACK.title),
+    summary: String(latest.summary || latest.description || VERSION_FALLBACK.summary)
+  }
+}
+
 function loadScript(src) {
   return new Promise((resolve, reject) => {
     const existing = document.querySelector(`script[data-voidrift-src="${src}"]`)
@@ -135,6 +159,37 @@ function MenuBackground() {
   )
 }
 
+function VersionBadge() {
+  const [versionInfo, setVersionInfo] = useState(VERSION_FALLBACK)
+
+  useEffect(() => {
+    let active = true
+
+    fetch("/version.json", { cache: "no-store" })
+      .then((response) => {
+        if (!response.ok) throw new Error(`Version file returned ${response.status}`)
+        return response.json()
+      })
+      .then((payload) => {
+        if (active) setVersionInfo(resolveLatestVersion(payload))
+      })
+      .catch((error) => {
+        console.warn("[version] Could not load /version.json", error)
+      })
+
+    return () => {
+      active = false
+    }
+  }, [])
+
+  return (
+    <aside className="version-badge" aria-label={`Version ${versionInfo.version}: ${versionInfo.title}`}>
+      <span className="version-badge-number">v{versionInfo.version}</span>
+      <span className="version-badge-title">{versionInfo.title}</span>
+    </aside>
+  )
+}
+
 function MainMenu() {
   return (
     <div id="menu" className="screen screen-open io-screen menu-screen">
@@ -170,6 +225,8 @@ function MainMenu() {
             Menu music on
           </button>
         </div>
+
+        <VersionBadge />
       </div>
     </div>
   )
@@ -392,14 +449,6 @@ const ORB_FULL_CHAT_MESSAGES = new Set([
   "I can't pick any more up.",
   "I'm getting full..."
 ])
-
-function escapeHtml(str) {
-  return String(str || "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-}
 
 function visibleChatTextForActor(actor) {
   const text = actor?.chatText || ""
