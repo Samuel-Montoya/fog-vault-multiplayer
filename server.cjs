@@ -2110,8 +2110,19 @@ function nearestDownedSurvivorForHook(game, killer) {
     .sort((a, b) => dist(killer.x, killer.y, a.x, a.y) - dist(killer.x, killer.y, b.x, b.y))[0] || null;
 }
 
+function actorHasMoveInput(actor) {
+  return !!(actor?.input?.up || actor?.input?.down || actor?.input?.left || actor?.input?.right);
+}
+
+function isStationarySurvivorHelper(actor) {
+  if (!actor || actor.role !== "survivor" || actor.dead || actor.escaped || actor.downed || actor.hooked) return false;
+  if (actor.vault || actor.actionLock > 0) return false;
+  if (actorHasMoveInput(actor)) return false;
+  return true;
+}
+
 function nearestHookedSurvivorForRescue(game, healer) {
-  if (!healer || healer.role !== "survivor" || healer.dead || healer.escaped || healer.downed || healer.hooked) return null;
+  if (!isStationarySurvivorHelper(healer)) return null;
   return [...game.actors.values()]
     .filter((target) => target.id !== healer.id && target.role === "survivor" && target.hooked && !target.dead && !target.escaped)
     .filter((target) => dist(healer.x, healer.y, target.x, target.y) <= HOOK_RESCUE_DISTANCE)
@@ -2232,12 +2243,9 @@ function updateHookInteractions(game, dt) {
   }
 
   for (const healer of game.actors.values()) {
-    if (healer.role !== "survivor" || healer.dead || healer.escaped || healer.downed || healer.hooked) continue;
-    if (!healer.input.repair || healer.input.sprint || healer.vault || healer.actionLock > 0) continue;
     const target = nearestHookedSurvivorForRescue(game, healer);
     if (!target) continue;
     healer.unhookTargetId = target.id;
-    healer.input.up = healer.input.down = healer.input.left = healer.input.right = false;
     healer.input.angle = Math.atan2(target.y - healer.y, target.x - healer.x);
     target.unhookProgress = clamp((target.unhookProgress || 0) + dt / UNHOOK_TIME, 0, 1);
     activeUnhookTargets.add(target.id);
@@ -2253,16 +2261,26 @@ function updateHookInteractions(game, dt) {
   }
 }
 
-function nearestHealTarget(game, healer) {
-  if (!healer || healer.role !== "survivor" || healer.dead || healer.escaped || healer.downed || healer.hooked) return null;
+function isHealTarget(target) {
+  return !!(
+    target
+    && target.role === "survivor"
+    && !target.dead
+    && !target.escaped
+    && !target.hooked
+    && ((target.downed && target.health <= 0) || (target.health === 1 && target.injured))
+    && !target.vault
+    && !actorHasMoveInput(target)
+  );
+}
+
+function healTargetsNearHelper(game, healer) {
+  if (!isStationarySurvivorHelper(healer)) return [];
   return [...game.actors.values()]
-    .filter((target) => target.id !== healer.id && target.role === "survivor" && !target.dead && !target.escaped && !target.hooked)
-    .filter((target) => !target.healingTargetId)
-    .filter((target) => target.health === 1 && target.injured || (target.downed && target.health <= 0))
-    .filter((target) => !target.vault && !target.input.sprint)
+    .filter((target) => target.id !== healer.id && isHealTarget(target))
     .filter((target) => dist(healer.x, healer.y, target.x, target.y) <= HEAL_DISTANCE)
     .filter((target) => segmentClear(game, healer.x, healer.y, target.x, target.y))
-    .sort((a, b) => dist(healer.x, healer.y, a.x, a.y) - dist(healer.x, healer.y, b.x, b.y))[0] || null;
+    .sort((a, b) => dist(healer.x, healer.y, a.x, a.y) - dist(healer.x, healer.y, b.x, b.y));
 }
 
 function updateHealing(game, dt) {
@@ -2271,36 +2289,22 @@ function updateHealing(game, dt) {
     actor.healingTargetId = null;
   }
 
-  const activeHealTargets = new Set();
-
   for (const healer of game.actors.values()) {
-    if (healer.role !== "survivor" || healer.dead || healer.escaped || healer.downed || healer.hooked) continue;
-    if (activeHealTargets.has(healer.id)) continue; // Being healed means no healing others this tick.
-    if (!healer.input.repair || healer.input.sprint || healer.vault || healer.actionLock > 0) continue;
-    const target = nearestHealTarget(game, healer);
-    if (!target || activeHealTargets.has(target.id)) continue;
+    const targets = healTargetsNearHelper(game, healer);
+    if (!targets.length) continue;
 
-    healer.healingTargetId = target.id;
-    healer.input.up = false;
-    healer.input.down = false;
-    healer.input.left = false;
-    healer.input.right = false;
-    healer.input.sprint = false;
-    healer.input.angle = Math.atan2(target.y - healer.y, target.x - healer.x);
+    healer.healingTargetId = targets[0].id;
+    healer.input.angle = Math.atan2(targets[0].y - healer.y, targets[0].x - healer.x);
 
-    // A survivor being healed cannot simultaneously repair or heal someone else.
-    target.input.repair = false;
-    target.input.sprint = false;
-    target.healingTargetId = null;
-    target.activeHealers.push(healer.id);
-    activeHealTargets.add(target.id);
-
-    target.healProgress = clamp((target.healProgress || 0) + dt / HEAL_TIME, 0, 1);
+    for (const target of targets) {
+      target.activeHealers.push(healer.id);
+      target.healProgress = clamp((target.healProgress || 0) + dt / HEAL_TIME, 0, 1);
+    }
   }
 
   for (const target of game.actors.values()) {
     if (target.role !== "survivor") continue;
-    const canBeHealed = !target.dead && !target.escaped && !target.hooked && ((target.downed && target.health <= 0) || (target.health === 1 && target.injured));
+    const canBeHealed = isHealTarget(target);
     if (!canBeHealed) {
       target.healProgress = 0;
       target.activeHealers = [];
@@ -3143,7 +3147,8 @@ function botMoveToObjective(game, actor) {
     // Rescue still matters after the voids open. Bots should not abandon a hooked teammate
     // just because an exit exists, which is apparently a moral lesson for geometry.
     if (dist(actor.x, actor.y, hookedAlly.x, hookedAlly.y) <= HOOK_RESCUE_DISTANCE && segmentClear(game, actor.x, actor.y, hookedAlly.x, hookedAlly.y)) {
-      actor.input.repair = true;
+      actor.input.up = actor.input.down = actor.input.left = actor.input.right = false;
+      actor.input.sprint = false;
       actor.input.angle = Math.atan2(hookedAlly.y - actor.y, hookedAlly.x - actor.x);
     } else {
       followPath(game, actor, hookedAlly.x, hookedAlly.y, true);
@@ -3164,7 +3169,8 @@ function botMoveToObjective(game, actor) {
     .sort((a, b) => dist(actor.x, actor.y, a.x, a.y) - dist(actor.x, actor.y, b.x, b.y))[0];
   if (injuredAlly && dist(actor.x, actor.y, injuredAlly.x, injuredAlly.y) < 620) {
     if (dist(actor.x, actor.y, injuredAlly.x, injuredAlly.y) <= HEAL_DISTANCE && segmentClear(game, actor.x, actor.y, injuredAlly.x, injuredAlly.y)) {
-      actor.input.repair = true;
+      actor.input.up = actor.input.down = actor.input.left = actor.input.right = false;
+      actor.input.sprint = false;
       actor.input.angle = Math.atan2(injuredAlly.y - actor.y, injuredAlly.x - actor.x);
     } else {
       followPath(game, actor, injuredAlly.x, injuredAlly.y, false);

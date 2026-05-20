@@ -1,11 +1,23 @@
 {
   "latest": {
-    "version": "0.1.0",
-    "title": "Version Tracking",
-    "summary": "Main menu version log online",
-    "description": "Added a version.json changelog and a bottom-right main menu badge that displays the latest version and short title."
+    "version": "0.1.2",
+    "title": "Auto Rescue",
+    "summary": "Proximity healing and rescues",
+    "description": "Survivors now heal and rescue hooked teammates by standing still very close to them instead of holding E. Nearby stationary allies can contribute at the same time, and moving cancels the assist progress."
   },
   "history": [
+    {
+      "version": "0.1.2",
+      "title": "Auto Rescue",
+      "summary": "Proximity healing and rescues",
+      "description": "Survivors now heal and rescue hooked teammates by standing still very close to them instead of holding E. Nearby stationary allies can contribute at the same time, and moving cancels the assist progress."
+    },
+    {
+      "version": "0.1.1",
+      "title": "Action Bars Restored",
+      "summary": "Under-player action bars restored",
+      "description": "Restored scene-level healing, rescue, hook, and execute progress bars underneath players so they stay fixed below actors instead of rotating or disappearing."
+    },
     {
       "version": "0.1.0",
       "title": "Version Tracking",

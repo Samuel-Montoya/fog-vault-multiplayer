@@ -42,7 +42,7 @@ const HOW_TO_PLAY = [
   },
   {
     title: "Controls",
-    text: "WASD move, mouse aim, Shift sprint, Space vault/drop/break, E interact, R quick chat. Touch controls appear on mobile."
+    text: "WASD move, mouse aim, Shift sprint, Space vault/drop/break, R quick chat. Stand still near injured or hooked teammates to heal/rescue them."
   }
 ]
 

@@ -2131,6 +2131,8 @@
       item.container?.destroy();
       item.nameText?.destroy();
       item.chatText?.destroy();
+      item.healBarBg?.destroy();
+      item.healBar?.destroy();
     }
 
     clearActors() {
@@ -2913,7 +2915,7 @@
       ui.roleLabel.textContent = me.role === "killer" ? "The Void" : "Survivor";
       ui.controlsLabel.textContent = me.role === "killer"
         ? "WASD move • Mouse aim • M1 attack/lunge • Space vault/break • hold E hook/execute/kick rift • hold R chat"
-        : "WASD move • Shift sprint • Mouse flashlight • Space vault/drop • collect orbs, stand near rifts to deposit • stand in open voids to escape • hold E heal/unhook • hold R chat";
+        : "WASD move • Shift sprint • Mouse flashlight • Space vault/drop • collect orbs, stand near rifts to deposit • stand still near teammates to heal/rescue • hold R chat";
       const shownDone = Math.min(done, required);
       ui.genText.textContent = `${shownDone} / ${required}${total > required ? ` (${total} on map)` : ""}`;
       if (ui.bigGenText) ui.bigGenText.textContent = `${shownDone} / ${required}`;
@@ -3095,8 +3097,22 @@
       const outline = this.add.graphics();
       const body = this.add.graphics();
       const facing = this.add.rectangle(isKiller ? 24 : 21, 0, isKiller ? 22 : 18, isKiller ? 7 : 5, 0xffffff, 0.42).setOrigin(0, 0.5);
-      const healBarBg = this.add.rectangle(0, -29, 38, 5, 0x000000, 0.55).setVisible(false);
-      const healBar = this.add.rectangle(-19, -29, 0, 5, 0x8dff9a, 0.95).setOrigin(0, 0.5).setVisible(false);
+      // Action bars are scene-level objects, not children of the rotating actor
+      // container. Keeping them separate makes healing / rescue / hook / execute
+      // bars stay fixed underneath the player instead of rotating or drifting away
+      // when the actor turns. A shocking development: UI bars should behave like UI bars.
+      const actionBarWidth = 42;
+      const actionBarHeight = 6;
+      const healBarBg = this.add.rectangle(data.x || 0, (data.y || 0) + 30, actionBarWidth, actionBarHeight, 0x05070d, 0.72)
+        .setOrigin(0.5, 0.5)
+        .setDepth(data.role === "killer" ? 18 : 15)
+        .setScrollFactor(1, 1)
+        .setVisible(false);
+      const healBar = this.add.rectangle((data.x || 0) - actionBarWidth / 2, (data.y || 0) + 30, 0, actionBarHeight, 0x8dff9a, 0.95)
+        .setOrigin(0, 0.5)
+        .setDepth(data.role === "killer" ? 19 : 16)
+        .setScrollFactor(1, 1)
+        .setVisible(false);
       const nameText = this.add.text(data.x || 0, (data.y || 0) + 34, data.name || "", {
         fontFamily: "system-ui, sans-serif",
         fontSize: "12px",
@@ -3115,7 +3131,7 @@
         strokeThickness: 5,
         wordWrap: { width: 180 }
       }).setOrigin(0.5, 0).setDepth((data.role === "killer" ? 17 : 14)).setVisible(false);
-      container.add([outline, body, facing, healBarBg, healBar]);
+      container.add([outline, body, facing]);
       return {
         role: data.role,
         skin: data.skin || "blueSquare",
@@ -3475,10 +3491,10 @@
         if (data.hooked) color = COLORS.hook;
         const disabled = data.dead || data.escaped;
         const downedHealProgress = data.downed && data.healProgress > 0 ? data.healProgress : 0;
+        const hookOrExecuteProgress = data.downed && (data.hookProgress || 0) > 0 && downedHealProgress <= 0;
         const progress = data.hooked ? (data.unhookProgress || 0) : data.downed ? (downedHealProgress || data.hookProgress || 0) : (data.healProgress || 0);
         const showProgress = progress > 0 && !data.dead && !data.escaped;
-        const executing = data.downed && (data.hookCount || 0) >= 2 && data.hookProgress > 0;
-        const progressColor = data.hooked ? 0x75d5ff : downedHealProgress ? 0x8dff9a : executing ? 0xff4040 : data.downed ? 0xffb36b : 0x8dff9a;
+        const progressColor = data.hooked ? 0x75d5ff : downedHealProgress ? 0x8dff9a : hookOrExecuteProgress ? 0xff4040 : data.downed ? 0xffb36b : 0x8dff9a;
         const outlineColor = showProgress ? progressColor : data.invuln > 0 ? 0xffffff : data.hooked ? 0xffc06a : skin.outline;
         this.drawActorShape(item, data, data.dead ? 0x555555 : color, disabled ? 0.45 : 1, outlineColor, showProgress || data.invuln > 0 ? 1 : 0.82);
         if (data.hooked && !disabled && (item.visionAlpha ?? 0) > ACTOR_VISION.MIN_VISIBLE_ALPHA) {
@@ -3489,8 +3505,8 @@
           const barVisible = showProgress && (item.visionAlpha ?? 0) > ACTOR_VISION.MIN_VISIBLE_ALPHA;
           item.healBarBg.setVisible(barVisible);
           item.healBar.setVisible(barVisible);
-          item.healBar.setFillStyle(progressColor, 0.95);
-          item.healBar.width = 38 * clamp(progress, 0, 1);
+          item.healBar.setFillStyle(progressColor, 0.96);
+          item.healBar.width = 42 * clamp(progress, 0, 1);
         }
       }
     }
@@ -4240,10 +4256,11 @@
           item.chatText.setRotation(0);
         }
         if (item.healBarBg && item.healBar) {
-          const barY = item.current.y - 29;
+          const barWidth = 42;
+          const barY = item.current.y + 30;
           item.healBarBg.setPosition(item.current.x, barY);
           item.healBarBg.setRotation(0);
-          item.healBar.setPosition(item.current.x - 19, barY);
+          item.healBar.setPosition(item.current.x - barWidth / 2, barY);
           item.healBar.setRotation(0);
         }
       }
