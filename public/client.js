@@ -252,6 +252,17 @@
   // Keep this matched with server.js. Client uses it only for local prediction
   // so walking into generators does not feel like rubber-band soup.
   const GENERATOR_COLLISION_SIZE = cfgNumber(GAMEPLAY_CONFIG.rift?.collisionSize, 54);
+  const SURVIVOR_VAULT_TIME = cfgNumber(GAMEPLAY_CONFIG.survivor?.vaultTime, 0.38);
+  const KILLER_VAULT_TIME = cfgNumber(GAMEPLAY_CONFIG.void?.vaultTime, 1.05);
+
+  function vaultEase(t) {
+    const x = clamp(t, 0, 1);
+    return x < 0.5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2;
+  }
+
+  function vaultDurationForRole(role) {
+    return role === "killer" ? KILLER_VAULT_TIME : SURVIVOR_VAULT_TIME;
+  }
 
   const PERFORMANCE = {
     // Expensive world UI is redrawn at fixed rates instead of every network snapshot.
@@ -1101,6 +1112,17 @@
     }));
   }
 
+  function dispatchSurvivorStatusHud(snapshot) {
+    window.dispatchEvent(new CustomEvent("voidrift:survivor-status-hud", {
+      detail: {
+        snapshot,
+        myId,
+        spectateTargetId: phaserScene?.spectateTargetId || null,
+        spectating: isLocalSpectating()
+      }
+    }));
+  }
+
   function openReactChatWheel(pointerEvent = null) {
     if (reactChatWheelOpen) return;
     if (!currentSnapshot || currentSnapshot.phase !== "game" || !getLocalPlayerData()) return;
@@ -1539,41 +1561,7 @@
   }
 
   function renderSurvivorStatusHud(snapshot) {
-    if (!ui.survivorStatusHud) return;
-    const actors = snapshot.actors || [];
-    const killer = actors.find((actor) => actor.role === "killer" && actor.chatText);
-    const survivors = actors
-      .filter((actor) => actor.role === "survivor")
-      .sort((a, b) => {
-        if (a.id === myId) return -1;
-        if (b.id === myId) return 1;
-        return String(a.name || "").localeCompare(String(b.name || ""));
-      });
-
-    const survivorCards = survivors.map((actor) => {
-      const state = survivorStateLabel(actor);
-      const name = escapeHtml(actor.name || "Survivor");
-      const you = actor.id === myId ? '<span class="survivor-you">You</span>' : "";
-      const dotsHeld = Math.min(SURVIVOR_DOT_MAX, actor.dots || 0);
-      const depositText = actor.dotDepositTargetId ? ` • feeding ${Math.round((actor.dotDepositProgress || 0) * 100)}%` : "";
-      const chatClass = visibleChatTextForActor(actor) ? " has-chat" : "";
-      return `
-        <div class="${survivorCardClass(actor)}${chatClass}">
-          <div class="survivor-portrait" aria-hidden="true"></div>
-          <div class="survivor-meta">
-            <div class="survivor-name-row"><span class="survivor-name">${name}</span>${you}</div>
-            <div class="survivor-state">${escapeHtml(state)}</div>
-            ${survivorHudChatLine(actor)}
-            <div class="survivor-dots" aria-label="Collectible dots">${dotsHeld} / ${SURVIVOR_DOT_MAX}${depositText}</div>
-          </div>
-          <div class="survivor-action">${escapeHtml(actionLabel(actor))}</div>
-        </div>`;
-    }).join("");
-
-    ui.survivorStatusHud.innerHTML = [
-      renderKillerChatHudCard(killer),
-      survivorCards
-    ].filter(Boolean).join("") || '<div class="survivor-status-card dead"><div class="survivor-portrait"></div><div class="survivor-meta"><div class="survivor-name">No survivors</div><div class="survivor-state">Quiet void</div></div><div class="survivor-action">void</div></div>';
+    dispatchSurvivorStatusHud(snapshot);
   }
 
   function getThreatLevels(snapshot, me) {
@@ -1778,6 +1766,23 @@
       return this.actors.get(id)?.data
         || (currentSnapshot?.actors || []).find((a) => a.id === id)
         || null;
+    }
+
+    killerHidesRemoteHookedSurvivor(data) {
+      const pov = this.getPovSurvivorData();
+      return pov?.role === "killer"
+        && data?.role === "survivor"
+        && !!data?.hooked
+        && data.visible === false
+        && data.id !== myId;
+    }
+
+    killerCanRevealWorldPoint(worldX, worldY) {
+      const pov = this.getPovSurvivorData();
+      if (pov?.role !== "killer") return true;
+      const subject = this.getCameraSubjectItem();
+      if (!subject || !Number.isFinite(worldX) || !Number.isFinite(worldY)) return false;
+      return this.computePointVisionAlpha(worldX, worldY, subject) > WALL_VISION.MIN_VISIBLE_ALPHA;
     }
 
     preload() {
@@ -2370,7 +2375,15 @@
       // hook, and dot because a progress bar moved was the lag monster wearing a nametag.
       this.syncGeneratorSprites(this.visibleGenerators());
       for (const gate of currentSnapshot.map?.gates || this.map.gates || []) this.drawGate(g, gate);
-      for (const hook of currentSnapshot.map?.hooks || this.map.hooks || []) this.drawHook(g, hook);
+      const hookSubject = this.getCameraSubjectItem();
+      const hookPov = this.getPovSurvivorData();
+      for (const hook of currentSnapshot.map?.hooks || this.map.hooks || []) {
+        if (!hook || hook.active === false) continue;
+        const hookAlpha = hookSubject
+          ? this.computePointVisionAlpha(hook.x, hook.y, hookSubject)
+          : 1;
+        this.drawHook(g, hook, hookAlpha);
+      }
       this.drawCollectibleDots(g);
     }
 
@@ -2609,8 +2622,11 @@
       }
     }
 
-    drawHook(g, hook) {
+    drawHook(g, hook, visibilityAlpha = 1) {
       if (!hook || hook.active === false || !this.map) return;
+      visibilityAlpha = clamp(visibilityAlpha, 0, 1);
+      if (visibilityAlpha <= WALL_VISION.MIN_VISIBLE_ALPHA) return;
+
       const tile = this.map.tile || 72;
       const x = Math.round(((hook.x || 0) - tile / 2) / tile) * tile;
       const y = Math.round(((hook.y || 0) - tile / 2) / tile) * tile;
@@ -2621,23 +2637,22 @@
 
       // Hook state: no giant red border. A thin containment field pulses outward
       // around the tile so it reads as dangerous without shouting in block letters.
-      g.fillStyle(0x170308, 0.22 + basePulse * 0.05);
+      g.fillStyle(0x170308, (0.22 + basePulse * 0.05) * visibilityAlpha);
       g.fillRoundedRect(x + 9, y + 9, tile - 18, tile - 18, 11);
 
       for (let i = 0; i < 3; i++) {
         const t = ((now / 1050) + i / 3) % 1;
         const ease = 1 - Math.pow(1 - t, 2);
         const inset = 18 - ease * 14;
-        const alpha = (1 - t) * (0.42 - i * 0.055);
+        const alpha = (1 - t) * (0.42 - i * 0.055) * visibilityAlpha;
         g.lineStyle(1.4, 0xff315d, alpha);
         g.strokeRoundedRect(x + inset, y + inset, tile - inset * 2, tile - inset * 2, 12 + ease * 5);
       }
 
-      const bracketAlpha = 0.45 + basePulse * 0.34;
+      const bracketAlpha = (0.45 + basePulse * 0.34) * visibilityAlpha;
       const pad = 11;
       const len = 14;
       g.lineStyle(2, 0xff6b7d, bracketAlpha);
-      // Corner brackets, cheaper than a sprite sheet and less ugly than a red fence.
       g.beginPath();
       g.moveTo(x + pad, y + pad + len); g.lineTo(x + pad, y + pad); g.lineTo(x + pad + len, y + pad);
       g.moveTo(x + tile - pad - len, y + pad); g.lineTo(x + tile - pad, y + pad); g.lineTo(x + tile - pad, y + pad + len);
@@ -2645,9 +2660,9 @@
       g.moveTo(x + pad + len, y + tile - pad); g.lineTo(x + pad, y + tile - pad); g.lineTo(x + pad, y + tile - pad - len);
       g.strokePath();
 
-      g.fillStyle(0xff315d, 0.10 + basePulse * 0.10);
+      g.fillStyle(0xff315d, (0.10 + basePulse * 0.10) * visibilityAlpha);
       g.fillCircle(cx, cy, 15 + basePulse * 4);
-      g.lineStyle(1.5, 0xff9aac, 0.28 + basePulse * 0.30);
+      g.lineStyle(1.5, 0xff9aac, (0.28 + basePulse * 0.30) * visibilityAlpha);
       g.beginPath();
       g.moveTo(cx, cy - 12);
       g.lineTo(cx + 12, cy);
@@ -2655,7 +2670,7 @@
       g.lineTo(cx - 12, cy);
       g.closePath();
       g.strokePath();
-      g.fillStyle(0xffd1dc, 0.34 + basePulse * 0.22);
+      g.fillStyle(0xffd1dc, (0.34 + basePulse * 0.22) * visibilityAlpha);
       g.fillCircle(cx, cy, 3.2);
     }
 
@@ -2987,24 +3002,33 @@
 
         item.data = data;
         item.skin = data.skin || (data.role === "survivor" ? "blueSquare" : "killerCircle");
-        item.target.x = Number.isFinite(data.x) ? data.x : item.target.x;
-        item.target.y = Number.isFinite(data.y) ? data.y : item.target.y;
-        item.target.angle = Number.isFinite(data.angle) ? data.angle : item.target.angle;
+        const hideHookDestination = this.killerHidesRemoteHookedSurvivor(data);
+        if (!hideHookDestination) {
+          item.target.x = Number.isFinite(data.x) ? data.x : item.target.x;
+          item.target.y = Number.isFinite(data.y) ? data.y : item.target.y;
+          item.target.angle = Number.isFinite(data.angle) ? data.angle : item.target.angle;
+          if (item.killerHookPosLocked) {
+            const jump = dist(item.current.x, item.current.y, item.target.x, item.target.y);
+            if (jump > 120) {
+              item.current.x = item.target.x;
+              item.current.y = item.target.y;
+            }
+            item.killerHookPosLocked = false;
+          }
+        } else {
+          item.killerHookPosLocked = true;
+        }
 
         // Actors are always position-updated from the server, even when hidden.
         // We only hide the container visually. That prevents the seen-again teleport jump.
+        // Killers skip hook-teleport coordinates until they have LOS on the hooked survivor.
         const hookedLocalCanSeeVoid = this.shouldRevealVoidToHookedLocal(data, actors);
-        const isVisible = data.visible !== false || data.id === myId || hookedLocalCanSeeVoid;
-        let alpha = isVisible ? 1 : 0;
-        if (data.id === myId && this.isSpectating()) alpha = 0.32;
-        item.container.setVisible(true);
-        item.container.setAlpha(alpha);
+        item.serverVisible = data.visible !== false || data.id === myId || hookedLocalCanSeeVoid;
+        item.forceFullVision = !!hookedLocalCanSeeVoid;
         item.nameText.setText(data.name || "");
-        item.nameText.setVisible(isVisible && data.id !== myId);
         if (item.chatText) {
           const actorChat = visibleChatTextForActor(data);
           item.chatText.setText(actorChat);
-          item.chatText.setVisible(isVisible && !!actorChat);
 
           // Play the speak chirp only when the local player's own chat bubble appears/changes.
           // Other players can talk all they want without hijacking your ears, a radical concept.
@@ -3086,7 +3110,11 @@
         target: { x: data.x || 0, y: data.y || 0, angle: data.angle || 0 },
         dotDisplay: clamp(data.dots ?? 0, 0, SURVIVOR_DOT_MAX),
         dotDepositVisual: 0,
-        dotOrbitPhase: hash2((data.id || "survivor").length, (data.id || "s").charCodeAt(0) || 0) * Math.PI * 2
+        dotOrbitPhase: hash2((data.id || "survivor").length, (data.id || "s").charCodeAt(0) || 0) * Math.PI * 2,
+        visionAlpha: data.id === myId ? 1 : 0,
+        visionTargetAlpha: data.id === myId ? 1 : 0,
+        serverVisible: data.id === myId,
+        forceFullVision: false
       };
     }
 
@@ -3423,11 +3451,14 @@
         const progressColor = data.hooked ? 0x75d5ff : downedHealProgress ? 0x8dff9a : executing ? 0xff4040 : data.downed ? 0xffb36b : 0x8dff9a;
         const outlineColor = showProgress ? progressColor : data.invuln > 0 ? 0xffffff : data.hooked ? 0xffc06a : skin.outline;
         this.drawActorShape(item, data, data.dead ? 0x555555 : color, disabled ? 0.45 : 1, outlineColor, showProgress || data.invuln > 0 ? 1 : 0.82);
-        if (data.hooked && !disabled) this.drawHookedSurvivorPulse(item, data);
+        if (data.hooked && !disabled && (item.visionAlpha ?? 0) > ACTOR_VISION.MIN_VISIBLE_ALPHA) {
+          this.drawHookedSurvivorPulse(item, data);
+        }
         item.facing.setFillStyle(0xffffff, disabled || data.hooked ? 0.15 : 0.42);
         if (item.healBarBg && item.healBar) {
-          item.healBarBg.setVisible(showProgress);
-          item.healBar.setVisible(showProgress);
+          const barVisible = showProgress && (item.visionAlpha ?? 0) > ACTOR_VISION.MIN_VISIBLE_ALPHA;
+          item.healBarBg.setVisible(barVisible);
+          item.healBar.setVisible(barVisible);
           item.healBar.setFillStyle(progressColor, 0.95);
           item.healBar.width = 38 * clamp(progress, 0, 1);
         }
@@ -3450,7 +3481,9 @@
         }
         if (event.type === "hooked") {
           playSfx("hooked");
-          if (Number.isFinite(event.x) && Number.isFinite(event.y)) {
+          const hookSiteHiddenFromKiller = this.getPovSurvivorData()?.role === "killer"
+            && !this.killerCanRevealWorldPoint(event.x, event.y);
+          if (!hookSiteHiddenFromKiller && Number.isFinite(event.x) && Number.isFinite(event.y) && this.getPovSurvivorData()?.role === "survivor") {
             this.recentHookIndicators.push({
               id: event.survivorId || event.hookId || event.id,
               x: event.x,
@@ -3476,9 +3509,14 @@
           else playSfx("windowVault");
         }
         if (["hit", "death", "execute", "downed", "hooked", "unhooked"].includes(event.type)) {
-          const color = event.type === "unhooked" ? 0x75d5ff : event.type === "hooked" ? COLORS.hook : COLORS.blood;
-          const heavy = event.type === "death" || event.type === "execute" || event.type === "downed" || event.type === "hooked";
-          this.burst(event.x, event.y, color, event.type === "hooked" ? 52 : event.type === "execute" || event.type === "death" ? 62 : 38, event.type === "unhooked" ? 140 : 220);
+          const hookBurstHidden = event.type === "hooked"
+            && this.getPovSurvivorData()?.role === "killer"
+            && !this.killerCanRevealWorldPoint(event.x, event.y);
+          if (!hookBurstHidden) {
+            const color = event.type === "unhooked" ? 0x75d5ff : event.type === "hooked" ? COLORS.hook : COLORS.blood;
+            const heavy = event.type === "death" || event.type === "execute" || event.type === "downed" || event.type === "hooked";
+            this.burst(event.x, event.y, color, event.type === "hooked" ? 52 : event.type === "execute" || event.type === "death" ? 62 : 38, event.type === "unhooked" ? 140 : 220);
+          }
 
           const isLocalSurvivorEvent = event.survivorId === myId;
           const shouldShakeForImpact = (event.type === "hit" || event.type === "downed") && isLocalSurvivorEvent;
@@ -3747,11 +3785,58 @@
       if (me) input.angle = Math.atan2(worldPoint.y - me.y, worldPoint.x - me.x);
     }
 
+    syncVaultPlayback(playback, data, dt) {
+      const duration = vaultDurationForRole(data.role);
+      const hasEndpoints = Number.isFinite(data.vaultFromX)
+        && Number.isFinite(data.vaultFromY)
+        && Number.isFinite(data.vaultToX)
+        && Number.isFinite(data.vaultToY);
+      if (!hasEndpoints) return null;
+
+      const signature = `${data.vaultFromX},${data.vaultFromY},${data.vaultToX},${data.vaultToY}`;
+      if (!playback || playback.signature !== signature) {
+        playback = {
+          signature,
+          fromX: data.vaultFromX,
+          fromY: data.vaultFromY,
+          toX: data.vaultToX,
+          toY: data.vaultToY,
+          t: 0,
+          duration
+        };
+      }
+
+      playback.t = Math.min(playback.duration, playback.t + dt);
+      if (Number.isFinite(data.vaultProgress) && data.vaultProgress > 0) {
+        playback.t = Math.max(playback.t, data.vaultProgress * playback.duration);
+      }
+
+      const eased = vaultEase(playback.t / playback.duration);
+      return {
+        playback,
+        x: playback.fromX + (playback.toX - playback.fromX) * eased,
+        y: playback.fromY + (playback.toY - playback.fromY) * eased
+      };
+    }
+
     predictLocal(dt) {
       if (!this.map || !this.localVisual || !this.localServerTarget?.data) return;
       const data = this.localServerTarget.data;
       this.localVisual.angle = input.angle;
-      if (data.dead || data.escaped || data.hooked || data.vaulting || data.breaking) {
+
+      if (data.vaulting) {
+        const vault = this.syncVaultPlayback(this.localVaultPlayback, data, dt);
+        if (vault) {
+          this.localVaultPlayback = vault.playback;
+          this.localVisual.x = vault.x;
+          this.localVisual.y = vault.y;
+          return;
+        }
+      } else {
+        this.localVaultPlayback = null;
+      }
+
+      if (data.dead || data.escaped || data.hooked || data.breaking) {
         this.localVisual.x += (this.localServerTarget.x - this.localVisual.x) * 0.45;
         this.localVisual.y += (this.localServerTarget.y - this.localVisual.y) * 0.45;
         return;
@@ -3889,6 +3974,80 @@
       ];
     }
 
+    computeActorPointVisionAlpha(worldX, worldY, subject) {
+      if (!subject) return 0;
+      const role = subject.data?.role || "survivor";
+      const sourceX = subject.current?.x ?? subject.container?.x ?? 0;
+      const sourceY = subject.current?.y ?? subject.container?.y ?? 0;
+      const facing = subject.current?.angle ?? subject.container?.rotation ?? 0;
+      const length = (role === "killer" ? LIGHTING.KILLER_LENGTH : LIGHTING.SURVIVOR_LENGTH) + WALL_VISION.CONE_EXTRA_LENGTH;
+      const coneAngle = (role === "killer" ? LIGHTING.KILLER_ANGLE : LIGHTING.SURVIVOR_ANGLE) + WALL_VISION.CONE_EXTRA_ANGLE;
+      const nearRadius = role === "killer" ? WALL_VISION.KILLER_NEAR_RADIUS : WALL_VISION.SURVIVOR_NEAR_RADIUS;
+      const r = ACTOR_VISION.POINT_RADIUS;
+      const pointItem = {
+        rect: { x: worldX - r, y: worldY - r, w: r * 2, h: r * 2 },
+        radius: r,
+        samples: [{ x: worldX, y: worldY }]
+      };
+      return this.computeWallVisionAlpha(pointItem, sourceX, sourceY, facing, length, coneAngle, nearRadius);
+    }
+
+    computePointVisionAlpha(worldX, worldY, subject) {
+      const coneAlpha = this.computeActorPointVisionAlpha(worldX, worldY, subject);
+      if (coneAlpha <= WALL_VISION.MIN_VISIBLE_ALPHA) return 0;
+      const sourceX = subject?.current?.x ?? subject?.container?.x ?? 0;
+      const sourceY = subject?.current?.y ?? subject?.container?.y ?? 0;
+      if (!this.hasClearWallLineOfSight(sourceX, sourceY, worldX, worldY)) return 0;
+      return coneAlpha;
+    }
+
+    updateActorVisionAlpha(dt) {
+      const subject = this.getCameraSubjectItem();
+      const fadeInRate = ACTOR_VISION.FADE_IN_PER_SECOND;
+      const fadeOutRate = ACTOR_VISION.FADE_OUT_PER_SECOND;
+      const minAlpha = ACTOR_VISION.MIN_VISIBLE_ALPHA;
+      const nameAlpha = ACTOR_VISION.NAME_CHAT_ALPHA;
+
+      for (const [id, item] of this.actors.entries()) {
+        const data = item.data || {};
+        let target = 0;
+
+        if (id === myId) {
+          target = this.isSpectating() ? 0.32 : 1;
+        } else if (item.forceFullVision) {
+          target = 1;
+        } else if (item.serverVisible) {
+          target = subject ? this.computePointVisionAlpha(item.current.x, item.current.y, subject) : 1;
+        }
+
+        item.visionTargetAlpha = target;
+        const rate = target > (item.visionAlpha ?? 0) ? fadeInRate : fadeOutRate;
+        item.visionAlpha = lerp(item.visionAlpha ?? 0, target, dampAlpha(rate, dt));
+
+        let alpha = item.visionAlpha;
+        if (alpha < minAlpha && target <= minAlpha) alpha = 0;
+
+        item.container.setVisible(true);
+        item.container.setAlpha(clamp(alpha, 0, 1));
+
+        const showNames = alpha > nameAlpha && id !== myId;
+        const actorChat = visibleChatTextForActor(data);
+        const showChat = !!actorChat && (id === myId || showNames);
+        if (item.nameText) {
+          item.nameText.setVisible(showNames);
+          item.nameText.setAlpha(alpha);
+        }
+        if (item.chatText) {
+          item.chatText.setVisible(showChat);
+          item.chatText.setAlpha(id === myId ? 1 : alpha);
+        }
+        if (item.healBarBg && item.healBar) {
+          item.healBarBg.setAlpha(alpha);
+          item.healBar.setAlpha(alpha);
+        }
+      }
+    }
+
     computeWallVisionAlpha(item, sourceX, sourceY, facing, length, coneAngle, nearRadius) {
       const nearDistance = Math.max(0, this.rectDistanceToPoint(item.rect, sourceX, sourceY) - item.radius * 0.18);
       const nearAlpha = 1 - smoothstep(nearRadius * 0.72, nearRadius, nearDistance);
@@ -3934,8 +4093,9 @@
       const coneAngle = baseAngle + WALL_VISION.CONE_EXTRA_ANGLE;
       const nearRadius = role === "killer" ? WALL_VISION.KILLER_NEAR_RADIUS : WALL_VISION.SURVIVOR_NEAR_RADIUS;
 
+      const subjectVaulting = !!subject?.data?.vaulting;
       this.wallVisionTimer = (this.wallVisionTimer || 0) + dt;
-      const shouldRecompute = this.wallVisionTimer >= 1 / PERFORMANCE.WALL_VISION_FPS;
+      const shouldRecompute = subjectVaulting || this.wallVisionTimer >= 1 / PERFORMANCE.WALL_VISION_FPS;
       if (shouldRecompute) this.wallVisionTimer = 0;
 
       const fadeInRate = WALL_VISION.FADE_IN_PER_SECOND;
@@ -3973,11 +4133,24 @@
           item.current.x = this.localVisual.x;
           item.current.y = this.localVisual.y;
           item.current.angle = this.localVisual.angle;
-        } else {
-          const factor = item.data?.vaulting ? 0.5 : 0.22;
-          item.current.x = lerp(item.current.x, item.target.x, factor);
-          item.current.y = lerp(item.current.y, item.target.y, factor);
+        } else if (item.data?.vaulting) {
+          const vault = this.syncVaultPlayback(item.vaultPlayback, item.data, dt);
+          if (vault) {
+            item.vaultPlayback = vault.playback;
+            item.current.x = vault.x;
+            item.current.y = vault.y;
+          } else {
+            item.current.x = lerp(item.current.x, item.target.x, 0.35);
+            item.current.y = lerp(item.current.y, item.target.y, 0.35);
+          }
           item.current.angle = lerpAngle(item.current.angle, item.target.angle, 0.24);
+        } else {
+          item.vaultPlayback = null;
+          if (!this.killerHidesRemoteHookedSurvivor(item.data)) {
+            item.current.x = lerp(item.current.x, item.target.x, 0.22);
+            item.current.y = lerp(item.current.y, item.target.y, 0.22);
+            item.current.angle = lerpAngle(item.current.angle, item.target.angle, 0.24);
+          }
         }
         item.container.setPosition(item.current.x, item.current.y);
         item.container.rotation = item.current.angle || 0;
@@ -4013,6 +4186,11 @@
           item.dotOrbitPhase = (item.dotOrbitPhase || 0) + dt * DOT_ORBIT_VISUAL.SPIN_SPEED;
           item.dotDisplay = lerp(prevDisplay, targetDots, dampAlpha(smoothing, dt));
         }
+      }
+
+      this.updateActorVisionAlpha(dt);
+
+      for (const [id, item] of this.actors.entries()) {
         if (item.data?.role === "killer" || item.data?.role === "survivor") {
           this.styleActor(item, item.data);
         }
@@ -4025,6 +4203,13 @@
           const isKiller = item.data?.role === "killer";
           item.chatText.setPosition(item.current.x, item.current.y + (isKiller ? 47 : 43));
           item.chatText.setRotation(0);
+        }
+        if (item.healBarBg && item.healBar) {
+          const barY = item.current.y - 29;
+          item.healBarBg.setPosition(item.current.x, barY);
+          item.healBarBg.setRotation(0);
+          item.healBar.setPosition(item.current.x - 19, barY);
+          item.healBar.setRotation(0);
         }
       }
     }

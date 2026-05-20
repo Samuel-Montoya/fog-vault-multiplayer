@@ -356,8 +356,6 @@ function GameHud() {
         </div>
       </div>
 
-      <div id="survivorStatusHud" className="survivor-status-list hidden" aria-live="polite" />
-
       <div id="bigGenCounter" className="big-gen-counter hidden" aria-live="polite">
         <div className="big-gen-icon rift-counter-icon" aria-hidden="true">
           <span className="rift-counter-core" />
@@ -385,6 +383,73 @@ function GameHud() {
 }
 
 const CHAT_WHEEL_FALLBACK_MESSAGES = ["Let's feed a rift.", "I'm so scared...", "Here he comes!", "What was that?!"]
+
+const SURVIVOR_DOT_MAX = Number(window.GAMEPLAY_CONFIG?.orbs?.survivorMax) || 10
+
+const ORB_FULL_CHAT_MESSAGES = new Set([
+  "I have too many orbs...",
+  "I should deposit these",
+  "I can't pick any more up.",
+  "I'm getting full..."
+])
+
+function escapeHtml(str) {
+  return String(str || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+}
+
+function visibleChatTextForActor(actor) {
+  const text = actor?.chatText || ""
+  if (!text) return ""
+  if ((actor.downed || actor.hooked || actor.dead || actor.escaped) && ORB_FULL_CHAT_MESSAGES.has(text)) return ""
+  return text
+}
+
+function survivorStateLabel(actor) {
+  if (actor.dead) return "Dead"
+  if (actor.escaped) return "Escaped"
+  if (actor.escapeProgress > 0) return `Escaping ${Math.round((actor.escapeProgress || 0) * 100)}%`
+  if (actor.hooked) return actor.unhookProgress > 0 ? "Being Rescued" : `Hooked ${actor.hookCount || 1}/2`
+  if (actor.downed) {
+    if (actor.healProgress > 0) return "Being Healed"
+    return actor.hookProgress > 0 ? ((actor.hookCount || 0) >= 2 ? "Being Executed" : "Being Hooked") : "Downed"
+  }
+  if (actor.dotDepositTargetId) return `Depositing ${Math.round((actor.dotDepositProgress || 0) * 100)}%`
+  if (actor.health <= 1 || actor.injured) return actor.healProgress > 0 ? "Being Healed" : "Injured"
+  return actor.chase ? "Chased" : "Healthy"
+}
+
+function survivorCardClass(actor, myId, spectateTargetId, spectating) {
+  const classes = ["survivor-status-card"]
+  if (actor.id === myId) classes.push("self")
+  if (spectating && actor.id === spectateTargetId) classes.push("spectating")
+  if (actor.dead) classes.push("dead")
+  else if (actor.escaped) classes.push("escaped")
+  else if (actor.hooked) classes.push("hooked")
+  else if (actor.downed) classes.push("downed")
+  else if (actor.health <= 1 || actor.injured) classes.push("injured")
+  else classes.push("healthy")
+  if (actor.chase && !actor.dead && !actor.escaped && !actor.hooked && !actor.downed) classes.push("chased")
+  return classes.join(" ")
+}
+
+function actionLabel(actor) {
+  if (actor.dead) return "skull"
+  if (actor.escaped) return "out"
+  if (actor.hooked) return actor.unhookProgress > 0 ? "rescue" : "hook"
+  if (actor.downed) {
+    if (actor.healProgress > 0) return "heal"
+    return actor.hookProgress > 0 ? ((actor.hookCount || 0) >= 2 ? "execute" : "capture") : "down"
+  }
+  if (actor.chase) return "chase"
+  if (actor.dotDepositTargetId) return "feed"
+  if (actor.healProgress > 0) return "heal"
+  if (actor.health <= 1 || actor.injured) return "hurt"
+  return "safe"
+}
 
 const CHAT_WHEEL_SEGMENTS = [
   { index: 0, className: "top" },
@@ -504,6 +569,108 @@ function ChatWheel() {
   )
 }
 
+function SurvivorStatusHud() {
+  const [hud, setHud] = useState({
+    survivors: [],
+    killerChat: null,
+    myId: null
+  })
+
+  useEffect(() => {
+    const handleHud = (event) => {
+      const detail = event.detail || {}
+      const snapshot = detail.snapshot || {}
+      const myId = detail.myId || null
+      const spectateTargetId = detail.spectateTargetId || null
+      const spectating = !!detail.spectating
+      const actors = snapshot.actors || []
+      const killer = actors.find((actor) => actor.role === "killer" && visibleChatTextForActor(actor))
+      const survivors = actors
+        .filter((actor) => actor.role === "survivor")
+        .sort((a, b) => {
+          if (a.id === myId) return -1
+          if (b.id === myId) return 1
+          return String(a.name || "").localeCompare(String(b.name || ""))
+        })
+        .map((actor) => ({
+          id: actor.id,
+          name: actor.name || "Survivor",
+          state: survivorStateLabel(actor),
+          className: survivorCardClass(actor, myId, spectateTargetId, spectating),
+          chat: visibleChatTextForActor(actor),
+          action: actionLabel(actor),
+          dotsHeld: Math.min(SURVIVOR_DOT_MAX, actor.dots || 0),
+          depositText: actor.dotDepositTargetId
+            ? ` • feeding ${Math.round((actor.dotDepositProgress || 0) * 100)}%`
+            : ""
+        }))
+
+      setHud({
+        myId,
+        survivors,
+        killerChat: killer
+          ? {
+              name: killer.name || "The Void",
+              chat: visibleChatTextForActor(killer)
+            }
+          : null
+      })
+    }
+
+    window.addEventListener("voidrift:survivor-status-hud", handleHud)
+    return () => window.removeEventListener("voidrift:survivor-status-hud", handleHud)
+  }, [])
+
+  return (
+    <div id="survivorStatusHud" className="survivor-status-list hidden" aria-live="polite">
+      {hud.killerChat && (
+        <div className="survivor-status-card killer-chat-card has-chat">
+          <div className="survivor-portrait killer-portrait" aria-hidden="true" />
+          <div className="survivor-meta">
+            <div className="survivor-name-row">
+              <span className="survivor-name">{hud.killerChat.name}</span>
+              <span className="survivor-you">VOID</span>
+            </div>
+            {hud.killerChat.chat && (
+              <div className="survivor-chat" role="status">&quot;{hud.killerChat.chat}&quot;</div>
+            )}
+          </div>
+          <div className="survivor-action">chat</div>
+        </div>
+      )}
+      {hud.survivors.map((actor) => (
+        <div className={`${actor.className}${actor.chat ? " has-chat" : ""}`} key={actor.id}>
+          <div className="survivor-portrait" aria-hidden="true" />
+          <div className="survivor-meta">
+            <div className="survivor-name-row">
+              <span className="survivor-name">{actor.name}</span>
+              {actor.id === hud.myId && <span className="survivor-you">You</span>}
+            </div>
+            <div className="survivor-state">{actor.state}</div>
+            {actor.chat && (
+              <div className="survivor-chat" role="status">&quot;{actor.chat}&quot;</div>
+            )}
+            <div className="survivor-dots" aria-label="Collectible dots">
+              {actor.dotsHeld} / {SURVIVOR_DOT_MAX}{actor.depositText}
+            </div>
+          </div>
+          <div className="survivor-action">{actor.action}</div>
+        </div>
+      ))}
+      {!hud.survivors.length && !hud.killerChat && (
+        <div className="survivor-status-card dead">
+          <div className="survivor-portrait" />
+          <div className="survivor-meta">
+            <div className="survivor-name">No survivors</div>
+            <div className="survivor-state">Quiet void</div>
+          </div>
+          <div className="survivor-action">void</div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function HookEdgeIndicators() {
   const [indicators, setIndicators] = useState([])
 
@@ -584,6 +751,7 @@ export default function App() {
       <HowScreen />
       <LobbyScreen />
       <GameHud />
+      <SurvivorStatusHud />
       <ChatWheel />
       <HookEdgeIndicators />
       <div id="toast" className="toast hidden" />

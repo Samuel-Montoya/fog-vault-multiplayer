@@ -3279,7 +3279,7 @@ function isActorVisibleToViewer(game, viewer, actor) {
   }
 
   if (viewer.role === "killer" && actor.role === "survivor") {
-    // Killers only see survivors through line of sight: inside their cone,
+    // Killers only see survivors (including hooked) through line of sight: inside their cone,
     // or extremely close, including right behind them. No global sprint/repair wallhack nonsense.
     if (!los) return false;
     if (d <= CLOSE_REVEAL_RADIUS) return true;
@@ -3293,6 +3293,21 @@ function isActorVisibleToViewer(game, viewer, actor) {
   }
 
   return true;
+}
+
+function hooksForSnapshot(game, viewer) {
+  return (game.map?.hooks || [])
+    .filter((h) => h.active)
+    .map((h) => {
+      const entry = { id: h.id, x: h.x, y: h.y, active: h.active, survivorId: null };
+      if (!h.survivorId) return entry;
+      if (viewer?.role !== "killer") return { ...entry, survivorId: h.survivorId };
+      const survivor = game.actors.get(h.survivorId);
+      if (survivor && isActorVisibleToViewer(game, viewer, survivor)) {
+        return { ...entry, survivorId: h.survivorId };
+      }
+      return entry;
+    });
 }
 
 function serializeActor(game, actor, visible = true) {
@@ -3495,7 +3510,7 @@ function buildSnapshotFor(lobby, socketId) {
           .filter((a) => a.role === "survivor" && !a.dead && !a.escaped && a.escapeGateId === g.id)
           .map((a) => quantizedProgress((a.escapeProgress || 0) / GATE_ESCAPE_TIME)))
       })),
-      hooks: (map.hooks || []).filter((h) => h.active).map((h) => ({ id: h.id, x: h.x, y: h.y, survivorId: h.survivorId, active: h.active }))
+      hooks: hooksForSnapshot(game, pov)
     },
     phase: game.phase,
     winner: game.winner,
