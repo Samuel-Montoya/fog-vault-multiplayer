@@ -58,6 +58,65 @@ const VERSION_FALLBACK = {
   summary: "Main menu version log online"
 }
 
+
+function detectBlockedMobileDevice() {
+  if (typeof window === "undefined") {
+    return {
+      blocked: false,
+      label: "Desktop ready",
+      shortestSide: 0,
+      longestSide: 0
+    }
+  }
+
+  const userAgent = window.navigator?.userAgent || ""
+  const maxTouchPoints = window.navigator?.maxTouchPoints || 0
+  const width = window.innerWidth || window.screen?.width || 0
+  const height = window.innerHeight || window.screen?.height || 0
+  const shortestSide = Math.min(width, height)
+  const longestSide = Math.max(width, height)
+  const coarsePointer = typeof window.matchMedia === "function"
+    ? window.matchMedia("(pointer: coarse)").matches
+    : false
+
+  const phoneUserAgent = /Android.*Mobile|iPhone|iPod|IEMobile|Windows Phone|BlackBerry|BB10|webOS|Opera Mini/i.test(userAgent)
+  const mobileUserAgent = /Android|iPad|iPhone|iPod|IEMobile|Windows Phone|BlackBerry|BB10|webOS|Opera Mini/i.test(userAgent)
+  const smallTouchScreen = coarsePointer && maxTouchPoints > 0 && shortestSide <= 820 && longestSide <= 1180
+  const blocked = phoneUserAgent || smallTouchScreen
+
+  return {
+    blocked,
+    label: phoneUserAgent ? "Phone detected" : mobileUserAgent || smallTouchScreen ? "Mobile touch device detected" : "Desktop ready",
+    shortestSide,
+    longestSide
+  }
+}
+
+function useMobileDeviceBlock() {
+  const [deviceBlock, setDeviceBlock] = useState(() => detectBlockedMobileDevice())
+
+  useEffect(() => {
+    const updateDeviceBlock = () => setDeviceBlock(detectBlockedMobileDevice())
+    const pointerQuery = typeof window.matchMedia === "function"
+      ? window.matchMedia("(pointer: coarse)")
+      : null
+
+    window.addEventListener("resize", updateDeviceBlock)
+    window.addEventListener("orientationchange", updateDeviceBlock)
+    window.visualViewport?.addEventListener("resize", updateDeviceBlock)
+    pointerQuery?.addEventListener?.("change", updateDeviceBlock)
+
+    return () => {
+      window.removeEventListener("resize", updateDeviceBlock)
+      window.removeEventListener("orientationchange", updateDeviceBlock)
+      window.visualViewport?.removeEventListener("resize", updateDeviceBlock)
+      pointerQuery?.removeEventListener?.("change", updateDeviceBlock)
+    }
+  }, [])
+
+  return deviceBlock
+}
+
 function resolveLatestVersion(payload) {
   if (!payload || typeof payload !== "object") return VERSION_FALLBACK
 
@@ -102,8 +161,9 @@ function loadScript(src) {
   })
 }
 
-function useVoidriftClient() {
+function useVoidriftClient(disabled = false) {
   useEffect(() => {
+    if (disabled) return
     if (window.__VOIDRIFT_CLIENT_BOOTED__) return
     window.__VOIDRIFT_CLIENT_BOOTED__ = true
 
@@ -117,7 +177,7 @@ function useVoidriftClient() {
           toast.classList.remove("hidden")
         }
       })
-  }, [])
+  }, [disabled])
 }
 
 function SkinButton({ skin, compact = false }) {
@@ -1040,6 +1100,31 @@ function EndScreen() {
   )
 }
 
+
+function MobileBlockedScreen({ device }) {
+  return (
+    <>
+      <MenuBackground />
+      <main className="mobile-block-screen" role="alert" aria-live="assertive">
+        <section className="void-card mobile-block-card" aria-label="Desktop required">
+          <div className="mobile-block-mark" aria-hidden="true">
+            <span />
+          </div>
+          <div className="eyebrow">desktop needed</div>
+          <h1 style={{textTransform:"lowercase"}}>RiftRunner needs a mouse and keyboard</h1>
+          <p className="screen-copy">
+            Mobile and phone play is disabled for now. RiftRunner uses mouse aim and keyboard movement for the best experience.
+          </p>
+          <div className="mobile-block-meta">
+            <span>{device?.label || "Mobile device detected"}</span>
+            <b>Open this page on a desktop or laptop to play.</b>
+          </div>
+        </section>
+      </main>
+    </>
+  )
+}
+
 function SeoIntroBadge() {
   return (
     <section
@@ -1085,7 +1170,13 @@ function SeoIntroBadge() {
 }
 
 export default function App() {
-  useVoidriftClient()
+  const mobileBlock = useMobileDeviceBlock()
+
+  useVoidriftClient(mobileBlock.blocked)
+
+  if (mobileBlock.blocked) {
+    return <MobileBlockedScreen device={mobileBlock} />
+  }
 
   return (
     <>
