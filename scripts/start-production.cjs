@@ -36,7 +36,7 @@ function runBuildIfNeeded() {
   }
 
   if (result.status !== 0) {
-    console.error(`[riftrunner] npm run build failed with exit code ${result.status}.`);
+    console.error(`[riftrunner] npm run build failed with exit code ${result.status}. If this says vite was not found, Render installed production-only dependencies before a frontend build existed. Use the updated package.json/package-lock.json and redeploy, or set Render Build Command to npm ci --include=dev && npm run build && test -f dist/index.html.`);
     process.exit(result.status || 1);
   }
 
