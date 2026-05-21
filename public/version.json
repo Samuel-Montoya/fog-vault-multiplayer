@@ -1,12 +1,26 @@
 {
   "latest": {
-    "version": "0.1.25",
-    "title": "End Match Stats",
-    "summary": "Post-run scorecards for Runners and The Void",
-    "description": "Added server-tracked end-game stats for each Runner and The Void, including orbs collected/deposited, heals, unhooks, escape status, chase time, rift kicks, injures, hooks, deaths, and Void abilities used. The run ended screen now renders a scorecard for every player.",
+    "version": "0.1.27",
+    "title": "Pallet Impact Polish",
+    "summary": "Broken pallet X and stun shake",
+    "description": "Updated broken pallets to read as a glowing purple X in the middle and made pallet stuns trigger stronger camera shake feedback for The Void, the stunning Runner, and nearby players.",
     "date": "2026-05-21"
   },
   "history": [
+    {
+      "version": "0.1.27",
+      "title": "Pallet Impact Polish",
+      "summary": "Broken pallet X and stun shake",
+      "description": "Updated broken pallets to read as a glowing purple X in the middle and made pallet stuns trigger stronger camera shake feedback for The Void, the stunning Runner, and nearby players.",
+      "date": "2026-05-21"
+    },
+    {
+      "version": "0.1.26",
+      "title": "Compact End Results",
+      "summary": "Slimmer end-game scoreboard",
+      "description": "Restyled the run ended results screen into a compact, horizontal scoreboard with slimmer player rows and renamed The Void death stat to Runners consumed.",
+      "date": "2026-05-21"
+    },
     {
       "version": "0.1.25",
       "title": "End Match Stats",

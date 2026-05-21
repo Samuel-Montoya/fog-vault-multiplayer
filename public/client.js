@@ -3045,44 +3045,8 @@
       const dropped = pallet.state === "dropped";
       const now = performance.now?.() || Date.now();
       const pulse = 0.5 + Math.sin(now / 230 + hash2(Math.floor(pallet.x), Math.floor(pallet.y)) * Math.PI * 2) * 0.5;
-      const shell = dropped ? 0x0b1633 : 0x0b0916;
-      const shard = dropped ? 0x58b7ff : 0xa855f7;
-      const glow = dropped ? 0xc4f1ff : 0xffb4f6;
-
       if (broken) {
-        const cx = pallet.x + pallet.w * 0.5;
-        const cy = pallet.y + pallet.h * 0.5;
-        g.fillStyle(0x05060d, 0.22);
-        g.fillEllipse(cx, cy + 6, pallet.w * 0.76, pallet.h * 0.28);
-
-        g.lineStyle(6, shell, 0.84);
-        g.beginPath();
-        g.moveTo(pallet.x + 14, pallet.y + 12);
-        g.lineTo(pallet.x + pallet.w * 0.42, pallet.y + pallet.h * 0.54);
-        g.lineTo(pallet.x + pallet.w - 16, pallet.y + pallet.h - 13);
-        g.moveTo(pallet.x + 18, pallet.y + pallet.h - 14);
-        g.lineTo(pallet.x + pallet.w * 0.56, pallet.y + pallet.h * 0.48);
-        g.lineTo(pallet.x + pallet.w - 12, pallet.y + 13);
-        g.strokePath();
-
-        g.lineStyle(2.25, glow, 0.72);
-        g.beginPath();
-        g.moveTo(pallet.x + 17, pallet.y + 18);
-        g.lineTo(pallet.x + pallet.w * 0.44, pallet.y + pallet.h * 0.56);
-        g.moveTo(pallet.x + 26, pallet.y + pallet.h - 18);
-        g.lineTo(pallet.x + pallet.w * 0.56, pallet.y + pallet.h * 0.46);
-        g.strokePath();
-
-        for (let i = 0; i < 5; i++) {
-          const t = i / 4;
-          const px = pallet.x + 14 + (pallet.w - 28) * t;
-          const py = pallet.y + pallet.h * (i % 2 ? 0.34 : 0.66);
-          const r = 3.2 + (i % 2) * 1.15;
-          g.fillStyle(shard, 0.36 + pulse * 0.12);
-          g.fillCircle(px, py, r);
-          g.lineStyle(1, glow, 0.46 + pulse * 0.16);
-          g.strokeCircle(px, py, r + 3.5 + pulse * 1.8);
-        }
+        this.drawBrokenRiftPallet(g, pallet, pulse);
         return;
       }
 
@@ -3095,6 +3059,87 @@
         const x = dropped ? pallet.x + pallet.w * 0.14 : pallet.x + pallet.w * 0.32;
         this.drawRiftPalletBody(g, x, pallet.y + 5, w, pallet.h - 10, false, dropped, pulse);
       }
+    }
+
+    drawBrokenRiftPallet(g, pallet, pulse = 0.5) {
+      const cx = pallet.x + pallet.w * 0.5;
+      const cy = pallet.y + pallet.h * 0.5;
+      const padX = Math.max(12, pallet.w * 0.18);
+      const padY = Math.max(10, pallet.h * 0.18);
+      const x1 = pallet.x + padX;
+      const x2 = pallet.x + pallet.w - padX;
+      const y1 = pallet.y + padY;
+      const y2 = pallet.y + pallet.h - padY;
+      const purple = 0xa855f7;
+      const hotPurple = 0xff4fd8;
+      const paleGlow = 0xf5d0fe;
+      const deepVoid = 0x08030f;
+
+      // Ground scorch / contact shadow so broken pallets feel embedded in the arena.
+      g.fillStyle(0x04050a, 0.26);
+      g.fillEllipse(cx, cy + 7, pallet.w * 0.82, pallet.h * 0.34);
+
+      // A few snapped void-tech fragments around the central X.
+      const fragments = [
+        [pallet.x + pallet.w * 0.18, pallet.y + pallet.h * 0.31, -0.22, 16],
+        [pallet.x + pallet.w * 0.80, pallet.y + pallet.h * 0.34, 0.26, 15],
+        [pallet.x + pallet.w * 0.27, pallet.y + pallet.h * 0.72, 0.18, 13],
+        [pallet.x + pallet.w * 0.72, pallet.y + pallet.h * 0.70, -0.24, 18]
+      ];
+      for (const [fx, fy, tilt, len] of fragments) {
+        g.lineStyle(5.2, deepVoid, 0.82);
+        g.beginPath();
+        g.moveTo(fx - Math.cos(tilt) * len * 0.5, fy - Math.sin(tilt) * len * 0.5);
+        g.lineTo(fx + Math.cos(tilt) * len * 0.5, fy + Math.sin(tilt) * len * 0.5);
+        g.strokePath();
+        g.lineStyle(1.4, paleGlow, 0.22 + pulse * 0.12);
+        g.beginPath();
+        g.moveTo(fx - Math.cos(tilt) * len * 0.34, fy - Math.sin(tilt) * len * 0.34);
+        g.lineTo(fx + Math.cos(tilt) * len * 0.34, fy + Math.sin(tilt) * len * 0.34);
+        g.strokePath();
+      }
+
+      // Main broken-state read: a glowing purple X at the center.
+      for (let i = 0; i < 2; i++) {
+        const wideAlpha = i === 0 ? 0.22 + pulse * 0.08 : 0.16 + pulse * 0.06;
+        const width = i === 0 ? 13 : 8;
+        g.lineStyle(width, hotPurple, wideAlpha);
+        g.beginPath();
+        g.moveTo(x1, y1);
+        g.lineTo(x2, y2);
+        g.moveTo(x2, y1);
+        g.lineTo(x1, y2);
+        g.strokePath();
+      }
+
+      g.lineStyle(7, deepVoid, 0.92);
+      g.beginPath();
+      g.moveTo(x1, y1);
+      g.lineTo(x2, y2);
+      g.moveTo(x2, y1);
+      g.lineTo(x1, y2);
+      g.strokePath();
+
+      g.lineStyle(4.2, purple, 0.90);
+      g.beginPath();
+      g.moveTo(x1, y1);
+      g.lineTo(x2, y2);
+      g.moveTo(x2, y1);
+      g.lineTo(x1, y2);
+      g.strokePath();
+
+      g.lineStyle(1.8, paleGlow, 0.60 + pulse * 0.20);
+      g.beginPath();
+      g.moveTo(x1 + 7, y1 + 6);
+      g.lineTo(x2 - 7, y2 - 6);
+      g.moveTo(x2 - 7, y1 + 6);
+      g.lineTo(x1 + 7, y2 - 6);
+      g.strokePath();
+
+      g.fillStyle(hotPurple, 0.44 + pulse * 0.14);
+      g.fillCircle(cx, cy, 4.2 + pulse * 1.4);
+      g.lineStyle(1.2, paleGlow, 0.34 + pulse * 0.22);
+      g.strokeCircle(cx, cy, 10 + pulse * 4.5);
     }
 
     drawRiftPalletBody(g, x, y, w, h, horizontal, dropped, pulse = 0.5) {
@@ -4289,8 +4334,13 @@
           this.burst(event.x, event.y, 0xff3048, LOW_POWER_MODE ? 26 : 46, LOW_POWER_MODE ? 150 : 230);
           this.addShockwave(event.x, event.y, 0xff1f3a, 0.88, LOW_POWER_MODE ? 105 : 165);
           this.addShockwave(event.palletX || event.x, event.palletY || event.y, 0xff5268, 0.54, LOW_POWER_MODE ? 84 : 125);
+          const localPalletStunner = event.actorId === myId || event.survivorId === myId;
           if (event.killerId === myId) {
-            this.cameras.main.shake(LOW_POWER_MODE ? 140 : 190, LOW_POWER_MODE ? 0.0032 : 0.0052);
+            this.cameras.main.shake(LOW_POWER_MODE ? 170 : 230, LOW_POWER_MODE ? 0.0044 : 0.0068);
+          } else if (localPalletStunner) {
+            this.cameras.main.shake(LOW_POWER_MODE ? 115 : 155, LOW_POWER_MODE ? 0.0024 : 0.0038);
+          } else if (distanceToLocalEvent(event) <= 260) {
+            this.cameras.main.shake(LOW_POWER_MODE ? 70 : 95, LOW_POWER_MODE ? 0.0008 : 0.0014);
           }
         }
         if (event.type === "voidAbility") {
@@ -5750,7 +5800,7 @@
             statItem("Orbs collected", stats.orbsCollected || 0),
             statItem("Injures", stats.injures || 0),
             statItem("Hooks", stats.hooks || 0),
-            statItem("Deaths", stats.deaths || 0),
+            statItem("Runners consumed", stats.deaths || 0),
             statItem("Abilities used", stats.abilitiesUsed || 0)
           ].join("")
         : [

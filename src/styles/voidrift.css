@@ -2139,101 +2139,166 @@ body.ultra-low-power.survivor-hit-impact #gameWrap {
 }
 
 .end-panel {
-  width: min(980px, 100%);
+  width: min(1180px, 100%);
   text-align: left;
+  padding: clamp(18px, 2.2vw, 28px);
+}
+
+.end-panel #winnerText {
+  margin-bottom: 4px;
+  letter-spacing: 0.06em;
+}
+
+.end-panel #reasonText {
+  margin-bottom: 12px;
 }
 
 .end-stats {
+  position: relative;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 14px;
-  margin: 22px 0 24px;
+  grid-template-columns: 1fr;
+  gap: 8px;
+  margin: 16px 0 18px;
+}
+
+.end-stats::before {
+  content: "PLAYER RESULTS";
+  display: grid;
+  grid-template-columns: 190px 1fr;
+  gap: 10px;
+  padding: 0 14px 2px;
+  color: rgba(226, 232, 240, 0.46);
+  font-size: 10px;
+  font-weight: 950;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
 }
 
 .end-stats:empty {
   display: none;
 }
 
+.end-stats:empty::before {
+  content: none;
+}
+
 .end-stat-card {
+  --result-accent: #67e8f9;
   position: relative;
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.11);
-  border-radius: 22px;
-  padding: 15px;
+  display: grid;
+  grid-template-columns: 190px 1fr;
+  align-items: stretch;
+  gap: 10px;
+  min-height: 74px;
+  border: 1px solid rgba(255, 255, 255, 0.105);
+  border-left: 4px solid color-mix(in srgb, var(--result-accent), transparent 24%);
+  border-radius: 12px;
+  padding: 8px 10px;
   background:
-    radial-gradient(circle at 100% 0%, rgba(103, 232, 249, 0.13), transparent 35%),
-    rgba(2, 6, 18, 0.46);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+    linear-gradient(90deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0.026) 38%, rgba(255, 255, 255, 0.012)),
+    repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.035) 0 1px, transparent 1px 9px),
+    rgba(2, 6, 18, 0.64);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    0 10px 24px rgba(0, 0, 0, 0.22);
+}
+
+.end-stat-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 0% 50%, color-mix(in srgb, var(--result-accent), transparent 78%), transparent 38%),
+    linear-gradient(90deg, color-mix(in srgb, var(--result-accent), transparent 88%), transparent 26%);
+  opacity: 0.84;
 }
 
 .end-stat-card.is-void {
+  --result-accent: #ff3b6a;
   background:
-    radial-gradient(circle at 100% 0%, rgba(255, 59, 106, 0.16), transparent 36%),
-    rgba(18, 2, 12, 0.48);
+    linear-gradient(90deg, rgba(255, 59, 106, 0.14), rgba(255, 255, 255, 0.026) 40%, rgba(255, 255, 255, 0.012)),
+    repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.035) 0 1px, transparent 1px 9px),
+    rgba(18, 2, 12, 0.7);
 }
 
 .end-stat-card.is-you {
-  border-color: rgba(103, 232, 249, 0.38);
+  border-color: color-mix(in srgb, var(--result-accent), transparent 34%);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.07),
-    0 0 0 1px rgba(103, 232, 249, 0.08),
-    0 18px 48px rgba(0, 0, 0, 0.24);
+    inset 0 1px 0 rgba(255, 255, 255, 0.09),
+    0 0 0 1px color-mix(in srgb, var(--result-accent), transparent 80%),
+    0 14px 34px rgba(0, 0, 0, 0.3);
+}
+
+.end-stat-head,
+.end-stat-grid {
+  position: relative;
+  z-index: 1;
 }
 
 .end-stat-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 13px;
+  display: grid;
+  grid-template-columns: 1fr;
+  align-content: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 4px 8px 4px 2px;
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .end-stat-head strong {
   display: block;
+  overflow: hidden;
   color: #f8fbff;
-  font-size: 15px;
-  letter-spacing: 0.04em;
+  font-size: 14px;
+  letter-spacing: 0.055em;
+  text-overflow: ellipsis;
   text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .end-stat-head span {
   display: block;
-  margin-top: 4px;
-  color: var(--muted);
-  font-size: 12px;
+  margin-top: 3px;
+  color: rgba(226, 232, 240, 0.64);
+  font-size: 11px;
+  font-weight: 750;
+  letter-spacing: 0.055em;
+  text-transform: uppercase;
 }
 
 .end-stat-head i {
-  flex: 0 0 auto;
-  padding: 5px 8px;
-  border-radius: 999px;
+  justify-self: start;
+  padding: 3px 7px;
+  border-radius: 4px;
   color: #dffaff;
   font-style: normal;
-  font-size: 10px;
-  font-weight: 900;
-  letter-spacing: 0.13em;
-  background: rgba(103, 232, 249, 0.12);
-  border: 1px solid rgba(103, 232, 249, 0.22);
+  font-size: 9px;
+  font-weight: 950;
+  letter-spacing: 0.14em;
+  background: color-mix(in srgb, var(--result-accent), transparent 86%);
+  border: 1px solid color-mix(in srgb, var(--result-accent), transparent 70%);
 }
 
 .end-stat-card.is-void .end-stat-head i {
   color: #ffdbe5;
-  background: rgba(255, 59, 106, 0.14);
-  border-color: rgba(255, 59, 106, 0.25);
 }
 
 .end-stat-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 9px;
+  grid-template-columns: repeat(auto-fit, minmax(86px, 1fr));
+  gap: 7px;
+  align-items: stretch;
 }
 
 .end-stat {
-  min-height: 62px;
-  padding: 10px;
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.045);
+  min-height: 52px;
+  padding: 8px 7px;
+  border-radius: 7px;
+  background: rgba(0, 0, 0, 0.23);
   border: 1px solid rgba(255, 255, 255, 0.07);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.045);
 }
 
 .end-stat span,
@@ -2242,31 +2307,49 @@ body.ultra-low-power.survivor-hit-impact #gameWrap {
 }
 
 .end-stat span {
-  color: rgba(226, 232, 240, 0.68);
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.09em;
+  min-height: 22px;
+  color: rgba(226, 232, 240, 0.62);
+  font-size: 8.5px;
+  font-weight: 900;
+  letter-spacing: 0.075em;
+  line-height: 1.16;
   text-transform: uppercase;
 }
 
 .end-stat strong {
-  margin-top: 7px;
+  margin-top: 5px;
   color: #ffffff;
-  font-size: 22px;
+  font-size: 18px;
   line-height: 1;
+  text-shadow: 0 0 12px color-mix(in srgb, var(--result-accent), transparent 74%);
 }
 
-@media (max-width: 720px) {
-  .end-stats {
+@media (max-width: 880px) {
+  .end-stats::before,
+  .end-stat-card {
     grid-template-columns: 1fr;
   }
 
+  .end-stat-head {
+    grid-template-columns: 1fr auto;
+    align-items: center;
+    border-right: 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 2px 2px 8px;
+  }
+
+  .end-stat-head i {
+    justify-self: end;
+  }
+}
+
+@media (max-width: 720px) {
   .end-stat-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .end-stat strong {
-    font-size: 19px;
+    font-size: 17px;
   }
 
   .main-menu-stage {
