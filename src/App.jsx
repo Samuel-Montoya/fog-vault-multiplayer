@@ -222,6 +222,7 @@ function MainMenu() {
         </div>
 
         <VersionBadge />
+		 <SeoIntroBadge />
       </div>
     </div>
   )
@@ -1036,6 +1037,50 @@ function EndScreen() {
         </div>
       </div>
     </div>
+  )
+}
+
+function SeoIntroBadge() {
+  return (
+    <section
+      aria-label="RiftRunner game description"
+      style={{
+        position: "fixed",
+        top: "18px",
+        right: "18px",
+        zIndex: 20,
+        width: "300px",
+        padding: "10px 12px",
+        borderRadius: "14px",
+        border: "1px solid rgba(160, 130, 255, 0.22)",
+        background: "rgba(6, 8, 18, 0.58)",
+        backdropFilter: "blur(10px)",
+        boxShadow: "0 12px 34px rgba(0, 0, 0, 0.28)",
+        color: "rgba(255, 255, 255, 0.72)",
+        fontSize: "11px",
+        lineHeight: 1.45,
+        textAlign: "right",
+        pointerEvents: "none"
+      }}
+    >
+      <h2
+        style={{
+          margin: "0 0 5px",
+          color: "#fff",
+          fontSize: "12px",
+          lineHeight: 1.2,
+          fontWeight: 800,
+          letterSpacing: "0.02em"
+        }}
+      >
+        Free Online Multiplayer Chase Game
+      </h2>
+
+      <p style={{ margin: 0 }}>
+        RiftRunner is a fast browser chase game where Runners collect orbs,
+        open rifts, dodge The Void, and escape with their team.
+      </p>
+    </section>
   )
 }
 
