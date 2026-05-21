@@ -6,10 +6,11 @@
   "scripts": {
     "dev": "node server.cjs --dev",
     "build": "vite build",
-    "start": "node server.cjs",
+    "start": "node scripts/start-production.cjs",
     "lint": "eslint .",
     "preview": "vite preview",
-    "check": "npm run lint && npm run build"
+    "check": "npm run lint && npm run build",
+    "start:server": "node server.cjs"
   },
   "dependencies": {
     "express": "^5.2.1",

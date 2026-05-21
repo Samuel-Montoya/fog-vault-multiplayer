@@ -3,7 +3,7 @@ services:
     name: riftrunner
     runtime: node
     plan: standard
-    buildCommand: npm ci --include=dev && npm run build
+    buildCommand: npm ci --include=dev && npm run build && test -f dist/index.html
     startCommand: npm start
     healthCheckPath: /healthz
     envVars:
