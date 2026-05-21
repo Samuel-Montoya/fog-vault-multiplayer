@@ -3043,82 +3043,165 @@
     drawPallet(g, pallet) {
       const broken = pallet.broken || pallet.state === "broken";
       const dropped = pallet.state === "dropped";
-      const wood = COLORS.pallet;
-      const dark = COLORS.palletDark;
-      const light = 0xdbeafe;
+      const now = performance.now?.() || Date.now();
+      const pulse = 0.5 + Math.sin(now / 230 + hash2(Math.floor(pallet.x), Math.floor(pallet.y)) * Math.PI * 2) * 0.5;
+      const shell = dropped ? 0x0b1633 : 0x0b0916;
+      const shard = dropped ? 0x58b7ff : 0xa855f7;
+      const glow = dropped ? 0xc4f1ff : 0xffb4f6;
 
       if (broken) {
-        g.lineStyle(5, dark, 0.72);
+        const cx = pallet.x + pallet.w * 0.5;
+        const cy = pallet.y + pallet.h * 0.5;
+        g.fillStyle(0x05060d, 0.22);
+        g.fillEllipse(cx, cy + 6, pallet.w * 0.76, pallet.h * 0.28);
+
+        g.lineStyle(6, shell, 0.84);
         g.beginPath();
-        g.moveTo(pallet.x + 12, pallet.y + 13);
-        g.lineTo(pallet.x + pallet.w - 14, pallet.y + pallet.h - 11);
-        g.moveTo(pallet.x + 18, pallet.y + pallet.h - 13);
-        g.lineTo(pallet.x + pallet.w - 11, pallet.y + 12);
+        g.moveTo(pallet.x + 14, pallet.y + 12);
+        g.lineTo(pallet.x + pallet.w * 0.42, pallet.y + pallet.h * 0.54);
+        g.lineTo(pallet.x + pallet.w - 16, pallet.y + pallet.h - 13);
+        g.moveTo(pallet.x + 18, pallet.y + pallet.h - 14);
+        g.lineTo(pallet.x + pallet.w * 0.56, pallet.y + pallet.h * 0.48);
+        g.lineTo(pallet.x + pallet.w - 12, pallet.y + 13);
         g.strokePath();
-        g.lineStyle(2, light, 0.58);
+
+        g.lineStyle(2.25, glow, 0.72);
         g.beginPath();
-        g.moveTo(pallet.x + 20, pallet.y + 18);
-        g.lineTo(pallet.x + pallet.w - 20, pallet.y + pallet.h - 16);
+        g.moveTo(pallet.x + 17, pallet.y + 18);
+        g.lineTo(pallet.x + pallet.w * 0.44, pallet.y + pallet.h * 0.56);
+        g.moveTo(pallet.x + 26, pallet.y + pallet.h - 18);
+        g.lineTo(pallet.x + pallet.w * 0.56, pallet.y + pallet.h * 0.46);
         g.strokePath();
+
+        for (let i = 0; i < 5; i++) {
+          const t = i / 4;
+          const px = pallet.x + 14 + (pallet.w - 28) * t;
+          const py = pallet.y + pallet.h * (i % 2 ? 0.34 : 0.66);
+          const r = 3.2 + (i % 2) * 1.15;
+          g.fillStyle(shard, 0.36 + pulse * 0.12);
+          g.fillCircle(px, py, r);
+          g.lineStyle(1, glow, 0.46 + pulse * 0.16);
+          g.strokeCircle(px, py, r + 3.5 + pulse * 1.8);
+        }
         return;
       }
 
       if (pallet.orientation === "horizontal") {
         const h = dropped ? pallet.h * 0.72 : pallet.h * 0.36;
         const y = dropped ? pallet.y + pallet.h * 0.14 : pallet.y + pallet.h * 0.32;
-        this.drawWoodPalletBody(g, pallet.x + 5, y, pallet.w - 10, h, true, dropped);
+        this.drawRiftPalletBody(g, pallet.x + 5, y, pallet.w - 10, h, true, dropped, pulse);
       } else {
         const w = dropped ? pallet.w * 0.72 : pallet.w * 0.36;
         const x = dropped ? pallet.x + pallet.w * 0.14 : pallet.x + pallet.w * 0.32;
-        this.drawWoodPalletBody(g, x, pallet.y + 5, w, pallet.h - 10, false, dropped);
+        this.drawRiftPalletBody(g, x, pallet.y + 5, w, pallet.h - 10, false, dropped, pulse);
       }
     }
 
-    drawWoodPalletBody(g, x, y, w, h, horizontal, dropped) {
-      // .io-style barricade: bright, readable, and not pretending to be lumber.
-      const base = dropped ? 0x1e3a8a : COLORS.pallet;
-      const dark = dropped ? 0x312e81 : COLORS.palletDark;
-      const light = dropped ? 0x93c5fd : 0xe0f2fe;
-      const accent = dropped ? 0xf0abfc : 0xa78bfa;
+    drawRiftPalletBody(g, x, y, w, h, horizontal, dropped, pulse = 0.5) {
+      // RiftRunner barricade: obsidian shell + glowing rift seams so the pallet feels
+      // like a scavenged void-tech object instead of a normal wood pallet.
+      const shell = dropped ? 0x10254c : 0x110817;
+      const shellDark = dropped ? 0x071126 : 0x05030b;
+      const panel = dropped ? 0x1e4f85 : 0x3b1365;
+      const panelAlt = dropped ? 0x163968 : 0x2a0e48;
+      const trim = dropped ? 0x78d4ff : 0xc084fc;
+      const glow = dropped ? 0xcbf4ff : 0xffc8fb;
+      const rift = dropped ? 0x38bdf8 : 0xff4fd8;
+      const core = dropped ? 0x7dd3fc : 0x8b5cf6;
+      const shadowAlpha = dropped ? 0.22 : 0.18;
+      const glowAlpha = dropped ? 0.26 + pulse * 0.14 : 0.18 + pulse * 0.12;
 
-      g.fillStyle(0x0f172a, dropped ? 0.24 : 0.18);
-      g.fillRoundedRect(x + 4, y + 5, w, h, 10);
+      g.fillStyle(0x04050a, shadowAlpha);
+      g.fillRoundedRect(x + 4, y + 6, w, h, 12);
 
-      g.fillStyle(base, dropped ? 0.96 : 0.88);
-      g.fillRoundedRect(x, y, w, h, 10);
-      g.lineStyle(3, dark, 0.88);
-      g.strokeRoundedRect(x, y, w, h, 10);
+      g.fillStyle(shellDark, 0.72);
+      g.fillRoundedRect(x - 1, y - 1, w + 2, h + 2, 12);
+      g.fillStyle(shell, 0.94);
+      g.fillRoundedRect(x, y, w, h, 11);
+      g.lineStyle(3, trim, dropped ? 0.54 : 0.48);
+      g.strokeRoundedRect(x, y, w, h, 11);
+
+      g.fillStyle(core, glowAlpha);
+      g.fillRoundedRect(x + 3, y + 3, w - 6, h - 6, 10);
 
       const lanes = 3;
       if (horizontal) {
         const laneW = w / lanes;
         for (let i = 0; i < lanes; i++) {
           const sx = x + i * laneW + 5;
-          g.fillStyle(i % 2 ? light : 0xffffff, i % 2 ? 0.46 : 0.34);
+          const laneColor = i === 1 ? panel : panelAlt;
+          g.fillStyle(laneColor, 0.96);
           g.fillRoundedRect(sx, y + 5, laneW - 10, h - 10, 8);
+          g.lineStyle(1.4, glow, 0.30 + (i === 1 ? pulse * 0.20 : pulse * 0.12));
+          g.strokeRoundedRect(sx + 1, y + 6, laneW - 12, h - 12, 7);
         }
-        g.lineStyle(4, accent, dropped ? 0.72 : 0.58);
-        g.beginPath(); g.moveTo(x + 9, y + h * 0.30); g.lineTo(x + w - 9, y + h * 0.70); g.strokePath();
-        g.beginPath(); g.moveTo(x + 9, y + h * 0.70); g.lineTo(x + w - 9, y + h * 0.30); g.strokePath();
+
+        const seamXs = [x + w * 0.33, x + w * 0.66];
+        for (const seamX of seamXs) {
+          g.lineStyle(2.3, rift, 0.74 + pulse * 0.10);
+          g.beginPath();
+          g.moveTo(seamX - 3, y + 8);
+          g.lineTo(seamX + 1, y + h * 0.34);
+          g.lineTo(seamX - 4, y + h * 0.62);
+          g.lineTo(seamX + 2, y + h - 8);
+          g.strokePath();
+        }
+
+        g.lineStyle(4, trim, dropped ? 0.68 : 0.54);
+        g.beginPath(); g.moveTo(x + 10, y + h * 0.28); g.lineTo(x + w - 10, y + h * 0.72); g.strokePath();
+        g.beginPath(); g.moveTo(x + 10, y + h * 0.72); g.lineTo(x + w - 10, y + h * 0.28); g.strokePath();
       } else {
         const laneH = h / lanes;
         for (let i = 0; i < lanes; i++) {
           const sy = y + i * laneH + 5;
-          g.fillStyle(i % 2 ? light : 0xffffff, i % 2 ? 0.46 : 0.34);
+          const laneColor = i === 1 ? panel : panelAlt;
+          g.fillStyle(laneColor, 0.96);
           g.fillRoundedRect(x + 5, sy, w - 10, laneH - 10, 8);
+          g.lineStyle(1.4, glow, 0.30 + (i === 1 ? pulse * 0.20 : pulse * 0.12));
+          g.strokeRoundedRect(x + 6, sy + 1, w - 12, laneH - 12, 7);
         }
-        g.lineStyle(4, accent, dropped ? 0.72 : 0.58);
-        g.beginPath(); g.moveTo(x + w * 0.30, y + 9); g.lineTo(x + w * 0.70, y + h - 9); g.strokePath();
-        g.beginPath(); g.moveTo(x + w * 0.70, y + 9); g.lineTo(x + w * 0.30, y + h - 9); g.strokePath();
+
+        const seamYs = [y + h * 0.33, y + h * 0.66];
+        for (const seamY of seamYs) {
+          g.lineStyle(2.3, rift, 0.74 + pulse * 0.10);
+          g.beginPath();
+          g.moveTo(x + 8, seamY - 3);
+          g.lineTo(x + w * 0.34, seamY + 1);
+          g.lineTo(x + w * 0.62, seamY - 4);
+          g.lineTo(x + w - 8, seamY + 2);
+          g.strokePath();
+        }
+
+        g.lineStyle(4, trim, dropped ? 0.68 : 0.54);
+        g.beginPath(); g.moveTo(x + w * 0.28, y + 10); g.lineTo(x + w * 0.72, y + h - 10); g.strokePath();
+        g.beginPath(); g.moveTo(x + w * 0.72, y + 10); g.lineTo(x + w * 0.28, y + h - 10); g.strokePath();
       }
 
-      const pulse = 0.5 + Math.sin((performance.now?.() || Date.now()) / 260) * 0.5;
-      g.fillStyle(0xffffff, 0.78);
-      g.fillCircle(x + w * 0.18, y + h * 0.24, 3.2);
-      g.fillCircle(x + w * 0.82, y + h * 0.76, 3.2);
+      // Corner clamps / anchor brackets.
+      const clamp = 9;
+      const pad = 5;
+      g.lineStyle(2.2, glow, 0.58 + pulse * 0.12);
+      g.beginPath();
+      g.moveTo(x + pad, y + pad + clamp); g.lineTo(x + pad, y + pad); g.lineTo(x + pad + clamp, y + pad);
+      g.moveTo(x + w - pad - clamp, y + pad); g.lineTo(x + w - pad, y + pad); g.lineTo(x + w - pad, y + pad + clamp);
+      g.moveTo(x + w - pad, y + h - pad - clamp); g.lineTo(x + w - pad, y + h - pad); g.lineTo(x + w - pad - clamp, y + h - pad);
+      g.moveTo(x + pad + clamp, y + h - pad); g.lineTo(x + pad, y + h - pad); g.lineTo(x + pad, y + h - pad - clamp);
+      g.strokePath();
+
+      // Tiny energy anchors make it read as an object connected to the rift network.
+      const nodes = horizontal
+        ? [[x + w * 0.18, y + h * 0.23], [x + w * 0.82, y + h * 0.77]]
+        : [[x + w * 0.23, y + h * 0.18], [x + w * 0.77, y + h * 0.82]];
+      for (const [nx, ny] of nodes) {
+        g.fillStyle(0xffffff, 0.72);
+        g.fillCircle(nx, ny, 3.2);
+        g.lineStyle(1.4, rift, 0.30 + pulse * 0.18);
+        g.strokeCircle(nx, ny, 6.2 + pulse * 2.0);
+      }
+
       if (!dropped) {
-        g.lineStyle(2, 0xbae6fd, 0.28 + pulse * 0.22);
-        g.strokeRoundedRect(x + 2, y + 2, w - 4, h - 4, 9);
+        g.lineStyle(1.6, glow, 0.14 + pulse * 0.18);
+        g.strokeRoundedRect(x + 2, y + 2, w - 4, h - 4, 10);
       }
     }
 
