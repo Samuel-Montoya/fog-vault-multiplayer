@@ -3,41 +3,41 @@
     chatWheel: {
       survivor: {
         normal: [
-          "Feed this rift.",
+          "Let's feed a rift.",
           "Stay close.",
-          "Void nearby.",
-          "I heard something."
+          "The Void is nearby.",
+          "What was that...?"
         ],
         chase: [
-          "Void on me.",
-          "Keep moving!",
-          "I need distance.",
-          "Do not come here."
+          "The Void is on me!",
+          "Run!",
+          "AHHHHH!",
+          "Please, leave me alone..."
         ],
         injured: [
-          "I need healing.",
+          "I need healing...",
           "Hold still near me.",
-          "I need cover.",
+          "Follow me.",
           "Over here."
         ],
         downed: [
-          "Pick me up.",
-          "I need help.",
-          "I am down.",
-          "Not ideal."
+          "Pick me up!",
+          "I need help...",
+          "I'm down!",
+          "This isn't good..."
         ],
         hooked: [
-          "Get me down.",
-          "I need a rescue.",
-          "Void is close.",
-          "Hurry."
+          "Grab me!",
+          "Hurry, he's gone!",
+          "The Void is here...",
+          "Now's your chance!"
         ]
       },
       killer: [
-        "I hear you.",
+        "I will consume you.",
         "Run while you can.",
-        "The dark is moving.",
-        "You are close."
+        "I'll be back...",
+        "What the...?!"
       ]
     },
     automatic: {
@@ -55,14 +55,14 @@
         "I have to restore our galaxy.",
         "It's my time to shine!",
         "Okay... don't panic. Definitely don't panic.",
-        "The rifts are calling again.",
-        "If I survive this, I am taking a nap in orbit.",
+        "The rifts are calling, again...",
+        "If I survive this, I'm taking a nap in orbit, forever.",
         "Stay bright. Stay alive.",
         "I should probably stop glowing and start moving."
       ],
       orbFull: [
         "I have too many orbs...",
-        "I should deposit these",
+        "I should deposit these.",
         "I can't pick any more up.",
         "I'm getting full..."
       ],
@@ -70,9 +70,9 @@
         "Ouch...!",
         "That really hurt.",
         "Okay, rude.",
-        "My bones have notes.",
+        "I don't have any bones...",
         "That was unnecessary.",
-        "I felt that in my orbit.",
+        "Ugh, right in the orbit.",
         "Personal space, please."
       ],
       hitWithOrbs: [
@@ -80,7 +80,7 @@
         "Not the orbs!",
         "I was using those!",
         "Great, there goes my stash.",
-        "My precious space marbles!"
+        "My precious space orbs!"
       ],
       downed: [
         "I got got...",
@@ -89,9 +89,8 @@
         "This is fine.",
         "Tell my orbs I loved them.",
         "I meant to lie down.",
-        "Okay, dramatic.",
-        "I regret several decisions.",
-        "The floor and I are friends now."
+        "Okay, geez.",
+        "I regret several decisions."
       ],
       downedWithOrbsExtra: [
         "There go the orbs...",
