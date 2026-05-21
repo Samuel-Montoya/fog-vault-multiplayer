@@ -228,8 +228,6 @@ const VOID_ABILITY_ORDER = Array.isArray(RIFTRUNNER_ABILITIES.wheelOrder) ? RIFT
 const VOID_SPEED_BUFF_MULT = cfgNumber(GAMEPLAY_CONFIG.voidAbilities?.speedBuffMultiplier, 1.28);
 const RED_ORB_SLOW_MULT = cfgNumber(GAMEPLAY_CONFIG.voidAbilities?.redOrbSlowMultiplier, 0.55);
 const RED_ORB_SLOW_SECONDS = cfgNumber(GAMEPLAY_CONFIG.voidAbilities?.redOrbSlowSeconds, 0.5);
-const GRAVITY_WELL_SLOW_MULT = cfgNumber(GAMEPLAY_CONFIG.voidAbilities?.gravityWellSlowMultiplier, 0.48);
-const GRAVITY_WELL_SECONDS = cfgNumber(GAMEPLAY_CONFIG.voidAbilities?.gravityWellSeconds, 1.25);
 const DOT_DEPOSIT_DISTANCE = cfgNumber(GAMEPLAY_CONFIG.rift?.depositDistance, 96);
 const DOT_DEPOSIT_SECONDS = cfgNumber(GAMEPLAY_CONFIG.rift?.depositSecondsPerOrb, 1.5);
 // Chain is still tracked for audio pitch / UI feedback, but it no longer changes deposit speed.
@@ -408,14 +406,15 @@ function getChatWheelMessagesForActor(actor) {
 function getVoidAbilityDef(id) {
   const key = String(id || "");
   const ability = VOID_ABILITY_DEFS[key];
-  if (!ability || !VOID_ABILITY_ORDER.includes(key)) return null;
+  if (!ability || ability.cancel || !VOID_ABILITY_ORDER.includes(key)) return null;
   return {
     id: ability.id || key,
     name: ability.name || key,
     cost: Math.max(0, Math.floor(cfgNumber(ability.cost, 0))),
     duration: Math.max(0, cfgNumber(ability.duration, 0)),
     radius: Math.max(0, cfgNumber(ability.radius, 0)),
-    stealPerRunner: Math.max(0, Math.floor(cfgNumber(ability.stealPerRunner, 1)))
+    stealPerRunner: Math.max(0, Math.floor(cfgNumber(ability.stealPerRunner, 1))),
+    stealPercent: clamp(cfgNumber(ability.stealPercent, 0), 0, 1)
   };
 }
 
@@ -444,23 +443,16 @@ function applyVoidAbility(game, actor, abilityId) {
     actor.voidSpeedBoost = Math.max(actor.voidSpeedBoost || 0, ability.duration || 10);
   } else if (ability.id === "redshiftOrbs") {
     game.redOrbs = Math.max(game.redOrbs || 0, ability.duration || 15);
-  } else if (ability.id === "gravityWell") {
-    const radius = ability.radius || 560;
-    for (const runner of game.actors.values()) {
-      if (runner.role !== "survivor" || runner.dead || runner.escaped || runner.hooked) continue;
-      if (dist(actor.x, actor.y, runner.x, runner.y) > radius) continue;
-      if (!segmentClear(game, actor.x, actor.y, runner.x, runner.y)) continue;
-      runner.voidSlow = Math.max(runner.voidSlow || 0, GRAVITY_WELL_SECONDS);
-      affected += 1;
-    }
   } else if (ability.id === "orbLeech") {
-    const take = Math.max(1, ability.stealPerRunner || 1);
+    const percent = ability.stealPercent > 0 ? ability.stealPercent : 0.5;
     for (const runner of game.actors.values()) {
       if (runner.role !== "survivor" || runner.dead || runner.escaped || runner.hooked) continue;
-      const amount = Math.min(take, Math.max(0, runner.dots || 0));
+      const carried = Math.max(0, Math.floor(runner.dots || 0));
+      const amount = Math.min(carried, Math.max(1, Math.ceil(carried * percent)));
       if (!amount) continue;
-      runner.dots = Math.max(0, (runner.dots || 0) - amount);
+      runner.dots = Math.max(0, carried - amount);
       resetActorDotDeposit(runner);
+      setActorChat(runner, randomFrom(SURVIVOR_HIT_WITH_ORBS_CHAT_LINES), game);
       stolen += amount;
       affected += 1;
       addEvent(game, "voidOrbSteal", { x: runner.x, y: runner.y, survivorId: runner.id, killerId: actor.id, stolen: amount, voidDots: Math.min(KILLER_DOT_MAX, (actor.dots || 0) + stolen) });
@@ -480,7 +472,7 @@ function applyVoidAbility(game, actor, abilityId) {
     name: ability.name,
     cost: ability.cost,
     duration: ability.duration,
-    radius: ability.id === "gravityWell" ? (ability.radius || 560) : null,
+    radius: null,
     affected,
     stolen,
     voidDots: actor.dots,

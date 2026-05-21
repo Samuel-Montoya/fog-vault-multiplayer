@@ -3,7 +3,7 @@
 // Internal role names stay "killer"/"survivor" because games enjoy not detonating.
 
 const RIFTRUNNER_ABILITIES = {
-  wheelOrder: ["nullRush", "redshiftOrbs", "gravityWell", "orbLeech"],
+  wheelOrder: ["nullRush", "redshiftOrbs", "cancel", "orbLeech"],
   abilities: {
     nullRush: {
       id: "nullRush",
@@ -25,27 +25,27 @@ const RIFTRUNNER_ABILITIES = {
       detail: "Runners that touch red orbs are slowed for a heartbeat.",
       accent: "red"
     },
-    gravityWell: {
-      id: "gravityWell",
-      name: "Gravity Well",
-      shortName: "Well",
-      cost: 20,
-      duration: 1.25,
-      summary: "Briefly slows nearby Runners.",
-      detail: "A pressure wave bends the route around The Void.",
-      accent: "purple",
-      radius: 560
+    cancel: {
+      id: "cancel",
+      name: "Cancel",
+      shortName: "Cancel",
+      cost: 0,
+      duration: 0,
+      summary: "Close the wheel.",
+      detail: "Drop the selection without spending orbs.",
+      accent: "muted",
+      cancel: true
     },
     orbLeech: {
       id: "orbLeech",
       name: "Hollow Leech",
       shortName: "Leech",
-      cost: 18,
+      cost: 8,
       duration: 0,
-      summary: "Steals 1 orb from each loaded Runner.",
-      detail: "The Void pulls loose carried light and keeps it.",
+      summary: "Steals half of every Runner's carried orbs.",
+      detail: "The Void pulls half of each carried stash into itself.",
       accent: "gold",
-      stealPerRunner: 1
+      stealPercent: 0.5
     }
   }
 };

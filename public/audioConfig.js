@@ -83,7 +83,7 @@ window.GAME_AUDIO_CONFIG = {
       windowVault: 0.66,
       palletVault: 0.76,
       palletDrop: 0.23,
-      voidStun: 0.56,
+      voidStun: 0.42,
       palletStun: 0.56,
       injured: 0.58,
       orbPickup: 0.68,
@@ -100,6 +100,7 @@ window.GAME_AUDIO_CONFIG = {
     // Example: swing: [0.9, 0.96, 1.0, 1.08, 1.16, 1.25, 1.34]
     pitchSteps: {
       hooked: [0.84, 0.92, 1.0, 1.09, 1.18, 1.28],
+      orbPickup: [0.92, 0.98, 1.03, 1.09, 1.16, 1.24],
       swing: [0.9, 0.96, 1.0, 1.08, 1.16, 1.25, 1.34],
       windowVault: [0.88, 0.94, 1.0, 1.07, 1.15, 1.24],
       palletVault: [0.88, 0.94, 1.0, 1.07, 1.15, 1.24],

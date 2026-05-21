@@ -3601,3 +3601,281 @@ body.ultra-low-power.survivor-hit-impact #gameWrap {
   .ability-wheel-segment small { display: none; }
   .ability-wheel-center { width: 64px; height: 64px; }
 }
+
+/* v0.1.22 void ability and lobby pass. */
+.role-icon.void-role-icon,
+.void-role-icon {
+  background: radial-gradient(circle at 38% 28%, #f5f3ff 0 12%, #a78bfa 14% 43%, #2e1065 62%, #03010a 100%);
+  box-shadow: 0 0 24px rgba(167, 139, 250, 0.26), inset 0 0 14px rgba(0, 0, 0, 0.48);
+}
+
+.player-item .player-role-emblem.killer {
+  background: radial-gradient(circle at 42% 30%, #ede9fe 0 13%, #a78bfa 16% 44%, #2e1065 62%, #04020a 100%);
+  border-color: rgba(196, 181, 253, 0.54);
+  box-shadow: 0 0 20px rgba(167, 139, 250, 0.24), inset 0 0 11px rgba(0, 0, 0, 0.42);
+}
+
+#lobbyScreen.io-screen:not(.menu-screen) {
+  align-items: flex-start;
+  justify-content: center;
+}
+
+#lobbyScreen .void-card.wide-menu-card.lobby-panel,
+#lobbyScreen .lobby-panel {
+  margin-left: 0;
+  margin-right: 0;
+}
+
+#lobbyScreen .lobby-workspace {
+  grid-template-columns: minmax(320px, 420px) minmax(720px, 1fr);
+}
+
+#lobbyScreen .lobby-subheading {
+  margin-top: 2px;
+}
+
+#lobbyScreen .lobby-role-actions,
+#lobbyScreen .lobby-actions {
+  grid-template-columns: 1fr;
+}
+
+#lobbyScreen .lobby-role-actions .void-choice-btn,
+#lobbyScreen #beKillerBtn {
+  color: #f4f0ff;
+  border-color: rgba(167, 139, 250, 0.42);
+  background: linear-gradient(135deg, rgba(76, 29, 149, 0.34), rgba(7, 5, 18, 0.86));
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.28), inset 0 0 0 1px rgba(216, 180, 254, 0.06);
+}
+
+#lobbyScreen .lobby-role-actions .void-choice-btn:hover,
+#lobbyScreen #beKillerBtn:hover,
+#lobbyScreen #beKillerBtn:focus-visible {
+  border-color: rgba(196, 181, 253, 0.66);
+  background: linear-gradient(135deg, rgba(109, 40, 217, 0.46), rgba(9, 6, 24, 0.88));
+}
+
+#lobbyScreen .lobby-role-actions .runner-choice-btn,
+#lobbyScreen #beSurvivorBtn {
+  color: #ecfeff;
+  border-color: rgba(103, 232, 249, 0.38);
+  background: linear-gradient(135deg, rgba(8, 145, 178, 0.22), rgba(8, 13, 27, 0.84));
+}
+
+#lobbyScreen .lobby-role-actions .runner-choice-btn:hover,
+#lobbyScreen #beSurvivorBtn:hover,
+#lobbyScreen #beSurvivorBtn:focus-visible {
+  border-color: rgba(125, 249, 255, 0.58);
+  background: linear-gradient(135deg, rgba(8, 145, 178, 0.32), rgba(8, 13, 27, 0.9));
+}
+
+#readyBtn.ready-action[data-ready-state="ready"] {
+  color: #052e16;
+  border-color: rgba(134, 239, 172, 0.72);
+  background: linear-gradient(135deg, #86efac, #22c55e);
+  box-shadow: 0 16px 34px rgba(34, 197, 94, 0.20);
+}
+
+#readyBtn.ready-action[data-ready-state="unready"] {
+  color: #331e04;
+  border-color: rgba(253, 224, 71, 0.74);
+  background: linear-gradient(135deg, #fde047, #f59e0b);
+  box-shadow: 0 16px 34px rgba(245, 158, 11, 0.18);
+}
+
+#readyBtn.ready-action[data-ready-state="ready"]:hover,
+#readyBtn.ready-action[data-ready-state="ready"]:focus-visible {
+  background: linear-gradient(135deg, #bbf7d0, #22c55e);
+}
+
+#readyBtn.ready-action[data-ready-state="unready"]:hover,
+#readyBtn.ready-action[data-ready-state="unready"]:focus-visible {
+  background: linear-gradient(135deg, #fef08a, #f59e0b);
+}
+
+.ability-wheel-segment.is-cancel {
+  background: rgba(10, 12, 22, 0.82);
+  border-color: rgba(148, 163, 184, 0.24);
+  color: rgba(226, 232, 240, 0.82);
+}
+
+.ability-wheel-segment.is-cancel .ability-name {
+  letter-spacing: 0.14em;
+}
+
+.ability-wheel-segment.is-cancel small {
+  color: rgba(148, 163, 184, 0.72);
+}
+
+.ability-wheel-segment.accent-muted.selected,
+.ability-wheel-segment.is-cancel.selected {
+  border-color: rgba(203, 213, 225, 0.62);
+  box-shadow: 0 16px 42px rgba(0,0,0,0.46), 0 0 20px rgba(148,163,184,0.16);
+}
+
+.void-orb-counter-corner {
+  position: fixed;
+  right: max(18px, env(safe-area-inset-right));
+  bottom: max(18px, env(safe-area-inset-bottom));
+  z-index: 2100;
+  display: grid;
+  grid-template-columns: 34px auto;
+  align-items: center;
+  gap: 10px;
+  min-width: 148px;
+  padding: 10px 12px;
+  color: #f8fafc;
+  pointer-events: none;
+  border-radius: 18px;
+  background: linear-gradient(135deg, rgba(8, 5, 18, 0.88), rgba(22, 11, 43, 0.76));
+  border: 1px solid rgba(196, 181, 253, 0.22);
+  box-shadow: 0 18px 44px rgba(0,0,0,0.42), 0 0 24px rgba(124, 58, 237, 0.14);
+  backdrop-filter: blur(9px);
+}
+
+.void-orb-counter-corner span:not(.void-orb-icon) {
+  display: block;
+  color: rgba(226, 232, 240, 0.62);
+  font-size: 9px;
+  font-weight: 1000;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.void-orb-counter-corner strong {
+  display: block;
+  margin-top: 1px;
+  color: #fff;
+  font-size: 25px;
+  line-height: 0.95;
+  letter-spacing: 0.04em;
+}
+
+@media (max-width: 1180px) {
+  #lobbyScreen .lobby-workspace {
+    grid-template-columns: minmax(300px, 390px) minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 980px) {
+  #lobbyScreen.io-screen:not(.menu-screen) {
+    align-items: center;
+  }
+
+  #lobbyScreen .void-card.wide-menu-card.lobby-panel,
+  #lobbyScreen .lobby-panel {
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  #lobbyScreen .lobby-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .void-orb-counter-corner {
+    right: 12px;
+    bottom: 12px;
+    min-width: 128px;
+    grid-template-columns: 28px auto;
+    padding: 8px 10px;
+  }
+}
+
+#lobbyScreen.io-screen:not(.menu-screen) {
+  justify-content: flex-start;
+  align-items: center;
+}
+
+/* v0.1.23 ability HUD and role polish. */
+.role-icon.void-role-icon,
+.void-role-icon,
+.lobby-role-mark.killer span,
+.player-item .player-role-emblem.killer,
+.hud[data-role="killer"] .role-hud-core {
+  background: radial-gradient(circle at 38% 28%, #f5f3ff 0 12%, #a78bfa 14% 42%, #4c1d95 58%, #03010a 100%) !important;
+}
+
+.lobby-role-mark.killer {
+  border-color: rgba(196, 181, 253, 0.42) !important;
+  box-shadow: inset 4px 0 0 rgba(139, 92, 246, 0.50), 0 18px 42px rgba(0,0,0,0.22) !important;
+}
+
+.lobby-role-mark.killer span,
+.player-item .player-role-emblem.killer {
+  border-color: rgba(196, 181, 253, 0.58) !important;
+  box-shadow: 0 0 24px rgba(167, 139, 250, 0.26), inset 0 0 12px rgba(0,0,0,0.46) !important;
+}
+
+.lobby-role-mark.killer::before,
+.hud[data-role="killer"] .role-hud-icon::before {
+  border-color: rgba(196, 181, 253, 0.50) !important;
+}
+
+.lobby-role-mark.killer::after {
+  color: rgba(221, 214, 254, 0.82) !important;
+}
+
+.hud[data-role="killer"] .role-hud-card,
+.hud[data-role="killer"] .role-hud-icon {
+  border-color: rgba(196, 181, 253, 0.32) !important;
+  box-shadow: 0 0 26px rgba(124, 58, 237, 0.18), inset 0 0 18px rgba(124, 58, 237, 0.08) !important;
+}
+
+.role-btn[data-role="survivor"].selected {
+  border-color: rgba(103, 232, 249, 0.66) !important;
+  background:
+    linear-gradient(135deg, rgba(8, 145, 178, 0.28), rgba(5, 12, 24, 0.92)) !important;
+  box-shadow: inset 4px 0 0 rgba(103, 232, 249, 0.72), 0 0 26px rgba(103, 232, 249, 0.10) !important;
+}
+
+.role-btn[data-role="killer"].selected,
+#lobbyScreen #beKillerBtn.selected {
+  border-color: rgba(196, 181, 253, 0.72) !important;
+  background:
+    linear-gradient(135deg, rgba(109, 40, 217, 0.52), rgba(8, 5, 20, 0.94)) !important;
+  box-shadow: inset 4px 0 0 rgba(167, 139, 250, 0.82), 0 0 28px rgba(124, 58, 237, 0.16) !important;
+}
+
+#lobbyScreen #beSurvivorBtn.selected {
+  border-color: rgba(125, 249, 255, 0.70) !important;
+  background:
+    linear-gradient(135deg, rgba(8, 145, 178, 0.38), rgba(5, 15, 29, 0.94)) !important;
+  box-shadow: inset 4px 0 0 rgba(103, 232, 249, 0.76), 0 0 26px rgba(103, 232, 249, 0.12) !important;
+}
+
+#lobbyScreen .lobby-bot-actions button:nth-child(1) {
+  border-color: rgba(167, 139, 250, 0.36);
+  background: linear-gradient(135deg, rgba(76, 29, 149, 0.28), rgba(7, 5, 18, 0.82));
+  color: #f4f0ff;
+}
+
+#lobbyScreen .lobby-bot-actions button:nth-child(2) {
+  border-color: rgba(103, 232, 249, 0.36);
+  background: linear-gradient(135deg, rgba(8, 145, 178, 0.28), rgba(8, 13, 27, 0.84));
+  color: #ecfeff;
+}
+
+#lobbyScreen .lobby-bot-actions button:nth-child(2):hover,
+#lobbyScreen .lobby-bot-actions button:nth-child(2):focus-visible {
+  border-color: rgba(125, 249, 255, 0.58);
+  background: linear-gradient(135deg, rgba(8, 145, 178, 0.38), rgba(8, 13, 27, 0.92));
+}
+
+.void-orb-counter-corner {
+  z-index: 2600;
+  right: max(22px, env(safe-area-inset-right));
+  bottom: max(22px, env(safe-area-inset-bottom));
+  min-width: 164px;
+  padding: 12px 14px;
+  border-color: rgba(196, 181, 253, 0.34);
+  background: linear-gradient(135deg, rgba(5, 3, 13, 0.94), rgba(27, 13, 52, 0.86));
+  box-shadow: 0 18px 48px rgba(0,0,0,0.50), 0 0 30px rgba(124, 58, 237, 0.18);
+}
+
+.void-orb-counter-corner strong {
+  font-size: 30px;
+}
+
+.void-orb-counter-corner span:not(.void-orb-icon)::after {
+  content: " BANK";
+  color: rgba(196, 181, 253, 0.68);
+}

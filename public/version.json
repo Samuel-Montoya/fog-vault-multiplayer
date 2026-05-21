@@ -1,12 +1,26 @@
 {
   "latest": {
-    "version": "0.1.21",
-    "title": "Void Abilities",
-    "summary": "Void orb economy and ability wheel",
-    "description": "Added The Void ability wheel on Q, Void orb currency gained from hits, Null Rush speed boost, Redshift Bloom corrupted orbs, Gravity Well slow pulse, Hollow Leech orb steal, a Void orb HUD, red orb visuals, and ability effects.",
+    "version": "0.1.23",
+    "title": "Void HUD Polish",
+    "summary": "Void orb HUD, audio pitch, and role polish",
+    "description": "Added the missing always-visible bottom-right Void orb counter update path, kept Runner orb pickup pitch ramping while returning Void orb pickup audio to random pitch variation, reduced Hollow Leech to 8 orbs, removed the old Null Rush tail effect while keeping quick white bubbles, improved bot button tinting, and made selected role buttons stay clearly highlighted.",
     "date": "2026-05-21"
   },
   "history": [
+    {
+      "version": "0.1.23",
+      "title": "Void HUD Polish",
+      "summary": "Void orb HUD, audio pitch, and role polish",
+      "description": "Added the missing always-visible bottom-right Void orb counter update path, kept Runner orb pickup pitch ramping while returning Void orb pickup audio to random pitch variation, reduced Hollow Leech to 8 orbs, removed the old Null Rush tail effect while keeping quick white bubbles, improved bot button tinting, and made selected role buttons stay clearly highlighted.",
+      "date": "2026-05-21"
+    },
+    {
+      "version": "0.1.22",
+      "title": "Void Ability Polish",
+      "summary": "Cancel wheel, stronger leech, and lobby polish",
+      "description": "Removed Gravity Well from the Void wheel and replaced the bottom slot with Cancel. Hollow Leech now steals half of each Runner's carried orbs and forces stolen Runners to use orb-loss chatter. Added a bottom-right Void orb counter, polished lobby setup ordering and button colors, made Void role marks purple/black, and improved Null Rush with quick white bubble trails.",
+      "date": "2026-05-21"
+    },
     {
       "version": "0.1.21",
       "title": "Void Abilities",

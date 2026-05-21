@@ -358,10 +358,13 @@ function LobbyScreen() {
             </div>
 
             <div className="role-row lobby-role-actions">
-              <button id="beSurvivorBtn" type="button">Play as a Runner</button>
-              <button id="beKillerBtn" type="button">Play as The Void</button>
+              <button id="beKillerBtn" className="void-choice-btn" type="button">Play as The Void</button>
+              <button id="beSurvivorBtn" className="runner-choice-btn" type="button">Play as a Runner</button>
             </div>
 
+            <div className="lobby-column-heading lobby-subheading">
+              <span>Bots</span>
+            </div>
             <div className="lobby-bot-actions" aria-label="Add lobby bots">
               <button id="addBotKillerBtn" type="button">Add Void Bot</button>
               <button id="addBotSurvivorBtn" type="button">Add Runner Bot</button>
@@ -373,8 +376,8 @@ function LobbyScreen() {
             </div>
 
             <div className="button-row lobby-actions">
-              <button id="startBtn" className="primary" type="button">Start Run</button>
               <button id="readyBtn" className="ready-action" type="button">Ready</button>
+              <button id="startBtn" className="primary" type="button">Start Run</button>
             </div>
 
             <p className="hint lobby-hint">Multiple players can queue as <b>The Void</b>, but the run starts with exactly <b>1 Void</b> and at least <b>1 Runner</b>.</p>
@@ -447,10 +450,10 @@ function GameHud() {
 
 
 const ABILITY_WHEEL_FALLBACK = [
-  { id: "nullRush", name: "Null Rush", shortName: "Rush", cost: 15, summary: "Move faster." },
-  { id: "redshiftOrbs", name: "Redshift Bloom", shortName: "Redshift", cost: 25, summary: "Corrupts orbs." },
-  { id: "gravityWell", name: "Gravity Well", shortName: "Well", cost: 20, summary: "Slows nearby Runners." },
-  { id: "orbLeech", name: "Hollow Leech", shortName: "Leech", cost: 18, summary: "Steals carried orbs." }
+  { id: "nullRush", name: "Null Rush", shortName: "Rush", cost: 15, summary: "Move faster.", accent: "gray" },
+  { id: "redshiftOrbs", name: "Redshift Bloom", shortName: "Redshift", cost: 25, summary: "Corrupts orbs.", accent: "red" },
+  { id: "cancel", name: "Cancel", shortName: "Cancel", cost: 0, summary: "Close the wheel.", accent: "muted", cancel: true },
+  { id: "orbLeech", name: "Hollow Leech", shortName: "Leech", cost: 8, summary: "Steals half of carried orbs.", accent: "gold" }
 ]
 
 function normalizeAbilities(abilities) {
@@ -463,6 +466,7 @@ function normalizeAbilities(abilities) {
     cost: Number.isFinite(Number(ability?.cost)) ? Number(ability.cost) : Number(ABILITY_WHEEL_FALLBACK[index]?.cost || 0),
     summary: String(ability?.summary || ABILITY_WHEEL_FALLBACK[index]?.summary || "The Void bends the run."),
     accent: String(ability?.accent || "purple"),
+    cancel: !!ability?.cancel || String(ability?.id || "") === "cancel",
     available: ability?.available !== false,
     active: !!ability?.active
   }))
@@ -479,6 +483,7 @@ function AbilityWheel() {
   const openRef = useRef(false)
   const selectedRef = useRef(-1)
   const lastPointerRef = useRef(null)
+  const abilitiesRef = useRef(ABILITY_WHEEL_FALLBACK)
 
   useEffect(() => {
     const setSelected = (selected) => {
@@ -496,30 +501,37 @@ function AbilityWheel() {
       const detail = event.detail || {}
       const point = detail.pointer || lastPointerRef.current
       const selected = getChatWheelSelectionFromPoint(point)
+      const abilities = normalizeAbilities(detail.abilities)
+      abilitiesRef.current = abilities
       openRef.current = true
       selectedRef.current = selected
       setWheel({
         open: true,
         orbs: Number(detail.orbs || 0),
-        abilities: normalizeAbilities(detail.abilities),
+        abilities,
         selected
       })
     }
 
     const handleUpdate = (event) => {
       const detail = event.detail || {}
-      setWheel((current) => ({
-        ...current,
-        orbs: Number(detail.orbs ?? current.orbs ?? 0),
-        abilities: detail.abilities ? normalizeAbilities(detail.abilities) : current.abilities
-      }))
+      setWheel((current) => {
+        const abilities = detail.abilities ? normalizeAbilities(detail.abilities) : current.abilities
+        abilitiesRef.current = abilities
+        return {
+          ...current,
+          orbs: Number(detail.orbs ?? current.orbs ?? 0),
+          abilities
+        }
+      })
     }
 
     const handleClose = (event) => {
       const shouldSubmit = event.detail?.submit !== false
       const selected = selectedRef.current
+      const ability = abilitiesRef.current[selected]
 
-      if (shouldSubmit && selected >= 0) {
+      if (shouldSubmit && selected >= 0 && !ability?.cancel) {
         window.dispatchEvent(new CustomEvent("riftrunner:void-ability-submit", { detail: { index: selected } }))
       }
 
@@ -552,16 +564,17 @@ function AbilityWheel() {
         {CHAT_WHEEL_SEGMENTS.map((segment) => {
           const ability = wheel.abilities[segment.index] || ABILITY_WHEEL_FALLBACK[segment.index]
           const selected = wheel.selected === segment.index
-          const affordable = wheel.orbs >= ability.cost
+          const cancel = !!ability.cancel
+          const affordable = cancel || wheel.orbs >= ability.cost
           return (
             <div
-              className={`ability-wheel-segment ability-wheel-${segment.className} ${selected ? "selected" : ""} ${affordable ? "can-use" : "locked"} accent-${ability.accent || "purple"}`}
+              className={`ability-wheel-segment ability-wheel-${segment.className} ${selected ? "selected" : ""} ${affordable ? "can-use" : "locked"} ${cancel ? "is-cancel" : ""} accent-${ability.accent || "purple"}`}
               role="menuitem"
-              aria-label={`${ability.name}, costs ${ability.cost} orbs`}
+              aria-label={cancel ? "Cancel ability wheel" : `${ability.name}, costs ${ability.cost} orbs`}
               key={ability.id}
             >
               <span className="ability-name">{ability.shortName || ability.name}</span>
-              <span className="ability-cost">{ability.cost} orbs</span>
+              {!cancel && <span className="ability-cost">{ability.cost} orbs</span>}
               <small>{ability.summary}</small>
             </div>
           )
@@ -591,23 +604,32 @@ function VoidAbilityHud() {
   if (!hud.visible) return null
 
   return (
-    <div className="void-ability-hud" aria-live="polite">
-      <div className="void-orb-bank">
+    <>
+      <div className="void-ability-hud" aria-live="polite">
+        <div className="void-orb-bank">
+          <span className="void-orb-icon" aria-hidden="true" />
+          <div>
+            <span>Void Orbs</span>
+            <strong>{hud.orbs}</strong>
+          </div>
+        </div>
+        {!!hud.effects.length && (
+          <div className="void-active-effects">
+            {hud.effects.map((effect) => (
+              <span key={effect.id}>{effect.label} {Math.ceil(effect.time)}s</span>
+            ))}
+          </div>
+        )}
+        <p>Hold <b>Q</b> for abilities</p>
+      </div>
+      <div className="void-orb-counter-corner" aria-live="polite">
         <span className="void-orb-icon" aria-hidden="true" />
         <div>
           <span>Void Orbs</span>
           <strong>{hud.orbs}</strong>
         </div>
       </div>
-      {!!hud.effects.length && (
-        <div className="void-active-effects">
-          {hud.effects.map((effect) => (
-            <span key={effect.id}>{effect.label} {Math.ceil(effect.time)}s</span>
-          ))}
-        </div>
-      )}
-      <p>Hold <b>Q</b> for abilities</p>
-    </div>
+    </>
   )
 }
 

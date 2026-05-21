@@ -135,9 +135,7 @@ const GAMEPLAY_CONFIG = {
   voidAbilities: {
     speedBuffMultiplier: 1.28,
     redOrbSlowMultiplier: 0.55,
-    redOrbSlowSeconds: 0.5,
-    gravityWellSlowMultiplier: 0.48,
-    gravityWellSeconds: 1.25
+    redOrbSlowSeconds: 0.5
   },
 
   attack: {

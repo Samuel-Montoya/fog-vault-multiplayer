@@ -126,6 +126,7 @@
       },
       pitchSteps: {
         hooked: [0.84, 0.92, 1.0, 1.09, 1.18, 1.28],
+        orbPickup: [0.92, 0.98, 1.03, 1.09, 1.16, 1.24],
         swing: [0.9, 0.96, 1.0, 1.08, 1.16, 1.25, 1.34],
         windowVault: [0.88, 0.94, 1.0, 1.07, 1.15, 1.24],
         palletDrop: [0.86, 0.94, 1.0, 1.08, 1.17, 1.26],
@@ -658,6 +659,8 @@
   function setSelectedRole(role) {
     selectedRole = role === "killer" ? "killer" : "survivor";
     ui.roleBtns.forEach((b) => b.classList.toggle("selected", b.dataset.role === selectedRole));
+    ui.beKillerBtn?.classList.toggle("selected", selectedRole === "killer");
+    ui.beSurvivorBtn?.classList.toggle("selected", selectedRole !== "killer");
     if (ui.lobbyRoleMark) {
       ui.lobbyRoleMark.classList.toggle("killer", selectedRole === "killer");
       ui.lobbyRoleMark.classList.toggle("survivor", selectedRole !== "killer");
@@ -915,6 +918,10 @@
       document.body.classList.remove("survivor-hit-impact", "survivor-hit-heavy");
     }
     ui.mobileControls?.classList.toggle("hidden", name !== "game" || !IS_TOUCH_DEVICE);
+    if (name !== "game") {
+      dispatchVoidAbilityHud(null);
+      if (reactAbilityWheelOpen) closeReactAbilityWheel(false);
+    }
   }
 
   let matchTransitionTimers = [];
@@ -1324,15 +1331,17 @@
     const orbs = Math.max(0, Math.floor(actor?.dots || 0));
     return VOID_ABILITY_ORDER.slice(0, 4).map((id) => {
       const ability = VOID_ABILITIES[id] || { id, name: "Void Ability", shortName: "Ability", cost: 0, summary: "The Void bends the run." };
+      const isCancel = !!ability.cancel || id === "cancel";
       return {
         id: ability.id || id,
-        name: ability.name || "Void Ability",
-        shortName: ability.shortName || ability.name || "Ability",
+        name: ability.name || (isCancel ? "Cancel" : "Void Ability"),
+        shortName: ability.shortName || ability.name || (isCancel ? "Cancel" : "Ability"),
         cost: Number(ability.cost || 0),
-        summary: ability.summary || "The Void bends the run.",
-        accent: ability.accent || "purple",
-        available: orbs >= Number(ability.cost || 0),
-        active: !!(actor && (
+        summary: ability.summary || (isCancel ? "Close the wheel." : "The Void bends the run."),
+        accent: ability.accent || (isCancel ? "muted" : "purple"),
+        cancel: isCancel,
+        available: isCancel || orbs >= Number(ability.cost || 0),
+        active: !!(actor && !isCancel && (
           (ability.id === "nullRush" && (actor.voidSpeedBoost || 0) > 0) ||
           (ability.id === "redshiftOrbs" && (currentSnapshot?.voidEffects?.redOrbs || 0) > 0)
         ))
@@ -1375,7 +1384,7 @@
     if (Number.isInteger(selection?.index)) {
       abilityId = getAbilityListForVoid()[selection.index]?.id || "";
     }
-    if (!abilityId || !socket || currentSnapshot?.phase !== "game") return;
+    if (!abilityId || abilityId === "cancel" || !socket || currentSnapshot?.phase !== "game") return;
     socket.emit("voidAbility", { id: abilityId });
   }
 
@@ -1942,6 +1951,10 @@
 
   function playOrbPickupSfx(event) {
     if (!event || event.actorId !== myId) return;
+    if (event.role === "killer") {
+      playSfx("orbPickup");
+      return;
+    }
     playSfx("orbPickup", {
       playbackRate: getOrbPickupPitch(event),
       disablePitchVariation: true
@@ -3363,6 +3376,7 @@
         dots: (snapshot.collectibleDots || []).map((d) => d.id).join(","),
         redOrbs: snapshot.voidEffects?.redOrbs || 0
       });
+      dispatchVoidAbilityHud(snapshot);
       if (hudKey === this.lastHudKey && now - this.lastHudRenderAt < 180) return;
       this.lastHudKey = hudKey;
       this.lastHudRenderAt = now;
@@ -3689,19 +3703,6 @@
         const pulse = Math.sin(now / 210) * 0.5 + 0.5;
         const coreR = 18.5 + wobble + angry * 3.0;
 
-        if (speedBoost) {
-          const a = data.angle || 0;
-          const tailPulse = 0.5 + Math.sin(now / 95) * 0.5;
-          for (let i = 0; i < (LOW_POWER_MODE ? 3 : 6); i++) {
-            const back = 21 + i * 8 + tailPulse * 5;
-            const side = Math.sin(now / (180 + i * 12) + i) * (5 + i * 0.8);
-            const tx = -Math.cos(a) * back + Math.cos(a + Math.PI / 2) * side;
-            const ty = -Math.sin(a) * back + Math.sin(a + Math.PI / 2) * side;
-            const alpha = (0.24 - i * 0.028) * (LOW_POWER_MODE ? 0.72 : 1);
-            item.body.fillStyle(i % 2 ? 0x6b7280 : 0xd1d5db, alpha);
-            item.body.fillCircle(tx, ty, 12 - i * 1.1);
-          }
-        }
 
         // The Void: layered black/purple core with orbiting parasite-circles.
         // Kept simple circles only, because scary should not require a GPU funeral.
@@ -3990,6 +3991,39 @@
       item.outline.strokePath();
     }
 
+    emitVoidRushTrail(item, data) {
+      if (!item || !data || data.role !== "killer" || !(data.voidSpeedBoost > 0)) return;
+      const now = performance.now();
+      const gap = LOW_POWER_MODE ? 130 : 72;
+      if (item.lastVoidRushBubbleAt && now - item.lastVoidRushBubbleAt < gap) return;
+      item.lastVoidRushBubbleAt = now;
+
+      const angle = Number.isFinite(data.angle) ? data.angle : (item.current?.angle || 0);
+      const baseX = item.current?.x ?? data.x ?? 0;
+      const baseY = item.current?.y ?? data.y ?? 0;
+      const count = LOW_POWER_MODE ? 1 : 2;
+      for (let i = 0; i < count; i += 1) {
+        const side = (Math.random() - 0.5) * 22;
+        const back = 22 + Math.random() * 18 + i * 7;
+        const x = baseX - Math.cos(angle) * back + Math.cos(angle + Math.PI / 2) * side;
+        const y = baseY - Math.sin(angle) * back + Math.sin(angle + Math.PI / 2) * side;
+        const radius = 3.5 + Math.random() * 4.5;
+        const bubble = this.add.circle(x, y, radius, 0xf8fafc, LOW_POWER_MODE ? 0.30 : 0.42)
+          .setDepth(10)
+          .setBlendMode(Phaser.BlendModes.SCREEN);
+        this.tweens.add({
+          targets: bubble,
+          alpha: 0,
+          scale: 1.75 + Math.random() * 0.55,
+          x: x - Math.cos(angle) * (10 + Math.random() * 10),
+          y: y - Math.sin(angle) * (10 + Math.random() * 10),
+          duration: LOW_POWER_MODE ? 260 : 340,
+          ease: "Quad.easeOut",
+          onComplete: () => bubble.destroy()
+        });
+      }
+    }
+
     styleActor(item, data) {
       if (data.role === "killer") {
         if (item.healAura) {
@@ -4129,9 +4163,9 @@
           }
         }
         if (event.type === "voidAbility") {
-          const color = event.abilityId === "redshiftOrbs" ? 0xff3048 : event.abilityId === "gravityWell" ? 0xa78bfa : event.abilityId === "orbLeech" ? 0xfbbf24 : 0xcbd5e1;
+          const color = event.abilityId === "redshiftOrbs" ? 0xff3048 : event.abilityId === "orbLeech" ? 0xfbbf24 : 0xcbd5e1;
           this.burst(event.x, event.y, color, LOW_POWER_MODE ? 18 : 34, LOW_POWER_MODE ? 130 : 210);
-          this.addShockwave(event.x, event.y, color, event.abilityId === "gravityWell" ? 0.72 : 0.55, event.radius || (LOW_POWER_MODE ? 110 : 155));
+          this.addShockwave(event.x, event.y, color, 0.55, event.radius || (LOW_POWER_MODE ? 110 : 155));
         }
         if (event.type === "redOrbSlow") {
           this.burst(event.x, event.y, 0xff3048, LOW_POWER_MODE ? 10 : 18, 95);
@@ -4788,6 +4822,9 @@
         }
         item.container.setPosition(item.current.x, item.current.y);
         item.container.rotation = item.current.angle || 0;
+        if (item.data?.role === "killer" && (item.data?.voidSpeedBoost || 0) > 0) {
+          this.emitVoidRushTrail(item, item.data);
+        }
         if (item.spawnScalePulse && item.spawnScalePulse > 0.001) {
           item.spawnScalePulse = Math.max(0, item.spawnScalePulse - dt * (LOW_POWER_MODE ? 3.8 : 4.8));
           const pop = Math.sin((1 - item.spawnScalePulse) * Math.PI);
@@ -5783,6 +5820,7 @@
       setSelectedSkin(mine.skin);
     }
     ui.readyBtn.textContent = mine?.ready ? "Unready" : "Ready";
+    ui.readyBtn.dataset.readyState = mine?.ready ? "unready" : "ready";
     if (ui.startBtn) {
       ui.startBtn.disabled = !canStartRun;
       ui.startBtn.title = canStartRun ? "Start the run" : "Every human Runner and Void player has to ready up, and exactly 1 Void is required.";
