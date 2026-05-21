@@ -21,7 +21,7 @@ const GAME_MAPS = {
   bloodyard: {
     name: "Bloodyard T-Walls",
     tile: 72,
-    requiredGenerators: 5,
+    requiredGenerators: 1,
     rows: [
       "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX",
       "X..P...............................P....X",

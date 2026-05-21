@@ -7,14 +7,15 @@ const LEGACY_SCRIPT_CHAIN = [
   "/maps.js",
   "/audioConfig.js",
   "/gameplayConfig.js",
+  "/chats.js",
   "/client.js"
 ]
 
 const MENU_ACTIONS = [
-  { id: "menuPlayBtn", label: "Play Online", className: "menu-action primary" },
-  { id: "menuSkinsBtn", label: "Signal Skins", className: "menu-action" },
-  { id: "menuOptionsBtn", label: "Options", className: "menu-action" },
-  { id: "menuHowBtn", label: "Field Manual", className: "menu-action" }
+  { id: "menuPlayBtn", label: "Play", className: "menu-action primary" },
+  { id: "menuSkinsBtn", label: "Runner Skins", className: "menu-action" },
+  { id: "menuOptionsBtn", label: "Settings", className: "menu-action" },
+  { id: "menuHowBtn", label: "How To Play", className: "menu-action" }
 ]
 
 const SKINS = [
@@ -23,26 +24,22 @@ const SKINS = [
   { id: "purplePentagon", label: "Prism Ghost", className: "skin-pentagon" },
   { id: "nebulaBloom", label: "Nebula Bloom", className: "skin-nebula" },
   { id: "eclipseWisp", label: "Eclipse Wisp", className: "skin-eclipse" },
-  { id: "riftMoth", label: "Rift Moth", className: "skin-moth" },
+  { id: "riftMoth", label: "Night Moth", className: "skin-moth" },
   { id: "signalDrone", label: "Signal Drone", className: "skin-drone" }
 ]
 
 const HOW_TO_PLAY = [
   {
-    title: "Survivors",
-    text: "Collect orbs, seal active rifts, rescue teammates, use pallets and windows, then open the exit once the objective is complete."
+    title: "Runners",
+    text: "Collect orbs, feed active Rifts, rescue teammates, use pallets and windows, then reach the exit once the objective is complete."
   },
   {
     title: "The Void",
-    text: "Track survivors, charge lunges with M1, kick rifts, break pallets, hook downed players, and pressure the map."
-  },
-  {
-    title: "Rifts",
-    text: "Each map chooses active rifts at match start. Extra rifts can spawn, but survivors only need the required amount to unlock escape."
+    text: "Track the Runners, charge lunges with M1, break pallets, and hold E to hook downed Runners, execute, or kick active Rifts."
   },
   {
     title: "Controls",
-    text: "WASD move, mouse aim, Shift sprint, Space vault/drop/break, R quick chat. Stand still near injured or hooked teammates to heal/rescue them."
+    text: "WASD move, mouse aim, Shift sprint, Space vault/drop/break, R quick chat. Stand still near injured or hooked teammates to heal or rescue them."
   }
 ]
 
@@ -115,7 +112,7 @@ function useVoidriftClient() {
         console.error(error)
         const toast = document.getElementById("toast")
         if (toast) {
-          toast.textContent = "Voidrift failed to load. Check the console for details."
+          toast.textContent = "riftrunner failed to load. Check the console for details."
           toast.classList.remove("hidden")
         }
       })
@@ -200,12 +197,12 @@ function MainMenu() {
               <span />
             </div>
             <div>
-              <div className="eyebrow">asymmetric void survival</div>
-              <h1>Voidrift</h1>
+              <div className="eyebrow">asymmetric void chase</div>
+              <h1>riftrunner</h1>
             </div>
           </div>
           <p className="hero-copy">
-            Seal the rifts. Keep your team alive. Escape before the dark finishes learning your route.
+            Collect Orbs. Feed the Rifts. Keep your team moving and Escape before The Void consumes you.
           </p>
         </div>
 
@@ -213,14 +210,11 @@ function MainMenu() {
           {MENU_ACTIONS.map((action) => (
             <button id={action.id} className={action.className} type="button" key={action.id}>{action.label}</button>
           ))}
-          <a id="buyCoffeeBtn" className="menu-action coffee-link" href="https://www.buymeacoffee.com/replace-this" target="_blank" rel="noopener">
-            Buy me a Coffee
-          </a>
         </nav>
 
         <div className="menu-footer-strip">
           <span className="enrichment-mark" aria-hidden="true" />
-          <span>Void Enrichment</span>
+          <span>rift signal stable</span>
           <button id="menuMusicToggleBtn" className="menu-music-toggle" type="button" aria-pressed="false">
             Menu music on
           </button>
@@ -237,9 +231,9 @@ function PlayScreen() {
     <div id="playScreen" className="screen io-screen">
       <div className="void-card wide-menu-card play-card">
         <ScreenHeader
-          eyebrow="join a trial"
-          title="Choose your signal"
-          description="Set your name and role, then jump into an open lobby or start a fresh one."
+          eyebrow="join a run"
+          title="Choose your side"
+          description="Set your name and role, then join an open lobby or start a fresh run."
         />
 
         <div className="form-grid">
@@ -250,7 +244,7 @@ function PlayScreen() {
         <div className="role-select" aria-label="Role selector">
           <button className="role-btn selected" data-role="survivor" type="button">
             <span className="role-icon survivor-role-icon" aria-hidden="true" />
-            <span><strong>Survivor</strong><small>Repair, rescue, escape</small></span>
+            <span><strong>Runner</strong><small>Feed, rescue, escape</small></span>
           </button>
           <button className="role-btn" data-role="killer" type="button">
             <span className="role-icon void-role-icon" aria-hidden="true" />
@@ -265,7 +259,7 @@ function PlayScreen() {
 
         <div className="section-heading">
           <h2>Open Lobbies</h2>
-          <span>Live trials</span>
+          <span>Live runs</span>
         </div>
         <div id="lobbyList" className="lobby-list empty">No open lobbies yet.</div>
       </div>
@@ -278,11 +272,10 @@ function SkinScreen() {
     <div id="skinScreen" className="screen io-screen">
       <div className="void-card wide-menu-card">
         <ScreenHeader
-          eyebrow="survivor signals"
-          title="Signal Skins"
-          description="Pick a readable survivor signal. Simple shapes keep the match clean while each skin keeps its own identity."
+          eyebrow="runner forms"
+          title="Runner Skins"
         />
-        <div className="skin-picker big-skin-picker" aria-label="Survivor skin selector">
+        <div className="skin-picker big-skin-picker" aria-label="Runner skin selector">
           {SKINS.map((skin) => <SkinButton skin={skin} key={skin.id} />)}
         </div>
       </div>
@@ -296,15 +289,14 @@ function OptionsScreen() {
       <div className="void-card wide-menu-card">
         <ScreenHeader
           eyebrow="calibration"
-          title="Options"
-          description="Tune the match presentation, audio, and interface feel."
+          title="Settings"
         />
         <div className="option-list">
           <div className="option-card audio-option-card featured-option">
             <div className="option-icon audio-icon" aria-hidden="true" />
             <div>
               <strong>Audio</strong>
-              <span>All music and effects load from <code>/sfx/</code>.</span>
+              <span>Set the menu music level before the next run.</span>
             </div>
             <div className="volume-control">
               <label htmlFor="menuMusicVolumeSlider">
@@ -314,14 +306,6 @@ function OptionsScreen() {
               <input id="menuMusicVolumeSlider" type="range" min="0" max="100" step="1" defaultValue="14" aria-label="Main menu music volume" />
             </div>
             <button id="menuMusicToggleBtnOptions" className="menu-music-toggle" type="button" aria-pressed="false">Menu music on</button>
-          </div>
-          <div className="option-card">
-            <div className="option-icon visual-icon" aria-hidden="true" />
-            <div><strong>Visual Style</strong><span>Dark glass panels, rift glow, readable match HUD, minimal clutter.</span></div>
-          </div>
-          <div className="option-card">
-            <div className="option-icon performance-icon" aria-hidden="true" />
-            <div><strong>Performance</strong><span>React handles the interface while Phaser handles real-time rendering.</span></div>
           </div>
         </div>
       </div>
@@ -333,7 +317,7 @@ function HowScreen() {
   return (
     <div id="howScreen" className="screen io-screen">
       <div className="void-card wide-menu-card">
-        <ScreenHeader eyebrow="field manual" title="How to Survive" />
+        <ScreenHeader eyebrow="how to play" title="How to Run" />
         <div className="how-grid">
           {HOW_TO_PLAY.map((item) => (
             <div className="option-card how-card" key={item.title}>
@@ -353,39 +337,55 @@ function LobbyScreen() {
       <div className="void-card wide-menu-card lobby-panel">
         <div className="screen-topline">
           <button id="leaveBtn" className="text-btn" type="button">← Leave</button>
-          <div className="eyebrow">trial lobby</div>
+          <div className="eyebrow">run lobby</div>
         </div>
 
         <div className="lobby-title-row">
           <div>
             <h1 id="lobbyTitle">Lobby</h1>
-            <p id="lobbySubtitle" className="screen-copy">Choose a role, ready up, then start the match.</p>
+            <p id="lobbySubtitle" className="screen-copy">Choose a side, ready up, then start the run.</p>
           </div>
           <div id="lobbyRoleMark" className="lobby-role-mark survivor" aria-hidden="true">
             <span />
           </div>
         </div>
 
-        <div id="playersList" className="players-list" />
+        <div className="lobby-workspace">
+          <aside className="lobby-control-column" aria-label="Lobby controls">
+            <div className="lobby-column-heading">
+              <span>Setup</span>
+            </div>
 
-        <div className="role-row lobby-role-actions">
-          <button id="beSurvivorBtn" type="button">Choose Survivor</button>
-          <button id="beKillerBtn" type="button">Choose The Void</button>
+            <div className="role-row lobby-role-actions">
+              <button id="beSurvivorBtn" type="button">Play as a Runner</button>
+              <button id="beKillerBtn" type="button">Play as The Void</button>
+            </div>
+
+            <div className="lobby-bot-actions" aria-label="Add lobby bots">
+              <button id="addBotKillerBtn" type="button">Add Void Bot</button>
+              <button id="addBotSurvivorBtn" type="button">Add Runner Bot</button>
+            </div>
+
+            <div className="skin-picker compact lobby-skin-picker" aria-label="Runner skin selector">
+              <div className="skin-title">Runner skin</div>
+              {SKINS.map((skin) => <SkinButton skin={skin} compact key={skin.id} />)}
+            </div>
+
+            <div className="button-row lobby-actions">
+              <button id="startBtn" className="primary" type="button">Start Run</button>
+              <button id="readyBtn" className="ready-action" type="button">Ready</button>
+            </div>
+
+            <p className="hint lobby-hint">Multiple players can queue as <b>The Void</b>, but the run starts with exactly <b>1 Void</b> and at least <b>1 Runner</b>.</p>
+          </aside>
+
+          <section className="lobby-roster-column" aria-label="Lobby players">
+            <div className="lobby-column-heading">
+              <span>Players</span>
+            </div>
+            <div id="playersList" className="players-list" />
+          </section>
         </div>
-
-        <div className="skin-picker compact" aria-label="Survivor skin selector">
-          <div className="skin-title">Survivor skin</div>
-          {SKINS.map((skin) => <SkinButton skin={skin} compact key={skin.id} />)}
-        </div>
-
-        <div className="button-row lobby-actions">
-          <button id="readyBtn" type="button">Ready</button>
-          <button id="addBotSurvivorBtn" type="button">Add Bot Survivor</button>
-          <button id="addBotKillerBtn" type="button">Add Bot Void</button>
-          <button id="startBtn" className="primary" type="button">Start Match</button>
-        </div>
-
-        <p className="hint">Start requires exactly <b>1 Void</b> and at least <b>1 Survivor</b>.</p>
       </div>
     </div>
   )
@@ -401,15 +401,19 @@ function GameHud() {
           </div>
           <div className="role-hud-copy">
             <span>Playing as</span>
-            <h2 id="roleLabel">Survivor</h2>
+            <h2 id="roleLabel">Runner</h2>
             <p id="controlsLabel">Controls</p>
+            <div id="fpsCounterRow" className="fps-counter-row">
+              <span>FPS</span>
+              <b id="fpsText">--</b>
+            </div>
           </div>
         </div>
-        <div className="hud-card objective-card compact-card">
-          <div><span>Rifts</span><b id="genText">0 / 0</b></div>
-          <div><span>Gate</span><b id="gateText">Closed</b></div>
-          <div><span>Status</span><b id="healthText">Healthy</b></div>
-          <div><span>Audio</span><b id="audioText">Press any key</b></div>
+        <div className="hud-data-bucket" aria-hidden="true">
+          <span id="genText">0 / 0</span>
+          <span id="gateText">Closed</span>
+          <span id="healthText">Healthy</span>
+          <span id="audioText">Press any key</span>
         </div>
       </div>
 
@@ -469,7 +473,7 @@ function survivorStateLabel(actor) {
   }
   if (actor.dotDepositTargetId) return `Depositing ${Math.round((actor.dotDepositProgress || 0) * 100)}%`
   if (actor.health <= 1 || actor.injured) return actor.healProgress > 0 ? "Being Healed" : "Injured"
-  return actor.chase ? "Chased" : "Healthy"
+  return "Healthy"
 }
 
 function survivorCardClass(actor, myId, spectateTargetId, spectating) {
@@ -623,7 +627,9 @@ function SurvivorStatusHud() {
   const [hud, setHud] = useState({
     survivors: [],
     killerChat: null,
-    myId: null
+    myId: null,
+    spectating: false,
+    canCycleSpectate: false
   })
 
   useEffect(() => {
@@ -635,6 +641,12 @@ function SurvivorStatusHud() {
       const spectating = !!detail.spectating
       const actors = snapshot.actors || []
       const killer = actors.find((actor) => actor.role === "killer" && visibleChatTextForActor(actor))
+      const livingSpectateTargets = actors.filter((actor) => (
+        actor.role === "survivor"
+        && actor.id !== myId
+        && !actor.dead
+        && !actor.escaped
+      ))
       const survivors = actors
         .filter((actor) => actor.role === "survivor")
         .sort((a, b) => {
@@ -644,7 +656,7 @@ function SurvivorStatusHud() {
         })
         .map((actor) => ({
           id: actor.id,
-          name: actor.name || "Survivor",
+          name: actor.name || "Runner",
           state: survivorStateLabel(actor),
           className: survivorCardClass(actor, myId, spectateTargetId, spectating),
           chat: visibleChatTextForActor(actor),
@@ -658,6 +670,8 @@ function SurvivorStatusHud() {
       setHud({
         myId,
         survivors,
+        spectating,
+        canCycleSpectate: livingSpectateTargets.length > 0,
         killerChat: killer
           ? {
               name: killer.name || "The Void",
@@ -673,6 +687,13 @@ function SurvivorStatusHud() {
 
   return (
     <div id="survivorStatusHud" className="survivor-status-list hidden" aria-live="polite">
+      {hud.spectating && hud.canCycleSpectate && (
+        <div className="spectate-hint-card" role="status">
+          <span>Tab</span> change runner
+          <i aria-hidden="true" />
+          <span>Esc</span> exit
+        </div>
+      )}
       {hud.killerChat && (
         <div className="survivor-status-card killer-chat-card has-chat">
           <div className="survivor-portrait killer-portrait" aria-hidden="true" />
@@ -711,8 +732,8 @@ function SurvivorStatusHud() {
         <div className="survivor-status-card dead">
           <div className="survivor-portrait" />
           <div className="survivor-meta">
-            <div className="survivor-name">No survivors</div>
-            <div className="survivor-state">Quiet void</div>
+            <div className="survivor-name">No runners</div>
+            <div className="survivor-state">The void is quiet</div>
           </div>
           <div className="survivor-action">void</div>
         </div>
@@ -744,7 +765,7 @@ function HookEdgeIndicators() {
             top: `${Number(indicator.y) || 0}px`,
             "--hook-angle": `${Number(indicator.angle) || 0}rad`
           }}
-          title={`${indicator.name || "Survivor"} is hooked`}
+          title={`${indicator.name || "Runner"} is hooked`}
           key={indicator.id}
         >
           <span className="hook-edge-arrow" aria-hidden="true" />
@@ -774,11 +795,11 @@ function EndScreen() {
   return (
     <div id="endScreen" className="screen io-screen">
       <div className="void-card end-panel">
-        <div className="eyebrow">match ended</div>
-        <h1 id="winnerText">Survivors Win</h1>
-        <p id="reasonText" className="screen-copy">All rifts are sealed.</p>
+        <div className="eyebrow">run ended</div>
+        <h1 id="winnerText">Runners Escape</h1>
+        <p id="reasonText" className="screen-copy">The route is open.</p>
         <div className="button-row center">
-          <button id="backToLobbyBtn" className="primary" type="button">Back To Lobby</button>
+          <button id="backToLobbyBtn" className="primary" type="button">Back to Lobby</button>
           <button id="spectateBtn" type="button" className="hidden">Spectate Match</button>
           <button id="mainMenuBtn" type="button">Main Menu</button>
         </div>
@@ -806,6 +827,7 @@ export default function App() {
       <HookEdgeIndicators />
       <div id="toast" className="toast hidden" />
       <MobileControls />
+      <div id="screenFadeOverlay" className="screen-fade-overlay" aria-hidden="true" />
       <EndScreen />
     </>
   )

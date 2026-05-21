@@ -1,6 +1,6 @@
-# Voidrift
+# riftrunner
 
-React + Vite UI shell with the existing Phaser/socket.io Voidrift game mounted inside it.
+React + Vite UI shell with the Phaser/socket.io Riftrunner game mounted inside it.
 
 ## Run locally
 
@@ -11,7 +11,7 @@ npm run dev
 
 Open the URL printed by the server, usually `http://localhost:3000`.
 
-The dev server is a single Express/socket.io process with Vite middleware, so `/socket.io/socket.io.js`, Phaser, the React UI, and the game client all run on the same origin. Tiny miracle, no proxy circus.
+The dev server is a single Express/socket.io process with Vite middleware, so `/socket.io/socket.io.js`, Phaser, the React UI, and the game client all run on the same origin.
 
 ## Build and run
 
@@ -41,5 +41,5 @@ public/maps.js              map data and per-map rift requirements
 public/gameplayConfig.js    shared gameplay tuning
 public/audioConfig.js       audio tuning
 src/App.jsx                 React-rendered UI shell
-src/styles/voidrift.css     game/UI CSS moved from the old static page
+src/styles/voidrift.css     game/UI CSS
 ```

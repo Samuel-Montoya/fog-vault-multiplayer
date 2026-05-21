@@ -68,8 +68,10 @@ const GAMEPLAY_CONFIG = {
     lowPowerSpawnPopZoom: 0.10,
     spawnPopZoomDecay: 5.6,
     lowPowerSpawnPopZoomDecay: 4.2,
-    matchStartZoomOut: 0.48,
-    lowPowerMatchStartZoomOut: 0.26,
+    matchStartZoomOut: 0.36,
+    lowPowerMatchStartZoomOut: 0.22,
+    matchStartZoomSmoothing: 3.0,
+    lowPowerMatchStartZoomSmoothing: 2.2,
 
     zoomSmoothing: 6.4,
     lowPowerZoomSmoothing: 4.4,
@@ -103,8 +105,12 @@ const GAMEPLAY_CONFIG = {
     // After a survivor vaults a window/pallet, they must commit for a moment before vaulting again.
     windowVaultCooldown: 1.15,
     palletVaultCooldown: 1.15,
+    // Dropping a pallet also locks pallet vaulting briefly, so survivors cannot slam and instantly hop over.
+    palletDropCooldown: 1.15,
     healTime: 4.2,
     healDistance: 82,
+    // If a heal is started and then interrupted, progress drains slowly instead of snapping to zero.
+    healDecayPerSecond: 0.08,
     unhookTime: 2.15,
     hookRescueDistance: 108,
     coneLength: 620,
@@ -161,16 +167,16 @@ const GAMEPLAY_CONFIG = {
     kickTime: 1.0,
     kickRegression: 0.10,
     escapeTime: 4.0,
-    dotsPerRift: 20,
+    dotsPerRift: 25,
     depositDistance: 96,
-    depositSecondsPerOrb: 1,
+    depositSecondsPerOrb: 1.5,
     maxDepositChain: 10
   },
 
   orbs: {
     survivorMax: 10,
     voidMax: 999,
-    survivorDropOnHitPercent: 0.5,
+    survivorDropOnHitPercent: 1.0,
     survivorPickupRadius: 48,
     voidPickupRadius: 92,
     minTileSpacing: 3.0,

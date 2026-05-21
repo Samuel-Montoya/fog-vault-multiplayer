@@ -102,7 +102,8 @@
         orbDeposit: "/sfx/orb_deposit.mp3",
         buttonClick: "/sfx/button_click.mp3",
         playerSpeak: "/sfx/player_speak.mp3",
-        healing: "/sfx/healing.mp3"
+        healing: "/sfx/healing.mp3",
+        unhooking: ["/sfx/unhooking.mp3", "/sfx/unhook.mp3"]
       },
       volumes: {
         hooked: 0.82,
@@ -120,7 +121,8 @@
         orbDeposit: 0.72,
         buttonClick: 0.55,
         playerSpeak: 0.62,
-        healing: 0.34
+        healing: 0.34,
+        unhooking: 0.44
       },
       pitchSteps: {
         hooked: [0.84, 0.92, 1.0, 1.09, 1.18, 1.28],
@@ -131,14 +133,16 @@
         palletStun: [0.78, 0.86, 0.94, 1.0, 1.08],
         buttonClick: [0.92, 0.97, 1.0, 1.05, 1.11, 1.18],
         playerSpeak: [0.88, 0.94, 1.0, 1.07, 1.15, 1.24],
-        healing: [1.0]
+        healing: [1.0],
+        unhooking: [0.96, 1.0, 1.04]
       },
       localRange: {
         swing: 315,
         hit: 440,
         palletStun: 300,
         voidStun: 360,
-        healing: 340
+        healing: 340,
+        unhooking: 0
       }
     }
   };
@@ -210,7 +214,8 @@
     SPAWN_ZOOM: cameraNumber("spawnPopZoom", "lowPowerSpawnPopZoom", LOW_POWER_MODE ? 0.10 : 0.18),
     SPAWN_ZOOM_DECAY: cameraNumber("spawnPopZoomDecay", "lowPowerSpawnPopZoomDecay", LOW_POWER_MODE ? 4.2 : 5.6),
     MATCH_START_LOCK_SECONDS: cfgNumber(GAMEPLAY_CONFIG.match?.startFreezeSeconds, 1.5),
-    MATCH_START_ZOOM_OUT: cameraNumber("matchStartZoomOut", "lowPowerMatchStartZoomOut", LOW_POWER_MODE ? 0.26 : 0.48),
+    MATCH_START_ZOOM_OUT: cameraNumber("matchStartZoomOut", "lowPowerMatchStartZoomOut", LOW_POWER_MODE ? 0.22 : 0.36),
+    MATCH_START_ZOOM_SMOOTHING: cameraNumber("matchStartZoomSmoothing", "lowPowerMatchStartZoomSmoothing", LOW_POWER_MODE ? 2.2 : 3.0),
     MIN_ZOOM: cameraNumber("minZoom", "lowPowerMinZoom", LOW_POWER_MODE ? 0.42 : 0.34),
 
     ZOOM_SMOOTHING: cameraNumber("zoomSmoothing", "lowPowerZoomSmoothing", LOW_POWER_MODE ? 4.4 : 6.4),
@@ -425,7 +430,9 @@
   };
 
 
-  const ORB_FULL_CHAT_MESSAGES = new Set([
+  const SHARED_CHATS = window.RIFTRUNNER_CHATS || {};
+  const CHAT_AUTOMATIC = SHARED_CHATS.automatic || {};
+  const ORB_FULL_CHAT_MESSAGES = new Set(CHAT_AUTOMATIC.orbFull || [
     "I have too many orbs...",
     "I should deposit these",
     "I can't pick any more up.",
@@ -489,7 +496,7 @@
     },
     riftMoth: {
       id: "riftMoth",
-      label: "Rift Moth",
+      label: "Night Moth",
       shape: "moth",
       color: 0x60a5fa,
       accent: 0xc084fc,
@@ -507,18 +514,17 @@
     }
   };
 
-  // In-match radial chat. React renders the wheel; the game client only supplies context
-  // and sends the final selected message to the server. Screen-space UI belongs in React,
-  // not in a Phaser scene pretending to be a haunted CSS engine.
-  const CHAT_WHEEL_MESSAGES = {
+  // In-match radial chat. React renders the wheel; the shared chat file keeps
+  // client labels and server-sent bubbles in lockstep.
+  const CHAT_WHEEL_MESSAGES = SHARED_CHATS.chatWheel || {
     survivor: {
-      normal: ["Let's feed a rift.", "I'm so scared...", "Here he comes!", "What was that?!"],
-      chase: ["He's on me...!", "Leave me alone!", "I'm so scared!", "AHHHH!"],
-      injured: ["I need healing...", "Please, help me...", "I need to hide.", "Over here..."],
-      downed: ["Pick me up!", "Help, please...", "I don't wanna die...", "I'm down...!"],
-      hooked: ["Save me!", "Unhook me!", "Grab me!", "He's here..."]
+      normal: ["Feed this rift.", "Stay close.", "Void nearby.", "I heard something."],
+      chase: ["Void on me.", "Keep moving!", "I need distance.", "Do not come here."],
+      injured: ["I need healing.", "Hold still near me.", "I need cover.", "Over here."],
+      downed: ["Pick me up.", "I need help.", "I am down.", "Not ideal."],
+      hooked: ["Get me down.", "I need a rescue.", "Void is close.", "Hurry."]
     },
-    killer: ["Im going to get you", "You cant hide forever", "Ill be back...", "What the...?!"]
+    killer: ["I hear you.", "Run while you can.", "The dark is moving.", "You are close."]
   };
 
   function getSurvivorSkin(id) {
@@ -580,7 +586,13 @@
 
   function ensureFpsCounter() {
     if (ui.fpsText) return ui.fpsText;
-    const card = document.querySelector(".objective-card");
+    const existing = document.getElementById("fpsText");
+    if (existing) {
+      ui.fpsText = existing;
+      return existing;
+    }
+
+    const card = document.getElementById("roleHudCard") || document.querySelector(".role-hud-card");
     if (!card) return null;
     const row = document.createElement("div");
     row.id = "fpsCounterRow";
@@ -646,7 +658,7 @@
     if (ui.lobbyRoleMark) {
       ui.lobbyRoleMark.classList.toggle("killer", selectedRole === "killer");
       ui.lobbyRoleMark.classList.toggle("survivor", selectedRole !== "killer");
-      ui.lobbyRoleMark.setAttribute("aria-label", selectedRole === "killer" ? "Playing as The Void" : "Playing as Survivor");
+      ui.lobbyRoleMark.setAttribute("aria-label", selectedRole === "killer" ? "Playing as The Void" : "Playing as Runner");
     }
   }
 
@@ -662,6 +674,35 @@
     attackHeld: false,
     angle: 0
   };
+
+  function introLockSecondsRemaining() {
+    if (activeScreenName !== "game" || !phaserScene) return 0;
+    const localZoom = Math.max(0, ((phaserScene.matchStartZoomUntil || 0) - performance.now()) / 1000);
+    const serverLock = Math.max(0, Number(phaserScene.matchStartFreezeRemaining || 0));
+    return Math.max(localZoom, serverLock);
+  }
+
+  function isIntroInputLocked() {
+    return introLockSecondsRemaining() > 0.035;
+  }
+
+  function clearMovementInputOnly() {
+    input.up = false;
+    input.down = false;
+    input.left = false;
+    input.right = false;
+    input.sprint = false;
+    input.repair = false;
+    input.action = false;
+    input.attack = false;
+    input.attackHeld = false;
+  }
+
+  const INTRO_LOCKED_KEY_CODES = new Set([
+    "KeyW", "KeyA", "KeyS", "KeyD",
+    "ArrowUp", "ArrowLeft", "ArrowDown", "ArrowRight",
+    "ShiftLeft", "ShiftRight", "Space", "KeyE"
+  ]);
 
   const audio = {
     ready: false,
@@ -682,7 +723,11 @@
     healingLoop: null,
     healingLoopVolume: 0,
     healingLoopPitch: 1,
-    healingLoopLastTryAt: 0
+    healingLoopLastTryAt: 0,
+    unhookingLoop: null,
+    unhookingLoopVolume: 0,
+    unhookingLoopPitch: 1,
+    unhookingLoopLastTryAt: 0
   };
 
   const MENU_MUSIC_MUTE_KEY = "voidriftMenuMusicMuted";
@@ -819,6 +864,7 @@
         if (!layer.paused) layer.pause();
       }
       stopHealingLoop(true);
+      stopUnhookingLoop(true);
       return;
     }
 
@@ -841,6 +887,7 @@
       closeReactChatWheel(false);
       dispatchHookIndicators([]);
       stopHealingLoop(true);
+      stopUnhookingLoop(true);
     }
     const menuLike = !isGameScreen;
     const shouldRestartMenuMusic = menuLike && wasGameScreen;
@@ -868,6 +915,7 @@
   }
 
   let matchTransitionTimers = [];
+  let screenFadeTimers = [];
 
   function clearMatchStartTransitionTimers() {
     for (const timer of matchTransitionTimers) clearTimeout(timer);
@@ -926,6 +974,75 @@
     }, fadeToBlackMs + fadeToGameMs + 40));
   }
 
+  function clearScreenFadeTimers() {
+    for (const timer of screenFadeTimers) clearTimeout(timer);
+    screenFadeTimers = [];
+  }
+
+  function getScreenFadeOverlay() {
+    let overlay = document.getElementById("screenFadeOverlay");
+    if (overlay) return overlay;
+    overlay = document.createElement("div");
+    overlay.id = "screenFadeOverlay";
+    overlay.className = "screen-fade-overlay";
+    overlay.setAttribute("aria-hidden", "true");
+    document.body.appendChild(overlay);
+    return overlay;
+  }
+
+  function runScreenFadeTransition(swapScreen, options = {}) {
+    const overlay = getScreenFadeOverlay();
+    const fadeOutMs = Math.max(80, Number(options.fadeOutMs) || 260);
+    const fadeInMs = Math.max(120, Number(options.fadeInMs) || 360);
+    const holdMs = Math.max(0, Number(options.holdMs) || 45);
+
+    clearScreenFadeTimers();
+    overlay.classList.remove("is-hidden");
+    overlay.style.display = "block";
+    overlay.style.pointerEvents = "auto";
+    overlay.style.transition = "none";
+    overlay.style.opacity = "0";
+    overlay.getBoundingClientRect();
+
+    requestAnimationFrame(() => {
+      overlay.style.transition = `opacity ${fadeOutMs}ms cubic-bezier(.18,.76,.18,1)`;
+      overlay.style.opacity = "1";
+    });
+
+    screenFadeTimers.push(setTimeout(() => {
+      swapScreen?.();
+      overlay.style.transition = `opacity ${fadeInMs}ms cubic-bezier(.16,.84,.24,1)`;
+      overlay.style.opacity = "0";
+    }, fadeOutMs + holdMs));
+
+    screenFadeTimers.push(setTimeout(() => {
+      overlay.style.display = "none";
+      overlay.style.pointerEvents = "none";
+      overlay.style.transition = "none";
+      overlay.style.opacity = "0";
+    }, fadeOutMs + holdMs + fadeInMs + 50));
+  }
+
+  function showEndScreenWithFade() {
+    if (activeScreenName === "game") {
+      runScreenFadeTransition(() => showScreen("end"), { fadeOutMs: 270, fadeInMs: 380, holdMs: 60 });
+      return;
+    }
+    showScreen("end");
+  }
+
+  function showGameScreenWithFade(afterShow) {
+    if (activeScreenName === "end") {
+      runScreenFadeTransition(() => {
+        showScreen("game");
+        afterShow?.();
+      }, { fadeOutMs: 230, fadeInMs: 330, holdMs: 35 });
+      return;
+    }
+    showScreen("game");
+    afterShow?.();
+  }
+
   function getName() {
     return (ui.playerName.value || "Player").trim().slice(0, 18) || "Player";
   }
@@ -955,7 +1072,7 @@
     return root;
   }
 
-  function actorNameFromSnapshot(actorId, fallback = "Survivor") {
+  function actorNameFromSnapshot(actorId, fallback = "Runner") {
     if (!actorId) return fallback;
     const snapshotActor = (currentSnapshot?.actors || []).find((actor) => actor.id === actorId);
     if (snapshotActor?.name) return snapshotActor.name;
@@ -991,22 +1108,22 @@
 
     if (event.type === "hooked") {
       if (event.survivorId === myId) return;
-      const name = actorNameFromSnapshot(event.survivorId, "A Survivor");
+      const name = actorNameFromSnapshot(event.survivorId, "A Runner");
       pushMatchAnnouncement({
         kind: "hook",
         title: `${name} was hooked`,
-        detail: "The Void tightens its grip."
+        detail: "The hook is set."
       });
       return;
     }
 
     if (event.type === "execute" || event.type === "death") {
       if (event.survivorId === myId) return;
-      const name = actorNameFromSnapshot(event.survivorId, "A Survivor");
+      const name = actorNameFromSnapshot(event.survivorId, "A Runner");
       pushMatchAnnouncement({
         kind: "death",
         title: `${name} was claimed`,
-        detail: "Their signal vanished into the dark."
+        detail: "Their signal went dark."
       });
       return;
     }
@@ -1205,7 +1322,10 @@
 
   function getLivingTeammates(snapshot = currentSnapshot) {
     return (snapshot?.actors || []).filter(
-      (a) => a.role === "survivor" && a.id !== myId && !a.dead && !a.escaped
+      (a) => a.role === "survivor"
+        && a.id !== myId
+        && !a.dead
+        && !a.escaped
     );
   }
 
@@ -1213,6 +1333,18 @@
     if (!socket || !myId) return;
     const me = getLocalPlayerData();
     if (me?.role === "survivor" && me.dead) return;
+
+    if (isIntroInputLocked()) {
+      clearMovementInputOnly();
+      const payload = inputPayload();
+      const signature = JSON.stringify(payload);
+      if (force || signature !== lastInputPayload) {
+        socket.emit("input", payload);
+        lastInputPayload = signature;
+      }
+      return;
+    }
+
     const payload = inputPayload(oneShot);
     const signature = JSON.stringify(payload);
     if (force || signature !== lastInputPayload || oneShot.action || oneShot.attack || oneShot.attackReleased) {
@@ -1588,6 +1720,62 @@
     }
   }
 
+  function ensureUnhookingLoopElement() {
+    if (audio.unhookingLoop && hasManagedAudioSource(audio.unhookingLoop)) return audio.unhookingLoop;
+    const base = audio.sfx?.unhooking;
+    if (!hasManagedAudioSource(base)) return null;
+
+    const loop = base.cloneNode(true);
+    loop.loop = true;
+    loop.volume = 0;
+    loop.preservesPitch = false;
+    loop.mozPreservesPitch = false;
+    loop.webkitPreservesPitch = false;
+    loop.playbackRate = audio.unhookingLoopPitch || 1;
+    loop._voidriftReady = true;
+    loop._voidriftMissing = false;
+    audio.unhookingLoop = loop;
+    return loop;
+  }
+
+  function stopUnhookingLoop(reset = false) {
+    audio.unhookingLoopVolume = 0;
+    const loop = audio.unhookingLoop;
+    if (!loop) return;
+    loop.volume = 0;
+    if (!loop.paused) loop.pause();
+    if (reset) {
+      try { loop.currentTime = 0; } catch (_) { /* ignore */ }
+    }
+  }
+
+  function getUnhookingAudioActivity(snapshot = currentSnapshot) {
+    if (!snapshot || snapshot.phase !== "game" || activeScreenName !== "game") return { active: false };
+    const actors = snapshot.actors || [];
+    const localData = actors.find((actor) => actor.id === myId);
+    if (!localData || localData.dead || localData.escaped) return { active: false };
+
+    if (localData.role === "survivor" && localData.hooked && (localData.unhookProgress || 0) > 0.001) {
+      return { active: true, progress: localData.unhookProgress || 0, linked: "target" };
+    }
+
+    const targetId = localData.role === "survivor" ? localData.unhookTargetId : null;
+    if (targetId) {
+      const target = actors.find((actor) => actor.id === targetId);
+      if (target?.hooked && !target.dead && !target.escaped && (target.unhookProgress || 0) > 0.001) {
+        return { active: true, progress: target.unhookProgress || 0, linked: "helper" };
+      }
+    }
+
+    return { active: false };
+  }
+
+  function updateUnhookingSfx() {
+    // Unhooking is intentionally a completion cue now, not a loop while rescuing.
+    // Keep this cleanup path so older loop instances cannot linger after a transition.
+    stopUnhookingLoop(true);
+  }
+
   const LOCAL_SFX_RANGE = AUDIO_CONFIG.sfx.localRange;
 
   function getLocalVisualActor() {
@@ -1619,6 +1807,12 @@
     const d = distanceToLocalEvent(event);
     // The victim always hears impact. Other players only hear it nearby.
     if (isMyHit || d <= LOCAL_SFX_RANGE.hit) playSfx("injured");
+  }
+  function playLocalizedUnhookComplete(event) {
+    if (!event) return;
+    const rescuers = Array.isArray(event.rescuerIds) ? event.rescuerIds : [];
+    const involved = event.survivorId === myId || rescuers.includes(myId) || event.rescuerId === myId;
+    if (involved) playSfx("unhooking", { disablePitchVariation: true });
   }
 
 
@@ -1683,7 +1877,7 @@
     }
     if (actor.dotDepositTargetId) return `Depositing ${Math.round((actor.dotDepositProgress || 0) * 100)}%`;
     if (actor.health <= 1 || actor.injured) return actor.healProgress > 0 ? "Being Healed" : "Injured";
-    return actor.chase ? "Chased" : "Healthy";
+    return "Healthy";
   }
 
   function survivorCardClass(actor) {
@@ -1875,6 +2069,7 @@
       this.matchStartFreezeRemaining = 0;
       this.matchStartFreezeDuration = IMMERSION.MATCH_START_LOCK_SECONDS;
       this.matchStartZoomUntil = 0;
+      this.introCameraPrimed = false;
       this.lastMoveDirX = 0;
       this.lastMoveDirY = 0;
       this.spectateTargetId = null;
@@ -2000,6 +2195,11 @@
       // system below uses vector alpha + object visibility, which is much cheaper.
       this.input.on("pointerdown", (pointer) => {
         ensureAudioStarted();
+        if (isIntroInputLocked()) {
+          clearMovementInputOnly();
+          sendInput({}, true);
+          return;
+        }
         if (pointer.leftButtonDown()) {
           input.attackHeld = true;
           sendInput({}, true);
@@ -2202,6 +2402,7 @@
       this.localServerTarget = null;
       this.spectateTargetId = null;
       this.lastSpectateEmitId = "";
+      this.introCameraPrimed = false;
     }
 
     rebuildOutOfBoundsBackdrop() {
@@ -3071,15 +3272,15 @@
       this.lastHudRenderAt = now;
       renderSurvivorStatusHud(snapshot);
       ui.hud.dataset.role = me.role === "killer" ? "killer" : "survivor";
-      ui.roleLabel.textContent = me.role === "killer" ? "The Void" : "Survivor";
+      ui.roleLabel.textContent = me.role === "killer" ? "The Void" : "Runner";
       ui.controlsLabel.textContent = me.role === "killer"
-        ? "WASD move • Mouse aim • M1 attack/lunge • Space vault/break • hold E hook/execute/kick rift • hold R chat"
-        : "WASD move • Shift sprint • Mouse flashlight • Space vault/drop • collect orbs, stand near rifts to deposit • stand still near teammates to heal/rescue • hold R chat";
+        ? "WASD move • Mouse aim • M1 attack/lunge • Space vault/break • hold E hook/execute/kick Rift • hold R chat"
+        : "WASD move • Shift sprint • Mouse flashlight • Space vault/drop • collect orbs, stand near active Rifts to deposit • stand still near teammates to heal/rescue • hold R chat";
       const shownDone = Math.min(done, required);
       ui.genText.textContent = `${shownDone} / ${required}${total > required ? ` (${total} on map)` : ""}`;
       if (ui.bigGenText) ui.bigGenText.textContent = `${shownDone} / ${required}`;
       ui.bigGenCounter?.classList.toggle("is-complete", required > 0 && shownDone >= required);
-      ui.gateText.textContent = escapeOpen ? "Voids Open" : "Sealed";
+      ui.gateText.textContent = escapeOpen ? "Open" : "Sealed";
       if (me.role === "killer") {
         const actors = snapshot.actors || [];
         const hookingTarget = actors.find((a) => a.id === me.hookActionTargetId);
@@ -3088,10 +3289,10 @@
           ui.healthText.textContent = `Stunned ${Math.ceil(me.voidStun || 0)}s`;
         } else if (hookingTarget) {
           const executing = me.hookActionType === "execute" || (hookingTarget.hookCount || 0) >= 2;
-          ui.healthText.textContent = `${executing ? "Executing" : "Hooking"} ${hookingTarget.name || "survivor"} ${Math.round((hookingTarget.hookProgress || 0) * 100)}%`;
+          ui.healthText.textContent = `${executing ? "Executing" : "Hooking"} ${hookingTarget.name || "runner"} ${Math.round((hookingTarget.hookProgress || 0) * 100)}%`;
         } else if (readyTarget) {
           const executeReady = (readyTarget.hookCount || 0) >= 2;
-          ui.healthText.textContent = `Hold E: ${executeReady ? "Execute" : "hook"} ${readyTarget.name || "Survivor"}`;
+          ui.healthText.textContent = `Hold E: ${executeReady ? "Execute" : "hook"} ${readyTarget.name || "Runner"}`;
         } else if (me.generatorKickTargetId) {
           ui.healthText.textContent = `Kicking rift ${Math.round((me.generatorKickProgress || 0) * 100)}%`;
         } else {
@@ -3101,7 +3302,7 @@
       } else if (me.dead) {
         const target = (snapshot.actors || []).find((a) => a.id === this.resolveSpectateTargetId());
         ui.healthText.textContent = target
-          ? `Spectating: ${target.name || "Survivor"}`
+          ? `Spectating: ${target.name || "Runner"}`
           : "Dead";
         ui.controlsLabel.textContent = "Tab / Shift+Tab — switch teammate camera";
       } else ui.healthText.textContent = survivorStateLabel(me);
@@ -3244,6 +3445,7 @@
           if (!this.localVisual || dist(this.localVisual.x, this.localVisual.y, data.x, data.y) > 180) {
             this.localVisual = { x: data.x, y: data.y, angle: data.angle, role: data.role, skin: data.skin || "blueSquare" };
           }
+          this.primeIntroCameraForLocalActor(data);
           if (data.dead && data.role === "survivor") {
             const living = this.getLivingTeammates();
             if (living.length && (!this.spectateTargetId || !living.some((a) => a.id === this.spectateTargetId))) {
@@ -3763,6 +3965,7 @@
         }
         if (event.type === "genDone") playSfx(event.allRiftsDone ? "riftsComplete" : "gen");
         if (event.type === "hit" || event.type === "downed") playLocalizedHit(event);
+        if (event.type === "unhooked") playLocalizedUnhookComplete(event);
         if (event.type === "vault" && event.actorId === myId) {
           if (event.vaultType === "pallet") playSfx("palletVault");
           else playSfx("windowVault");
@@ -3971,17 +4174,19 @@
       this.spawnInAt = performance.now();
       this.spawnInPulse = 1;
       item.spawnScalePulse = 1;
-      item.container?.setScale(LOW_POWER_MODE ? 0.72 : 0.58);
+      item.container?.setScale(LOW_POWER_MODE ? 0.78 : 0.66);
 
+      const introLocked = this.isMatchIntroLocked();
       const primary = item.data?.role === "killer" ? 0xa772ff : 0x31a9ff;
       const secondary = item.data?.role === "killer" ? 0x4c1d95 : COLORS.collectibleDotGlow;
-      this.addShockwave(x, y, primary, LOW_POWER_MODE ? 0.62 : 0.84, LOW_POWER_MODE ? 82 : 118);
-      this.addShockwave(x, y, secondary, LOW_POWER_MODE ? 0.46 : 0.64, LOW_POWER_MODE ? 52 : 78);
-      this.burst(x, y, primary, LOW_POWER_MODE ? 18 : 34, LOW_POWER_MODE ? 145 : 210);
-      this.burst(x, y, secondary, LOW_POWER_MODE ? 12 : 24, LOW_POWER_MODE ? 95 : 145);
+      this.addShockwave(x, y, primary, LOW_POWER_MODE ? 0.46 : 0.62, introLocked ? 74 : (LOW_POWER_MODE ? 82 : 118));
+      this.addShockwave(x, y, secondary, LOW_POWER_MODE ? 0.34 : 0.48, introLocked ? 48 : (LOW_POWER_MODE ? 52 : 78));
+      this.burst(x, y, primary, introLocked ? (LOW_POWER_MODE ? 8 : 14) : (LOW_POWER_MODE ? 18 : 34), introLocked ? 120 : (LOW_POWER_MODE ? 145 : 210));
+      this.burst(x, y, secondary, introLocked ? (LOW_POWER_MODE ? 6 : 10) : (LOW_POWER_MODE ? 12 : 24), introLocked ? 80 : (LOW_POWER_MODE ? 95 : 145));
 
-      // A tiny camera thump makes the spawn feel physical without turning match start into a GPU crime.
-      this.cameras.main.shake(LOW_POWER_MODE ? 80 : 120, LOW_POWER_MODE ? 0.0009 : 0.0015);
+      if (!introLocked) {
+        this.cameras.main.shake(LOW_POWER_MODE ? 80 : 120, LOW_POWER_MODE ? 0.0009 : 0.0015);
+      }
     }
 
     addShockwave(x, y, color = 0xffffff, alpha = 0.62, maxRadius = 120) {
@@ -4025,7 +4230,9 @@
       const dt = Math.min(0.04, deltaMs / 1000);
       updateMusic();
       updateHealingSfx(dt);
+      updateUnhookingSfx(dt);
       this.updateAimAngle();
+      if (this.isMatchIntroLocked()) clearMovementInputOnly();
       this.predictLocal(dt);
       this.updateActorDisplays(dt);
       this.updateImmersion(dt);
@@ -4091,10 +4298,40 @@
       };
     }
 
+    isMatchIntroLocked() {
+      if (activeScreenName !== "game") return false;
+      const localZoom = Math.max(0, ((this.matchStartZoomUntil || 0) - performance.now()) / 1000);
+      const serverLock = Math.max(0, Number(this.matchStartFreezeRemaining || 0));
+      return Math.max(localZoom, serverLock) > 0.035;
+    }
+
+    primeIntroCameraForLocalActor(data) {
+      if (this.introCameraPrimed || !data || !this.isMatchIntroLocked()) return;
+      const x = Number(data.x);
+      const y = Number(data.y);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+      this.introCameraPrimed = true;
+      this.cameraSwayX = 0;
+      this.cameraSwayY = 0;
+      this.cameraSwayTargetX = 0;
+      this.cameraSwayTargetY = 0;
+      this.localVisual = { x, y, angle: data.angle || 0, role: data.role, skin: data.skin || "blueSquare" };
+      const introZoom = Math.max(0.38, IMMERSION.BASE_ZOOM - IMMERSION.MATCH_START_ZOOM_OUT);
+      this.cameras.main.setZoom(introZoom);
+      this.cameras.main.centerOn(x, y);
+    }
+
     predictLocal(dt) {
       if (!this.map || !this.localVisual || !this.localServerTarget?.data) return;
       const data = this.localServerTarget.data;
       this.localVisual.angle = input.angle;
+
+      if (this.isMatchIntroLocked()) {
+        clearMovementInputOnly();
+        this.localVisual.x += (this.localServerTarget.x - this.localVisual.x) * 0.55;
+        this.localVisual.y += (this.localServerTarget.y - this.localVisual.y) * 0.55;
+        return;
+      }
 
       if (data.vaulting) {
         const vault = this.syncVaultPlayback(this.localVaultPlayback, data, dt);
@@ -4602,7 +4839,8 @@
       const startLockRemaining = Math.max(localStartRemaining, this.matchStartFreezeRemaining || 0);
       const startLockDuration = Math.max(0.001, this.matchStartFreezeDuration || IMMERSION.MATCH_START_LOCK_SECONDS || 1.5);
       const startLockT = clamp(startLockRemaining / startLockDuration, 0, 1);
-      const startLockZoom = startLockT > 0 ? -IMMERSION.MATCH_START_ZOOM_OUT * startLockT * startLockT : 0;
+      const startLockEase = startLockT * startLockT * (3 - 2 * startLockT);
+      const startLockZoom = startLockT > 0 ? -IMMERSION.MATCH_START_ZOOM_OUT * startLockEase : 0;
 
       const positiveCeiling = Math.max(
         0,
@@ -4640,13 +4878,19 @@
 
       const minZoom = Math.max(0.12, Math.min(IMMERSION.MIN_ZOOM, IMMERSION.BASE_ZOOM + negativeFloor - 0.04));
       const maxZoom = Math.max(IMMERSION.BASE_ZOOM + 0.05, IMMERSION.BASE_ZOOM + positiveCeiling + 0.04);
+      // During the opening lockout, ignore gameplay zoom candidates so the startup zoom has one target.
+      // This prevents spawn/chase/downed zoom offsets from fighting the intro camera move.
+      const cameraEffectZoom = startLockT > 0 ? 0 : strongestZoom;
       const targetZoom = clamp(
-        IMMERSION.BASE_ZOOM + strongestZoom + startLockZoom,
+        IMMERSION.BASE_ZOOM + cameraEffectZoom + startLockZoom,
         minZoom,
         maxZoom
       );
-      const zoomAlpha = dampAlpha(IMMERSION.ZOOM_SMOOTHING, dt);
-      const nextZoom = lerp(cam.zoom || IMMERSION.BASE_ZOOM, targetZoom, zoomAlpha);
+      const zoomSmooth = startLockT > 0 ? IMMERSION.MATCH_START_ZOOM_SMOOTHING : IMMERSION.ZOOM_SMOOTHING;
+      const zoomAlpha = dampAlpha(zoomSmooth, dt);
+      const nextZoom = startLockT > 0
+        ? targetZoom
+        : lerp(cam.zoom || IMMERSION.BASE_ZOOM, targetZoom, zoomAlpha);
       const zoomDelta = Math.abs((cam.zoom || IMMERSION.BASE_ZOOM) - nextZoom);
       const zoomThreshold = cameraNumber("zoomUpdateThreshold", "lowPowerZoomUpdateThreshold", LOW_POWER_MODE ? 0.0065 : 0.0035);
       if (zoomDelta > zoomThreshold) {
@@ -4661,7 +4905,7 @@
       const moveInput = input?.move || { x: 0, y: 0 };
       const moveX = Number.isFinite(moveInput.x) ? moveInput.x : 0;
       const moveY = Number.isFinite(moveInput.y) ? moveInput.y : 0;
-      const moving = Math.hypot(moveX, moveY) > 0.2;
+      const moving = startLockT > 0 ? false : Math.hypot(moveX, moveY) > 0.2;
       const moveAngle = moving ? Math.atan2(moveY, moveX) : this.lastMoveAngle;
       if (moving && Number.isFinite(moveAngle)) {
         if (Number.isFinite(this.lastMoveAngle)) {
@@ -5010,7 +5254,7 @@
           y,
           angle,
           danger: (actor.hookCount || 1) >= 2,
-          name: actor.name || "Survivor"
+          name: actor.name || "Runner"
         });
       }
 
@@ -5068,7 +5312,7 @@
 
   function bootPhaser() {
     if (typeof Phaser === "undefined") {
-      toast("Phaser failed to load. Run npm install so /vendor/phaser.min.js exists.", 5000);
+      toast("Game renderer failed to load. Run npm install and restart the server.", 5000);
       return;
     }
     const game = new Phaser.Game({
@@ -5120,12 +5364,23 @@
     }, true);
   }
 
+  function canSpectateLiveTeammate() {
+    return getLivingTeammates(currentSnapshot).length > 0;
+  }
+
+  function setSpectateButtonVisible(visible) {
+    ui.spectateBtn?.classList.toggle("hidden", !visible);
+  }
+
   function showEscapedScreen() {
+    const canSpectate = canSpectateLiveTeammate();
     if (ui.winnerText) ui.winnerText.textContent = "You Escaped";
-    if (ui.reasonText) ui.reasonText.textContent = "You slipped through the void. The match is still going.";
-    ui.spectateBtn?.classList.remove("hidden");
-    if (ui.backToLobbyBtn) ui.backToLobbyBtn.textContent = "Back To Lobby";
-    showScreen("end");
+    if (ui.reasonText) ui.reasonText.textContent = canSpectate
+      ? "You slipped through the void. The run is still alive."
+      : "You slipped through the void. No live Runners remain to spectate.";
+    setSpectateButtonVisible(canSpectate);
+    if (ui.backToLobbyBtn) ui.backToLobbyBtn.textContent = "Back to Lobby";
+    showEndScreenWithFade();
   }
 
   function showSpectateResultScreen() {
@@ -5139,11 +5394,14 @@
     }
 
     if (me.dead || me.hooked || me.downed || Number(me.health || 0) <= 0) {
+      const canSpectate = canSpectateLiveTeammate();
       if (ui.winnerText) ui.winnerText.textContent = "You Perished...";
-      if (ui.reasonText) ui.reasonText.textContent = "The match is still going. You can keep spectating.";
-      ui.spectateBtn?.classList.remove("hidden");
-      if (ui.backToLobbyBtn) ui.backToLobbyBtn.textContent = "Back To Lobby";
-      showScreen("end");
+      if (ui.reasonText) ui.reasonText.textContent = canSpectate
+        ? "The run is still going. You can keep spectating."
+        : "No live Runners remain to spectate.";
+      setSpectateButtonVisible(canSpectate);
+      if (ui.backToLobbyBtn) ui.backToLobbyBtn.textContent = "Back to Lobby";
+      showEndScreenWithFade();
       return true;
     }
 
@@ -5165,17 +5423,17 @@
 
     if (localEscaped) {
       if (ui.winnerText) ui.winnerText.textContent = "You Escaped";
-      if (ui.reasonText) ui.reasonText.textContent = "You slipped through the void. The trial is over.";
+      if (ui.reasonText) ui.reasonText.textContent = "You slipped through the void. The run is over.";
     } else if (localPerished) {
       if (ui.winnerText) ui.winnerText.textContent = "You Perished...";
       if (ui.reasonText) ui.reasonText.textContent = "The others escaped, but The Void claimed you.";
     } else {
-      if (ui.winnerText) ui.winnerText.textContent = winner === "killer" ? "The Void Wins" : "Survivors Win";
-      if (ui.reasonText) ui.reasonText.textContent = reason || "Match ended.";
+      if (ui.winnerText) ui.winnerText.textContent = winner === "killer" ? "The Void Wins" : "Runners Escape";
+      if (ui.reasonText) ui.reasonText.textContent = reason || "Run ended.";
     }
 
-    if (ui.backToLobbyBtn) ui.backToLobbyBtn.textContent = "Back To Lobby";
-    showScreen("end");
+    if (ui.backToLobbyBtn) ui.backToLobbyBtn.textContent = "Back to Lobby";
+    showEndScreenWithFade();
   }
 
   function setupUI() {
@@ -5236,9 +5494,20 @@
       showScreen("lobby");
     });
     ui.spectateBtn?.addEventListener("click", () => {
-      showScreen("game");
-      ensureAudioStarted();
-      phaserScene?.pickDefaultSpectateTarget?.();
+      if (!canSpectateLiveTeammate()) {
+        setSpectateButtonVisible(false);
+        toast("No live Runners left to spectate.", 2200);
+        return;
+      }
+      showGameScreenWithFade(() => {
+        ensureAudioStarted();
+        const targetId = phaserScene?.pickDefaultSpectateTarget?.();
+        if (!targetId) {
+          showEndScreenWithFade();
+          setSpectateButtonVisible(false);
+          toast("No live Runners left to spectate.", 2200);
+        }
+      });
     });
     ui.mainMenuBtn.addEventListener("click", () => {
       socket.emit("leaveLobby");
@@ -5258,9 +5527,11 @@
       const item = document.createElement("div");
       item.className = "lobby-item";
       const left = document.createElement("div");
-      left.innerHTML = `<strong>${escapeHtml(lobby.name)}</strong><small>${escapeHtml(lobby.mapName || "Map")} • ${lobby.survivors}/${lobby.maxSurvivors} Survivors • ${lobby.killer ? "Void claimed" : "Void open"}</small>`;
+      const voidCount = Number.isFinite(Number(lobby.killerCount)) ? Number(lobby.killerCount) : (lobby.killer ? 1 : 0);
+      const voidLabel = `${voidCount} Void player${voidCount === 1 ? "" : "s"}`;
+      left.innerHTML = `<strong>${escapeHtml(lobby.name)}</strong><small>${escapeHtml(lobby.mapName || "Map")} • ${lobby.survivors}/${lobby.maxSurvivors} Runners • ${voidLabel}</small>`;
       const button = document.createElement("button");
-      button.textContent = lobby.phase === "lobby" ? "Join" : "In Match";
+      button.textContent = lobby.phase === "lobby" ? "Join" : "In Run";
       button.disabled = lobby.phase !== "lobby";
       button.addEventListener("click", () => socket.emit("joinLobby", { lobbyId: lobby.id, role: selectedRole, playerName: getName() }));
       item.append(left, button);
@@ -5272,32 +5543,126 @@
     currentLobbyState = state;
     ui.lobbyTitle.textContent = state.name || "Lobby";
     ui.playersList.innerHTML = "";
-    for (const player of state.players || []) {
+
+    const players = state.players || [];
+    const voidCount = players.filter((player) => player.role === "killer").length;
+    const survivorCount = players.filter((player) => player.role === "survivor").length;
+    const maxSurvivors = Number.isFinite(Number(state.maxSurvivors)) ? Number(state.maxSurvivors) : 4;
+    const humanPlayers = players.filter((player) => !player.isBot);
+    const allHumansReady = humanPlayers.length > 0 && humanPlayers.every((player) => !!player.ready);
+    const canStartRun = allHumansReady && voidCount === 1 && survivorCount >= 1;
+    const statusLine = `${survivorCount}/${maxSurvivors} Runners • ${voidCount} Void player${voidCount === 1 ? "" : "s"}`;
+    const subtitle = voidCount === 1
+      ? `${statusLine}. Ready up, then start the run.`
+      : `${statusLine}. The run needs exactly 1 Void.`;
+    const lobbySubtitle = document.getElementById("lobbySubtitle");
+    if (lobbySubtitle) lobbySubtitle.textContent = subtitle;
+
+    const renderPlayerRow = (player) => {
       const item = document.createElement("div");
       const isKiller = player.role === "killer";
-      item.className = `player-item ${isKiller ? "is-killer" : "is-survivor"}${player.id === myId ? " is-you" : ""}`;
-      const skin = isKiller ? "Void Core" : getSurvivorSkin(player.skin).label;
-      const displayRole = isKiller ? "The Void" : "Survivor";
-      item.innerHTML = `
-        <span class="player-role-emblem ${isKiller ? "killer" : "survivor"}" aria-hidden="true"></span>
-        <div class="player-summary">
-          <strong title="${escapeHtml(player.name)}">${escapeHtml(player.name)}${player.id === myId ? " <em>(You)</em>" : ""}</strong>
-          <small>
-            <span class="player-role-name">${displayRole}${player.isBot ? " bot" : ""}</span>
-            <span class="player-dot">•</span>
-            <span class="player-skin-name" title="${escapeHtml(skin)}">${escapeHtml(skin)}</span>
-          </small>
-        </div>
-        <small class="player-ready ${player.ready ? "is-ready" : ""}">${player.ready ? "Ready" : "Not ready"}</small>
-      `;
-      ui.playersList.appendChild(item);
-    }
-    const mine = state.players?.find((p) => p.id === myId);
+      item.className = `player-item ${isKiller ? "is-killer" : "is-survivor"}${player.id === myId ? " is-you" : ""}${player.isBot ? " is-bot" : ""}`;
+
+      const emblem = document.createElement("span");
+      emblem.className = `player-role-emblem ${isKiller ? "killer" : "survivor"}`;
+      emblem.setAttribute("aria-hidden", "true");
+
+      const summary = document.createElement("div");
+      summary.className = "player-summary";
+
+      const name = document.createElement("strong");
+      name.title = player.name || "Player";
+      name.append(document.createTextNode(player.name || "Player"));
+      if (player.id === myId) {
+        const you = document.createElement("em");
+        you.textContent = " (You)";
+        name.appendChild(you);
+      }
+
+      const meta = document.createElement("small");
+      const roleName = document.createElement("span");
+      roleName.className = "player-role-name";
+      roleName.textContent = `${isKiller ? "The Void" : "Runner"}${player.isBot ? " bot" : ""}`;
+
+      const dot = document.createElement("span");
+      dot.className = "player-dot";
+      dot.textContent = "•";
+
+      const skin = document.createElement("span");
+      const skinName = isKiller ? "Void Core" : getSurvivorSkin(player.skin).label;
+      skin.className = "player-skin-name";
+      skin.title = skinName;
+      skin.textContent = skinName;
+
+      meta.append(roleName, dot, skin);
+      summary.append(name, meta);
+
+      const ready = document.createElement("small");
+      const isReady = player.isBot || !!player.ready;
+      ready.className = `player-ready ${isReady ? "is-ready" : ""}`;
+      ready.textContent = isReady ? "Ready" : "Not ready";
+
+      item.append(emblem, summary, ready);
+
+      if (player.isBot) {
+        const kick = document.createElement("button");
+        kick.className = "bot-kick-btn";
+        kick.type = "button";
+        kick.textContent = "Kick";
+        kick.title = `Kick ${player.name || "bot"}`;
+        kick.addEventListener("click", () => socket.emit("removeBot", { botId: player.id }));
+        item.appendChild(kick);
+      }
+
+      return item;
+    };
+
+    const appendPlayerGroup = (title, countLabel, groupClass, groupPlayers) => {
+      const group = document.createElement("section");
+      group.className = `player-group ${groupClass}`;
+
+      const heading = document.createElement("div");
+      heading.className = "player-group-heading";
+
+      const label = document.createElement("span");
+      label.textContent = title;
+
+      const count = document.createElement("small");
+      count.textContent = countLabel;
+
+      heading.append(label, count);
+      group.appendChild(heading);
+
+      const body = document.createElement("div");
+      body.className = "player-group-list";
+
+      if (groupPlayers.length) {
+        for (const player of groupPlayers) body.appendChild(renderPlayerRow(player));
+      } else {
+        const empty = document.createElement("div");
+        empty.className = "player-group-empty";
+        empty.textContent = groupClass === "void-group" ? "No Void selected yet." : "No runners selected yet.";
+        body.appendChild(empty);
+      }
+
+      group.appendChild(body);
+      ui.playersList.appendChild(group);
+    };
+
+    const voidPlayers = players.filter((player) => player.role === "killer");
+    const survivorPlayers = players.filter((player) => player.role !== "killer");
+    appendPlayerGroup("Void player", `${voidPlayers.length} selected`, "void-group", voidPlayers);
+    appendPlayerGroup("Runners", `${survivorPlayers.length}/${maxSurvivors}`, "survivor-group", survivorPlayers);
+    const mine = players.find((p) => p.id === myId);
     if (mine?.role) setSelectedRole(mine.role);
     if (mine?.role === "survivor" && SURVIVOR_SKINS[mine.skin]) {
       setSelectedSkin(mine.skin);
     }
     ui.readyBtn.textContent = mine?.ready ? "Unready" : "Ready";
+    if (ui.startBtn) {
+      ui.startBtn.disabled = !canStartRun;
+      ui.startBtn.title = canStartRun ? "Start the run" : "Every human Runner and Void player has to ready up, and exactly 1 Void is required.";
+    }
   }
 
   function escapeHtml(str) {
@@ -5333,6 +5698,12 @@
       if (isEditableTarget(e.target)) return;
       if (["KeyW", "KeyA", "KeyS", "KeyD", "ArrowUp", "ArrowLeft", "ArrowDown", "ArrowRight", "Space"].includes(e.code)) e.preventDefault();
       ensureAudioStarted();
+      if (isIntroInputLocked() && INTRO_LOCKED_KEY_CODES.has(e.code)) {
+        e.preventDefault();
+        clearMovementInputOnly();
+        sendInput({}, true);
+        return;
+      }
       if (e.code === "KeyR") {
         e.preventDefault();
         if (!e.repeat) openReactChatWheel(e);
@@ -5403,6 +5774,10 @@
     }
 
     function updateStick(clientX, clientY) {
+      if (isIntroInputLocked()) {
+        resetStick();
+        return;
+      }
       const dx = clientX - stickOrigin.x;
       const dy = clientY - stickOrigin.y;
       const max = 46;
@@ -5450,6 +5825,11 @@
         e.preventDefault();
         button.setPointerCapture?.(e.pointerId);
         ensureAudioStarted();
+        if (isIntroInputLocked() && action !== "chat") {
+          clearMovementInputOnly();
+          sendInput({}, true);
+          return;
+        }
         if (action === "sprint") input.sprint = true;
         if (action === "interact") input.repair = true;
         if (action === "action") sendInput({ action: true }, true);
@@ -5498,9 +5878,18 @@
         phaserScene.spawnInPulse = 0;
         phaserScene.spawnInAt = 0;
         phaserScene.localEscapeScreenShown = false;
+        phaserScene.chaseBlend = 0;
+        phaserScene.terrorBlend = 0;
+        phaserScene.cameraSwayX = 0;
+        phaserScene.cameraSwayY = 0;
+        phaserScene.cameraSwayTargetX = 0;
+        phaserScene.cameraSwayTargetY = 0;
+        phaserScene.lastMoveAngle = null;
         phaserScene.matchStartFreezeRemaining = Math.max(0, lockSeconds);
         phaserScene.matchStartFreezeDuration = Math.max(0.001, lockSeconds);
         phaserScene.matchStartZoomUntil = performance.now() + Math.max(0, lockSeconds) * 1000;
+        phaserScene.introCameraPrimed = false;
+        clearMovementInputOnly();
         phaserScene.loadMap(map);
         const introZoom = Math.max(0.34, IMMERSION.BASE_ZOOM - IMMERSION.MATCH_START_ZOOM_OUT);
         phaserScene.cameras?.main?.setZoom(introZoom);

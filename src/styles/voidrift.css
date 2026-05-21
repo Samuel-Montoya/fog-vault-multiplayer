@@ -2396,7 +2396,7 @@ body.ultra-low-power.survivor-hit-impact #gameWrap {
 }
 
 .lobby-role-mark.survivor::after {
-  content: "SURV";
+  content: "RIFT";
   bottom: 8px;
   left: 0;
   right: 0;
@@ -2617,4 +2617,734 @@ body.ultra-low-power.survivor-hit-impact #gameWrap {
     max-width: calc(100vw - 36px);
     font-size: 10px;
   }
+}
+
+/* Lobby bot management */
+.player-item {
+  grid-template-columns: 34px minmax(0, 1fr) auto auto;
+}
+
+.bot-kick-btn {
+  justify-self: end;
+  min-width: 58px;
+  padding: 8px 10px;
+  border-radius: 0;
+  border: 1px solid rgba(255, 92, 122, 0.34);
+  background: rgba(255, 59, 106, 0.08);
+  color: rgba(255, 210, 220, 0.92);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  box-shadow: inset 3px 0 0 rgba(255, 59, 106, 0.45);
+}
+
+.bot-kick-btn:hover,
+.bot-kick-btn:focus-visible {
+  border-color: rgba(255, 92, 122, 0.7);
+  background: rgba(255, 59, 106, 0.18);
+  color: #fff;
+}
+
+@media (max-width: 640px) {
+  .player-item {
+    grid-template-columns: 28px minmax(0, 1fr) auto;
+  }
+
+  .bot-kick-btn {
+    grid-column: 2 / -1;
+    width: 100%;
+    margin-top: 6px;
+  }
+}
+
+/* Lobby layout pass: wider, cleaner, one main roster scroll instead of nested menu sludge. */
+.lobby-panel {
+  width: min(1180px, calc(100vw - 44px));
+  max-height: calc(100vh - 44px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.lobby-panel .screen-topline,
+.lobby-panel .lobby-title-row {
+  flex: 0 0 auto;
+}
+
+.lobby-workspace {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.75fr);
+  gap: 18px;
+  margin-top: 16px;
+}
+
+.lobby-roster-column,
+.lobby-control-column {
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  background: rgba(196, 201, 209, 0.055);
+}
+
+.lobby-roster-column {
+  display: flex;
+  flex-direction: column;
+  padding: 14px;
+}
+
+.lobby-control-column {
+  display: grid;
+  align-content: start;
+  gap: 14px;
+  padding: 14px;
+}
+
+.lobby-column-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.10);
+}
+
+.lobby-column-heading span {
+  color: rgba(245, 248, 253, 0.92);
+  font-size: 12px;
+  font-weight: 1000;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.lobby-column-heading small {
+  color: rgba(191, 203, 218, 0.56);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.10em;
+  text-align: right;
+  text-transform: uppercase;
+}
+
+.lobby-panel .players-list {
+  flex: 1 1 auto;
+  max-height: none;
+  min-height: 360px;
+  overflow: auto;
+  padding-right: 6px;
+  scrollbar-width: thin;
+}
+
+.lobby-panel .player-item {
+  grid-template-columns: 34px minmax(0, 1fr) minmax(82px, auto) minmax(58px, auto);
+  padding: 13px 14px;
+}
+
+.lobby-panel .player-item:not(.is-bot) {
+  grid-template-columns: 34px minmax(0, 1fr) minmax(82px, auto);
+}
+
+.lobby-panel .player-summary small {
+  max-width: 100%;
+}
+
+.lobby-panel .player-role-name {
+  flex: 0 1 auto;
+}
+
+.lobby-panel .player-skin-name {
+  flex: 1 1 auto;
+}
+
+.lobby-control-column .lobby-role-actions,
+.lobby-control-column .lobby-actions {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  margin-top: 0;
+}
+
+.lobby-control-column .lobby-role-actions button,
+.lobby-control-column .lobby-actions button {
+  width: 100%;
+  justify-content: center;
+}
+
+.lobby-skin-picker {
+  margin-top: 0;
+  max-height: min(35vh, 285px);
+  overflow: auto;
+  scrollbar-width: thin;
+}
+
+.lobby-hint {
+  margin: 0;
+  padding: 12px;
+  border-left: 2px solid rgba(103, 232, 249, 0.42);
+  background: rgba(103, 232, 249, 0.055);
+}
+
+.screen-fade-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9500;
+  display: none;
+  pointer-events: none;
+  opacity: 0;
+  background:
+    radial-gradient(circle at 50% 48%, rgba(25, 14, 42, 0.72), rgba(0, 0, 0, 0.96) 58%),
+    #000;
+  will-change: opacity;
+}
+
+@media (max-width: 980px) {
+  .lobby-panel {
+    overflow: auto;
+  }
+
+  .lobby-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .lobby-panel .players-list {
+    min-height: 220px;
+    max-height: min(42vh, 420px);
+  }
+
+  .lobby-control-column .lobby-role-actions,
+  .lobby-control-column .lobby-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .lobby-panel {
+    width: calc(100vw - 28px);
+    max-height: calc(100vh - 28px);
+  }
+
+  .lobby-workspace {
+    gap: 12px;
+  }
+
+  .lobby-column-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .lobby-column-heading small {
+    text-align: left;
+  }
+
+  .lobby-panel .player-item,
+  .lobby-panel .player-item:not(.is-bot) {
+    grid-template-columns: 28px minmax(0, 1fr) auto;
+  }
+
+  .lobby-control-column .lobby-role-actions,
+  .lobby-control-column .lobby-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .lobby-skin-picker {
+    max-height: none;
+  }
+}
+
+/* Lobby roster grouping: setup left, players right, Void players above rifts. */
+.lobby-workspace {
+  grid-template-columns: minmax(320px, 0.78fr) minmax(0, 1.42fr);
+  align-items: stretch;
+}
+
+.lobby-roster-column {
+  align-content: start;
+}
+
+.lobby-panel .players-list {
+  display: grid;
+  align-content: start;
+  align-items: start;
+  gap: 14px;
+}
+
+.player-group {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  min-width: 0;
+}
+
+.player-group-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  padding: 0 2px 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+.player-group-heading span {
+  color: rgba(245, 248, 253, 0.92);
+  font-size: 11px;
+  font-weight: 1000;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+}
+
+.player-group-heading small {
+  flex: 0 0 auto;
+  color: rgba(191, 203, 218, 0.58);
+  font-size: 10px;
+  font-weight: 950;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+}
+
+.player-group-list {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.player-group.void-group {
+  padding: 12px;
+  border: 1px solid rgba(255, 92, 122, 0.18);
+  background: rgba(255, 59, 106, 0.045);
+}
+
+.player-group.survivor-group {
+  padding: 12px;
+  border: 1px solid rgba(103, 232, 249, 0.13);
+  background: rgba(103, 232, 249, 0.035);
+}
+
+.player-group-empty {
+  padding: 12px 14px;
+  border: 1px dashed rgba(255, 255, 255, 0.12);
+  color: rgba(191, 203, 218, 0.56);
+  font-size: 12px;
+  font-weight: 850;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+@media (max-width: 980px) {
+  .lobby-workspace {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* v0.1.16 polish: wider lobby, cleaner HUD, bigger bottom-left chatter. */
+.lobby-panel {
+  width: min(1420px, calc(100vw - 28px));
+}
+
+.lobby-workspace {
+  grid-template-columns: minmax(340px, 0.62fr) minmax(0, 1.75fr);
+  gap: 22px;
+}
+
+.lobby-roster-column {
+  min-height: min(640px, calc(100vh - 260px));
+}
+
+.hud {
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.hud-data-bucket,
+.objective-card {
+  display: none !important;
+}
+
+.role-hud-card {
+  min-width: 182px;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 10px;
+}
+
+.role-hud-copy h2 {
+  font-size: 17px;
+}
+
+.fps-counter-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 7px;
+  padding-top: 7px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.fps-counter-row span {
+  color: rgba(218, 226, 236, 0.58);
+  font-size: 9px;
+  font-weight: 1000;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.fps-counter-row b {
+  color: #bcffb8;
+  font-size: 13px;
+  font-weight: 1000;
+  letter-spacing: 0.08em;
+}
+
+.survivor-status-list {
+  width: min(410px, calc(100vw - 36px));
+}
+
+.survivor-status-card.has-chat {
+  min-height: 70px;
+}
+
+.survivor-chat {
+  font-size: 13px;
+  line-height: 1.32;
+  font-weight: 950;
+}
+
+@media (max-width: 980px) {
+  .lobby-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .lobby-roster-column {
+    min-height: 340px;
+  }
+}
+
+/* v0.1.17 lobby readiness and roster width polish. */
+.lobby-role-mark.survivor::after {
+  content: "RIFT";
+  letter-spacing: 0.18em;
+}
+
+.lobby-panel {
+  width: min(1680px, calc(100vw - 20px));
+}
+
+.lobby-workspace {
+  grid-template-columns: minmax(280px, 0.42fr) minmax(760px, 2.58fr);
+  gap: 20px;
+}
+
+.lobby-control-column {
+  max-width: 430px;
+}
+
+.lobby-roster-column {
+  min-width: min(760px, 100%);
+}
+
+.lobby-panel .players-list {
+  width: 100%;
+}
+
+.lobby-panel .player-item {
+  grid-template-columns: 38px minmax(0, 1fr) minmax(92px, auto) minmax(72px, auto);
+}
+
+.lobby-panel .player-item:not(.is-bot) {
+  grid-template-columns: 38px minmax(0, 1fr) minmax(92px, auto);
+}
+
+#readyBtn.ready-action {
+  border-color: rgba(139, 92, 246, 0.50);
+  color: rgba(237, 233, 254, 0.96);
+  background:
+    linear-gradient(135deg, rgba(139, 92, 246, 0.22), rgba(36, 15, 80, 0.42)),
+    rgba(255, 255, 255, 0.055);
+  box-shadow: inset 4px 0 0 rgba(139, 92, 246, 0.64), 0 14px 34px rgba(0, 0, 0, 0.20);
+}
+
+#readyBtn.ready-action:hover {
+  border-color: rgba(196, 181, 253, 0.72);
+  background:
+    linear-gradient(135deg, rgba(139, 92, 246, 0.32), rgba(49, 24, 95, 0.52)),
+    rgba(255, 255, 255, 0.075);
+}
+
+#startBtn:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+  filter: grayscale(0.45);
+  box-shadow: none;
+}
+
+@media (max-width: 1180px) {
+  .lobby-panel {
+    width: min(1060px, calc(100vw - 24px));
+  }
+
+  .lobby-workspace {
+    grid-template-columns: minmax(260px, 0.52fr) minmax(520px, 1.9fr);
+  }
+
+  .lobby-roster-column {
+    min-width: min(520px, 100%);
+  }
+}
+
+@media (max-width: 980px) {
+  .lobby-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .lobby-control-column {
+    max-width: none;
+  }
+
+  .lobby-roster-column {
+    min-width: 0;
+  }
+}
+
+/* v0.1.18 runner rename and lobby width correction. */
+.lobby-role-mark.survivor::after {
+  content: "RUNNER";
+  letter-spacing: 0.14em;
+}
+
+.io-screen:not(.menu-screen) .void-card.wide-menu-card.lobby-panel,
+.void-card.wide-menu-card.lobby-panel,
+.lobby-panel {
+  width: min(1880px, calc(100vw - 18px));
+  max-width: none;
+}
+
+.io-screen:not(.menu-screen) .void-card.wide-menu-card.lobby-panel {
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.lobby-workspace {
+  grid-template-columns: minmax(330px, 0.46fr) minmax(900px, 2.15fr);
+  gap: 24px;
+}
+
+.lobby-control-column {
+  max-width: none;
+}
+
+.lobby-roster-column {
+  min-width: min(900px, 100%);
+}
+
+.lobby-panel .player-item,
+.lobby-panel .player-item:not(.is-bot) {
+  column-gap: 14px;
+}
+
+@media (max-width: 1320px) {
+  .lobby-workspace {
+    grid-template-columns: minmax(300px, 0.56fr) minmax(640px, 1.7fr);
+  }
+
+  .lobby-roster-column {
+    min-width: min(640px, 100%);
+  }
+}
+
+@media (max-width: 980px) {
+  .io-screen:not(.menu-screen) .void-card.wide-menu-card.lobby-panel,
+  .void-card.wide-menu-card.lobby-panel,
+  .lobby-panel {
+    width: min(100%, calc(100vw - 20px));
+  }
+
+  .lobby-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .lobby-roster-column {
+    min-width: 0;
+  }
+}
+
+
+/* v0.1.19 lobby/spectate polish and calmer intro support. */
+#lobbyScreen.io-screen:not(.menu-screen) {
+  align-items: flex-start;
+  justify-content: flex-start;
+  padding: clamp(18px, 3vw, 42px);
+}
+
+#lobbyScreen.io-screen:not(.menu-screen) .void-card.wide-menu-card.lobby-panel,
+#lobbyScreen .void-card.wide-menu-card.lobby-panel,
+#lobbyScreen .lobby-panel {
+  width: min(1920px, calc(100vw - 36px));
+  margin-left: 0;
+  margin-right: 0;
+}
+
+#lobbyScreen .lobby-workspace {
+  width: 100%;
+  grid-template-columns: minmax(340px, 430px) minmax(0, 1fr);
+  gap: clamp(18px, 2vw, 32px);
+}
+
+#lobbyScreen .lobby-control-column,
+#lobbyScreen .lobby-roster-column {
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+}
+
+#lobbyScreen .lobby-roster-column {
+  align-self: stretch;
+}
+
+.lobby-bot-actions {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  margin-top: -2px;
+}
+
+.lobby-bot-actions button {
+  width: 100%;
+  justify-content: center;
+}
+
+#lobbyScreen .lobby-actions {
+  margin-top: 4px;
+}
+
+.lobby-role-mark.killer {
+  border-color: rgba(167, 139, 250, 0.36);
+  background:
+    radial-gradient(circle at 50% 40%, rgba(167, 139, 250, 0.16), transparent 54%),
+    linear-gradient(135deg, rgba(8, 7, 18, 0.94), rgba(23, 11, 44, 0.82));
+  box-shadow: inset 4px 0 0 rgba(139, 92, 246, 0.62), 0 18px 42px rgba(0, 0, 0, 0.28);
+}
+
+.lobby-role-mark.killer span {
+  background: radial-gradient(circle at 40% 30%, #ede9fe 0 14%, #a78bfa 17% 48%, #090611 82%);
+  box-shadow: 0 0 24px rgba(167, 139, 250, 0.42), inset 0 0 12px rgba(0, 0, 0, 0.36);
+}
+
+.lobby-role-mark.killer::before {
+  border-color: rgba(167, 139, 250, 0.54);
+}
+
+.lobby-role-mark.killer::after {
+  color: rgba(221, 214, 254, 0.82);
+}
+
+.spectate-hint-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 12px;
+  border-left: 4px solid rgba(167, 139, 250, 0.72);
+  border-radius: 9px 17px 17px 9px;
+  color: rgba(237, 233, 254, 0.92);
+  background:
+    linear-gradient(90deg, rgba(9, 7, 20, 0.90), rgba(20, 15, 43, 0.64)),
+    radial-gradient(circle at 100% 0%, rgba(167, 139, 250, 0.18), transparent 42%);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 14px 42px rgba(0, 0, 0, 0.36);
+  backdrop-filter: blur(8px);
+  font-size: 12px;
+  font-weight: 950;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.spectate-hint-card span {
+  display: inline-grid;
+  place-items: center;
+  min-width: 38px;
+  padding: 4px 7px;
+  color: #f4f0ff;
+  border: 1px solid rgba(167, 139, 250, 0.46);
+  background: rgba(167, 139, 250, 0.14);
+  box-shadow: inset 0 0 12px rgba(167, 139, 250, 0.10);
+}
+
+.spectate-hint-card i {
+  width: 1px;
+  height: 16px;
+  background: rgba(255, 255, 255, 0.16);
+}
+
+@media (max-width: 1180px) {
+  #lobbyScreen .lobby-workspace {
+    grid-template-columns: minmax(300px, 380px) minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 980px) {
+  #lobbyScreen.io-screen:not(.menu-screen) {
+    align-items: center;
+    padding: 16px;
+  }
+
+  #lobbyScreen .lobby-workspace {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* v0.1.20 shared chat/lobby polish. */
+#lobbyScreen.io-screen:not(.menu-screen) {
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: clamp(16px, 2.25vw, 34px);
+}
+
+#lobbyScreen .void-card.wide-menu-card.lobby-panel,
+#lobbyScreen .lobby-panel {
+  margin: 0 auto;
+}
+
+#lobbyScreen .lobby-skin-picker,
+#lobbyScreen .skin-picker.compact.lobby-skin-picker {
+  grid-template-columns: 1fr !important;
+}
+
+#lobbyScreen .lobby-skin-picker .skin-title,
+#lobbyScreen .lobby-skin-picker .skin-btn {
+  grid-column: 1 / -1;
+}
+
+#lobbyScreen .player-group.void-group {
+  border-color: rgba(167, 139, 250, 0.30);
+  background:
+    radial-gradient(circle at 100% 0%, rgba(167, 139, 250, 0.13), transparent 42%),
+    linear-gradient(135deg, rgba(12, 9, 27, 0.78), rgba(24, 15, 45, 0.52));
+  box-shadow: inset 4px 0 0 rgba(139, 92, 246, 0.45);
+}
+
+#lobbyScreen .player-group.void-group .player-group-heading span {
+  color: rgba(221, 214, 254, 0.96);
+}
+
+#lobbyScreen .player-group.void-group .player-group-heading small {
+  color: rgba(196, 181, 253, 0.72);
+}
+
+#lobbyScreen .lobby-bot-actions button:first-child {
+  border-color: rgba(167, 139, 250, 0.25);
+  background: rgba(167, 139, 250, 0.10);
+}
+
+#lobbyScreen .lobby-bot-actions button:first-child:hover,
+#lobbyScreen .lobby-bot-actions button:first-child:focus-visible {
+  border-color: rgba(167, 139, 250, 0.46);
+  background: rgba(167, 139, 250, 0.16);
 }

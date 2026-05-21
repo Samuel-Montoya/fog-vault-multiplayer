@@ -1,12 +1,96 @@
 {
   "latest": {
-    "version": "0.1.8",
-    "title": "Pallet Commitment",
-    "summary": "Stronger orb pitch and pallet vault lockout",
-    "description": "Orb pickup pitch now ramps more noticeably from 1.00 to 1.45 by the tenth carried orb. Dropped pallet vaulting now uses the same one-at-a-time lock and survivor cooldown style as windows, and the local hit-impact event handler no longer references the heavy impact flag outside its scope.",
-    "date": "2026-05-20"
+    "version": "0.1.20",
+    "title": "Shared Chat Polish",
+    "summary": "Shared chat lines, full orb drops, and lobby polish",
+    "description": "Added a shared chats.js file used by both the client and server so quick-chat wheel labels match the lines that actually appear in game. Runners now drop all carried orbs when hit, spectating can target hooked runners, the open lobby is vertically centered, lobby skins list top-to-bottom, Void player grouping uses purple styling, and bot button order was swapped.",
+    "date": "2026-05-21"
   },
   "history": [
+    {
+      "version": "0.1.20",
+      "title": "Shared Chat Polish",
+      "summary": "Shared chat lines, full orb drops, and lobby polish",
+      "description": "Added a shared chats.js file used by both the client and server so quick-chat wheel labels match the lines that actually appear in game. Runners now drop all carried orbs when hit, spectating can target hooked runners, the open lobby is vertically centered, lobby skins list top-to-bottom, Void player grouping uses purple styling, and bot button order was swapped.",
+      "date": "2026-05-21"
+    },
+    {
+      "version": "0.1.19",
+      "title": "Lobby and Spectate Polish",
+      "summary": "Cleaner lobby, spectate hint, and smoother intro",
+      "description": "Moved bot controls under the role selector, aligned the open lobby to the left, widened and stabilized the roster layout, changed bot removal copy to Kick, added a spectate control hint above the runner cards, tightened spectate eligibility, made downed runners use downed chatter reliably, darkened the Void lobby mark, lowered void stun audio, and removed intro zoom conflicts that caused first-camera hitching.",
+      "date": "2026-05-21"
+    },
+    {
+      "version": "0.1.18",
+      "title": "Runner Polish",
+      "summary": "Runners renamed, wider lobby, smoother intro",
+      "description": "Player-facing Rift role wording was renamed to Runners while objective Rifts remain unchanged. The open lobby panel now uses the full available width more reliably, Audio and How to Play copy was cleaned up, The Void instructions mention holding E for hooks and rift kicks, and the match intro now primes the camera and locks movement input until the startup zoom finishes.",
+      "date": "2026-05-21"
+    },
+    {
+      "version": "0.1.17",
+      "title": "Lobby Ready Polish",
+      "summary": "Wider lobby, ready-gated starts, and cleaner labels",
+      "description": "Open lobby roster width was expanded, Void players wording replaced candidate copy, the ready button moved directly under Start Run with clearer styling, humans must all ready up before the run can start while bots stay ready automatically, survivor status no longer shows Chased, and menu copy was tightened.",
+      "date": "2026-05-21"
+    },
+    {
+      "version": "0.1.16",
+      "title": "Run Polish",
+      "summary": "Cleaner lobby, HUD, rescues, and audio",
+      "description": "Unhook audio now plays only when the rescue finishes and only for involved players. The open lobby is wider, Settings and How to Play are cleaner, Bot wording is restored, the match HUD keeps only the role card and FPS, speech text is larger, and injured/healing/unhook volumes were reduced.",
+      "date": "2026-05-21"
+    },
+    {
+      "version": "0.1.15",
+      "title": "Release Polish",
+      "summary": "riftrunner naming and release polish",
+      "description": "Updated player-facing branding to riftrunner, changed the player team label to Rifts in the interface, cleaned lobby echo wording, removed placeholder menu links, and polished release-facing menu copy.",
+      "date": "2026-05-21"
+    },
+    {
+      "version": "0.1.14",
+      "title": "Lobby Roster Groups",
+      "summary": "Void candidates grouped above survivors",
+      "description": "Open lobby now places setup controls on the left and the player roster on the right. The roster is grouped with Void candidates on top and survivors below, and the list aligns from the top of its panel instead of sitting centered in the available space.",
+      "date": "2026-05-21"
+    },
+    {
+      "version": "0.1.13",
+      "title": "Lobby Flow Polish",
+      "summary": "Wider lobby layout and fade transitions",
+      "description": "Open lobby now uses a wider two-column layout with a taller player roster to reduce nested scrollbars. Game-to-end and end-to-spectate screen changes now fade through black for smoother death, escape, and spectate transitions.",
+      "date": "2026-05-21"
+    },
+    {
+      "version": "0.1.12",
+      "title": "Lobby Bot Control",
+      "summary": "Kick lobby bots and queue multiple Voids",
+      "description": "Lobby bots can now be removed before a match starts, including survivor bots and Void bots. Multiple players can select The Void in the lobby, but match start is still blocked unless exactly one Void and at least one Survivor are selected.",
+      "date": "2026-05-20"
+    },
+    {
+      "version": "0.1.11",
+      "title": "Healing Forgiveness",
+      "summary": "Interrupted heals decay and rescues get audio",
+      "description": "Healing progress now drains slowly after an interrupted heal instead of snapping to zero when movement breaks the assist, and unhooking now plays a private rescue loop for the rescuer and the hooked survivor only.",
+      "date": "2026-05-20"
+    },
+    {
+      "version": "0.1.10",
+      "title": "Pallet Drop Commitment",
+      "summary": "Pallet drops now lock instant vaults",
+      "description": "Dropping a pallet now applies the same short survivor pallet commitment lockout used by pallet vaults, preventing survivors from slamming a pallet and immediately jumping over it on the next Space press.",
+      "date": "2026-05-20"
+    },
+    {
+      "version": "0.1.9",
+      "title": "Hit Chatter",
+      "summary": "Survivors react when hit or downed",
+      "description": "Survivors now automatically say short reactive chat lines when they are hit or downed, including orb-loss jokes when they were carrying orbs.",
+      "date": "2026-05-20"
+    },
     {
       "version": "0.1.8",
       "title": "Pallet Commitment",

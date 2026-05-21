@@ -30,6 +30,7 @@ function loadPublicScriptGlobal(relativeFile, globalName) {
 
 const GAME_MAPS = loadPublicScriptGlobal("public/maps.js", "GAME_MAPS");
 const GAMEPLAY_CONFIG = loadPublicScriptGlobal("public/gameplayConfig.js", "GAMEPLAY_CONFIG");
+const RIFTRUNNER_CHATS = loadPublicScriptGlobal("public/chats.js", "RIFTRUNNER_CHATS");
 
 function cfgNumber(value, fallback) {
   const n = Number(value);
@@ -187,6 +188,7 @@ const SURVIVOR_HIT_BOOST = cfgNumber(GAMEPLAY_CONFIG.survivor?.hitBoostDuration,
 const SURVIVOR_VAULT_TIME = cfgNumber(GAMEPLAY_CONFIG.survivor?.vaultTime, 0.38);
 const SURVIVOR_WINDOW_VAULT_COOLDOWN = cfgNumber(GAMEPLAY_CONFIG.survivor?.windowVaultCooldown, 1.15);
 const SURVIVOR_PALLET_VAULT_COOLDOWN = cfgNumber(GAMEPLAY_CONFIG.survivor?.palletVaultCooldown, SURVIVOR_WINDOW_VAULT_COOLDOWN);
+const SURVIVOR_PALLET_DROP_COOLDOWN = cfgNumber(GAMEPLAY_CONFIG.survivor?.palletDropCooldown, SURVIVOR_PALLET_VAULT_COOLDOWN);
 const KILLER_VAULT_TIME = cfgNumber(GAMEPLAY_CONFIG.void?.vaultTime, 1.05);
 const KILLER_BREAK_TIME = cfgNumber(GAMEPLAY_CONFIG.void?.breakTime, 1.25);
 const VOID_STUN_TIME = cfgNumber(GAMEPLAY_CONFIG.pallet?.voidStunSeconds, 1.0);
@@ -203,6 +205,7 @@ const GENERATOR_KICK_REGRESSION = cfgNumber(GAMEPLAY_CONFIG.rift?.kickRegression
 const GATE_ESCAPE_TIME = cfgNumber(GAMEPLAY_CONFIG.rift?.escapeTime, 4.0);
 const HEAL_TIME = cfgNumber(GAMEPLAY_CONFIG.survivor?.healTime, 4.2);
 const HEAL_DISTANCE = cfgNumber(GAMEPLAY_CONFIG.survivor?.healDistance, 82);
+const HEAL_DECAY_PER_SECOND = cfgNumber(GAMEPLAY_CONFIG.survivor?.healDecayPerSecond, 0.08);
 const DOWNED_CRAWL_SPEED = cfgNumber(GAMEPLAY_CONFIG.survivor?.downedCrawlSpeed, 62);
 const HOOK_CHANNEL_TIME = cfgNumber(GAMEPLAY_CONFIG.hook?.channelTime, 1.35);
 const EXECUTE_CHANNEL_TIME = cfgNumber(GAMEPLAY_CONFIG.hook?.executeTime, 2.15);
@@ -256,19 +259,19 @@ const BOT_KILLER_WINDOW_REUSE_COOLDOWN = cfgNumber(GAMEPLAY_CONFIG.bots?.voidWin
 const BOT_KILLER_STUCK_SECONDS = cfgNumber(GAMEPLAY_CONFIG.bots?.voidStuckSeconds, 0.85);
 
 const CHAT_MESSAGE_DURATION = 3.0;
-const CHAT_WHEEL_MESSAGES = {
+const CHAT_WHEEL_MESSAGES = RIFTRUNNER_CHATS.chatWheel || {
   survivor: {
-    normal: ["Let's feed a rift.", "I'm so scared...", "Here he comes!", "What was that?!"],
-    chase: ["He's on me...!", "Leave me alone!", "I'm so scared!", "AHHHH!"],
-    injured: ["I need healing...", "Please, help me...", "I need to hide.", "Over here..."],
-    downed: ["Pick me up!", "Help, please...", "I don't wanna die...", "I'm down...!"],
-    hooked: ["Save me!", "Unhook me!", "Grab me!", "He's here..."]
+    normal: ["Feed this rift.", "Stay close.", "Void nearby.", "I heard something."],
+    chase: ["Void on me.", "Keep moving!", "I need distance.", "Do not come here."],
+    injured: ["I need healing.", "Hold still near me.", "I need cover.", "Over here."],
+    downed: ["Pick me up.", "I need help.", "I am down.", "Not ideal."],
+    hooked: ["Get me down.", "I need a rescue.", "Void is close.", "Hurry."]
   },
-  killer: ["Im going to get you", "You cant hide forever", "Ill be back...", "What the...?!"]
+  killer: ["I hear you.", "Run while you can.", "The dark is moving.", "You are close."]
 };
+const CHAT_AUTOMATIC = RIFTRUNNER_CHATS.automatic || {};
 
-
-const VOID_ESCAPE_CHAT_LINES = [
+const VOID_ESCAPE_CHAT_LINES = CHAT_AUTOMATIC.voidEscape || [
   "I'm almost out!",
   "The void is opening...",
   "Hold on, I'm slipping through!",
@@ -282,7 +285,7 @@ function randomVoidEscapeLine() {
   return VOID_ESCAPE_CHAT_LINES[Math.floor(Math.random() * VOID_ESCAPE_CHAT_LINES.length)];
 }
 
-const MATCH_START_SURVIVOR_LINES = [
+const MATCH_START_SURVIVOR_LINES = CHAT_AUTOMATIC.matchStartRunner || [
   "I need to get back to my planet...",
   "I have to restore our galaxy.",
   "It's my time to shine!",
@@ -293,12 +296,65 @@ const MATCH_START_SURVIVOR_LINES = [
   "I should probably stop glowing and start moving."
 ];
 
-const ORB_FULL_CHAT_MESSAGES = [
+const ORB_FULL_CHAT_MESSAGES = CHAT_AUTOMATIC.orbFull || [
   "I have too many orbs...",
   "I should deposit these",
   "I can't pick any more up.",
   "I'm getting full..."
 ];
+
+const SURVIVOR_HIT_CHAT_LINES = CHAT_AUTOMATIC.hit || [
+  "Ouch...!",
+  "That really hurt.",
+  "Okay, rude.",
+  "My bones have notes.",
+  "That was unnecessary.",
+  "I felt that in my orbit.",
+  "Personal space, please."
+];
+
+const SURVIVOR_HIT_WITH_ORBS_CHAT_LINES = CHAT_AUTOMATIC.hitWithOrbs || [
+  "My orbs!",
+  "Not the orbs!",
+  "I was using those!",
+  "Great, there goes my stash.",
+  "My precious space marbles!"
+];
+
+const SURVIVOR_DOWNED_CHAT_LINES = CHAT_AUTOMATIC.downed || [
+  "I got got...",
+  "You got me...",
+  "Finally...",
+  "This is fine.",
+  "Tell my orbs I loved them.",
+  "I meant to lie down.",
+  "Okay, dramatic.",
+  "I regret several decisions.",
+  "The floor and I are friends now."
+];
+
+const SURVIVOR_DOWNED_WITH_ORBS_EXTRA_CHAT_LINES = CHAT_AUTOMATIC.downedWithOrbsExtra || [
+  "There go the orbs...",
+  "I was saving those..."
+];
+
+function randomFrom(list) {
+  return list[Math.floor(Math.random() * list.length)];
+}
+
+function randomSurvivorHitLine(hadOrbs = false) {
+  const pool = hadOrbs && Math.random() < 0.48
+    ? SURVIVOR_HIT_WITH_ORBS_CHAT_LINES
+    : SURVIVOR_HIT_CHAT_LINES;
+  return randomFrom(pool);
+}
+
+function randomSurvivorDownedLine(hadOrbs = false) {
+  const pool = hadOrbs
+    ? [...SURVIVOR_DOWNED_CHAT_LINES, ...SURVIVOR_DOWNED_WITH_ORBS_EXTRA_CHAT_LINES]
+    : SURVIVOR_DOWNED_CHAT_LINES;
+  return randomFrom(pool);
+}
 
 function isOrbFullChatMessage(message) {
   return ORB_FULL_CHAT_MESSAGES.includes(message);
@@ -529,7 +585,7 @@ function chooseSpreadGenerators(candidates, count, tile) {
 
 function parseMap(mapDef) {
   if (!mapDef || !Array.isArray(mapDef.rows) || mapDef.rows.length === 0) {
-    throw new Error("No valid Voidrift map definition was found. Check public/maps.js and make sure at least one map has a rows array.");
+    throw new Error("No valid Riftrunner map definition was found. Check public/maps.js and make sure at least one map has a rows array.");
   }
   const rows = normalizeRows(mapDef.rows);
   const tile = mapDef.tile || 72;
@@ -921,19 +977,16 @@ function joinLobby(socket, lobby, requestedRole, name, skin) {
 
   let role = requestedRole === "killer" ? "killer" : "survivor";
   const players = [...lobby.players.values()];
-  const hasKiller = players.some((p) => p.role === "killer");
   const survivorCount = players.filter((p) => p.role === "survivor").length;
 
-  if (role === "killer" && hasKiller) {
-    socket.emit("toast", { type: "error", message: "The Void is already claimed. Tragic scarcity." });
-    return false;
-  }
+  // Multiple players are allowed to queue as The Void in the lobby.
+  // The hard rule is enforced only when the match starts: exactly one Void.
   if (role === "survivor" && survivorCount >= MAX_SURVIVORS) {
-    socket.emit("toast", { type: "error", message: "This lobby already has four Survivors." });
+    socket.emit("toast", { type: "error", message: "This lobby already has four Runners." });
     return false;
   }
   if (lobby.phase !== "lobby") {
-    socket.emit("toast", { type: "error", message: "That lobby is already in a match." });
+    socket.emit("toast", { type: "error", message: "That lobby is already in a run." });
     return false;
   }
 
@@ -965,7 +1018,7 @@ function leaveCurrentLobby(socket) {
       const actor = lobby.game.actors.get(socket.id);
       if (actor) {
         if (actor.role === "killer") {
-          endGame(lobby, "survivors", "The Void disconnected. Survivors win by administrative collapse.");
+          endGame(lobby, "survivors", "The Void disconnected. The Runners slip away.");
         } else {
           actor.dead = true;
           checkWinConditions(lobby);
@@ -984,7 +1037,8 @@ function broadcastLobbyState(lobby) {
     phase: lobby.phase,
     mapId: lobby.mapId,
     mapName: lobby.mapName,
-    players: [...lobby.players.values()].map((p) => ({ id: p.id, name: p.name, role: p.role, skin: p.skin || "blueSquare", ready: p.ready, isBot: !!p.isBot }))
+    maxSurvivors: MAX_SURVIVORS,
+    players: [...lobby.players.values()].map((p) => ({ id: p.id, name: p.name, role: p.role, skin: p.skin || "blueSquare", ready: p.isBot ? true : p.ready, isBot: !!p.isBot }))
   });
 }
 
@@ -992,25 +1046,31 @@ function addBotToLobby(lobby, role) {
   if (!lobby || lobby.phase !== "lobby") return { ok: false, message: "Bots can only be added in the lobby." };
   const roleValue = role === "killer" ? "killer" : "survivor";
   const players = [...lobby.players.values()];
-  if (roleValue === "killer" && players.some((p) => p.role === "killer")) {
-    return { ok: false, message: "The Void is already claimed." };
-  }
   if (roleValue === "survivor" && players.filter((p) => p.role === "survivor").length >= MAX_SURVIVORS) {
-    return { ok: false, message: "Survivor slots are full." };
+    return { ok: false, message: "Runner slots are full." };
   }
   const id = uid("bot");
   const count = players.filter((p) => p.isBot && p.role === roleValue).length + 1;
-  const name = roleValue === "killer" ? "Bot Void" : `Bot Survivor ${count}`;
+  const name = roleValue === "killer" ? `Void Bot ${count}` : `Runner Bot ${count}`;
   const bot = makePlayer({ id }, roleValue, name, { isBot: true, skin: ["blueSquare", "yellowStar", "purplePentagon", "nebulaBloom", "eclipseWisp", "riftMoth", "signalDrone"][count % 7] });
   bot.ready = true;
   lobby.players.set(id, bot);
   return { ok: true };
 }
 
+function removeBotFromLobby(lobby, botId) {
+  if (!lobby || lobby.phase !== "lobby") return { ok: false, message: "Bots can only be removed in the lobby." };
+  const id = String(botId || "");
+  const bot = lobby.players.get(id);
+  if (!bot || !bot.isBot) return { ok: false, message: "That bot is no longer in the lobby." };
+  lobby.players.delete(id);
+  return { ok: true };
+}
+
 function canChangeRole(lobby, player, role) {
   if (role === player.role) return true;
   const players = [...lobby.players.values()].filter((p) => p.id !== player.id);
-  if (role === "killer") return !players.some((p) => p.role === "killer");
+  if (role === "killer") return true;
   if (role === "survivor") return players.filter((p) => p.role === "survivor").length < MAX_SURVIVORS;
   return false;
 }
@@ -1021,7 +1081,29 @@ function startGame(lobby) {
   const survivors = players.filter((p) => p.role === "survivor");
   if (lobby.phase !== "lobby") return false;
   if (killers.length !== 1 || survivors.length < 1) {
-    io.to(lobby.id).emit("toast", { type: "error", message: "Need exactly 1 Void and at least 1 Survivor." });
+    const voidCount = killers.length;
+    const message = voidCount === 0
+      ? "Need exactly 1 Void and at least 1 Runner. Nobody chose The Void yet."
+      : voidCount > 1
+        ? `Only 1 Void can start the run. ${voidCount} are selected right now.`
+        : "Need at least 1 Runner to start.";
+    io.to(lobby.id).emit("toast", { type: "error", message });
+    return false;
+  }
+
+  for (const player of players) {
+    if (player.isBot) player.ready = true;
+  }
+
+  const unreadyHumans = players.filter((player) => !player.isBot && !player.ready);
+  if (unreadyHumans.length > 0) {
+    const names = unreadyHumans.slice(0, 3).map((player) => player.name || "Player").join(", ");
+    const more = unreadyHumans.length > 3 ? ` +${unreadyHumans.length - 3} more` : "";
+    io.to(lobby.id).emit("toast", {
+      type: "error",
+      message: `Everyone has to ready up before the run starts. Waiting on ${names}${more}.`
+    });
+    broadcastLobbyState(lobby);
     return false;
   }
 
@@ -1442,6 +1524,14 @@ function handleAction(game, actor) {
   } else if (hit.type === "palletDrop") {
     moveToPalletSideByInput(game, actor, hit.object);
     hit.object.state = "dropped";
+
+    // Dropping a pallet is a commitment too. Without this, a survivor can slam the pallet
+    // and instantly vault it on the next Space press, which turns the pallet into a tiny
+    // panic elevator instead of an actual decision.
+    if (actor.role === "survivor") {
+      actor.palletVaultCooldown = Math.max(actor.palletVaultCooldown || 0, SURVIVOR_PALLET_DROP_COOLDOWN);
+    }
+
     bumpPathCache(game);
     addEvent(game, "palletDrop", { actorId: actor.id, x: hit.object.x + hit.object.w / 2, y: hit.object.y + hit.object.h / 2 });
 
@@ -1525,7 +1615,11 @@ function damageSurvivor(game, killer, survivor) {
   // which is funny once and then deeply stupid forever.
   clearActorChat(survivor);
   survivor.dotFullNoticeCooldown = 0;
+  const dotsBeforeHit = Math.max(0, survivor.dots || 0);
   survivor.health -= 1;
+  const willBeDowned = survivor.health <= 0;
+  let autoChatMessage = null;
+  let autoChatDuration = 2.65;
   survivor.healProgress = 0;
   survivor.activeHealers = [];
   survivor.healingTargetId = null;
@@ -1535,7 +1629,7 @@ function damageSurvivor(game, killer, survivor) {
   survivor.dotDepositProgress = 0;
   survivor.dotDepositChain = 0;
 
-  if (survivor.health <= 0) {
+  if (willBeDowned) {
     survivor.health = 0;
     survivor.injured = true;
     survivor.downed = true;
@@ -1543,15 +1637,33 @@ function damageSurvivor(game, killer, survivor) {
     survivor.invuln = 0;
     survivor.chaseHold = 0;
     survivor.input.sprint = false;
-    addEvent(game, "downed", { x: survivor.x, y: survivor.y, survivorId: survivor.id, health: survivor.health, impact: true });
+    autoChatMessage = randomSurvivorDownedLine(dotsBeforeHit > 0);
+    autoChatDuration = 3.4;
+    addEvent(game, "downed", {
+      x: survivor.x,
+      y: survivor.y,
+      survivorId: survivor.id,
+      health: survivor.health,
+      impact: true,
+      chatText: autoChatMessage
+    });
   } else {
     survivor.injured = true;
     survivor.invuln = SURVIVOR_INVULN;
     survivor.hitBoost = SURVIVOR_HIT_BOOST;
-    addEvent(game, "hit", { x: survivor.x, y: survivor.y, survivorId: survivor.id, health: survivor.health });
+    autoChatMessage = randomSurvivorHitLine(dotsBeforeHit > 0);
+    autoChatDuration = 2.65;
+    addEvent(game, "hit", {
+      x: survivor.x,
+      y: survivor.y,
+      survivorId: survivor.id,
+      health: survivor.health,
+      chatText: autoChatMessage
+    });
   }
 
   loseSurvivorDots(game, survivor, survivor.downed ? "downed" : "hit");
+  setActorChat(survivor, autoChatMessage, game, autoChatDuration);
 
   if (killer && killer.attackState) killer.attackHasHit = true;
   else if (killer) {
@@ -1926,9 +2038,7 @@ function loseSurvivorDots(game, survivor, mode = "hit") {
   const held = Math.max(0, survivor.dots || 0);
   if (!held) return;
 
-  const lost = mode === "downed"
-    ? held
-    : Math.max(1, Math.ceil(held * SURVIVOR_DOT_DROP_ON_HIT_PERCENT));
+  const lost = held;
 
   survivor.dots = Math.max(0, held - lost);
   survivor.dotDepositTargetId = null;
@@ -2255,10 +2365,13 @@ function executeSurvivor(game, survivor) {
   addEvent(game, "execute", { x: survivor.x, y: survivor.y, survivorId: survivor.id });
 }
 
-function freeSurvivorFromHook(game, survivor) {
+function freeSurvivorFromHook(game, survivor, rescuers = []) {
   const hook = game.map.hooks.find((h) => h.id === survivor.hookId);
   if (hook) hook.active = false;
   const pos = hook ? releasePositionNearHook(game, hook, survivor) : { x: survivor.x, y: survivor.y };
+  const rescuerIds = [...new Set((Array.isArray(rescuers) ? rescuers : [])
+    .map((rescuer) => typeof rescuer === "string" ? rescuer : rescuer?.id)
+    .filter(Boolean))];
   survivor.x = pos.x;
   survivor.y = pos.y;
   survivor.hooked = false;
@@ -2274,7 +2387,17 @@ function freeSurvivorFromHook(game, survivor) {
   survivor.dotDepositProgress = 0;
   survivor.dotDepositChain = 0;
   survivor.activeHealers = [];
-  addEvent(game, "unhooked", { x: survivor.x, y: survivor.y, survivorId: survivor.id });
+  survivor.healingTargetId = null;
+  for (const actor of game.actors.values()) {
+    if (actor.unhookTargetId === survivor.id) actor.unhookTargetId = null;
+  }
+  addEvent(game, "unhooked", {
+    x: survivor.x,
+    y: survivor.y,
+    survivorId: survivor.id,
+    rescuerId: rescuerIds[0] || null,
+    rescuerIds
+  });
 }
 
 function updateHookInteractions(game, dt) {
@@ -2313,14 +2436,21 @@ function updateHookInteractions(game, dt) {
     }
   }
 
+  const unhookHelpersByTarget = new Map();
   for (const healer of game.actors.values()) {
     const target = nearestHookedSurvivorForRescue(game, healer);
     if (!target) continue;
     healer.unhookTargetId = target.id;
     healer.input.angle = Math.atan2(target.y - healer.y, target.x - healer.x);
-    target.unhookProgress = clamp((target.unhookProgress || 0) + dt / UNHOOK_TIME, 0, 1);
+    if (!unhookHelpersByTarget.has(target.id)) unhookHelpersByTarget.set(target.id, { target, helpers: [] });
+    unhookHelpersByTarget.get(target.id).helpers.push(healer);
+  }
+
+  for (const { target, helpers } of unhookHelpersByTarget.values()) {
+    if (!target?.hooked || !helpers.length) continue;
+    target.unhookProgress = clamp((target.unhookProgress || 0) + (dt * helpers.length) / UNHOOK_TIME, 0, 1);
     activeUnhookTargets.add(target.id);
-    if (target.unhookProgress >= 1) freeSurvivorFromHook(game, target);
+    if (target.unhookProgress >= 1) freeSurvivorFromHook(game, target, helpers);
   }
 
   for (const target of game.actors.values()) {
@@ -2332,7 +2462,7 @@ function updateHookInteractions(game, dt) {
   }
 }
 
-function isHealTarget(target) {
+function isWoundedSurvivor(target) {
   return !!(
     target
     && target.role === "survivor"
@@ -2340,6 +2470,12 @@ function isHealTarget(target) {
     && !target.escaped
     && !target.hooked
     && ((target.downed && target.health <= 0) || (target.health === 1 && target.injured))
+  );
+}
+
+function isHealTarget(target) {
+  return !!(
+    isWoundedSurvivor(target)
     && !target.vault
     && !actorHasMoveInput(target)
   );
@@ -2375,8 +2511,8 @@ function updateHealing(game, dt) {
 
   for (const target of game.actors.values()) {
     if (target.role !== "survivor") continue;
-    const canBeHealed = isHealTarget(target);
-    if (!canBeHealed) {
+    const stillWounded = isWoundedSurvivor(target);
+    if (!stillWounded) {
       target.healProgress = 0;
       target.activeHealers = [];
       continue;
@@ -2399,7 +2535,7 @@ function updateHealing(game, dt) {
       target.activeHealers = [];
       addEvent(game, "healDone", { x: target.x, y: target.y, survivorId: target.id });
     } else if (target.activeHealers.length === 0) {
-      target.healProgress = Math.max(0, (target.healProgress || 0) - dt * 0.08);
+      target.healProgress = Math.max(0, (target.healProgress || 0) - dt * HEAL_DECAY_PER_SECOND);
     }
   }
 }
@@ -2641,20 +2777,20 @@ function checkWinConditions(lobby) {
   const noOneLeftToPlay = activeSurvivors.length === 0 || allOutOrIncapacitated;
 
   if (allEscaped) {
-    endGame(lobby, "survivors", "All Survivors escaped.");
+    endGame(lobby, "survivors", "All Runners escaped.");
     return;
   }
 
   // If at least one Survivor escaped and nobody else can still play, end the match immediately.
   // This covers: one player escapes after all bots are dead, hooked, downed, or otherwise 0 HP.
   if (escapedCount > 0 && noOneLeftToPlay) {
-    endGame(lobby, "survivors", "Some Survivors escaped. The rest perished in the void.");
+    endGame(lobby, "survivors", "Some Runners escaped. The rest were claimed by The Void.");
     return;
   }
 
   // The Void only gets the win text if nobody escaped.
   if (escapedCount === 0 && noOneLeftToPlay) {
-    endGame(lobby, "killer", "No Survivors escaped. The Void consumed them all.");
+    endGame(lobby, "killer", "No Runners escaped. The Void consumed them all.");
     return;
   }
 
@@ -3751,7 +3887,7 @@ io.on("connection", (socket) => {
       const roleValue = role === "killer" ? "killer" : "survivor";
       const lobby = available.find((l) => {
         const players = [...l.players.values()];
-        if (roleValue === "killer") return !players.some((p) => p.role === "killer");
+        if (roleValue === "killer") return true;
         return players.filter((p) => p.role === "survivor").length < MAX_SURVIVORS;
       }) || createLobby("Open Lobby", mapId);
       joinLobby(socket, lobby, roleValue, playerName, skin);
@@ -3770,7 +3906,7 @@ io.on("connection", (socket) => {
     if (!player) return;
     const nextRole = role === "killer" ? "killer" : "survivor";
     if (!canChangeRole(lobby, player, nextRole)) {
-      socket.emit("toast", { type: "error", message: nextRole === "killer" ? "The Void is already claimed." : "Survivor slots are full." });
+      socket.emit("toast", { type: "error", message: nextRole === "killer" ? "Could not select The Void." : "Runner slots are full." });
       return;
     }
     player.role = nextRole;
@@ -3805,6 +3941,18 @@ io.on("connection", (socket) => {
     const lobby = lobbies.get(socketToLobby.get(socket.id));
     if (!lobby) return;
     const result = addBotToLobby(lobby, role);
+    if (!result.ok) {
+      socket.emit("toast", { type: "error", message: result.message });
+      return;
+    }
+    broadcastLobbyState(lobby);
+    broadcastLobbyList();
+  });
+
+  socket.on("removeBot", ({ botId } = {}) => {
+    const lobby = lobbies.get(socketToLobby.get(socket.id));
+    if (!lobby) return;
+    const result = removeBotFromLobby(lobby, botId);
     if (!result.ok) {
       socket.emit("toast", { type: "error", message: result.message });
       return;
@@ -3900,7 +4048,7 @@ setupFrontend()
     });
   })
   .catch((error) => {
-    console.error("Failed to start Voidrift server", error);
+    console.error("Failed to start Riftrunner server", error);
     process.exit(1);
   });
 
