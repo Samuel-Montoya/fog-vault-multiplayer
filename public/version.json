@@ -1,12 +1,19 @@
 {
   "latest": {
-    "version": "0.1.27",
-    "title": "Pallet Impact Polish",
-    "summary": "Broken pallet X and stun shake",
-    "description": "Updated broken pallets to read as a glowing purple X in the middle and made pallet stuns trigger stronger camera shake feedback for The Void, the stunning Runner, and nearby players.",
+    "version": "0.1.28",
+    "title": "Point Feed and M1 Polish",
+    "summary": "Compact point notifications and better quick M1 range",
+    "description": "Added a React-driven top-left point feed for tracked stat gains, slimmed and widened the end results scoreboard with The Void always listed first, added Runner Void stun tracking, and made quick M1 taps use a more forgiving cone with better range and startup timing.",
     "date": "2026-05-21"
   },
   "history": [
+    {
+      "version": "0.1.28",
+      "title": "Point Feed and M1 Polish",
+      "summary": "Compact point notifications and better quick M1 range",
+      "description": "Added a React-driven top-left point feed for tracked stat gains, slimmed and widened the end results scoreboard with The Void always listed first, added Runner Void stun tracking, and made quick M1 taps use a more forgiving cone with better range and startup timing.",
+      "date": "2026-05-21"
+    },
     {
       "version": "0.1.27",
       "title": "Pallet Impact Polish",

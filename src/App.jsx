@@ -926,6 +926,52 @@ function SurvivorStatusHud() {
   )
 }
 
+
+function PointFeed() {
+  const [items, setItems] = useState([])
+  const nextId = useRef(1)
+
+  useEffect(() => {
+    const timers = new Set()
+
+    const handleScoreGain = (event) => {
+      const label = String(event.detail?.label || "Point gained").trim().slice(0, 42)
+      const amount = Math.max(1, Math.floor(Number(event.detail?.amount) || 1))
+      const kind = String(event.detail?.kind || "point").trim().slice(0, 18)
+      const id = nextId.current++
+
+      setItems((current) => [
+        { id, label, amount, kind },
+        ...current
+      ].slice(0, 3))
+
+      const timer = window.setTimeout(() => {
+        setItems((current) => current.filter((item) => item.id !== id))
+        timers.delete(timer)
+      }, 1850)
+      timers.add(timer)
+    }
+
+    window.addEventListener("voidrift:score-gain", handleScoreGain)
+    return () => {
+      window.removeEventListener("voidrift:score-gain", handleScoreGain)
+      timers.forEach((timer) => window.clearTimeout(timer))
+      timers.clear()
+    }
+  }, [])
+
+  return (
+    <div className={`point-feed ${items.length ? "is-active" : ""}`} aria-live="polite" aria-atomic="false">
+      {items.map((item) => (
+        <div className={`point-feed-item is-${item.kind}`} key={item.id}>
+          <span>{item.label}</span>
+          <strong>+{item.amount}</strong>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function HookEdgeIndicators() {
   const [indicators, setIndicators] = useState([])
 
@@ -1012,6 +1058,7 @@ export default function App() {
       <ChatWheel />
       <AbilityWheel />
       <HookEdgeIndicators />
+      <PointFeed />
       <div id="toast" className="toast hidden" />
       <MobileControls />
       <div id="screenFadeOverlay" className="screen-fade-overlay" aria-hidden="true" />

@@ -139,16 +139,17 @@ const GAMEPLAY_CONFIG = {
   },
 
   attack: {
-    quickRange: 62,
+    quickRange: 82,
     lungeRange: 118,
-    arcRadians: Math.PI * 0.44,
+    arcRadians: Math.PI * 0.50,
     sideRadius: 24,
     closeAoeRadius: 26,
+    edgeGraceRadius: 9,
     tapMaxSeconds: 0.18,
     lungeChargeSeconds: 0.32,
-    quickActiveSeconds: 0.20,
+    quickActiveSeconds: 0.24,
     lungeActiveSeconds: 0.42,
-    quickStartupSeconds: 0.075,
+    quickStartupSeconds: 0.045,
     lungeStartupSeconds: 0.075,
     lungeSpeedMultiplier: 1.42,
     quickMissRecoverySeconds: 1.05,
@@ -173,9 +174,9 @@ const GAMEPLAY_CONFIG = {
     kickTime: 1.0,
     kickRegression: 0.10,
     escapeTime: 4.0,
-    dotsPerRift: 30,
+    dotsPerRift: 25,
     depositDistance: 96,
-    depositSecondsPerOrb: 0.5,
+    depositSecondsPerOrb: 1.5,
     maxDepositChain: 10
   },
 

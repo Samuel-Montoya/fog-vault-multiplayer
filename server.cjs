@@ -169,7 +169,7 @@ async function setupFrontend() {
   const forceVite = process.argv.includes("--dev") || process.env.VITE_DEV_SERVER === "1";
   const hasBuiltClient = fs.existsSync(path.join(DIST_DIR, "index.html"));
 
-  if (forceVite || !hasBuiltClient) {
+  if (forceVite) {
     const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       root: ROOT_DIR,
@@ -178,6 +178,13 @@ async function setupFrontend() {
     });
     app.use(vite.middlewares);
     return;
+  }
+
+  if (!hasBuiltClient) {
+    throw new Error(
+      "Missing production frontend build: dist/index.html was not found. " +
+      "Run `npm run build` before `npm start`. On Render, set Build Command to `npm ci --include=dev && npm run build` and Start Command to `npm start`."
+    );
   }
 
   app.use(express.static(DIST_DIR, {
@@ -272,16 +279,16 @@ lobbyCleanupTimer.unref?.();
 const PLAYER_SIZE = cfgNumber(GAMEPLAY_CONFIG.actor?.survivorSize, 30);
 const KILLER_SIZE = cfgNumber(GAMEPLAY_CONFIG.actor?.voidSize, 38);
 const INTERACT_DISTANCE = 74;
-const QUICK_ATTACK_RANGE = cfgNumber(GAMEPLAY_CONFIG.attack?.quickRange, 62);
+const QUICK_ATTACK_RANGE = cfgNumber(GAMEPLAY_CONFIG.attack?.quickRange, 82);
 const LUNGE_ATTACK_RANGE = cfgNumber(GAMEPLAY_CONFIG.attack?.lungeRange, 118);
-const ATTACK_ARC = cfgNumber(GAMEPLAY_CONFIG.attack?.arcRadians, Math.PI * 0.44);
+const ATTACK_ARC = cfgNumber(GAMEPLAY_CONFIG.attack?.arcRadians, Math.PI * 0.50);
 // Small visual/server grace so edge-of-cone hits feel fair without tagging runners who are clearly outside.
-const ATTACK_EDGE_GRACE_RADIUS = cfgNumber(GAMEPLAY_CONFIG.attack?.edgeGraceRadius, 7);
+const ATTACK_EDGE_GRACE_RADIUS = cfgNumber(GAMEPLAY_CONFIG.attack?.edgeGraceRadius, 9);
 const ATTACK_TAP_MAX = cfgNumber(GAMEPLAY_CONFIG.attack?.tapMaxSeconds, 0.18);
 const LUNGE_CHARGE_TIME = cfgNumber(GAMEPLAY_CONFIG.attack?.lungeChargeSeconds, 0.32);
-const QUICK_ATTACK_ACTIVE = cfgNumber(GAMEPLAY_CONFIG.attack?.quickActiveSeconds, 0.20);
+const QUICK_ATTACK_ACTIVE = cfgNumber(GAMEPLAY_CONFIG.attack?.quickActiveSeconds, 0.24);
 const LUNGE_ATTACK_ACTIVE = cfgNumber(GAMEPLAY_CONFIG.attack?.lungeActiveSeconds, 0.42);
-const QUICK_ATTACK_STARTUP = cfgNumber(GAMEPLAY_CONFIG.attack?.quickStartupSeconds, 0.075);
+const QUICK_ATTACK_STARTUP = cfgNumber(GAMEPLAY_CONFIG.attack?.quickStartupSeconds, 0.045);
 const LUNGE_ATTACK_STARTUP = cfgNumber(GAMEPLAY_CONFIG.attack?.lungeStartupSeconds, 0.075);
 const LUNGE_SPEED_MULT = cfgNumber(GAMEPLAY_CONFIG.attack?.lungeSpeedMultiplier, 1.42);
 const SURVIVOR_WALK_SPEED = cfgNumber(GAMEPLAY_CONFIG.survivor?.walkSpeed, 170);
@@ -569,7 +576,7 @@ function applyVoidAbility(game, actor, abilityId) {
 
   actor.dots = clamp(currentOrbs - ability.cost + stolen, 0, KILLER_DOT_MAX);
   cooldowns[ability.id] = ability.cooldown || 20;
-  addStat(actor, "abilitiesUsed", 1);
+  awardStat(actor, "abilitiesUsed", "Ability used", 1, "void");
   addEvent(game, "voidAbility", {
     x: actor.x,
     y: actor.y,
@@ -1130,6 +1137,7 @@ function createMatchStats(role) {
   return {
     orbsCollected: 0,
     orbsDeposited: 0,
+    voidStuns: 0,
     teammatesHealed: 0,
     unhooks: 0,
     escaped: false,
@@ -1151,6 +1159,21 @@ function addStat(actor, key, amount = 1) {
   stats[key] = Math.max(0, Number(stats[key] || 0) + amount);
 }
 
+function notifyScoreGain(actor, label, amount = 1, kind = "point") {
+  if (!actor || !actor.id || !label) return;
+  const value = Math.max(1, Math.floor(Number(amount) || 1));
+  io.to(actor.id).emit("scoreGain", {
+    label: String(label).slice(0, 42),
+    amount: value,
+    kind: String(kind || "point").slice(0, 18)
+  });
+}
+
+function awardStat(actor, key, label, amount = 1, kind = "point") {
+  addStat(actor, key, amount);
+  notifyScoreGain(actor, label, amount, kind);
+}
+
 function serializeMatchStats(actor) {
   const stats = ensureMatchStats(actor);
   if (actor.role === "killer") {
@@ -1166,6 +1189,7 @@ function serializeMatchStats(actor) {
   return {
     orbsCollected: Math.floor(stats.orbsCollected || 0),
     orbsDeposited: Math.floor(stats.orbsDeposited || 0),
+    voidStuns: Math.floor(stats.voidStuns || 0),
     teammatesHealed: Math.floor(stats.teammatesHealed || 0),
     unhooks: Math.floor(stats.unhooks || 0),
     escaped: !!actor.escaped,
@@ -1962,6 +1986,7 @@ function applyVoidStun(game, survivor, killer, pallet) {
   killer.input.attackHeld = false;
   killer.input.attackReleased = false;
   clearKillerAttackState(killer);
+  if (survivor?.role === "survivor") awardStat(survivor, "voidStuns", "Stunned The Void", 1, "stun");
 
   addEvent(game, "voidStun", {
     actorId: survivor?.id || null,
@@ -1997,7 +2022,7 @@ function damageSurvivor(game, killer, survivor) {
   survivor.dotDepositTargetId = null;
   survivor.dotDepositProgress = 0;
   survivor.dotDepositChain = 0;
-  addStat(killer, "injures", 1);
+  awardStat(killer, "injures", "Runner injured", 1, "void");
 
   if (willBeDowned) {
     survivor.health = 0;
@@ -2035,7 +2060,7 @@ function damageSurvivor(game, killer, survivor) {
   if (killer && dotsBeforeHit > 0) {
     const before = Math.max(0, killer.dots || 0);
     killer.dots = clamp(before + dotsBeforeHit, 0, KILLER_DOT_MAX);
-    addStat(killer, "orbsCollected", killer.dots - before);
+    awardStat(killer, "orbsCollected", "Orbs collected", killer.dots - before, "orb");
     addEvent(game, "voidOrbSteal", {
       x: survivor.x,
       y: survivor.y,
@@ -2505,7 +2530,7 @@ function updateCollectibleDots(game, dt) {
     const maxDots = actor.role === "killer" ? KILLER_DOT_MAX : SURVIVOR_DOT_MAX;
     const dotsBefore = actor.dots || 0;
     actor.dots = Math.min(maxDots, dotsBefore + 1);
-    addStat(actor, "orbsCollected", Math.max(0, actor.dots - dotsBefore));
+    awardStat(actor, "orbsCollected", "Orb collected", Math.max(0, actor.dots - dotsBefore), "orb");
     if (actor.role === "survivor" && (game.redOrbs || 0) > 0) {
       actor.orbSlow = Math.max(actor.orbSlow || 0, RED_ORB_SLOW_SECONDS);
       addEvent(game, "redOrbSlow", { x: actor.x, y: actor.y, survivorId: actor.id, duration: RED_ORB_SLOW_SECONDS });
@@ -2604,7 +2629,7 @@ function updateDotDeposits(game, dt) {
       if ((actor.dotDepositProgress || 0) < 1 || (actor.dots || 0) <= 0 || gen.done) continue;
 
       actor.dots = Math.max(0, (actor.dots || 0) - 1);
-      addStat(actor, "orbsDeposited", 1);
+      awardStat(actor, "orbsDeposited", "Orb deposited", 1, "rift");
       actor.dotDepositProgress = 0;
       actor.dotDepositChain = clamp((actor.dotDepositChain || 0) + 1, 1, DOT_DEPOSIT_MAX_CHAIN);
       const depositIndex = actor.dotDepositChain;
@@ -2744,7 +2769,7 @@ function sendSurvivorToHook(game, survivor) {
   survivor.downed = true;
   survivor.hookId = hook.id;
   survivor.hookCount = (survivor.hookCount || 0) + 1;
-  addStat(killer, "hooks", 1);
+  awardStat(killer, "hooks", "Runner hooked", 1, "void");
   survivor.hookProgress = 0;
   survivor.unhookProgress = 0;
   survivor.dotDepositTargetId = null;
@@ -2763,7 +2788,7 @@ function executeSurvivor(game, survivor) {
   const oldHook = survivor.hookId ? game.map.hooks.find((h) => h.id === survivor.hookId) : null;
   const killer = [...game.actors.values()].find((p) => p.role === "killer" && !p.dead) || null;
   if (oldHook) oldHook.active = false;
-  addStat(killer, "deaths", 1);
+  awardStat(killer, "deaths", "Runner consumed", 1, "void");
   survivor.dead = true;
   survivor.downed = false;
   survivor.hooked = false;
@@ -2812,7 +2837,7 @@ function freeSurvivorFromHook(game, survivor, rescuers = []) {
   }
   for (const rescuerId of rescuerIds) {
     const rescuer = game.actors.get(rescuerId);
-    if (rescuer?.role === "survivor" && rescuer.id !== survivor.id) addStat(rescuer, "unhooks", 1);
+    if (rescuer?.role === "survivor" && rescuer.id !== survivor.id) awardStat(rescuer, "unhooks", "Teammate unhooked", 1, "team");
   }
   addEvent(game, "unhooked", {
     x: survivor.x,
@@ -2945,7 +2970,7 @@ function updateHealing(game, dt) {
       const healerIds = [...new Set(target.activeHealers || [])].filter((id) => id && id !== target.id);
       for (const healerId of healerIds) {
         const healer = game.actors.get(healerId);
-        if (healer?.role === "survivor") addStat(healer, "teammatesHealed", 1);
+        if (healer?.role === "survivor") awardStat(healer, "teammatesHealed", "Teammate healed", 1, "team");
       }
       if (target.downed) {
         target.downed = false;
@@ -3040,7 +3065,7 @@ function updateGeneratorKicks(game, dt) {
     gen.kickLocked = true;
     gen.beingKicked = false;
     gen.kickProgress = 0;
-    addStat(killer, "riftsKicked", 1);
+    awardStat(killer, "riftsKicked", "Rift kicked", 1, "void");
     addEvent(game, "genKick", { x: gen.x, y: gen.y, generatorId: gen.id, oldProgress, progress: gen.progress });
     resetGeneratorKick(killer);
   }
@@ -3118,6 +3143,7 @@ function updateGeneratorsAndGates(game, dt) {
       if (actor.escapeProgress >= GATE_ESCAPE_TIME) {
         actor.escaped = true;
         ensureMatchStats(actor).escaped = true;
+        notifyScoreGain(actor, "Escaped", 1, "team");
         actor.dead = false;
         actor.hooked = false;
         actor.downed = false;

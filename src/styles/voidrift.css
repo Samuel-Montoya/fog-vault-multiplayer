@@ -1223,6 +1223,73 @@ body.is-void-stunned .horror-fx .fx-vignette {
   text-align: center;
 }
 
+
+.point-feed {
+  position: fixed;
+  top: max(16px, env(safe-area-inset-top));
+  left: max(16px, env(safe-area-inset-left));
+  z-index: 3600;
+  display: grid;
+  gap: 6px;
+  width: min(260px, calc(100vw - 32px));
+  pointer-events: none;
+}
+
+.point-feed:not(.is-active) {
+  display: none;
+}
+
+.point-feed-item {
+  --point-accent: #67e8f9;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 10px;
+  min-height: 34px;
+  padding: 7px 10px 7px 11px;
+  border-radius: 9px;
+  color: #f8fbff;
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--point-accent), transparent 86%), rgba(4, 8, 19, 0.82)),
+    rgba(3, 7, 18, 0.88);
+  border: 1px solid color-mix(in srgb, var(--point-accent), transparent 72%);
+  border-left: 3px solid var(--point-accent);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.26), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  animation: pointFeedPop 1850ms ease-out both;
+  backdrop-filter: blur(8px);
+}
+
+.point-feed-item span {
+  overflow: hidden;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.075em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.point-feed-item strong {
+  color: var(--point-accent);
+  font-size: 13px;
+  font-weight: 1000;
+  letter-spacing: 0.05em;
+  text-shadow: 0 0 14px color-mix(in srgb, var(--point-accent), transparent 55%);
+}
+
+.point-feed-item.is-void { --point-accent: #fb4778; }
+.point-feed-item.is-stun { --point-accent: #a855f7; }
+.point-feed-item.is-rift { --point-accent: #38bdf8; }
+.point-feed-item.is-orb { --point-accent: #facc15; }
+.point-feed-item.is-team { --point-accent: #34d399; }
+
+@keyframes pointFeedPop {
+  0% { opacity: 0; transform: translate3d(-12px, -5px, 0) scale(0.97); }
+  10% { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+  76% { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+  100% { opacity: 0; transform: translate3d(-8px, -5px, 0) scale(0.98); }
+}
+
 .match-announcements {
   position: fixed;
   top: max(18px, env(safe-area-inset-top));
@@ -2139,38 +2206,40 @@ body.ultra-low-power.survivor-hit-impact #gameWrap {
 }
 
 .end-panel {
-  width: min(1180px, 100%);
+  width: min(1420px, calc(100vw - 32px));
   text-align: left;
-  padding: clamp(18px, 2.2vw, 28px);
+  padding: clamp(14px, 1.6vw, 22px);
 }
 
 .end-panel #winnerText {
-  margin-bottom: 4px;
-  letter-spacing: 0.06em;
+  margin-bottom: 2px;
+  font-size: clamp(28px, 4vw, 54px);
+  letter-spacing: 0.07em;
 }
 
 .end-panel #reasonText {
-  margin-bottom: 12px;
+  margin-bottom: 8px;
+  font-size: 13px;
 }
 
 .end-stats {
   position: relative;
   display: grid;
   grid-template-columns: 1fr;
-  gap: 8px;
-  margin: 16px 0 18px;
+  gap: 6px;
+  margin: 12px 0 14px;
 }
 
 .end-stats::before {
-  content: "PLAYER RESULTS";
+  content: "VOID / RUNNER RESULTS";
   display: grid;
-  grid-template-columns: 190px 1fr;
-  gap: 10px;
-  padding: 0 14px 2px;
-  color: rgba(226, 232, 240, 0.46);
-  font-size: 10px;
+  grid-template-columns: 160px 1fr;
+  gap: 8px;
+  padding: 0 12px 1px;
+  color: rgba(226, 232, 240, 0.42);
+  font-size: 9px;
   font-weight: 950;
-  letter-spacing: 0.22em;
+  letter-spacing: 0.2em;
   text-transform: uppercase;
 }
 
@@ -2187,21 +2256,21 @@ body.ultra-low-power.survivor-hit-impact #gameWrap {
   position: relative;
   overflow: hidden;
   display: grid;
-  grid-template-columns: 190px 1fr;
+  grid-template-columns: 160px 1fr;
   align-items: stretch;
-  gap: 10px;
-  min-height: 74px;
-  border: 1px solid rgba(255, 255, 255, 0.105);
-  border-left: 4px solid color-mix(in srgb, var(--result-accent), transparent 24%);
-  border-radius: 12px;
-  padding: 8px 10px;
+  gap: 8px;
+  min-height: 56px;
+  border: 1px solid rgba(255, 255, 255, 0.095);
+  border-left: 3px solid color-mix(in srgb, var(--result-accent), transparent 20%);
+  border-radius: 10px;
+  padding: 6px 8px;
   background:
-    linear-gradient(90deg, rgba(255, 255, 255, 0.075), rgba(255, 255, 255, 0.026) 38%, rgba(255, 255, 255, 0.012)),
-    repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.035) 0 1px, transparent 1px 9px),
-    rgba(2, 6, 18, 0.64);
+    linear-gradient(90deg, rgba(255, 255, 255, 0.062), rgba(255, 255, 255, 0.022) 38%, rgba(255, 255, 255, 0.01)),
+    repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.026) 0 1px, transparent 1px 9px),
+    rgba(2, 6, 18, 0.68);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.07),
-    0 10px 24px rgba(0, 0, 0, 0.22);
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 8px 18px rgba(0, 0, 0, 0.2);
 }
 
 .end-stat-card::after {
@@ -2210,25 +2279,25 @@ body.ultra-low-power.survivor-hit-impact #gameWrap {
   inset: 0;
   pointer-events: none;
   background:
-    radial-gradient(circle at 0% 50%, color-mix(in srgb, var(--result-accent), transparent 78%), transparent 38%),
-    linear-gradient(90deg, color-mix(in srgb, var(--result-accent), transparent 88%), transparent 26%);
-  opacity: 0.84;
+    radial-gradient(circle at 0% 50%, color-mix(in srgb, var(--result-accent), transparent 80%), transparent 34%),
+    linear-gradient(90deg, color-mix(in srgb, var(--result-accent), transparent 90%), transparent 22%);
+  opacity: 0.76;
 }
 
 .end-stat-card.is-void {
   --result-accent: #ff3b6a;
   background:
-    linear-gradient(90deg, rgba(255, 59, 106, 0.14), rgba(255, 255, 255, 0.026) 40%, rgba(255, 255, 255, 0.012)),
-    repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.035) 0 1px, transparent 1px 9px),
-    rgba(18, 2, 12, 0.7);
+    linear-gradient(90deg, rgba(255, 59, 106, 0.13), rgba(255, 255, 255, 0.022) 40%, rgba(255, 255, 255, 0.01)),
+    repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.026) 0 1px, transparent 1px 9px),
+    rgba(18, 2, 12, 0.72);
 }
 
 .end-stat-card.is-you {
   border-color: color-mix(in srgb, var(--result-accent), transparent 34%);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.09),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
     0 0 0 1px color-mix(in srgb, var(--result-accent), transparent 80%),
-    0 14px 34px rgba(0, 0, 0, 0.3);
+    0 10px 26px rgba(0, 0, 0, 0.28);
 }
 
 .end-stat-head,
@@ -2241,17 +2310,17 @@ body.ultra-low-power.survivor-hit-impact #gameWrap {
   display: grid;
   grid-template-columns: 1fr;
   align-content: center;
-  gap: 7px;
+  gap: 5px;
   min-width: 0;
-  padding: 4px 8px 4px 2px;
-  border-right: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 3px 7px 3px 1px;
+  border-right: 1px solid rgba(255, 255, 255, 0.075);
 }
 
 .end-stat-head strong {
   display: block;
   overflow: hidden;
   color: #f8fbff;
-  font-size: 14px;
+  font-size: 12px;
   letter-spacing: 0.055em;
   text-overflow: ellipsis;
   text-transform: uppercase;
@@ -2260,23 +2329,23 @@ body.ultra-low-power.survivor-hit-impact #gameWrap {
 
 .end-stat-head span {
   display: block;
-  margin-top: 3px;
-  color: rgba(226, 232, 240, 0.64);
-  font-size: 11px;
-  font-weight: 750;
+  margin-top: 2px;
+  color: rgba(226, 232, 240, 0.62);
+  font-size: 9.5px;
+  font-weight: 800;
   letter-spacing: 0.055em;
   text-transform: uppercase;
 }
 
 .end-stat-head i {
   justify-self: start;
-  padding: 3px 7px;
+  padding: 2px 6px;
   border-radius: 4px;
   color: #dffaff;
   font-style: normal;
-  font-size: 9px;
+  font-size: 8px;
   font-weight: 950;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.13em;
   background: color-mix(in srgb, var(--result-accent), transparent 86%);
   border: 1px solid color-mix(in srgb, var(--result-accent), transparent 70%);
 }
@@ -2287,18 +2356,18 @@ body.ultra-low-power.survivor-hit-impact #gameWrap {
 
 .end-stat-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(86px, 1fr));
-  gap: 7px;
+  grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
+  gap: 5px;
   align-items: stretch;
 }
 
 .end-stat {
-  min-height: 52px;
-  padding: 8px 7px;
-  border-radius: 7px;
-  background: rgba(0, 0, 0, 0.23);
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.045);
+  min-height: 40px;
+  padding: 6px 6px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.062);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
 .end-stat span,
@@ -2307,21 +2376,21 @@ body.ultra-low-power.survivor-hit-impact #gameWrap {
 }
 
 .end-stat span {
-  min-height: 22px;
-  color: rgba(226, 232, 240, 0.62);
-  font-size: 8.5px;
+  min-height: 18px;
+  color: rgba(226, 232, 240, 0.58);
+  font-size: 7.5px;
   font-weight: 900;
-  letter-spacing: 0.075em;
-  line-height: 1.16;
+  letter-spacing: 0.065em;
+  line-height: 1.12;
   text-transform: uppercase;
 }
 
 .end-stat strong {
-  margin-top: 5px;
+  margin-top: 3px;
   color: #ffffff;
-  font-size: 18px;
+  font-size: 15px;
   line-height: 1;
-  text-shadow: 0 0 12px color-mix(in srgb, var(--result-accent), transparent 74%);
+  text-shadow: 0 0 10px color-mix(in srgb, var(--result-accent), transparent 74%);
 }
 
 @media (max-width: 880px) {

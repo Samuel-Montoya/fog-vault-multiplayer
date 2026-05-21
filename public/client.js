@@ -1070,6 +1070,17 @@
     toastTimer = setTimeout(() => ui.toast.classList.add("hidden"), ms);
   }
 
+  function pushScoreGain(payload = {}) {
+    if (!payload || !payload.label || activeScreenName !== "game") return;
+    window.dispatchEvent(new CustomEvent("voidrift:score-gain", {
+      detail: {
+        label: String(payload.label || "Point gained"),
+        amount: Math.max(1, Math.floor(Number(payload.amount) || 1)),
+        kind: String(payload.kind || "point")
+      }
+    }));
+  }
+
 
   const ANNOUNCEMENT_LIFETIME_MS = 3200;
   const ANNOUNCEMENT_MAX_VISIBLE = 3;
@@ -5774,9 +5785,9 @@
     }
 
     const sorted = [...actors].sort((a, b) => {
+      if (a.role !== b.role) return a.role === "killer" ? -1 : 1;
       if (a.id === myId) return -1;
       if (b.id === myId) return 1;
-      if (a.role !== b.role) return a.role === "killer" ? -1 : 1;
       return String(a.name || "").localeCompare(String(b.name || ""));
     });
 
@@ -5806,6 +5817,7 @@
         : [
             statItem("Orbs collected", stats.orbsCollected || 0),
             statItem("Orbs deposited", stats.orbsDeposited || 0),
+            statItem("Void stuns", stats.voidStuns || 0),
             statItem("Heals", stats.teammatesHealed || 0),
             statItem("Unhooks", stats.unhooks || 0),
             statItem("Escaped", (stats.escaped || actor.escaped) ? "Yes" : "No"),
@@ -6314,6 +6326,7 @@
     });
     socket.on("hello", ({ id }) => { myId = id; });
     socket.on("toast", ({ message }) => toast(message));
+    socket.on("scoreGain", (payload) => pushScoreGain(payload));
     socket.on("lobbyList", renderLobbyList);
     socket.on("joinedLobby", () => showScreen("lobby"));
     socket.on("lobbyState", renderLobbyState);
