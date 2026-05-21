@@ -431,6 +431,9 @@
 
 
   const SHARED_CHATS = window.RIFTRUNNER_CHATS || {};
+  const SHARED_ABILITIES = window.RIFTRUNNER_ABILITIES || {};
+  const VOID_ABILITIES = SHARED_ABILITIES.abilities || {};
+  const VOID_ABILITY_ORDER = Array.isArray(SHARED_ABILITIES.wheelOrder) ? SHARED_ABILITIES.wheelOrder : Object.keys(VOID_ABILITIES);
   const CHAT_AUTOMATIC = SHARED_CHATS.automatic || {};
   const ORB_FULL_CHAT_MESSAGES = new Set(CHAT_AUTOMATIC.orbFull || [
     "I have too many orbs...",
@@ -1313,6 +1316,94 @@
     window.addEventListener("voidrift:chat-wheel-submit", (event) => {
       sendReactChatWheelSelection(event.detail?.index);
     });
+  }
+
+  let reactAbilityWheelOpen = false;
+
+  function getAbilityListForVoid(actor = getLocalPlayerData()) {
+    const orbs = Math.max(0, Math.floor(actor?.dots || 0));
+    return VOID_ABILITY_ORDER.slice(0, 4).map((id) => {
+      const ability = VOID_ABILITIES[id] || { id, name: "Void Ability", shortName: "Ability", cost: 0, summary: "The Void bends the run." };
+      return {
+        id: ability.id || id,
+        name: ability.name || "Void Ability",
+        shortName: ability.shortName || ability.name || "Ability",
+        cost: Number(ability.cost || 0),
+        summary: ability.summary || "The Void bends the run.",
+        accent: ability.accent || "purple",
+        available: orbs >= Number(ability.cost || 0),
+        active: !!(actor && (
+          (ability.id === "nullRush" && (actor.voidSpeedBoost || 0) > 0) ||
+          (ability.id === "redshiftOrbs" && (currentSnapshot?.voidEffects?.redOrbs || 0) > 0)
+        ))
+      };
+    });
+  }
+
+  function getAbilityWheelDetail(pointerEvent = null) {
+    const me = getLocalPlayerData();
+    return {
+      role: "killer",
+      orbs: Math.max(0, Math.floor(me?.dots || 0)),
+      abilities: getAbilityListForVoid(me),
+      pointer: Number.isFinite(pointerEvent?.clientX) && Number.isFinite(pointerEvent?.clientY)
+        ? { x: pointerEvent.clientX, y: pointerEvent.clientY }
+        : null
+    };
+  }
+
+  function dispatchAbilityWheelEvent(name, detail = {}) {
+    window.dispatchEvent(new CustomEvent(name, { detail }));
+  }
+
+  function openReactAbilityWheel(pointerEvent = null) {
+    const me = getLocalPlayerData();
+    if (reactAbilityWheelOpen) return;
+    if (!currentSnapshot || currentSnapshot.phase !== "game" || me?.role !== "killer" || me.dead || (currentSnapshot.matchStartFreezeRemaining || 0) > 0) return;
+    reactAbilityWheelOpen = true;
+    dispatchAbilityWheelEvent("riftrunner:void-ability-open", getAbilityWheelDetail(pointerEvent));
+  }
+
+  function closeReactAbilityWheel(submit = true) {
+    if (!reactAbilityWheelOpen) return;
+    reactAbilityWheelOpen = false;
+    dispatchAbilityWheelEvent("riftrunner:void-ability-close", { submit: !!submit });
+  }
+
+  function sendVoidAbilitySelection(selection) {
+    let abilityId = String(selection?.id || selection || "");
+    if (Number.isInteger(selection?.index)) {
+      abilityId = getAbilityListForVoid()[selection.index]?.id || "";
+    }
+    if (!abilityId || !socket || currentSnapshot?.phase !== "game") return;
+    socket.emit("voidAbility", { id: abilityId });
+  }
+
+  function setupReactAbilityWheelBridge() {
+    window.addEventListener("riftrunner:void-ability-submit", (event) => {
+      sendVoidAbilitySelection(event.detail || {});
+    });
+  }
+
+  function dispatchVoidAbilityHud(snapshot = currentSnapshot) {
+    const me = snapshot?.actors?.find((a) => a.id === myId);
+    const isVoid = me?.role === "killer" && snapshot?.phase === "game" && !me.dead;
+    const effects = [];
+    if (isVoid && (me.voidSpeedBoost || 0) > 0) effects.push({ id: "nullRush", label: "rush", time: me.voidSpeedBoost });
+    if (isVoid && (snapshot?.voidEffects?.redOrbs || 0) > 0) effects.push({ id: "redshiftOrbs", label: "redshift", time: snapshot.voidEffects.redOrbs });
+    window.dispatchEvent(new CustomEvent("riftrunner:void-ability-hud", {
+      detail: {
+        visible: isVoid,
+        orbs: isVoid ? Math.max(0, Math.floor(me.dots || 0)) : 0,
+        effects
+      }
+    }));
+    if (reactAbilityWheelOpen && isVoid) {
+      dispatchAbilityWheelEvent("riftrunner:void-ability-update", {
+        orbs: Math.max(0, Math.floor(me.dots || 0)),
+        abilities: getAbilityListForVoid(me)
+      });
+    }
   }
 
   function isLocalSpectating() {
@@ -2824,11 +2915,15 @@
       const pulse = 0.5 + Math.sin(performance.now() / 320 + (dot.phase || 0)) * 0.5;
       const easeAlpha = alpha * alpha * (3 - 2 * alpha);
       const scale = 0.62 + easeAlpha * 0.38;
-      g.fillStyle(COLORS.collectibleDot, (0.14 + pulse * 0.12) * easeAlpha);
+      const redshift = (currentSnapshot?.voidEffects?.redOrbs || 0) > 0;
+      const outer = redshift ? 0xff273d : COLORS.collectibleDot;
+      const core = redshift ? 0xff6b7d : COLORS.collectibleDotGlow;
+      const rim = redshift ? 0xffc0c8 : 0xfff7d6;
+      g.fillStyle(outer, (0.14 + pulse * 0.12) * easeAlpha);
       g.fillCircle(dot.x, dot.y, (11 + pulse * 2.5) * scale);
-      g.fillStyle(COLORS.collectibleDotGlow, 0.92 * easeAlpha);
+      g.fillStyle(core, 0.92 * easeAlpha);
       g.fillCircle(dot.x, dot.y, (4.5 + pulse * 1.2) * scale);
-      g.lineStyle(2, 0xfff7d6, (0.38 + pulse * 0.30) * easeAlpha);
+      g.lineStyle(redshift ? 3 : 2, rim, (0.38 + pulse * 0.30) * easeAlpha);
       g.strokeCircle(dot.x, dot.y, (7 + pulse * 1.5) * scale);
     }
 
@@ -3261,11 +3356,12 @@
       const total = objective.totalGenerators ?? objective.total ?? required;
       const escapeOpen = objective.escapeOpen ?? objective.gatesPowered ?? false;
       const hudKey = JSON.stringify({
-        self: [me.id, me.role, me.health, me.dots, me.injured, me.downed, me.hooked, me.dead, me.escaped, me.escapeProgress, me.escapeGateId, me.chase, me.hookProgress, me.healProgress, me.generatorKickTargetId, me.generatorKickProgress, me.voidStun],
+        self: [me.id, me.role, me.health, me.dots, me.injured, me.downed, me.hooked, me.dead, me.escaped, me.escapeProgress, me.escapeGateId, me.chase, me.hookProgress, me.healProgress, me.generatorKickTargetId, me.generatorKickProgress, me.voidStun, me.voidSpeedBoost],
         objective: [done, required, total, escapeOpen],
         survivors: (snapshot.actors || []).filter((a) => a.role === "survivor").map((a) => [a.id, a.health, a.dots, a.injured, a.downed, a.hooked, a.dead, a.escaped, a.escapeProgress, a.escapeGateId, a.chase, a.hookProgress, a.healProgress, a.hookCount, a.chatText]),
         killerChat: (snapshot.actors || []).find((a) => a.role === "killer")?.chatText || null,
-        dots: (snapshot.collectibleDots || []).map((d) => d.id).join(",")
+        dots: (snapshot.collectibleDots || []).map((d) => d.id).join(","),
+        redOrbs: snapshot.voidEffects?.redOrbs || 0
       });
       if (hudKey === this.lastHudKey && now - this.lastHudRenderAt < 180) return;
       this.lastHudKey = hudKey;
@@ -3274,7 +3370,7 @@
       ui.hud.dataset.role = me.role === "killer" ? "killer" : "survivor";
       ui.roleLabel.textContent = me.role === "killer" ? "The Void" : "Runner";
       ui.controlsLabel.textContent = me.role === "killer"
-        ? "WASD move • Mouse aim • M1 attack/lunge • Space vault/break • hold E hook/execute/kick Rift • hold R chat"
+        ? "WASD move • Mouse aim • M1 attack/lunge • Space vault/break • hold E hook/execute/kick Rift • hold Q abilities • hold R chat"
         : "WASD move • Shift sprint • Mouse flashlight • Space vault/drop • collect orbs, stand near active Rifts to deposit • stand still near teammates to heal/rescue • hold R chat";
       const shownDone = Math.min(done, required);
       ui.genText.textContent = `${shownDone} / ${required}${total > required ? ` (${total} on map)` : ""}`;
@@ -3587,10 +3683,25 @@
         const attacking = data.attacking || data.attackState === "quick" || data.attackState === "lunge";
         const charging = data.attackState === "charging";
         const stunned = (data.voidStun || 0) > 0;
-        const angry = stunned ? 0.82 : attacking ? 1 : charging ? 0.65 : data.recovery > 0 ? 0.38 : 0.18;
+        const speedBoost = (data.voidSpeedBoost || 0) > 0;
+        const angry = stunned ? 0.82 : attacking ? 1 : charging ? 0.65 : speedBoost ? 0.52 : data.recovery > 0 ? 0.38 : 0.18;
         const wobble = Math.sin(now / 145) * 1.25;
         const pulse = Math.sin(now / 210) * 0.5 + 0.5;
         const coreR = 18.5 + wobble + angry * 3.0;
+
+        if (speedBoost) {
+          const a = data.angle || 0;
+          const tailPulse = 0.5 + Math.sin(now / 95) * 0.5;
+          for (let i = 0; i < (LOW_POWER_MODE ? 3 : 6); i++) {
+            const back = 21 + i * 8 + tailPulse * 5;
+            const side = Math.sin(now / (180 + i * 12) + i) * (5 + i * 0.8);
+            const tx = -Math.cos(a) * back + Math.cos(a + Math.PI / 2) * side;
+            const ty = -Math.sin(a) * back + Math.sin(a + Math.PI / 2) * side;
+            const alpha = (0.24 - i * 0.028) * (LOW_POWER_MODE ? 0.72 : 1);
+            item.body.fillStyle(i % 2 ? 0x6b7280 : 0xd1d5db, alpha);
+            item.body.fillCircle(tx, ty, 12 - i * 1.1);
+          }
+        }
 
         // The Void: layered black/purple core with orbiting parasite-circles.
         // Kept simple circles only, because scary should not require a GPU funeral.
@@ -3888,7 +3999,7 @@
         const charging = data.attackState === "charging";
         const attacking = data.attacking || data.attackState === "quick" || data.attackState === "lunge";
         const now = performance.now();
-        const voidStateKey = `${data.attackState || "idle"}:${data.attacking ? 1 : 0}:${data.recovery > 0 ? 1 : 0}:${data.voidStun > 0 ? 1 : 0}`;
+        const voidStateKey = `${data.attackState || "idle"}:${data.attacking ? 1 : 0}:${data.recovery > 0 ? 1 : 0}:${data.voidStun > 0 ? 1 : 0}:${data.voidSpeedBoost > 0 ? 1 : 0}`;
         const redrawEvery = LOW_POWER_MODE ? 150 : 95;
         // The Void still animates, but not by redrawing 20+ circles every single frame.
         // Position updates remain smooth because the container moves independently.
@@ -4016,6 +4127,17 @@
           if (event.killerId === myId) {
             this.cameras.main.shake(LOW_POWER_MODE ? 140 : 190, LOW_POWER_MODE ? 0.0032 : 0.0052);
           }
+        }
+        if (event.type === "voidAbility") {
+          const color = event.abilityId === "redshiftOrbs" ? 0xff3048 : event.abilityId === "gravityWell" ? 0xa78bfa : event.abilityId === "orbLeech" ? 0xfbbf24 : 0xcbd5e1;
+          this.burst(event.x, event.y, color, LOW_POWER_MODE ? 18 : 34, LOW_POWER_MODE ? 130 : 210);
+          this.addShockwave(event.x, event.y, color, event.abilityId === "gravityWell" ? 0.72 : 0.55, event.radius || (LOW_POWER_MODE ? 110 : 155));
+        }
+        if (event.type === "redOrbSlow") {
+          this.burst(event.x, event.y, 0xff3048, LOW_POWER_MODE ? 10 : 18, 95);
+        }
+        if (event.type === "voidOrbSteal") {
+          this.burst(event.x, event.y, 0xfbbf24, LOW_POWER_MODE ? 12 : 20, 105);
         }
         if (event.type === "escape") {
           this.burst(event.x, event.y, 0xa78bfa, 54, 190);
@@ -4364,6 +4486,8 @@
       let speed = data.role === "killer" ? LOCAL_SPEEDS.killer : (input.sprint ? LOCAL_SPEEDS.survivorSprint : LOCAL_SPEEDS.survivorWalk);
       if (data.role === "survivor" && data.downed) speed = LOCAL_SPEEDS.downedCrawl;
       else if (data.role === "survivor" && data.hitBoost > 0) speed = LOCAL_SPEEDS.survivorBoost;
+      if (data.role === "survivor" && (data.orbSlow || data.voidSlow || 0) > 0) speed *= 0.58;
+      if (data.role === "killer" && (data.voidSpeedBoost || 0) > 0) speed *= 1.28;
       if (data.role === "killer" && data.attackState === "lunge") {
         dx = Math.cos(input.angle);
         dy = Math.sin(input.angle);
@@ -5684,6 +5808,7 @@
     input.repair = false;
     input.attackHeld = false;
     closeReactChatWheel(false);
+    closeReactAbilityWheel(false);
   }
 
   function setupKeyboard() {
@@ -5707,6 +5832,11 @@
       if (e.code === "KeyR") {
         e.preventDefault();
         if (!e.repeat) openReactChatWheel(e);
+        return;
+      }
+      if (e.code === "KeyQ") {
+        e.preventDefault();
+        if (!e.repeat) openReactAbilityWheel(e);
         return;
       }
       if (e.code === "Escape" && activeScreenName === "game" && phaserScene?.isSpectating()) {
@@ -5740,6 +5870,11 @@
       if (e.code === "KeyR") {
         e.preventDefault();
         closeReactChatWheel(true);
+        return;
+      }
+      if (e.code === "KeyQ") {
+        e.preventDefault();
+        closeReactAbilityWheel(true);
         return;
       }
       sendInput({}, true);
@@ -5919,6 +6054,7 @@
     setupAudio();
     setupUI();
     setupReactChatWheelBridge();
+    setupReactAbilityWheelBridge();
     setupKeyboard();
     setupMobileControls();
     setupSockets();

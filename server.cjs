@@ -31,6 +31,7 @@ function loadPublicScriptGlobal(relativeFile, globalName) {
 const GAME_MAPS = loadPublicScriptGlobal("public/maps.js", "GAME_MAPS");
 const GAMEPLAY_CONFIG = loadPublicScriptGlobal("public/gameplayConfig.js", "GAMEPLAY_CONFIG");
 const RIFTRUNNER_CHATS = loadPublicScriptGlobal("public/chats.js", "RIFTRUNNER_CHATS");
+const RIFTRUNNER_ABILITIES = loadPublicScriptGlobal("public/abilities.js", "RIFTRUNNER_ABILITIES");
 
 function cfgNumber(value, fallback) {
   const n = Number(value);
@@ -222,6 +223,13 @@ const DOTS_PER_GENERATOR = cfgNumber(GAMEPLAY_CONFIG.rift?.dotsPerRift, 25);
 const SURVIVOR_DOT_DROP_ON_HIT_PERCENT = cfgNumber(GAMEPLAY_CONFIG.orbs?.survivorDropOnHitPercent, 0.5);
 const SURVIVOR_DOT_PICKUP_RADIUS = cfgNumber(GAMEPLAY_CONFIG.orbs?.survivorPickupRadius, 48);
 const KILLER_DOT_PICKUP_RADIUS = cfgNumber(GAMEPLAY_CONFIG.orbs?.voidPickupRadius, 92);
+const VOID_ABILITY_DEFS = RIFTRUNNER_ABILITIES.abilities || {};
+const VOID_ABILITY_ORDER = Array.isArray(RIFTRUNNER_ABILITIES.wheelOrder) ? RIFTRUNNER_ABILITIES.wheelOrder : Object.keys(VOID_ABILITY_DEFS);
+const VOID_SPEED_BUFF_MULT = cfgNumber(GAMEPLAY_CONFIG.voidAbilities?.speedBuffMultiplier, 1.28);
+const RED_ORB_SLOW_MULT = cfgNumber(GAMEPLAY_CONFIG.voidAbilities?.redOrbSlowMultiplier, 0.55);
+const RED_ORB_SLOW_SECONDS = cfgNumber(GAMEPLAY_CONFIG.voidAbilities?.redOrbSlowSeconds, 0.5);
+const GRAVITY_WELL_SLOW_MULT = cfgNumber(GAMEPLAY_CONFIG.voidAbilities?.gravityWellSlowMultiplier, 0.48);
+const GRAVITY_WELL_SECONDS = cfgNumber(GAMEPLAY_CONFIG.voidAbilities?.gravityWellSeconds, 1.25);
 const DOT_DEPOSIT_DISTANCE = cfgNumber(GAMEPLAY_CONFIG.rift?.depositDistance, 96);
 const DOT_DEPOSIT_SECONDS = cfgNumber(GAMEPLAY_CONFIG.rift?.depositSecondsPerOrb, 1.5);
 // Chain is still tracked for audio pitch / UI feedback, but it no longer changes deposit speed.
@@ -394,6 +402,92 @@ function getChatWheelMessagesForActor(actor) {
   if (actor?.role === "killer") return CHAT_WHEEL_MESSAGES.killer;
   const survivorMessages = CHAT_WHEEL_MESSAGES.survivor;
   return survivorMessages[getSurvivorChatState(actor)] || survivorMessages.normal;
+}
+
+
+function getVoidAbilityDef(id) {
+  const key = String(id || "");
+  const ability = VOID_ABILITY_DEFS[key];
+  if (!ability || !VOID_ABILITY_ORDER.includes(key)) return null;
+  return {
+    id: ability.id || key,
+    name: ability.name || key,
+    cost: Math.max(0, Math.floor(cfgNumber(ability.cost, 0))),
+    duration: Math.max(0, cfgNumber(ability.duration, 0)),
+    radius: Math.max(0, cfgNumber(ability.radius, 0)),
+    stealPerRunner: Math.max(0, Math.floor(cfgNumber(ability.stealPerRunner, 1)))
+  };
+}
+
+function applyVoidAbility(game, actor, abilityId) {
+  if (!game || !actor || actor.role !== "killer" || actor.dead) {
+    return { ok: false, message: "Only The Void can use abilities." };
+  }
+  if ((game.time || 0) < (game.matchStartFreezeSeconds || MATCH_START_FREEZE_SECONDS)) {
+    return { ok: false, message: "The Void is still forming." };
+  }
+  if ((actor.voidStun || 0) > 0 || actor.vault || actor.breakTarget) {
+    return { ok: false, message: "The Void cannot use that right now." };
+  }
+
+  const ability = getVoidAbilityDef(abilityId);
+  if (!ability) return { ok: false, message: "Unknown Void ability." };
+  const currentOrbs = Math.max(0, Math.floor(actor.dots || 0));
+  if (currentOrbs < ability.cost) {
+    return { ok: false, message: `${ability.name} needs ${ability.cost} orbs.` };
+  }
+
+  let affected = 0;
+  let stolen = 0;
+
+  if (ability.id === "nullRush") {
+    actor.voidSpeedBoost = Math.max(actor.voidSpeedBoost || 0, ability.duration || 10);
+  } else if (ability.id === "redshiftOrbs") {
+    game.redOrbs = Math.max(game.redOrbs || 0, ability.duration || 15);
+  } else if (ability.id === "gravityWell") {
+    const radius = ability.radius || 560;
+    for (const runner of game.actors.values()) {
+      if (runner.role !== "survivor" || runner.dead || runner.escaped || runner.hooked) continue;
+      if (dist(actor.x, actor.y, runner.x, runner.y) > radius) continue;
+      if (!segmentClear(game, actor.x, actor.y, runner.x, runner.y)) continue;
+      runner.voidSlow = Math.max(runner.voidSlow || 0, GRAVITY_WELL_SECONDS);
+      affected += 1;
+    }
+  } else if (ability.id === "orbLeech") {
+    const take = Math.max(1, ability.stealPerRunner || 1);
+    for (const runner of game.actors.values()) {
+      if (runner.role !== "survivor" || runner.dead || runner.escaped || runner.hooked) continue;
+      const amount = Math.min(take, Math.max(0, runner.dots || 0));
+      if (!amount) continue;
+      runner.dots = Math.max(0, (runner.dots || 0) - amount);
+      resetActorDotDeposit(runner);
+      stolen += amount;
+      affected += 1;
+      addEvent(game, "voidOrbSteal", { x: runner.x, y: runner.y, survivorId: runner.id, killerId: actor.id, stolen: amount, voidDots: Math.min(KILLER_DOT_MAX, (actor.dots || 0) + stolen) });
+    }
+    if (stolen <= 0) return { ok: false, message: "No carried orbs to leech." };
+  } else {
+    return { ok: false, message: "That Void ability is not ready." };
+  }
+
+  actor.dots = clamp(currentOrbs - ability.cost + stolen, 0, KILLER_DOT_MAX);
+  addEvent(game, "voidAbility", {
+    x: actor.x,
+    y: actor.y,
+    actorId: actor.id,
+    killerId: actor.id,
+    abilityId: ability.id,
+    name: ability.name,
+    cost: ability.cost,
+    duration: ability.duration,
+    radius: ability.id === "gravityWell" ? (ability.radius || 560) : null,
+    affected,
+    stolen,
+    voidDots: actor.dots,
+    redOrbs: game.redOrbs || 0,
+    speedBoost: actor.voidSpeedBoost || 0
+  });
+  return { ok: true };
 }
 
 let nextLobbyNumber = 1;
@@ -892,6 +986,9 @@ function makePlayer(socket, role, name, options = {}) {
     healingTargetId: null,
     recovery: 0,
     voidStun: 0,
+    voidSpeedBoost: 0,
+    orbSlow: 0,
+    voidSlow: 0,
     actionLock: 0,
     windowVaultCooldown: 0,
     palletVaultCooldown: 0,
@@ -1138,6 +1235,7 @@ function startGame(lobby) {
     matchStartFreezeSeconds: MATCH_START_FREEZE_SECONDS,
     collectibleDots: [],
     dotRespawnQueue: 0,
+    redOrbs: 0,
     dotRespawnTimer: DOT_RESPAWN_SECONDS
   };
 
@@ -1326,6 +1424,9 @@ function moveActor(game, actor, dt) {
   if (actor.role === "survivor" && actor.downed) speed = DOWNED_CRAWL_SPEED;
   else if (actor.role === "survivor" && actor.hitBoost > 0) speed = SURVIVOR_HIT_BURST_SPEED;
   if (actor.role === "killer" && actor.recovery > 0) speed *= KILLER_RECOVERY_SPEED_MULT;
+  if (actor.role === "killer" && (actor.voidSpeedBoost || 0) > 0) speed *= VOID_SPEED_BUFF_MULT;
+  if (actor.role === "survivor" && (actor.orbSlow || 0) > 0) speed *= RED_ORB_SLOW_MULT;
+  if (actor.role === "survivor" && (actor.voidSlow || 0) > 0) speed *= GRAVITY_WELL_SLOW_MULT;
 
   const nextX = clamp(actor.x + dx * speed * dt, 36, game.map.width - 36);
   const nextY = clamp(actor.y + dy * speed * dt, 36, game.map.height - 36);
@@ -1662,7 +1763,21 @@ function damageSurvivor(game, killer, survivor) {
     });
   }
 
-  loseSurvivorDots(game, survivor, survivor.downed ? "downed" : "hit");
+  if (killer && dotsBeforeHit > 0) {
+    const before = Math.max(0, killer.dots || 0);
+    killer.dots = clamp(before + dotsBeforeHit, 0, KILLER_DOT_MAX);
+    addEvent(game, "voidOrbSteal", {
+      x: survivor.x,
+      y: survivor.y,
+      survivorId: survivor.id,
+      killerId: killer.id,
+      stolen: killer.dots - before,
+      carriedBefore: dotsBeforeHit,
+      voidDots: killer.dots
+    });
+  }
+
+  loseSurvivorDots(game, survivor, survivor.downed ? "stolenDowned" : "stolenHit");
   setActorChat(survivor, autoChatMessage, game, autoChatDuration);
 
   if (killer && killer.attackState) killer.attackHasHit = true;
@@ -1845,6 +1960,9 @@ function updateTimers(game, dt) {
     actor.hitBoost = Math.max(0, actor.hitBoost - dt);
     actor.recovery = Math.max(0, actor.recovery - dt);
     actor.voidStun = Math.max(0, (actor.voidStun || 0) - dt);
+    actor.voidSpeedBoost = Math.max(0, (actor.voidSpeedBoost || 0) - dt);
+    actor.orbSlow = Math.max(0, (actor.orbSlow || 0) - dt);
+    actor.voidSlow = Math.max(0, (actor.voidSlow || 0) - dt);
     actor.windowVaultCooldown = Math.max(0, (actor.windowVaultCooldown || 0) - dt);
     actor.palletVaultCooldown = Math.max(0, (actor.palletVaultCooldown || 0) - dt);
     actor.attackCooldown = Math.max(0, actor.attackCooldown - dt);
@@ -1854,6 +1972,7 @@ function updateTimers(game, dt) {
     actor.palletGraceTime = Math.max(0, actor.palletGraceTime - dt);
     if (actor.palletGraceTime <= 0) actor.palletGraceId = null;
   }
+  game.redOrbs = Math.max(0, (game.redOrbs || 0) - dt);
   for (let i = game.scratchMarks.length - 1; i >= 0; i--) {
     game.scratchMarks[i].ttl -= dt;
     if (game.scratchMarks[i].ttl <= 0) game.scratchMarks.splice(i, 1);
@@ -2044,13 +2163,16 @@ function loseSurvivorDots(game, survivor, mode = "hit") {
   survivor.dotDepositTargetId = null;
   survivor.dotDepositProgress = 0;
 
+  const stolenByVoid = String(mode || "").startsWith("stolen");
   let scattered = 0;
-  for (let i = 0; i < lost; i++) {
-    if (spawnWorldDotNear(game, survivor.x, survivor.y)) scattered += 1;
-  }
+  if (!stolenByVoid) {
+    for (let i = 0; i < lost; i++) {
+      if (spawnWorldDotNear(game, survivor.x, survivor.y)) scattered += 1;
+    }
 
-  const leftover = lost - scattered;
-  if (leftover > 0) queueDotRespawns(game, leftover);
+    const leftover = lost - scattered;
+    if (leftover > 0) queueDotRespawns(game, leftover);
+  }
   addEvent(game, "dotLoss", { x: survivor.x, y: survivor.y, survivorId: survivor.id, lost, mode });
 }
 
@@ -2095,6 +2217,10 @@ function updateCollectibleDots(game, dt) {
     const maxDots = actor.role === "killer" ? KILLER_DOT_MAX : SURVIVOR_DOT_MAX;
     const dotsBefore = actor.dots || 0;
     actor.dots = Math.min(maxDots, dotsBefore + 1);
+    if (actor.role === "survivor" && (game.redOrbs || 0) > 0) {
+      actor.orbSlow = Math.max(actor.orbSlow || 0, RED_ORB_SLOW_SECONDS);
+      addEvent(game, "redOrbSlow", { x: actor.x, y: actor.y, survivorId: actor.id, duration: RED_ORB_SLOW_SECONDS });
+    }
     queueDotRespawns(game, 1);
     addEvent(game, "dotPickup", {
       x: dot.x,
@@ -3640,6 +3766,9 @@ function serializeActor(game, actor, visible = true) {
     unhookTargetId: actor.unhookTargetId || null,
     recovery: actor.recovery,
     voidStun: actor.role === "killer" ? actor.voidStun || 0 : 0,
+    voidSpeedBoost: actor.role === "killer" ? actor.voidSpeedBoost || 0 : 0,
+    orbSlow: actor.role === "survivor" ? actor.orbSlow || 0 : 0,
+    voidSlow: actor.role === "survivor" ? actor.voidSlow || 0 : 0,
     attackState: actor.attackState,
     attackType: actor.attackType,
     attackCharge: actor.attackCharge,
@@ -3824,7 +3953,10 @@ function buildSnapshotFor(lobby, socketId) {
       riftsHidden: riftsComplete,
       escapeOpen: game.escapeOpen
     },
-    collectibleDots: visibleCollectibleDotsForViewer(game, pov).map((d) => ({ id: d.id, x: Math.round(d.x), y: Math.round(d.y) })),
+    collectibleDots: visibleCollectibleDotsForViewer(game, pov).map((d) => ({ id: d.id, x: Math.round(d.x), y: Math.round(d.y), red: (game.redOrbs || 0) > 0 })),
+    voidEffects: {
+      redOrbs: Number((game.redOrbs || 0).toFixed(2))
+    },
     music
   };
 }
@@ -4015,6 +4147,14 @@ io.on("connection", (socket) => {
     if (Number.isFinite(input.angle)) actor.input.angle = input.angle;
   });
 
+  socket.on("voidAbility", (payload = {}) => {
+    const lobby = lobbies.get(socketToLobby.get(socket.id));
+    if (!lobby || !lobby.game || lobby.game.phase !== "game") return;
+    const actor = lobby.game.actors.get(socket.id);
+    const result = applyVoidAbility(lobby.game, actor, payload.id);
+    if (!result.ok) socket.emit("toast", { type: "error", message: result.message || "The Void cannot use that." });
+  });
+
   socket.on("chatWheel", (payload = {}) => {
     const lobby = lobbies.get(socketToLobby.get(socket.id));
     if (!lobby || !lobby.game || lobby.game.phase !== "game") return;
@@ -4044,7 +4184,7 @@ io.on("connection", (socket) => {
 setupFrontend()
   .then(() => {
     server.listen(PORT, () => {
-      console.log(`voidrift running at http://localhost:${PORT}`);
+      console.log(`riftrunner running at http://localhost:${PORT}`);
     });
   })
   .catch((error) => {

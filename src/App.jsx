@@ -8,6 +8,7 @@ const LEGACY_SCRIPT_CHAIN = [
   "/audioConfig.js",
   "/gameplayConfig.js",
   "/chats.js",
+  "/abilities.js",
   "/client.js"
 ]
 
@@ -444,6 +445,172 @@ function GameHud() {
   )
 }
 
+
+const ABILITY_WHEEL_FALLBACK = [
+  { id: "nullRush", name: "Null Rush", shortName: "Rush", cost: 15, summary: "Move faster." },
+  { id: "redshiftOrbs", name: "Redshift Bloom", shortName: "Redshift", cost: 25, summary: "Corrupts orbs." },
+  { id: "gravityWell", name: "Gravity Well", shortName: "Well", cost: 20, summary: "Slows nearby Runners." },
+  { id: "orbLeech", name: "Hollow Leech", shortName: "Leech", cost: 18, summary: "Steals carried orbs." }
+]
+
+function normalizeAbilities(abilities) {
+  const safe = Array.isArray(abilities) ? abilities.slice(0, 4) : []
+  while (safe.length < 4) safe.push(ABILITY_WHEEL_FALLBACK[safe.length])
+  return safe.map((ability, index) => ({
+    id: String(ability?.id || ABILITY_WHEEL_FALLBACK[index]?.id || `ability-${index}`),
+    name: String(ability?.name || ABILITY_WHEEL_FALLBACK[index]?.name || "Void Ability"),
+    shortName: String(ability?.shortName || ability?.name || ABILITY_WHEEL_FALLBACK[index]?.shortName || "Ability"),
+    cost: Number.isFinite(Number(ability?.cost)) ? Number(ability.cost) : Number(ABILITY_WHEEL_FALLBACK[index]?.cost || 0),
+    summary: String(ability?.summary || ABILITY_WHEEL_FALLBACK[index]?.summary || "The Void bends the run."),
+    accent: String(ability?.accent || "purple"),
+    available: ability?.available !== false,
+    active: !!ability?.active
+  }))
+}
+
+function AbilityWheel() {
+  const [wheel, setWheel] = useState({
+    open: false,
+    orbs: 0,
+    abilities: ABILITY_WHEEL_FALLBACK,
+    selected: -1
+  })
+
+  const openRef = useRef(false)
+  const selectedRef = useRef(-1)
+  const lastPointerRef = useRef(null)
+
+  useEffect(() => {
+    const setSelected = (selected) => {
+      selectedRef.current = selected
+      setWheel((current) => current.selected === selected ? current : { ...current, selected })
+    }
+
+    const handlePointerMove = (event) => {
+      const point = { x: event.clientX, y: event.clientY }
+      lastPointerRef.current = point
+      if (openRef.current) setSelected(getChatWheelSelectionFromPoint(point))
+    }
+
+    const handleOpen = (event) => {
+      const detail = event.detail || {}
+      const point = detail.pointer || lastPointerRef.current
+      const selected = getChatWheelSelectionFromPoint(point)
+      openRef.current = true
+      selectedRef.current = selected
+      setWheel({
+        open: true,
+        orbs: Number(detail.orbs || 0),
+        abilities: normalizeAbilities(detail.abilities),
+        selected
+      })
+    }
+
+    const handleUpdate = (event) => {
+      const detail = event.detail || {}
+      setWheel((current) => ({
+        ...current,
+        orbs: Number(detail.orbs ?? current.orbs ?? 0),
+        abilities: detail.abilities ? normalizeAbilities(detail.abilities) : current.abilities
+      }))
+    }
+
+    const handleClose = (event) => {
+      const shouldSubmit = event.detail?.submit !== false
+      const selected = selectedRef.current
+
+      if (shouldSubmit && selected >= 0) {
+        window.dispatchEvent(new CustomEvent("riftrunner:void-ability-submit", { detail: { index: selected } }))
+      }
+
+      openRef.current = false
+      selectedRef.current = -1
+      setWheel((current) => ({ ...current, open: false, selected: -1 }))
+    }
+
+    window.addEventListener("pointermove", handlePointerMove, { passive: true })
+    window.addEventListener("riftrunner:void-ability-open", handleOpen)
+    window.addEventListener("riftrunner:void-ability-update", handleUpdate)
+    window.addEventListener("riftrunner:void-ability-close", handleClose)
+
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove)
+      window.removeEventListener("riftrunner:void-ability-open", handleOpen)
+      window.removeEventListener("riftrunner:void-ability-update", handleUpdate)
+      window.removeEventListener("riftrunner:void-ability-close", handleClose)
+    }
+  }, [])
+
+  return (
+    <div className={`ability-wheel-overlay ${wheel.open ? "is-open" : ""}`} aria-hidden={!wheel.open}>
+      <div className="ability-wheel-backdrop" />
+      <div className="ability-wheel" role="menu" aria-label="Void ability wheel">
+        <div className="ability-wheel-center" aria-hidden="true">
+          <strong>{wheel.orbs}</strong>
+          <span>orbs</span>
+        </div>
+        {CHAT_WHEEL_SEGMENTS.map((segment) => {
+          const ability = wheel.abilities[segment.index] || ABILITY_WHEEL_FALLBACK[segment.index]
+          const selected = wheel.selected === segment.index
+          const affordable = wheel.orbs >= ability.cost
+          return (
+            <div
+              className={`ability-wheel-segment ability-wheel-${segment.className} ${selected ? "selected" : ""} ${affordable ? "can-use" : "locked"} accent-${ability.accent || "purple"}`}
+              role="menuitem"
+              aria-label={`${ability.name}, costs ${ability.cost} orbs`}
+              key={ability.id}
+            >
+              <span className="ability-name">{ability.shortName || ability.name}</span>
+              <span className="ability-cost">{ability.cost} orbs</span>
+              <small>{ability.summary}</small>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function VoidAbilityHud() {
+  const [hud, setHud] = useState({ visible: false, orbs: 0, effects: [] })
+
+  useEffect(() => {
+    const handleHud = (event) => {
+      const detail = event.detail || {}
+      setHud({
+        visible: !!detail.visible,
+        orbs: Number(detail.orbs || 0),
+        effects: Array.isArray(detail.effects) ? detail.effects : []
+      })
+    }
+
+    window.addEventListener("riftrunner:void-ability-hud", handleHud)
+    return () => window.removeEventListener("riftrunner:void-ability-hud", handleHud)
+  }, [])
+
+  if (!hud.visible) return null
+
+  return (
+    <div className="void-ability-hud" aria-live="polite">
+      <div className="void-orb-bank">
+        <span className="void-orb-icon" aria-hidden="true" />
+        <div>
+          <span>Void Orbs</span>
+          <strong>{hud.orbs}</strong>
+        </div>
+      </div>
+      {!!hud.effects.length && (
+        <div className="void-active-effects">
+          {hud.effects.map((effect) => (
+            <span key={effect.id}>{effect.label} {Math.ceil(effect.time)}s</span>
+          ))}
+        </div>
+      )}
+      <p>Hold <b>Q</b> for abilities</p>
+    </div>
+  )
+}
+
 const CHAT_WHEEL_FALLBACK_MESSAGES = ["Let's feed a rift.", "I'm so scared...", "Here he comes!", "What was that?!"]
 
 const SURVIVOR_DOT_MAX = Number(window.GAMEPLAY_CONFIG?.orbs?.survivorMax) || 10
@@ -823,7 +990,9 @@ export default function App() {
       <LobbyScreen />
       <GameHud />
       <SurvivorStatusHud />
+      <VoidAbilityHud />
       <ChatWheel />
+      <AbilityWheel />
       <HookEdgeIndicators />
       <div id="toast" className="toast hidden" />
       <MobileControls />

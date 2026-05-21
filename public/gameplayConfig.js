@@ -132,6 +132,14 @@ const GAMEPLAY_CONFIG = {
     clientConeAngle: Math.PI / 1.62
   },
 
+  voidAbilities: {
+    speedBuffMultiplier: 1.28,
+    redOrbSlowMultiplier: 0.55,
+    redOrbSlowSeconds: 0.5,
+    gravityWellSlowMultiplier: 0.48,
+    gravityWellSeconds: 1.25
+  },
+
   attack: {
     quickRange: 62,
     lungeRange: 118,
@@ -167,9 +175,9 @@ const GAMEPLAY_CONFIG = {
     kickTime: 1.0,
     kickRegression: 0.10,
     escapeTime: 4.0,
-    dotsPerRift: 20,
+    dotsPerRift: 25,
     depositDistance: 96,
-    depositSecondsPerOrb: 0.8,
+    depositSecondsPerOrb: 1.5,
     maxDepositChain: 10
   },
 

@@ -1,12 +1,19 @@
 {
   "latest": {
-    "version": "0.1.20",
-    "title": "Shared Chat Polish",
-    "summary": "Shared chat lines, full orb drops, and lobby polish",
-    "description": "Added a shared chats.js file used by both the client and server so quick-chat wheel labels match the lines that actually appear in game. Runners now drop all carried orbs when hit, spectating can target hooked runners, the open lobby is vertically centered, lobby skins list top-to-bottom, Void player grouping uses purple styling, and bot button order was swapped.",
+    "version": "0.1.21",
+    "title": "Void Abilities",
+    "summary": "Void orb economy and ability wheel",
+    "description": "Added The Void ability wheel on Q, Void orb currency gained from hits, Null Rush speed boost, Redshift Bloom corrupted orbs, Gravity Well slow pulse, Hollow Leech orb steal, a Void orb HUD, red orb visuals, and ability effects.",
     "date": "2026-05-21"
   },
   "history": [
+    {
+      "version": "0.1.21",
+      "title": "Void Abilities",
+      "summary": "Void orb economy and ability wheel",
+      "description": "Added The Void ability wheel on Q, Void orb currency gained from hits, Null Rush speed boost, Redshift Bloom corrupted orbs, Gravity Well slow pulse, Hollow Leech orb steal, a Void orb HUD, red orb visuals, and ability effects.",
+      "date": "2026-05-21"
+    },
     {
       "version": "0.1.20",
       "title": "Shared Chat Polish",
