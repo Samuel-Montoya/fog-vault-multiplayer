@@ -3,7 +3,7 @@
 // Internal role names stay "killer"/"survivor" because games enjoy not detonating.
 
 const RIFTRUNNER_ABILITIES = {
-  wheelOrder: ["nullRush", "redshiftOrbs", "cancel", "orbLeech"],
+  wheelOrder: ["nullRush", "redshiftOrbs", "cancel", "voidReveal"],
   abilities: {
     nullRush: {
       id: "nullRush",
@@ -11,6 +11,7 @@ const RIFTRUNNER_ABILITIES = {
       shortName: "Rush",
       cost: 15,
       duration: 10,
+      cooldown: 20,
       summary: "Move faster for 10 seconds.",
       detail: "The Void tears forward, leaving a gray afterimage wake.",
       accent: "gray"
@@ -21,6 +22,7 @@ const RIFTRUNNER_ABILITIES = {
       shortName: "Redshift",
       cost: 25,
       duration: 15,
+      cooldown: 20,
       summary: "Turns map orbs red for 15 seconds.",
       detail: "Runners that touch red orbs are slowed for a heartbeat.",
       accent: "red"
@@ -36,16 +38,16 @@ const RIFTRUNNER_ABILITIES = {
       accent: "muted",
       cancel: true
     },
-    orbLeech: {
-      id: "orbLeech",
-      name: "Hollow Leech",
-      shortName: "Leech",
-      cost: 8,
-      duration: 0,
-      summary: "Steals half of every Runner's carried orbs.",
-      detail: "The Void pulls half of each carried stash into itself.",
-      accent: "gold",
-      stealPercent: 0.5
+    voidReveal: {
+      id: "voidReveal",
+      name: "Void Sight",
+      shortName: "Sight",
+      cost: 15,
+      duration: 5,
+      cooldown: 20,
+      summary: "Reveals all Runners for 5 seconds.",
+      detail: "The Void sees every Runner and pulls the camera back.",
+      accent: "purple"
     }
   }
 };

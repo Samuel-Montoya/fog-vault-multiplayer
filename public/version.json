@@ -1,12 +1,26 @@
 {
   "latest": {
-    "version": "0.1.23",
-    "title": "Void HUD Polish",
-    "summary": "Void orb HUD, audio pitch, and role polish",
-    "description": "Added the missing always-visible bottom-right Void orb counter update path, kept Runner orb pickup pitch ramping while returning Void orb pickup audio to random pitch variation, reduced Hollow Leech to 8 orbs, removed the old Null Rush tail effect while keeping quick white bubbles, improved bot button tinting, and made selected role buttons stay clearly highlighted.",
+    "version": "0.1.25",
+    "title": "End Match Stats",
+    "summary": "Post-run scorecards for Runners and The Void",
+    "description": "Added server-tracked end-game stats for each Runner and The Void, including orbs collected/deposited, heals, unhooks, escape status, chase time, rift kicks, injures, hooks, deaths, and Void abilities used. The run ended screen now renders a scorecard for every player.",
     "date": "2026-05-21"
   },
   "history": [
+    {
+      "version": "0.1.25",
+      "title": "End Match Stats",
+      "summary": "Post-run scorecards for Runners and The Void",
+      "description": "Added server-tracked end-game stats for each Runner and The Void, including orbs collected/deposited, heals, unhooks, escape status, chase time, rift kicks, injures, hooks, deaths, and Void abilities used. The run ended screen now renders a scorecard for every player.",
+      "date": "2026-05-21"
+    },
+    {
+      "version": "0.1.24",
+      "title": "Void Sight and Downed Pings",
+      "summary": "Reveal cooldowns and downed runner rings",
+      "description": "Replaced Hollow Leech with Void Sight, which costs 15 Void Orbs, reveals all Runners for 5 seconds, and pulls The Void camera back while active. Void abilities now each use a 20 second cooldown, and downed Runners emit a pulsing red ring once per second so teammates can find crawling players more easily.",
+      "date": "2026-05-21"
+    },
     {
       "version": "0.1.23",
       "title": "Void HUD Polish",

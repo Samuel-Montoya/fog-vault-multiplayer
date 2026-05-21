@@ -453,7 +453,7 @@ const ABILITY_WHEEL_FALLBACK = [
   { id: "nullRush", name: "Null Rush", shortName: "Rush", cost: 15, summary: "Move faster.", accent: "gray" },
   { id: "redshiftOrbs", name: "Redshift Bloom", shortName: "Redshift", cost: 25, summary: "Corrupts orbs.", accent: "red" },
   { id: "cancel", name: "Cancel", shortName: "Cancel", cost: 0, summary: "Close the wheel.", accent: "muted", cancel: true },
-  { id: "orbLeech", name: "Hollow Leech", shortName: "Leech", cost: 8, summary: "Steals half of carried orbs.", accent: "gold" }
+  { id: "voidReveal", name: "Void Sight", shortName: "Sight", cost: 15, summary: "Reveals all Runners.", accent: "purple", cooldown: 20 }
 ]
 
 function normalizeAbilities(abilities) {
@@ -468,7 +468,9 @@ function normalizeAbilities(abilities) {
     accent: String(ability?.accent || "purple"),
     cancel: !!ability?.cancel || String(ability?.id || "") === "cancel",
     available: ability?.available !== false,
-    active: !!ability?.active
+    active: !!ability?.active,
+    cooldown: Number.isFinite(Number(ability?.cooldown)) ? Number(ability.cooldown) : 20,
+    cooldownRemaining: Math.max(0, Number.isFinite(Number(ability?.cooldownRemaining)) ? Number(ability.cooldownRemaining) : 0)
   }))
 }
 
@@ -531,7 +533,7 @@ function AbilityWheel() {
       const selected = selectedRef.current
       const ability = abilitiesRef.current[selected]
 
-      if (shouldSubmit && selected >= 0 && !ability?.cancel) {
+      if (shouldSubmit && selected >= 0 && !ability?.cancel && ability?.available !== false) {
         window.dispatchEvent(new CustomEvent("riftrunner:void-ability-submit", { detail: { index: selected } }))
       }
 
@@ -565,16 +567,18 @@ function AbilityWheel() {
           const ability = wheel.abilities[segment.index] || ABILITY_WHEEL_FALLBACK[segment.index]
           const selected = wheel.selected === segment.index
           const cancel = !!ability.cancel
-          const affordable = cancel || wheel.orbs >= ability.cost
+          const ready = cancel || ability.available !== false
+          const cooldownRemaining = Math.max(0, Number(ability.cooldownRemaining || 0))
+          const costLabel = cooldownRemaining > 0 ? `${Math.ceil(cooldownRemaining)}s CD` : `${ability.cost} orbs`
           return (
             <div
-              className={`ability-wheel-segment ability-wheel-${segment.className} ${selected ? "selected" : ""} ${affordable ? "can-use" : "locked"} ${cancel ? "is-cancel" : ""} accent-${ability.accent || "purple"}`}
+              className={`ability-wheel-segment ability-wheel-${segment.className} ${selected ? "selected" : ""} ${ready ? "can-use" : "locked"} ${ability.active ? "is-active" : ""} ${cancel ? "is-cancel" : ""} accent-${ability.accent || "purple"}`}
               role="menuitem"
-              aria-label={cancel ? "Cancel ability wheel" : `${ability.name}, costs ${ability.cost} orbs`}
+              aria-label={cancel ? "Cancel ability wheel" : `${ability.name}, ${costLabel}`}
               key={ability.id}
             >
               <span className="ability-name">{ability.shortName || ability.name}</span>
-              {!cancel && <span className="ability-cost">{ability.cost} orbs</span>}
+              {!cancel && <span className="ability-cost">{costLabel}</span>}
               <small>{ability.summary}</small>
             </div>
           )
@@ -604,32 +608,23 @@ function VoidAbilityHud() {
   if (!hud.visible) return null
 
   return (
-    <>
-      <div className="void-ability-hud" aria-live="polite">
-        <div className="void-orb-bank">
-          <span className="void-orb-icon" aria-hidden="true" />
-          <div>
-            <span>Void Orbs</span>
-            <strong>{hud.orbs}</strong>
-          </div>
-        </div>
-        {!!hud.effects.length && (
-          <div className="void-active-effects">
-            {hud.effects.map((effect) => (
-              <span key={effect.id}>{effect.label} {Math.ceil(effect.time)}s</span>
-            ))}
-          </div>
-        )}
-        <p>Hold <b>Q</b> for abilities</p>
-      </div>
-      <div className="void-orb-counter-corner" aria-live="polite">
+    <div className="void-ability-hud" aria-live="polite">
+      <div className="void-orb-bank">
         <span className="void-orb-icon" aria-hidden="true" />
         <div>
           <span>Void Orbs</span>
           <strong>{hud.orbs}</strong>
         </div>
       </div>
-    </>
+      {!!hud.effects.length && (
+        <div className="void-active-effects">
+          {hud.effects.map((effect) => (
+            <span key={effect.id}>{effect.label} {Math.ceil(effect.time)}s</span>
+          ))}
+        </div>
+      )}
+      <p>Hold <b>Q</b> for abilities</p>
+    </div>
   )
 }
 
@@ -987,6 +982,7 @@ function EndScreen() {
         <div className="eyebrow">run ended</div>
         <h1 id="winnerText">Runners Escape</h1>
         <p id="reasonText" className="screen-copy">The route is open.</p>
+        <div id="endStats" className="end-stats" aria-live="polite" />
         <div className="button-row center">
           <button id="backToLobbyBtn" className="primary" type="button">Back to Lobby</button>
           <button id="spectateBtn" type="button" className="hidden">Spectate Match</button>

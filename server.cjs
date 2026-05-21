@@ -41,21 +41,118 @@ function cfgNumber(value, fallback) {
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, {
-  cors: { origin: "*" },
-  // Realtime games send lots of tiny snapshots. Compressing every message can
-  // cost more CPU than it saves here, especially on free hosts and laptops.
-  perMessageDeflate: false
-});
 
-const PORT = process.env.PORT || 3000;
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
+const PORT = Number(process.env.PORT) || 3000;
+const HOST = process.env.HOST || "0.0.0.0";
 const ROOT_DIR = __dirname;
 const PUBLIC_DIR = path.join(ROOT_DIR, "public");
 const DIST_DIR = path.join(ROOT_DIR, "dist");
 const PHASER_FILE = path.join(ROOT_DIR, "node_modules", "phaser", "dist", "phaser.min.js");
 
-app.get("/vendor/phaser.min.js", (req, res) => res.sendFile(PHASER_FILE));
-app.use(express.static(PUBLIC_DIR, { index: false }));
+function readAppVersion() {
+  try {
+    const pkg = JSON.parse(fs.readFileSync(path.join(ROOT_DIR, "package.json"), "utf8"));
+    return String(pkg.version || "0.0.0");
+  } catch {
+    return "0.0.0";
+  }
+}
+
+function parseCsv(value) {
+  return String(value || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function normalizeOrigin(origin) {
+  try {
+    const url = new URL(origin);
+    return `${url.protocol}//${url.host}`;
+  } catch {
+    return String(origin || "");
+  }
+}
+
+const APP_VERSION = readAppVersion();
+const ALLOWED_ORIGINS = parseCsv(process.env.ALLOWED_ORIGINS).map(normalizeOrigin);
+const MAX_CONNECTIONS = cfgNumber(process.env.MAX_CONNECTIONS, cfgNumber(GAMEPLAY_CONFIG.server?.maxConnections, 80));
+const MAX_LOBBIES = cfgNumber(process.env.MAX_LOBBIES, cfgNumber(GAMEPLAY_CONFIG.server?.maxLobbies, 40));
+const LOBBY_IDLE_TTL_MS = cfgNumber(process.env.LOBBY_IDLE_TTL_MS, cfgNumber(GAMEPLAY_CONFIG.server?.lobbyIdleTtlMs, 30 * 60 * 1000));
+const ENDED_LOBBY_TTL_MS = cfgNumber(process.env.ENDED_LOBBY_TTL_MS, cfgNumber(GAMEPLAY_CONFIG.server?.endedLobbyTtlMs, 10 * 60 * 1000));
+
+function isOriginAllowed(origin) {
+  if (!origin) return true;
+  if (!ALLOWED_ORIGINS.length) return true;
+  const normalized = normalizeOrigin(origin);
+  return ALLOWED_ORIGINS.includes(normalized);
+}
+
+function socketCorsOrigin(origin, callback) {
+  callback(null, isOriginAllowed(origin));
+}
+
+const io = new Server(server, {
+  cors: { origin: socketCorsOrigin },
+  allowRequest: (req, callback) => callback(null, isOriginAllowed(req.headers.origin)),
+  maxHttpBufferSize: 32 * 1024,
+  pingInterval: 25000,
+  pingTimeout: 20000,
+  // Realtime games send lots of tiny snapshots. Compressing every message can
+  // cost more CPU than it saves here, especially on free hosts and laptops.
+  perMessageDeflate: false
+});
+
+app.disable("x-powered-by");
+app.set("trust proxy", 1);
+
+app.use((req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "same-origin");
+  res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=()");
+  next();
+});
+
+app.get("/healthz", (req, res) => {
+  const activePlayers = [...lobbies.values()].reduce((sum, lobby) => sum + lobby.players.size, 0);
+  res.json({
+    ok: true,
+    name: "riftrunner",
+    version: APP_VERSION,
+    uptimeSeconds: Math.round(process.uptime()),
+    lobbies: lobbies.size,
+    players: activePlayers,
+    env: IS_PRODUCTION ? "production" : "development"
+  });
+});
+
+app.get("/readyz", (req, res) => {
+  const phaserReady = fs.existsSync(PHASER_FILE);
+  const frontendReady = !IS_PRODUCTION || fs.existsSync(path.join(DIST_DIR, "index.html"));
+  if (!phaserReady || !frontendReady) {
+    return res.status(503).json({ ok: false, phaserReady, frontendReady });
+  }
+  return res.json({ ok: true });
+});
+
+app.get("/vendor/phaser.min.js", (req, res) => {
+  res.setHeader("Cache-Control", "public, max-age=604800");
+  res.sendFile(PHASER_FILE);
+});
+app.use(express.static(PUBLIC_DIR, {
+  index: false,
+  etag: true,
+  maxAge: 0,
+  setHeaders(res, filePath) {
+    if (/\.(mp3|ogg|wav|m4a|flac)$/i.test(filePath)) {
+      res.setHeader("Cache-Control", "public, max-age=86400");
+      return;
+    }
+    res.setHeader("Cache-Control", "no-cache");
+  }
+}));
 
 // Do not let the SPA fallback serve index.html for missing audio files.
 // Browsers then try to decode HTML as MP3/OGG and flood the console with useless MIME errors.
@@ -83,9 +180,20 @@ async function setupFrontend() {
     return;
   }
 
-  app.use(express.static(DIST_DIR, { index: false }));
+  app.use(express.static(DIST_DIR, {
+    index: false,
+    etag: true,
+    maxAge: "1y",
+    immutable: true,
+    setHeaders(res, filePath) {
+      if (filePath.endsWith("index.html")) {
+        res.setHeader("Cache-Control", "no-store");
+      }
+    }
+  }));
   app.use((req, res, next) => {
     if (req.method !== "GET") return next();
+    res.setHeader("Cache-Control", "no-store");
     res.sendFile(path.join(DIST_DIR, "index.html"));
   });
 }
@@ -158,15 +266,17 @@ if (PERF.enableEventLoopMetrics) {
   const metricsTimer = setInterval(logServerMetrics, PERF.metricsIntervalMs);
   metricsTimer.unref?.();
 }
+
+const lobbyCleanupTimer = setInterval(cleanupStaleLobbies, Math.min(LOBBY_IDLE_TTL_MS, ENDED_LOBBY_TTL_MS, 5 * 60 * 1000));
+lobbyCleanupTimer.unref?.();
 const PLAYER_SIZE = cfgNumber(GAMEPLAY_CONFIG.actor?.survivorSize, 30);
 const KILLER_SIZE = cfgNumber(GAMEPLAY_CONFIG.actor?.voidSize, 38);
 const INTERACT_DISTANCE = 74;
 const QUICK_ATTACK_RANGE = cfgNumber(GAMEPLAY_CONFIG.attack?.quickRange, 62);
 const LUNGE_ATTACK_RANGE = cfgNumber(GAMEPLAY_CONFIG.attack?.lungeRange, 118);
 const ATTACK_ARC = cfgNumber(GAMEPLAY_CONFIG.attack?.arcRadians, Math.PI * 0.44);
-const ATTACK_SIDE_RADIUS = cfgNumber(GAMEPLAY_CONFIG.attack?.sideRadius, 24);
-// Tiny "standing on top of them" AOE so an M1 still connects when survivors are hugging the killer.
-const ATTACK_CLOSE_AOE_RADIUS = cfgNumber(GAMEPLAY_CONFIG.attack?.closeAoeRadius, 26);
+// Small visual/server grace so edge-of-cone hits feel fair without tagging runners who are clearly outside.
+const ATTACK_EDGE_GRACE_RADIUS = cfgNumber(GAMEPLAY_CONFIG.attack?.edgeGraceRadius, 7);
 const ATTACK_TAP_MAX = cfgNumber(GAMEPLAY_CONFIG.attack?.tapMaxSeconds, 0.18);
 const LUNGE_CHARGE_TIME = cfgNumber(GAMEPLAY_CONFIG.attack?.lungeChargeSeconds, 0.32);
 const QUICK_ATTACK_ACTIVE = cfgNumber(GAMEPLAY_CONFIG.attack?.quickActiveSeconds, 0.20);
@@ -414,7 +524,8 @@ function getVoidAbilityDef(id) {
     duration: Math.max(0, cfgNumber(ability.duration, 0)),
     radius: Math.max(0, cfgNumber(ability.radius, 0)),
     stealPerRunner: Math.max(0, Math.floor(cfgNumber(ability.stealPerRunner, 1))),
-    stealPercent: clamp(cfgNumber(ability.stealPercent, 0), 0, 1)
+    stealPercent: clamp(cfgNumber(ability.stealPercent, 0), 0, 1),
+    cooldown: Math.max(0, cfgNumber(ability.cooldown, 20))
   };
 }
 
@@ -431,6 +542,12 @@ function applyVoidAbility(game, actor, abilityId) {
 
   const ability = getVoidAbilityDef(abilityId);
   if (!ability) return { ok: false, message: "Unknown Void ability." };
+  const cooldowns = actor.voidAbilityCooldowns || (actor.voidAbilityCooldowns = {});
+  const remainingCooldown = Math.max(0, cfgNumber(cooldowns[ability.id], 0));
+  if (remainingCooldown > 0) {
+    return { ok: false, message: `${ability.name} is cooling down for ${Math.ceil(remainingCooldown)}s.` };
+  }
+
   const currentOrbs = Math.max(0, Math.floor(actor.dots || 0));
   if (currentOrbs < ability.cost) {
     return { ok: false, message: `${ability.name} needs ${ability.cost} orbs.` };
@@ -443,26 +560,16 @@ function applyVoidAbility(game, actor, abilityId) {
     actor.voidSpeedBoost = Math.max(actor.voidSpeedBoost || 0, ability.duration || 10);
   } else if (ability.id === "redshiftOrbs") {
     game.redOrbs = Math.max(game.redOrbs || 0, ability.duration || 15);
-  } else if (ability.id === "orbLeech") {
-    const percent = ability.stealPercent > 0 ? ability.stealPercent : 0.5;
-    for (const runner of game.actors.values()) {
-      if (runner.role !== "survivor" || runner.dead || runner.escaped || runner.hooked) continue;
-      const carried = Math.max(0, Math.floor(runner.dots || 0));
-      const amount = Math.min(carried, Math.max(1, Math.ceil(carried * percent)));
-      if (!amount) continue;
-      runner.dots = Math.max(0, carried - amount);
-      resetActorDotDeposit(runner);
-      setActorChat(runner, randomFrom(SURVIVOR_HIT_WITH_ORBS_CHAT_LINES), game);
-      stolen += amount;
-      affected += 1;
-      addEvent(game, "voidOrbSteal", { x: runner.x, y: runner.y, survivorId: runner.id, killerId: actor.id, stolen: amount, voidDots: Math.min(KILLER_DOT_MAX, (actor.dots || 0) + stolen) });
-    }
-    if (stolen <= 0) return { ok: false, message: "No carried orbs to leech." };
+  } else if (ability.id === "voidReveal") {
+    game.runnerReveal = Math.max(game.runnerReveal || 0, ability.duration || 5);
+    affected = [...game.actors.values()].filter((runner) => runner.role === "survivor" && !runner.dead && !runner.escaped).length;
   } else {
     return { ok: false, message: "That Void ability is not ready." };
   }
 
   actor.dots = clamp(currentOrbs - ability.cost + stolen, 0, KILLER_DOT_MAX);
+  cooldowns[ability.id] = ability.cooldown || 20;
+  addStat(actor, "abilitiesUsed", 1);
   addEvent(game, "voidAbility", {
     x: actor.x,
     y: actor.y,
@@ -477,7 +584,9 @@ function applyVoidAbility(game, actor, abilityId) {
     stolen,
     voidDots: actor.dots,
     redOrbs: game.redOrbs || 0,
-    speedBoost: actor.voidSpeedBoost || 0
+    runnerReveal: game.runnerReveal || 0,
+    speedBoost: actor.voidSpeedBoost || 0,
+    cooldown: cooldowns[ability.id] || 0
   });
   return { ok: true };
 }
@@ -485,6 +594,97 @@ function applyVoidAbility(game, actor, abilityId) {
 let nextLobbyNumber = 1;
 const lobbies = new Map();
 const socketToLobby = new Map();
+
+const EVENT_LIMITS = Object.freeze({
+  input: { limit: 90, intervalMs: 1000 },
+  lobby: { limit: 16, intervalMs: 5000 },
+  action: { limit: 12, intervalMs: 3000 },
+  chat: { limit: 8, intervalMs: 3000 }
+});
+
+function cleanString(value, fallback, maxLength) {
+  const text = String(value ?? fallback)
+    .replace(/[\u0000-\u001f\u007f]/g, "")
+    .replace(/[<>`]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return (text || fallback).slice(0, maxLength);
+}
+
+function sanitizePlayerName(value) {
+  return cleanString(value, "Player", 18);
+}
+
+function sanitizeLobbyName(value) {
+  return cleanString(value, `Open Lobby ${nextLobbyNumber++}`, 28);
+}
+
+function touchLobby(lobby) {
+  if (lobby) lobby.lastActivityAt = nowMs();
+}
+
+function detachLobbySockets(lobby, message = "Lobby closed.") {
+  if (!lobby) return;
+  for (const socketId of lobby.players.keys()) {
+    const socket = io.sockets.sockets.get(socketId);
+    socketToLobby.delete(socketId);
+    if (socket) {
+      socket.leave(lobby.id);
+      socket.emit("toast", { type: "info", message });
+    }
+  }
+}
+
+function cleanupStaleLobbies() {
+  const now = nowMs();
+  let removed = false;
+  for (const lobby of lobbies.values()) {
+    const players = [...lobby.players.values()];
+    const hasHuman = players.some((p) => !p.isBot);
+    const lastActivity = lobby.lastActivityAt || lobby.createdAt || now;
+    const endedAt = lobby.game?.endedAt || lastActivity;
+
+    if (!hasHuman) {
+      detachLobbySockets(lobby, "Empty lobby closed.");
+      lobbies.delete(lobby.id);
+      removed = true;
+      continue;
+    }
+
+    if (lobby.phase === "ended" && now - endedAt > ENDED_LOBBY_TTL_MS) {
+      detachLobbySockets(lobby, "Finished match lobby closed.");
+      lobbies.delete(lobby.id);
+      removed = true;
+      continue;
+    }
+
+    if (lobby.phase === "lobby" && now - lastActivity > LOBBY_IDLE_TTL_MS) {
+      detachLobbySockets(lobby, "Idle lobby closed.");
+      lobbies.delete(lobby.id);
+      removed = true;
+    }
+  }
+  if (removed) broadcastLobbyList();
+}
+
+function allowSocketEvent(socket, key, options = {}) {
+  const limit = options.limit || EVENT_LIMITS[key]?.limit || 10;
+  const intervalMs = options.intervalMs || EVENT_LIMITS[key]?.intervalMs || 1000;
+  const now = nowMs();
+  socket.data.rateLimits ||= {};
+  let bucket = socket.data.rateLimits[key];
+  if (!bucket || now >= bucket.resetAt) {
+    bucket = { count: 0, resetAt: now + intervalMs, warned: false };
+    socket.data.rateLimits[key] = bucket;
+  }
+  bucket.count += 1;
+  if (bucket.count <= limit) return true;
+  if (!bucket.warned) {
+    bucket.warned = true;
+    socket.emit("toast", { type: "error", message: "Slow down a bit. The server rejected extra requests." });
+  }
+  return false;
+}
 
 function uid(prefix = "id") {
   return `${prefix}_${Math.random().toString(36).slice(2, 9)}_${Date.now().toString(36)}`;
@@ -916,6 +1116,64 @@ function coneSees(viewer, target, length, angle) {
   return angleDiff(a, viewer.angle || 0) <= angle / 2;
 }
 
+function createMatchStats(role) {
+  if (role === "killer") {
+    return {
+      riftsKicked: 0,
+      orbsCollected: 0,
+      injures: 0,
+      hooks: 0,
+      deaths: 0,
+      abilitiesUsed: 0
+    };
+  }
+  return {
+    orbsCollected: 0,
+    orbsDeposited: 0,
+    teammatesHealed: 0,
+    unhooks: 0,
+    escaped: false,
+    chaseSeconds: 0,
+    longestChase: 0
+  };
+}
+
+function ensureMatchStats(actor) {
+  if (!actor) return createMatchStats("survivor");
+  const defaults = createMatchStats(actor.role);
+  actor.stats = { ...defaults, ...(actor.stats || {}) };
+  return actor.stats;
+}
+
+function addStat(actor, key, amount = 1) {
+  if (!actor || !key) return;
+  const stats = ensureMatchStats(actor);
+  stats[key] = Math.max(0, Number(stats[key] || 0) + amount);
+}
+
+function serializeMatchStats(actor) {
+  const stats = ensureMatchStats(actor);
+  if (actor.role === "killer") {
+    return {
+      riftsKicked: Math.floor(stats.riftsKicked || 0),
+      orbsCollected: Math.floor(stats.orbsCollected || 0),
+      injures: Math.floor(stats.injures || 0),
+      hooks: Math.floor(stats.hooks || 0),
+      deaths: Math.floor(stats.deaths || 0),
+      abilitiesUsed: Math.floor(stats.abilitiesUsed || 0)
+    };
+  }
+  return {
+    orbsCollected: Math.floor(stats.orbsCollected || 0),
+    orbsDeposited: Math.floor(stats.orbsDeposited || 0),
+    teammatesHealed: Math.floor(stats.teammatesHealed || 0),
+    unhooks: Math.floor(stats.unhooks || 0),
+    escaped: !!actor.escaped,
+    chaseSeconds: Number((stats.chaseSeconds || 0).toFixed(1)),
+    longestChase: Number((stats.longestChase || 0).toFixed(1))
+  };
+}
+
 function getLobbySummary(lobby) {
   const players = [...lobby.players.values()];
   const survivors = players.filter((p) => p.role === "survivor").length;
@@ -944,7 +1202,7 @@ function broadcastLobbyList() {
 function makePlayer(socket, role, name, options = {}) {
   return {
     id: socket.id,
-    name: String(name || "Player").slice(0, 18),
+    name: sanitizePlayerName(name),
     isBot: !!options.isBot,
     role,
     skin: role === "survivor" ? sanitizeSkin(options.skin) : "killerCircle",
@@ -954,6 +1212,8 @@ function makePlayer(socket, role, name, options = {}) {
     angle: 0,
     health: role === "survivor" ? 2 : 999,
     dots: role === "survivor" ? 0 : 0,
+    stats: createMatchStats(role),
+    currentChaseSeconds: 0,
     dotFullNoticeCooldown: 0,
     dotDepositTargetId: null,
     dotDepositProgress: 0,
@@ -979,6 +1239,7 @@ function makePlayer(socket, role, name, options = {}) {
     recovery: 0,
     voidStun: 0,
     voidSpeedBoost: 0,
+    voidAbilityCooldowns: {},
     orbSlow: 0,
     voidSlow: 0,
     actionLock: 0,
@@ -1041,19 +1302,26 @@ function makePlayer(socket, role, name, options = {}) {
 }
 
 function createLobby(name, requestedMapId) {
+  cleanupStaleLobbies();
+  if (lobbies.size >= MAX_LOBBIES) {
+    throw new Error("The server has reached the lobby limit. Try again after a match ends.");
+  }
+
   const selection = resolveMapSelection(requestedMapId);
   if (!selection) {
     throw new Error("Cannot create a lobby because public/maps.js does not contain any valid maps.");
   }
 
   const id = uid("lobby");
+  const createdAt = nowMs();
   const lobby = {
     id,
-    name: String(name || `Open Lobby ${nextLobbyNumber++}`).slice(0, 28),
+    name: sanitizeLobbyName(name),
     mapId: selection.id,
     mapName: selection.def.name || selection.id,
     phase: "lobby",
-    createdAt: nowMs(),
+    createdAt,
+    lastActivityAt: createdAt,
     players: new Map(),
     game: null
   };
@@ -1081,6 +1349,7 @@ function joinLobby(socket, lobby, requestedRole, name, skin) {
 
   const player = makePlayer(socket, role, name, { isBot: false, skin });
   lobby.players.set(socket.id, player);
+  touchLobby(lobby);
   socketToLobby.set(socket.id, lobby.id);
   socket.join(lobby.id);
   socket.emit("joinedLobby", { lobbyId: lobby.id, playerId: socket.id });
@@ -1114,6 +1383,7 @@ function leaveCurrentLobby(socket) {
         }
       }
     }
+    touchLobby(lobby);
     broadcastLobbyState(lobby);
   }
   broadcastLobbyList();
@@ -1144,6 +1414,7 @@ function addBotToLobby(lobby, role) {
   const bot = makePlayer({ id }, roleValue, name, { isBot: true, skin: ["blueSquare", "yellowStar", "purplePentagon", "nebulaBloom", "eclipseWisp", "riftMoth", "signalDrone"][count % 7] });
   bot.ready = true;
   lobby.players.set(id, bot);
+  touchLobby(lobby);
   return { ok: true };
 }
 
@@ -1153,6 +1424,7 @@ function removeBotFromLobby(lobby, botId) {
   const bot = lobby.players.get(id);
   if (!bot || !bot.isBot) return { ok: false, message: "That bot is no longer in the lobby." };
   lobby.players.delete(id);
+  touchLobby(lobby);
   return { ok: true };
 }
 
@@ -1228,6 +1500,7 @@ function startGame(lobby) {
     collectibleDots: [],
     dotRespawnQueue: 0,
     redOrbs: 0,
+    runnerReveal: 0,
     dotRespawnTimer: DOT_RESPAWN_SECONDS
   };
 
@@ -1237,6 +1510,8 @@ function startGame(lobby) {
   for (const player of players) {
     const actor = makePlayer({ id: player.id }, player.role, player.name, { isBot: !!player.isBot, skin: player.skin });
     actor.ready = player.ready;
+    actor.stats = createMatchStats(actor.role);
+    actor.currentChaseSeconds = 0;
     if (actor.role === "killer") {
       const spawn = map.killerSpawns[0];
       actor.x = spawn.x;
@@ -1255,6 +1530,7 @@ function startGame(lobby) {
 
   lobby.phase = "game";
   lobby.game = game;
+  touchLobby(lobby);
   for (const player of lobby.players.values()) player.ready = false;
   io.to(lobby.id).emit("gameStarted", serializeMapForClient(map));
   broadcastLobbyState(lobby);
@@ -1721,6 +1997,7 @@ function damageSurvivor(game, killer, survivor) {
   survivor.dotDepositTargetId = null;
   survivor.dotDepositProgress = 0;
   survivor.dotDepositChain = 0;
+  addStat(killer, "injures", 1);
 
   if (willBeDowned) {
     survivor.health = 0;
@@ -1758,6 +2035,7 @@ function damageSurvivor(game, killer, survivor) {
   if (killer && dotsBeforeHit > 0) {
     const before = Math.max(0, killer.dots || 0);
     killer.dots = clamp(before + dotsBeforeHit, 0, KILLER_DOT_MAX);
+    addStat(killer, "orbsCollected", killer.dots - before);
     addEvent(game, "voidOrbSteal", {
       x: survivor.x,
       y: survivor.y,
@@ -1785,10 +2063,10 @@ function attackProfile(type) {
   return {
     type: lunge ? "lunge" : "quick",
     range: lunge ? LUNGE_ATTACK_RANGE : QUICK_ATTACK_RANGE,
-    // Lunges need a little forgiveness because the killer is moving during the active frames.
-    // Quick swings stay tighter so basic M1s do not become a portable lawn mower.
+    // Lunges get a slightly wider arc because The Void is moving during active frames.
+    // Hit testing now uses this same cone shape instead of a hidden skinny capsule. Humanity survives one more geometry bug.
     arc: lunge ? ATTACK_ARC * 1.12 : ATTACK_ARC,
-    sideRadius: lunge ? ATTACK_SIDE_RADIUS * 1.35 : ATTACK_SIDE_RADIUS,
+    edgeGrace: lunge ? ATTACK_EDGE_GRACE_RADIUS * 1.25 : ATTACK_EDGE_GRACE_RADIUS,
     duration: lunge ? LUNGE_ATTACK_ACTIVE : QUICK_ATTACK_ACTIVE,
     startup: lunge ? LUNGE_ATTACK_STARTUP : QUICK_ATTACK_STARTUP,
     hitRecovery: lunge ? KILLER_LUNGE_HIT_RECOVERY : KILLER_QUICK_HIT_RECOVERY,
@@ -1808,14 +2086,17 @@ function startKillerAttack(game, killer, type) {
   killer.attackHasHit = false;
   killer.attackCharge = 0;
   killer.attackNeedsRelease = true;
+  const visualEdgeGrace = Math.max(0, profile.edgeGrace || 0);
+  const visualRange = profile.range + visualEdgeGrace;
+  const visualArc = profile.arc + Math.atan2(visualEdgeGrace, Math.max(1, profile.range)) * 2;
   addEvent(game, "swipe", {
     actorId: killer.id,
     x: killer.x,
     y: killer.y,
     angle: killer.angle,
     attackType: profile.type,
-    range: profile.range,
-    arc: profile.arc,
+    range: visualRange,
+    arc: visualArc,
     duration: profile.duration,
     startup: profile.startup
   });
@@ -1837,40 +2118,46 @@ function finishKillerAttack(killer) {
 function pointInAttackSwipe(originX, originY, angle, survivor, profile) {
   const dx = survivor.x - originX;
   const dy = survivor.y - originY;
-  const d = Math.hypot(dx, dy);
-
-  // Very small local AOE at the killer's feet. This catches survivors who are basically
-  // touching the killer, including slightly behind them, without turning M1 into a lawn sprinkler.
-  if (d <= ATTACK_CLOSE_AOE_RADIUS + PLAYER_SIZE / 2) return true;
-
-  if (d > profile.range + PLAYER_SIZE / 2) return false;
-
+  const distance = Math.hypot(dx, dy);
   const facingX = Math.cos(angle || 0);
   const facingY = Math.sin(angle || 0);
   const forward = dx * facingX + dy * facingY;
-  if (forward < 0 || forward > profile.range + PLAYER_SIZE / 2) return false;
+  const edgeGrace = Math.max(0, profile.edgeGrace || 0);
 
-  const perp = Math.abs(dx * facingY - dy * facingX);
+  // Strict front-cone test with a tiny grace band. The old check also required a narrow
+  // invisible capsule, which made the drawn cone lie to the player. Society has enough lies.
+  if (distance > profile.range + edgeGrace) return null;
+  if (forward < -edgeGrace || forward > profile.range + edgeGrace) return null;
+
   const targetAngle = Math.atan2(dy, dx);
-  const inCone = angleDiff(targetAngle, angle || 0) <= profile.arc / 2;
-  const inCapsule = perp <= (profile.sideRadius || ATTACK_SIDE_RADIUS) + PLAYER_SIZE / 2;
+  const angleGrace = distance > 1 ? Math.atan2(edgeGrace, distance) : Math.PI / 2;
+  const angleDelta = angleDiff(targetAngle, angle || 0);
+  if (angleDelta > profile.arc / 2 + angleGrace) return null;
 
-  // Tone-down from the old giga-hitbox: the target must be inside the front cone
-  // AND inside the narrow swipe capsule. No more "barely in the wedge so I die" nonsense.
-  return inCone && inCapsule;
+  return {
+    originX,
+    originY,
+    distance,
+    angleDelta
+  };
 }
 
 function survivorInAttackSwipe(killer, survivor, profile) {
   const startX = killer.attackSweepStartX || killer.x;
   const startY = killer.attackSweepStartY || killer.y;
-  const samples = killer.attackType === "lunge"
-    ? [0, 0.25, 0.5, 0.75, 1].map((t) => ({
-        x: startX + (killer.x - startX) * t,
-        y: startY + (killer.y - startY) * t
-      }))
-    : [{ x: killer.x, y: killer.y }];
+  const sampleSteps = killer.attackType === "lunge" ? 6 : 1;
+  let bestHit = null;
 
-  return samples.some((p) => pointInAttackSwipe(p.x, p.y, killer.angle || 0, survivor, profile));
+  for (let i = 0; i < sampleSteps; i += 1) {
+    const t = sampleSteps === 1 ? 1 : i / (sampleSteps - 1);
+    const originX = startX + (killer.x - startX) * t;
+    const originY = startY + (killer.y - startY) * t;
+    const hit = pointInAttackSwipe(originX, originY, killer.angle || 0, survivor, profile);
+    if (!hit) continue;
+    if (!bestHit || hit.distance < bestHit.distance) bestHit = hit;
+  }
+
+  return bestHit;
 }
 
 function resolveKillerAttackHit(game, killer) {
@@ -1881,8 +2168,9 @@ function resolveKillerAttackHit(game, killer) {
     .sort((a, b) => dist(killer.x, killer.y, a.x, a.y) - dist(killer.x, killer.y, b.x, b.y));
 
   for (const survivor of survivors) {
-    if (!survivorInAttackSwipe(killer, survivor, profile)) continue;
-    if (!attackSegmentClear(game, killer.x, killer.y, survivor.x, survivor.y)) continue;
+    const hit = survivorInAttackSwipe(killer, survivor, profile);
+    if (!hit) continue;
+    if (!attackSegmentClear(game, hit.originX, hit.originY, survivor.x, survivor.y)) continue;
     if (damageSurvivor(game, killer, survivor)) {
       // End the active hit window once the swing connects, then enter slowdown.
       finishKillerAttack(killer);
@@ -1953,6 +2241,13 @@ function updateTimers(game, dt) {
     actor.recovery = Math.max(0, actor.recovery - dt);
     actor.voidStun = Math.max(0, (actor.voidStun || 0) - dt);
     actor.voidSpeedBoost = Math.max(0, (actor.voidSpeedBoost || 0) - dt);
+    if (actor.voidAbilityCooldowns) {
+      for (const [abilityId, remaining] of Object.entries(actor.voidAbilityCooldowns)) {
+        const nextRemaining = Math.max(0, cfgNumber(remaining, 0) - dt);
+        if (nextRemaining <= 0) delete actor.voidAbilityCooldowns[abilityId];
+        else actor.voidAbilityCooldowns[abilityId] = nextRemaining;
+      }
+    }
     actor.orbSlow = Math.max(0, (actor.orbSlow || 0) - dt);
     actor.voidSlow = Math.max(0, (actor.voidSlow || 0) - dt);
     actor.windowVaultCooldown = Math.max(0, (actor.windowVaultCooldown || 0) - dt);
@@ -1965,6 +2260,7 @@ function updateTimers(game, dt) {
     if (actor.palletGraceTime <= 0) actor.palletGraceId = null;
   }
   game.redOrbs = Math.max(0, (game.redOrbs || 0) - dt);
+  game.runnerReveal = Math.max(0, (game.runnerReveal || 0) - dt);
   for (let i = game.scratchMarks.length - 1; i >= 0; i--) {
     game.scratchMarks[i].ttl -= dt;
     if (game.scratchMarks[i].ttl <= 0) game.scratchMarks.splice(i, 1);
@@ -2209,6 +2505,7 @@ function updateCollectibleDots(game, dt) {
     const maxDots = actor.role === "killer" ? KILLER_DOT_MAX : SURVIVOR_DOT_MAX;
     const dotsBefore = actor.dots || 0;
     actor.dots = Math.min(maxDots, dotsBefore + 1);
+    addStat(actor, "orbsCollected", Math.max(0, actor.dots - dotsBefore));
     if (actor.role === "survivor" && (game.redOrbs || 0) > 0) {
       actor.orbSlow = Math.max(actor.orbSlow || 0, RED_ORB_SLOW_SECONDS);
       addEvent(game, "redOrbSlow", { x: actor.x, y: actor.y, survivorId: actor.id, duration: RED_ORB_SLOW_SECONDS });
@@ -2307,6 +2604,7 @@ function updateDotDeposits(game, dt) {
       if ((actor.dotDepositProgress || 0) < 1 || (actor.dots || 0) <= 0 || gen.done) continue;
 
       actor.dots = Math.max(0, (actor.dots || 0) - 1);
+      addStat(actor, "orbsDeposited", 1);
       actor.dotDepositProgress = 0;
       actor.dotDepositChain = clamp((actor.dotDepositChain || 0) + 1, 1, DOT_DEPOSIT_MAX_CHAIN);
       const depositIndex = actor.dotDepositChain;
@@ -2446,6 +2744,7 @@ function sendSurvivorToHook(game, survivor) {
   survivor.downed = true;
   survivor.hookId = hook.id;
   survivor.hookCount = (survivor.hookCount || 0) + 1;
+  addStat(killer, "hooks", 1);
   survivor.hookProgress = 0;
   survivor.unhookProgress = 0;
   survivor.dotDepositTargetId = null;
@@ -2462,7 +2761,9 @@ function sendSurvivorToHook(game, survivor) {
 
 function executeSurvivor(game, survivor) {
   const oldHook = survivor.hookId ? game.map.hooks.find((h) => h.id === survivor.hookId) : null;
+  const killer = [...game.actors.values()].find((p) => p.role === "killer" && !p.dead) || null;
   if (oldHook) oldHook.active = false;
+  addStat(killer, "deaths", 1);
   survivor.dead = true;
   survivor.downed = false;
   survivor.hooked = false;
@@ -2508,6 +2809,10 @@ function freeSurvivorFromHook(game, survivor, rescuers = []) {
   survivor.healingTargetId = null;
   for (const actor of game.actors.values()) {
     if (actor.unhookTargetId === survivor.id) actor.unhookTargetId = null;
+  }
+  for (const rescuerId of rescuerIds) {
+    const rescuer = game.actors.get(rescuerId);
+    if (rescuer?.role === "survivor" && rescuer.id !== survivor.id) addStat(rescuer, "unhooks", 1);
   }
   addEvent(game, "unhooked", {
     x: survivor.x,
@@ -2637,6 +2942,11 @@ function updateHealing(game, dt) {
     }
 
     if (target.activeHealers.length > 0 && target.healProgress >= 1) {
+      const healerIds = [...new Set(target.activeHealers || [])].filter((id) => id && id !== target.id);
+      for (const healerId of healerIds) {
+        const healer = game.actors.get(healerId);
+        if (healer?.role === "survivor") addStat(healer, "teammatesHealed", 1);
+      }
       if (target.downed) {
         target.downed = false;
         target.health = 1;
@@ -2730,6 +3040,7 @@ function updateGeneratorKicks(game, dt) {
     gen.kickLocked = true;
     gen.beingKicked = false;
     gen.kickProgress = 0;
+    addStat(killer, "riftsKicked", 1);
     addEvent(game, "genKick", { x: gen.x, y: gen.y, generatorId: gen.id, oldProgress, progress: gen.progress });
     resetGeneratorKick(killer);
   }
@@ -2806,6 +3117,7 @@ function updateGeneratorsAndGates(game, dt) {
 
       if (actor.escapeProgress >= GATE_ESCAPE_TIME) {
         actor.escaped = true;
+        ensureMatchStats(actor).escaped = true;
         actor.dead = false;
         actor.hooked = false;
         actor.downed = false;
@@ -2859,6 +3171,21 @@ function updateChaseState(game, dt) {
     if (survivorCanSeeKiller) {
       survivor.killerVisibleHold = CHASE_HOLD_SECONDS;
     }
+  }
+}
+
+function updateChaseStats(game, dt) {
+  for (const survivor of game.actors.values()) {
+    if (survivor.role !== "survivor") continue;
+    const stats = ensureMatchStats(survivor);
+    const inChase = survivor.chaseHold > 0 && !survivor.dead && !survivor.escaped && !survivor.downed && !survivor.hooked;
+    if (!inChase) {
+      survivor.currentChaseSeconds = 0;
+      continue;
+    }
+    survivor.currentChaseSeconds = (survivor.currentChaseSeconds || 0) + dt;
+    stats.chaseSeconds = (stats.chaseSeconds || 0) + dt;
+    stats.longestChase = Math.max(stats.longestChase || 0, survivor.currentChaseSeconds);
   }
 }
 
@@ -2926,7 +3253,8 @@ function endGame(lobby, winner, reason) {
     escaped: !!p.escaped,
     downed: !!p.downed,
     hooked: !!p.hooked,
-    health: p.health
+    health: p.health,
+    stats: serializeMatchStats(p)
   }));
   const finalSurvivors = finalActors.filter((p) => p.role === "survivor");
   const escapedCount = finalSurvivors.filter((p) => p.escaped).length;
@@ -2936,6 +3264,7 @@ function endGame(lobby, winner, reason) {
   game.winner = winner;
   game.endReason = reason;
   lobby.phase = "ended";
+  touchLobby(lobby);
   io.to(lobby.id).emit("matchEnded", {
     winner,
     reason,
@@ -3324,22 +3653,27 @@ function botSetAttackIntent(game, killer, target, targetDistance, hasClearAttack
 
   botFaceTarget(killer, target);
 
-  const targetInFront = botTargetIsInFacingArc(killer, target, ATTACK_ARC * 1.2);
-  const huggingTarget = targetDistance <= ATTACK_CLOSE_AOE_RADIUS + PLAYER_SIZE * 0.65;
-  if (!targetInFront && !huggingTarget) return false;
+  const quickProfile = attackProfile("quick");
+  const lungeProfile = attackProfile("lunge");
+  const targetInQuickCone = Boolean(pointInAttackSwipe(killer.x, killer.y, killer.angle || 0, target, quickProfile));
+  const targetInLungeCone = Boolean(pointInAttackSwipe(killer.x, killer.y, killer.angle || 0, target, lungeProfile));
 
-  // Quick swing only when the survivor is basically in the killer's lap.
-  // Use lunge for the medium gap so the bot actually commits instead of tiny-whiffing forever.
+  // The old bot AI checked a hidden close-AOE value, but the cone-based hit system removed that
+  // invisible fallback. Use the real swipe profiles here so bot decisions match what the server can hit.
+  if (!targetInQuickCone && !targetInLungeCone) return false;
+
+  // Quick swing only when the survivor is actually inside the quick cone.
+  // Use lunge for the medium gap so the bot commits instead of tiny-whiffing forever.
   const quickRange = QUICK_ATTACK_RANGE * 0.72;
   const lungeMin = QUICK_ATTACK_RANGE * 0.62;
   const lungeMax = LUNGE_ATTACK_RANGE * 1.06;
 
-  if (targetDistance <= quickRange || huggingTarget) {
+  if (targetInQuickCone && targetDistance <= quickRange) {
     killer.input.attackReleased = true;
     return true;
   }
 
-  if (targetDistance >= lungeMin && targetDistance <= lungeMax) {
+  if (targetInLungeCone && targetDistance >= lungeMin && targetDistance <= lungeMax) {
     killer.input.attackHeld = true;
     return true;
   }
@@ -3634,6 +3968,7 @@ function updateGame(lobby, dt) {
   updateDotDeposits(game, dt);
   updateGeneratorsAndGates(game, dt);
   updateChaseState(game, dt);
+  updateChaseStats(game, dt);
   checkWinConditions(lobby);
 
   for (const actor of game.actors.values()) {
@@ -3687,6 +4022,7 @@ function isActorVisibleToViewer(game, viewer, actor) {
   }
 
   if (viewer.role === "killer" && actor.role === "survivor") {
+    if ((game.runnerReveal || 0) > 0) return true;
     // Killers only see survivors (including hooked) through line of sight: inside their cone,
     // or extremely close, including right behind them. No global sprint/repair wallhack nonsense.
     if (!los) return false;
@@ -3697,7 +4033,7 @@ function isActorVisibleToViewer(game, viewer, actor) {
   if (viewer.role === "survivor" && actor.role === "survivor") {
     // Hooked teammates are global survivor information. They should be visible on
     // the map even outside cone/LOS so rescue pathing is readable and not a fog lottery.
-    if (actor.hooked) return true;
+    if (actor.hooked || actor.downed) return true;
     if (!los) return false;
     if (d <= CLOSE_REVEAL_RADIUS) return true;
     return coneSees(viewer, actor, SURVIVOR_CONE_LENGTH, SURVIVOR_CONE_ANGLE);
@@ -3737,6 +4073,7 @@ function serializeActor(game, actor, visible = true) {
     angle: actor.angle,
     health: actor.health,
     dots: actor.role === "killer" ? clamp(actor.dots || 0, 0, KILLER_DOT_MAX) : actor.role === "survivor" ? clamp(actor.dots || 0, 0, SURVIVOR_DOT_MAX) : 0,
+    stats: serializeMatchStats(actor),
     dotDepositTargetId: actor.role === "survivor" ? actor.dotDepositTargetId || null : null,
     dotDepositProgress: actor.role === "survivor" ? quantizedProgress(actor.dotDepositProgress || 0) : 0,
     injured: actor.injured,
@@ -3759,6 +4096,9 @@ function serializeActor(game, actor, visible = true) {
     recovery: actor.recovery,
     voidStun: actor.role === "killer" ? actor.voidStun || 0 : 0,
     voidSpeedBoost: actor.role === "killer" ? actor.voidSpeedBoost || 0 : 0,
+    voidAbilityCooldowns: actor.role === "killer" ? Object.fromEntries(
+      Object.entries(actor.voidAbilityCooldowns || {}).map(([id, remaining]) => [id, Number(Math.max(0, remaining || 0).toFixed(2))])
+    ) : {},
     orbSlow: actor.role === "survivor" ? actor.orbSlow || 0 : 0,
     voidSlow: actor.role === "survivor" ? actor.voidSlow || 0 : 0,
     attackState: actor.attackState,
@@ -3947,7 +4287,8 @@ function buildSnapshotFor(lobby, socketId) {
     },
     collectibleDots: visibleCollectibleDotsForViewer(game, pov).map((d) => ({ id: d.id, x: Math.round(d.x), y: Math.round(d.y), red: (game.redOrbs || 0) > 0 })),
     voidEffects: {
-      redOrbs: Number((game.redOrbs || 0).toFixed(2))
+      redOrbs: Number((game.redOrbs || 0).toFixed(2)),
+      runnerReveal: Number((game.runnerReveal || 0).toFixed(2))
     },
     music
   };
@@ -3983,10 +4324,18 @@ setInterval(() => {
 setInterval(sendSnapshots, 1000 / SNAPSHOT_RATE);
 
 io.on("connection", (socket) => {
+  if (io.engine.clientsCount > MAX_CONNECTIONS) {
+    socket.emit("toast", { type: "error", message: "Server is full right now. Try again in a bit." });
+    socket.disconnect(true);
+    return;
+  }
+
+  socket.data.connectedAt = nowMs();
   socket.emit("hello", { id: socket.id, maps: getMapListForClient(), activeMapId: getDefaultMapId() });
   socket.emit("lobbyList", [...lobbies.values()].map(getLobbySummary));
 
   socket.on("createLobby", ({ name, role, playerName, skin, mapId } = {}) => {
+    if (!allowSocketEvent(socket, "lobby")) return;
     try {
       const lobby = createLobby(name, mapId);
       joinLobby(socket, lobby, role, playerName, skin);
@@ -3997,7 +4346,8 @@ io.on("connection", (socket) => {
   });
 
   socket.on("joinLobby", ({ lobbyId, role, playerName, skin } = {}) => {
-    const lobby = lobbies.get(lobbyId);
+    if (!allowSocketEvent(socket, "lobby")) return;
+    const lobby = lobbies.get(String(lobbyId || ""));
     if (!lobby) {
       socket.emit("toast", { type: "error", message: "Lobby not found." });
       return;
@@ -4006,6 +4356,7 @@ io.on("connection", (socket) => {
   });
 
   socket.on("quickJoin", ({ role, playerName, skin, mapId } = {}) => {
+    if (!allowSocketEvent(socket, "lobby")) return;
     try {
       const available = [...lobbies.values()].filter((l) => l.phase === "lobby");
       const roleValue = role === "killer" ? "killer" : "survivor";
@@ -4021,9 +4372,13 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("leaveLobby", () => leaveCurrentLobby(socket));
+  socket.on("leaveLobby", () => {
+    if (!allowSocketEvent(socket, "lobby")) return;
+    leaveCurrentLobby(socket);
+  });
 
   socket.on("setRole", ({ role, skin } = {}) => {
+    if (!allowSocketEvent(socket, "lobby")) return;
     const lobby = lobbies.get(socketToLobby.get(socket.id));
     if (!lobby || lobby.phase !== "lobby") return;
     const player = lobby.players.get(socket.id);
@@ -4038,30 +4393,36 @@ io.on("connection", (socket) => {
     // preserve that choice instead of silently resetting them to blue square.
     player.skin = nextRole === "survivor" ? sanitizeSkin(skin || player.skin) : "killerCircle";
     player.ready = false;
+    touchLobby(lobby);
     broadcastLobbyState(lobby);
     broadcastLobbyList();
   });
 
   socket.on("setSkin", ({ skin } = {}) => {
+    if (!allowSocketEvent(socket, "lobby")) return;
     const lobby = lobbies.get(socketToLobby.get(socket.id));
     if (!lobby || lobby.phase !== "lobby") return;
     const player = lobby.players.get(socket.id);
     if (!player || player.role !== "survivor") return;
     player.skin = sanitizeSkin(skin);
     player.ready = false;
+    touchLobby(lobby);
     broadcastLobbyState(lobby);
   });
 
   socket.on("setReady", ({ ready } = {}) => {
+    if (!allowSocketEvent(socket, "lobby")) return;
     const lobby = lobbies.get(socketToLobby.get(socket.id));
     if (!lobby || lobby.phase !== "lobby") return;
     const player = lobby.players.get(socket.id);
     if (!player) return;
     player.ready = !!ready;
+    touchLobby(lobby);
     broadcastLobbyState(lobby);
   });
 
   socket.on("addBot", ({ role } = {}) => {
+    if (!allowSocketEvent(socket, "lobby")) return;
     const lobby = lobbies.get(socketToLobby.get(socket.id));
     if (!lobby) return;
     const result = addBotToLobby(lobby, role);
@@ -4074,6 +4435,7 @@ io.on("connection", (socket) => {
   });
 
   socket.on("removeBot", ({ botId } = {}) => {
+    if (!allowSocketEvent(socket, "lobby")) return;
     const lobby = lobbies.get(socketToLobby.get(socket.id));
     if (!lobby) return;
     const result = removeBotFromLobby(lobby, botId);
@@ -4086,12 +4448,14 @@ io.on("connection", (socket) => {
   });
 
   socket.on("startGame", () => {
+    if (!allowSocketEvent(socket, "lobby")) return;
     const lobby = lobbies.get(socketToLobby.get(socket.id));
     if (!lobby) return;
     startGame(lobby);
   });
 
   socket.on("spectate", (payload = {}) => {
+    if (!allowSocketEvent(socket, "action")) return;
     const lobby = lobbies.get(socketToLobby.get(socket.id));
     if (!lobby || !lobby.game || lobby.game.phase !== "game") return;
     const viewer = lobby.game.actors.get(socket.id);
@@ -4103,6 +4467,7 @@ io.on("connection", (socket) => {
   });
 
   socket.on("input", (input = {}) => {
+    if (!allowSocketEvent(socket, "input")) return;
     const lobby = lobbies.get(socketToLobby.get(socket.id));
     if (!lobby || !lobby.game) return;
     const actor = lobby.game.actors.get(socket.id);
@@ -4140,6 +4505,7 @@ io.on("connection", (socket) => {
   });
 
   socket.on("voidAbility", (payload = {}) => {
+    if (!allowSocketEvent(socket, "action")) return;
     const lobby = lobbies.get(socketToLobby.get(socket.id));
     if (!lobby || !lobby.game || lobby.game.phase !== "game") return;
     const actor = lobby.game.actors.get(socket.id);
@@ -4148,6 +4514,7 @@ io.on("connection", (socket) => {
   });
 
   socket.on("chatWheel", (payload = {}) => {
+    if (!allowSocketEvent(socket, "chat")) return;
     const lobby = lobbies.get(socketToLobby.get(socket.id));
     if (!lobby || !lobby.game || lobby.game.phase !== "game") return;
     const actor = lobby.game.actors.get(socket.id);
@@ -4159,11 +4526,13 @@ io.on("connection", (socket) => {
   });
 
   socket.on("backToLobby", () => {
+    if (!allowSocketEvent(socket, "lobby")) return;
     const lobby = lobbies.get(socketToLobby.get(socket.id));
     if (!lobby) return;
     if (lobby.phase === "ended") {
       lobby.phase = "lobby";
       lobby.game = null;
+      touchLobby(lobby);
       for (const p of lobby.players.values()) p.ready = false;
       broadcastLobbyState(lobby);
       broadcastLobbyList();
@@ -4175,8 +4544,8 @@ io.on("connection", (socket) => {
 
 setupFrontend()
   .then(() => {
-    server.listen(PORT, () => {
-      console.log(`riftrunner running at http://localhost:${PORT}`);
+    server.listen(PORT, HOST, () => {
+      console.log(`riftrunner running on ${HOST}:${PORT}`);
     });
   })
   .catch((error) => {

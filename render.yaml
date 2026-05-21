@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: riftrunner
+    runtime: node
+    plan: standard
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: HOST_PROFILE
+        value: boosted
+      - key: ENABLE_SERVER_METRICS
+        value: "true"
+      - key: MAX_CONNECTIONS
+        value: "80"
+      - key: MAX_LOBBIES
+        value: "40"
+      # Set this in Render after you add the final custom domain.
+      # Example: https://riftrunner.gg,https://www.riftrunner.gg
+      - key: ALLOWED_ORIGINS
+        sync: false

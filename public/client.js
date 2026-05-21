@@ -211,6 +211,7 @@
     INJURED_ZOOM: cameraNumber("injuredZoom", "lowPowerInjuredZoom", LOW_POWER_MODE ? 0.018 : 0.035),
     DOWNED_ZOOM: cameraNumber("downedZoom", "lowPowerDownedZoom", LOW_POWER_MODE ? 0.075 : 0.14),
     ESCAPE_ZOOM: cameraNumber("escapeZoom", "lowPowerEscapeZoom", LOW_POWER_MODE ? 0.06 : 0.12),
+    VOID_REVEAL_ZOOM: cameraNumber("voidRevealZoom", "lowPowerVoidRevealZoom", LOW_POWER_MODE ? -0.26 : -0.38),
 
     SPAWN_ZOOM: cameraNumber("spawnPopZoom", "lowPowerSpawnPopZoom", LOW_POWER_MODE ? 0.10 : 0.18),
     SPAWN_ZOOM_DECAY: cameraNumber("spawnPopZoomDecay", "lowPowerSpawnPopZoomDecay", LOW_POWER_MODE ? 4.2 : 5.6),
@@ -555,6 +556,7 @@
     playerName: document.getElementById("playerName"),
     roleBtns: [...document.querySelectorAll(".role-btn")],
     skinBtns: [...document.querySelectorAll(".skin-btn")],
+    lobbySkinPicker: document.querySelector(".lobby-skin-picker"),
     quickJoinBtn: document.getElementById("quickJoinBtn"),
     createLobbyBtn: document.getElementById("createLobbyBtn"),
     lobbyList: document.getElementById("lobbyList"),
@@ -582,6 +584,7 @@
     toast: document.getElementById("toast"),
     winnerText: document.getElementById("winnerText"),
     reasonText: document.getElementById("reasonText"),
+    endStats: document.getElementById("endStats"),
     backToLobbyBtn: document.getElementById("backToLobbyBtn"),
     spectateBtn: document.getElementById("spectateBtn"),
     mainMenuBtn: document.getElementById("mainMenuBtn"),
@@ -661,6 +664,8 @@
     ui.roleBtns.forEach((b) => b.classList.toggle("selected", b.dataset.role === selectedRole));
     ui.beKillerBtn?.classList.toggle("selected", selectedRole === "killer");
     ui.beSurvivorBtn?.classList.toggle("selected", selectedRole !== "killer");
+    ui.lobbySkinPicker?.classList.toggle("hidden", selectedRole === "killer");
+    ui.lobbySkinPicker?.setAttribute("aria-hidden", selectedRole === "killer" ? "true" : "false");
     if (ui.lobbyRoleMark) {
       ui.lobbyRoleMark.classList.toggle("killer", selectedRole === "killer");
       ui.lobbyRoleMark.classList.toggle("survivor", selectedRole !== "killer");
@@ -1330,8 +1335,9 @@
   function getAbilityListForVoid(actor = getLocalPlayerData()) {
     const orbs = Math.max(0, Math.floor(actor?.dots || 0));
     return VOID_ABILITY_ORDER.slice(0, 4).map((id) => {
-      const ability = VOID_ABILITIES[id] || { id, name: "Void Ability", shortName: "Ability", cost: 0, summary: "The Void bends the run." };
+      const ability = VOID_ABILITIES[id] || { id, name: "Void Ability", shortName: "Ability", cost: 0, summary: "The Void bends the run.", cooldown: 20 };
       const isCancel = !!ability.cancel || id === "cancel";
+      const cooldownRemaining = isCancel ? 0 : Math.max(0, Number(actor?.voidAbilityCooldowns?.[ability.id || id] || 0));
       return {
         id: ability.id || id,
         name: ability.name || (isCancel ? "Cancel" : "Void Ability"),
@@ -1340,10 +1346,13 @@
         summary: ability.summary || (isCancel ? "Close the wheel." : "The Void bends the run."),
         accent: ability.accent || (isCancel ? "muted" : "purple"),
         cancel: isCancel,
-        available: isCancel || orbs >= Number(ability.cost || 0),
+        cooldown: Number(ability.cooldown || 20),
+        cooldownRemaining,
+        available: isCancel || (orbs >= Number(ability.cost || 0) && cooldownRemaining <= 0),
         active: !!(actor && !isCancel && (
           (ability.id === "nullRush" && (actor.voidSpeedBoost || 0) > 0) ||
-          (ability.id === "redshiftOrbs" && (currentSnapshot?.voidEffects?.redOrbs || 0) > 0)
+          (ability.id === "redshiftOrbs" && (currentSnapshot?.voidEffects?.redOrbs || 0) > 0) ||
+          (ability.id === "voidReveal" && (currentSnapshot?.voidEffects?.runnerReveal || 0) > 0)
         ))
       };
     });
@@ -1400,6 +1409,7 @@
     const effects = [];
     if (isVoid && (me.voidSpeedBoost || 0) > 0) effects.push({ id: "nullRush", label: "rush", time: me.voidSpeedBoost });
     if (isVoid && (snapshot?.voidEffects?.redOrbs || 0) > 0) effects.push({ id: "redshiftOrbs", label: "redshift", time: snapshot.voidEffects.redOrbs });
+    if (isVoid && (snapshot?.voidEffects?.runnerReveal || 0) > 0) effects.push({ id: "voidReveal", label: "sight", time: snapshot.voidEffects.runnerReveal });
     window.dispatchEvent(new CustomEvent("riftrunner:void-ability-hud", {
       detail: {
         visible: isVoid,
@@ -3493,8 +3503,21 @@
         && data.id !== myId;
     }
 
+    shouldAlwaysRevealDownedSurvivor(data) {
+      const pov = this.getPovSurvivorData();
+      return pov?.role === "survivor"
+        && data?.role === "survivor"
+        && !!data.downed
+        && !data.hooked
+        && !data.dead
+        && !data.escaped
+        && data.id !== myId;
+    }
+
     updateActorTargets(actors) {
       const seen = new Set();
+      const localActor = actors.find((actor) => actor.id === myId);
+      const voidSightActive = localActor?.role === "killer" && (currentSnapshot?.voidEffects?.runnerReveal || 0) > 0;
       for (const data of actors) {
         seen.add(data.id);
         let item = this.actors.get(data.id);
@@ -3528,8 +3551,14 @@
         // Killers skip hook-teleport coordinates until they have LOS on the hooked survivor.
         const hookedLocalCanSeeVoid = this.shouldRevealVoidToHookedLocal(data, actors);
         const hookedSurvivorGlobalReveal = this.shouldAlwaysRevealHookedSurvivor(data);
-        item.serverVisible = data.visible !== false || data.id === myId || hookedLocalCanSeeVoid || hookedSurvivorGlobalReveal;
-        item.forceFullVision = !!hookedLocalCanSeeVoid || !!hookedSurvivorGlobalReveal;
+        const downedSurvivorGlobalReveal = this.shouldAlwaysRevealDownedSurvivor(data);
+        const voidSightGlobalReveal = voidSightActive
+          && data.role === "survivor"
+          && !data.dead
+          && !data.escaped
+          && data.id !== myId;
+        item.serverVisible = data.visible !== false || data.id === myId || hookedLocalCanSeeVoid || hookedSurvivorGlobalReveal || downedSurvivorGlobalReveal || voidSightGlobalReveal;
+        item.forceFullVision = !!hookedLocalCanSeeVoid || !!hookedSurvivorGlobalReveal || !!downedSurvivorGlobalReveal || !!voidSightGlobalReveal;
         item.nameText.setText(data.name || "");
         if (item.chatText) {
           const actorChat = visibleChatTextForActor(data);
@@ -3962,6 +3991,22 @@
       item.healAura.strokeCircle(0, 0, radius + 7 + slowPulse * 3);
     }
 
+    drawDownedSurvivorPulse(item, data) {
+      if (!item?.outline || !data?.downed || data?.hooked) return;
+      const now = performance.now();
+      const phase = (now % 1000) / 1000;
+      const alphaBase = clamp(item.visionAlpha ?? 0, 0, 1);
+      const radius = 22 + phase * 55;
+      const alpha = alphaBase * (1 - phase) * (LOW_POWER_MODE ? 0.46 : 0.62);
+
+      item.outline.lineStyle(LOW_POWER_MODE ? 2 : 2.8, 0xff1f3a, alpha);
+      item.outline.strokeCircle(0, 0, radius);
+
+      const corePulse = 0.5 + Math.sin(now / 160) * 0.5;
+      item.outline.lineStyle(1.5, 0xff8fa3, alphaBase * (0.28 + corePulse * 0.26));
+      item.outline.strokeCircle(0, 0, 23 + corePulse * 4);
+    }
+
     drawHookedSurvivorPulse(item, data) {
       if (!item?.outline || !data?.hooked) return;
       const now = performance.now();
@@ -4057,6 +4102,9 @@
         const outlineColor = showProgress ? progressColor : data.invuln > 0 ? 0xffffff : data.hooked ? 0xffc06a : skin.outline;
         this.drawActorShape(item, data, data.dead ? 0x555555 : color, disabled ? 0.45 : 1, outlineColor, showProgress || data.invuln > 0 ? 1 : 0.82);
         this.drawHealingAura(item, data);
+        if (data.downed && !disabled && !data.hooked && (item.visionAlpha ?? 0) > ACTOR_VISION.MIN_VISIBLE_ALPHA) {
+          this.drawDownedSurvivorPulse(item, data);
+        }
         if (data.hooked && !disabled && (item.visionAlpha ?? 0) > ACTOR_VISION.MIN_VISIBLE_ALPHA) {
           this.drawHookedSurvivorPulse(item, data);
         }
@@ -4163,7 +4211,7 @@
           }
         }
         if (event.type === "voidAbility") {
-          const color = event.abilityId === "redshiftOrbs" ? 0xff3048 : event.abilityId === "orbLeech" ? 0xfbbf24 : 0xcbd5e1;
+          const color = event.abilityId === "redshiftOrbs" ? 0xff3048 : event.abilityId === "voidReveal" ? 0xa78bfa : 0xcbd5e1;
           this.burst(event.x, event.y, color, LOW_POWER_MODE ? 18 : 34, LOW_POWER_MODE ? 130 : 210);
           this.addShockwave(event.x, event.y, color, 0.55, event.radius || (LOW_POWER_MODE ? 110 : 155));
         }
@@ -4289,10 +4337,9 @@
         for (let n = 0; n <= steps; n++) {
           const t = n / steps;
           const a = angle - arc / 2 + arc * t;
-          const edgePulse = 0.90 + Math.sin(t * Math.PI) * 0.10;
           points.push({
-            x: x + Math.cos(a) * range * edgePulse,
-            y: y + Math.sin(a) * range * edgePulse
+            x: x + Math.cos(a) * range,
+            y: y + Math.sin(a) * range
           });
         }
 
@@ -4976,6 +5023,7 @@
         : [
           this.terrorBlend > 0.001 ? this.terrorBlend * IMMERSION.TERROR_ZOOM : null,
           this.chaseBlend > 0.001 ? this.chaseBlend * IMMERSION.CHASE_ZOOM : null,
+          localData?.role === "killer" && (currentSnapshot?.voidEffects?.runnerReveal || 0) > 0 ? IMMERSION.VOID_REVEAL_ZOOM : null,
           killerM1Hold ? IMMERSION.KILLER_M1_HOLD_ZOOM : null,
           (this.killerM1Pulse || 0) > 0.001 ? (this.killerM1Pulse || 0) * IMMERSION.KILLER_M1_PULSE_ZOOM : null,
           isDepositing ? IMMERSION.DEPOSIT_ZOOM : null,
@@ -5017,6 +5065,7 @@
         IMMERSION.INJURED_ZOOM,
         IMMERSION.DOWNED_ZOOM,
         IMMERSION.ESCAPE_ZOOM,
+        IMMERSION.VOID_REVEAL_ZOOM,
         IMMERSION.SPAWN_ZOOM
       );
       const negativeFloor = Math.min(
@@ -5033,6 +5082,7 @@
         IMMERSION.INJURED_ZOOM,
         IMMERSION.DOWNED_ZOOM,
         IMMERSION.ESCAPE_ZOOM,
+        IMMERSION.VOID_REVEAL_ZOOM,
         IMMERSION.SPAWN_ZOOM,
         -IMMERSION.MATCH_START_ZOOM_OUT
       );
@@ -5535,6 +5585,7 @@
 
   function showEscapedScreen() {
     const canSpectate = canSpectateLiveTeammate();
+    if (ui.endStats) ui.endStats.innerHTML = "";
     if (ui.winnerText) ui.winnerText.textContent = "You Escaped";
     if (ui.reasonText) ui.reasonText.textContent = canSpectate
       ? "You slipped through the void. The run is still alive."
@@ -5556,6 +5607,7 @@
 
     if (me.dead || me.hooked || me.downed || Number(me.health || 0) <= 0) {
       const canSpectate = canSpectateLiveTeammate();
+      if (ui.endStats) ui.endStats.innerHTML = "";
       if (ui.winnerText) ui.winnerText.textContent = "You Perished...";
       if (ui.reasonText) ui.reasonText.textContent = canSpectate
         ? "The run is still going. You can keep spectating."
@@ -5567,6 +5619,80 @@
     }
 
     return false;
+  }
+
+  function formatStatSeconds(value) {
+    const seconds = Math.max(0, Math.round(Number(value || 0)));
+    const minutes = Math.floor(seconds / 60);
+    const rest = seconds % 60;
+    return minutes > 0 ? `${minutes}:${String(rest).padStart(2, "0")}` : `${rest}s`;
+  }
+
+  function statItem(label, value) {
+    return `<div class="end-stat"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`;
+  }
+
+  function renderFinalStats(finalActors = []) {
+    if (!ui.endStats) return;
+    const actors = Array.isArray(finalActors) ? finalActors : [];
+    if (!actors.length) {
+      ui.endStats.innerHTML = "";
+      return;
+    }
+
+    const sorted = [...actors].sort((a, b) => {
+      if (a.id === myId) return -1;
+      if (b.id === myId) return 1;
+      if (a.role !== b.role) return a.role === "killer" ? -1 : 1;
+      return String(a.name || "").localeCompare(String(b.name || ""));
+    });
+
+    ui.endStats.innerHTML = sorted.map((actor) => {
+      const stats = actor.stats || {};
+      const isVoid = actor.role === "killer";
+      const state = isVoid
+        ? "The Void"
+        : stats.escaped || actor.escaped
+          ? "Escaped"
+          : actor.dead
+            ? "Dead"
+            : actor.hooked
+              ? "Hooked"
+              : actor.downed
+                ? "Downed"
+                : "Lost";
+      const statHtml = isVoid
+        ? [
+            statItem("Rifts kicked", stats.riftsKicked || 0),
+            statItem("Orbs collected", stats.orbsCollected || 0),
+            statItem("Injures", stats.injures || 0),
+            statItem("Hooks", stats.hooks || 0),
+            statItem("Deaths", stats.deaths || 0),
+            statItem("Abilities used", stats.abilitiesUsed || 0)
+          ].join("")
+        : [
+            statItem("Orbs collected", stats.orbsCollected || 0),
+            statItem("Orbs deposited", stats.orbsDeposited || 0),
+            statItem("Heals", stats.teammatesHealed || 0),
+            statItem("Unhooks", stats.unhooks || 0),
+            statItem("Escaped", (stats.escaped || actor.escaped) ? "Yes" : "No"),
+            statItem("Chase total", formatStatSeconds(stats.chaseSeconds)),
+            statItem("Longest chase", formatStatSeconds(stats.longestChase))
+          ].join("");
+
+      return `
+        <article class="end-stat-card ${isVoid ? "is-void" : "is-runner"}${actor.id === myId ? " is-you" : ""}">
+          <div class="end-stat-head">
+            <div>
+              <strong>${escapeHtml(actor.name || (isVoid ? "The Void" : "Runner"))}</strong>
+              <span>${escapeHtml(state)}${actor.id === myId ? " • You" : ""}</span>
+            </div>
+            <i>${escapeHtml(isVoid ? "VOID" : "RUNNER")}</i>
+          </div>
+          <div class="end-stat-grid">${statHtml}</div>
+        </article>
+      `;
+    }).join("");
   }
 
   function getFinalActorData(finalActors = []) {
@@ -5581,6 +5707,7 @@
     const localPerished = localSurvivor && !localEscaped && !!escapedCount && (me.dead || me.hooked || me.downed);
 
     ui.spectateBtn?.classList.add("hidden");
+    renderFinalStats(finalActors);
 
     if (localEscaped) {
       if (ui.winnerText) ui.winnerText.textContent = "You Escaped";
@@ -6036,7 +6163,22 @@
   }
 
   function setupSockets() {
-    socket = io();
+    const socketOptions = {
+      transports: ["websocket", "polling"],
+      reconnection: true,
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 650,
+      reconnectionDelayMax: 3500,
+      timeout: 10000
+    };
+    const configuredSocketUrl = typeof window.RIFTRUNNER_SOCKET_URL === "string"
+      ? window.RIFTRUNNER_SOCKET_URL.trim()
+      : "";
+    socket = configuredSocketUrl ? io(configuredSocketUrl, socketOptions) : io(socketOptions);
+    socket.on("connect_error", () => toast("Could not connect to the RiftRunner server."));
+    socket.on("disconnect", (reason) => {
+      if (reason !== "io client disconnect") toast("Disconnected. Reconnecting...");
+    });
     socket.on("hello", ({ id }) => { myId = id; });
     socket.on("toast", ({ message }) => toast(message));
     socket.on("lobbyList", renderLobbyList);
