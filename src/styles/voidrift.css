@@ -2135,38 +2135,38 @@ body.ultra-low-power.survivor-hit-impact #gameWrap {
 }
 
 .end-panel {
-  width: min(1420px, calc(100vw - 32px));
+  width: min(1540px, calc(100vw - 28px));
   text-align: left;
-  padding: clamp(14px, 1.6vw, 22px);
+  padding: clamp(18px, 1.9vw, 28px);
 }
 
 .end-panel #winnerText {
-  margin-bottom: 2px;
-  font-size: clamp(28px, 4vw, 54px);
+  margin-bottom: 4px;
+  font-size: clamp(32px, 4.4vw, 62px);
   letter-spacing: 0.07em;
 }
 
 .end-panel #reasonText {
-  margin-bottom: 8px;
-  font-size: 13px;
+  margin-bottom: 10px;
+  font-size: 14px;
 }
 
 .end-stats {
   position: relative;
   display: grid;
   grid-template-columns: 1fr;
-  gap: 6px;
-  margin: 12px 0 14px;
+  gap: 8px;
+  margin: 14px 0 16px;
 }
 
 .end-stats::before {
   content: "VOID / RUNNER RESULTS";
   display: grid;
-  grid-template-columns: 160px 1fr;
-  gap: 8px;
-  padding: 0 12px 1px;
+  grid-template-columns: 184px 1fr;
+  gap: 10px;
+  padding: 0 14px 2px;
   color: rgba(226, 232, 240, 0.42);
-  font-size: 9px;
+  font-size: 9.5px;
   font-weight: 950;
   letter-spacing: 0.2em;
   text-transform: uppercase;
@@ -2185,14 +2185,14 @@ body.ultra-low-power.survivor-hit-impact #gameWrap {
   position: relative;
   overflow: hidden;
   display: grid;
-  grid-template-columns: 160px 1fr;
+  grid-template-columns: 184px 1fr;
   align-items: stretch;
-  gap: 8px;
-  min-height: 56px;
+  gap: 10px;
+  min-height: 64px;
   border: 1px solid rgba(255, 255, 255, 0.095);
   border-left: 3px solid color-mix(in srgb, var(--result-accent), transparent 20%);
-  border-radius: 10px;
-  padding: 6px 8px;
+  border-radius: 12px;
+  padding: 8px 10px;
   background:
     linear-gradient(90deg, rgba(255, 255, 255, 0.062), rgba(255, 255, 255, 0.022) 38%, rgba(255, 255, 255, 0.01)),
     repeating-linear-gradient(135deg, rgba(255, 255, 255, 0.026) 0 1px, transparent 1px 9px),
@@ -2239,9 +2239,9 @@ body.ultra-low-power.survivor-hit-impact #gameWrap {
   display: grid;
   grid-template-columns: 1fr;
   align-content: center;
-  gap: 5px;
+  gap: 6px;
   min-width: 0;
-  padding: 3px 7px 3px 1px;
+  padding: 4px 9px 4px 2px;
   border-right: 1px solid rgba(255, 255, 255, 0.075);
 }
 
@@ -2249,7 +2249,7 @@ body.ultra-low-power.survivor-hit-impact #gameWrap {
   display: block;
   overflow: hidden;
   color: #f8fbff;
-  font-size: 12px;
+  font-size: 13px;
   letter-spacing: 0.055em;
   text-overflow: ellipsis;
   text-transform: uppercase;
@@ -2260,7 +2260,7 @@ body.ultra-low-power.survivor-hit-impact #gameWrap {
   display: block;
   margin-top: 2px;
   color: rgba(226, 232, 240, 0.62);
-  font-size: 9.5px;
+  font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.055em;
   text-transform: uppercase;
@@ -2285,15 +2285,15 @@ body.ultra-low-power.survivor-hit-impact #gameWrap {
 
 .end-stat-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(72px, 1fr));
-  gap: 5px;
+  grid-template-columns: repeat(auto-fit, minmax(84px, 1fr));
+  gap: 6px;
   align-items: stretch;
 }
 
 .end-stat {
-  min-height: 40px;
-  padding: 6px 6px;
-  border-radius: 6px;
+  min-height: 46px;
+  padding: 7px 7px;
+  border-radius: 7px;
   background: rgba(0, 0, 0, 0.2);
   border: 1px solid rgba(255, 255, 255, 0.062);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
@@ -2305,9 +2305,9 @@ body.ultra-low-power.survivor-hit-impact #gameWrap {
 }
 
 .end-stat span {
-  min-height: 18px;
+  min-height: 19px;
   color: rgba(226, 232, 240, 0.58);
-  font-size: 7.5px;
+  font-size: 8px;
   font-weight: 900;
   letter-spacing: 0.065em;
   line-height: 1.12;
@@ -2315,9 +2315,9 @@ body.ultra-low-power.survivor-hit-impact #gameWrap {
 }
 
 .end-stat strong {
-  margin-top: 3px;
+  margin-top: 4px;
   color: #ffffff;
-  font-size: 15px;
+  font-size: 17px;
   line-height: 1;
   text-shadow: 0 0 10px color-mix(in srgb, var(--result-accent), transparent 74%);
 }
@@ -4091,4 +4091,287 @@ body.ultra-low-power.survivor-hit-impact #gameWrap {
 .void-orb-counter-corner span:not(.void-orb-icon)::after {
   content: " BANK";
   color: rgba(196, 181, 253, 0.68);
+}
+
+
+/* v0.1.24 Full HD lobby fit + support link polish.
+   Keeps the same visual style, but trims spacing so 1920x1080 screens can see the whole lobby. */
+#lobbyScreen.io-screen:not(.menu-screen) {
+  padding: clamp(14px, 1.65vw, 28px);
+}
+
+#lobbyScreen .void-card.wide-menu-card.lobby-panel,
+#lobbyScreen .lobby-panel {
+  width: min(1760px, calc(100vw - 32px));
+  max-height: calc(100vh - 28px);
+}
+
+@media (max-width: 1920px), (max-height: 1100px) {
+  #lobbyScreen .void-card.wide-menu-card.lobby-panel,
+  #lobbyScreen .lobby-panel {
+    padding: clamp(16px, 1.45vw, 24px);
+  }
+
+  #lobbyScreen .screen-topline {
+    margin-bottom: 4px;
+  }
+
+  #lobbyScreen .lobby-title-row {
+    gap: 12px;
+  }
+
+  #lobbyScreen #lobbyTitle {
+    margin: 2px 0 6px;
+    font-size: clamp(42px, 4.2vw, 60px);
+    line-height: 0.92;
+  }
+
+  #lobbyScreen #lobbySubtitle {
+    margin-bottom: 0;
+    font-size: 13px;
+    line-height: 1.35;
+  }
+
+  #lobbyScreen .lobby-role-mark {
+    transform: scale(0.88);
+    transform-origin: right center;
+  }
+
+  #lobbyScreen .lobby-workspace {
+    margin-top: 12px;
+    gap: clamp(12px, 1.25vw, 20px);
+    grid-template-columns: minmax(300px, 390px) minmax(0, 1fr);
+  }
+
+  #lobbyScreen .lobby-control-column,
+  #lobbyScreen .lobby-roster-column {
+    min-height: 0;
+    padding: 12px;
+  }
+
+  #lobbyScreen .lobby-control-column {
+    gap: 10px;
+    overflow: auto;
+  }
+
+  #lobbyScreen .lobby-column-heading {
+    padding-bottom: 8px;
+    margin-bottom: 6px;
+  }
+
+  #lobbyScreen .lobby-subheading {
+    margin-top: 0;
+  }
+
+  #lobbyScreen .lobby-role-actions,
+  #lobbyScreen .lobby-bot-actions,
+  #lobbyScreen .lobby-actions {
+    gap: 8px;
+  }
+
+  #lobbyScreen .lobby-role-actions button,
+  #lobbyScreen .lobby-bot-actions button,
+  #lobbyScreen .lobby-actions button {
+    min-height: 38px;
+    padding: 9px 12px;
+    font-size: 13px;
+  }
+
+  #lobbyScreen .lobby-skin-picker,
+  #lobbyScreen .skin-picker.compact.lobby-skin-picker {
+    max-height: clamp(176px, 24vh, 246px);
+    padding: 10px;
+    gap: 8px;
+  }
+
+  #lobbyScreen .lobby-skin-picker .skin-btn {
+    min-height: 44px;
+    padding: 8px 10px;
+    border-radius: 15px;
+    font-size: 12px;
+  }
+
+  #lobbyScreen .lobby-skin-picker .skin-preview {
+    width: 26px;
+    height: 26px;
+    border-width: 2px;
+  }
+
+  #lobbyScreen .lobby-hint {
+    padding: 9px 10px;
+    font-size: 11px;
+    line-height: 1.35;
+  }
+
+  #lobbyScreen .lobby-roster-column {
+    min-height: 0;
+  }
+
+  #lobbyScreen .lobby-panel .players-list,
+  #lobbyScreen .players-list {
+    min-height: 0;
+    max-height: none;
+  }
+
+  #lobbyScreen .player-group {
+    gap: 8px;
+  }
+
+  #lobbyScreen .player-group.void-group,
+  #lobbyScreen .player-group.survivor-group {
+    padding: 10px;
+  }
+
+  #lobbyScreen .player-group-list {
+    gap: 8px;
+  }
+
+  #lobbyScreen .player-group-heading {
+    padding-bottom: 6px;
+  }
+
+  #lobbyScreen .player-item,
+  #lobbyScreen .lobby-panel .player-item,
+  #lobbyScreen .lobby-panel .player-item:not(.is-bot) {
+    min-height: 50px;
+    padding: 10px 12px;
+    column-gap: 10px;
+  }
+}
+
+@media (max-height: 900px) and (min-width: 981px) {
+  #lobbyScreen.io-screen:not(.menu-screen) {
+    padding: 10px 14px;
+  }
+
+  #lobbyScreen .void-card.wide-menu-card.lobby-panel,
+  #lobbyScreen .lobby-panel {
+    max-height: calc(100vh - 20px);
+    padding: 14px;
+  }
+
+  #lobbyScreen #lobbyTitle {
+    font-size: clamp(36px, 3.4vw, 48px);
+  }
+
+  #lobbyScreen .lobby-title-row .screen-copy {
+    display: none;
+  }
+
+  #lobbyScreen .lobby-workspace {
+    margin-top: 8px;
+  }
+
+  #lobbyScreen .lobby-hint {
+    display: none;
+  }
+}
+
+/* Slightly larger match results panel */
+.void-card.end-panel {
+  width: min(1720px, calc(100vw - 24px));
+  max-height: calc(100vh - 24px);
+  padding: clamp(22px, 2.2vw, 36px);
+}
+
+.void-card.end-panel #winnerText {
+  font-size: clamp(38px, 4.9vw, 72px);
+}
+
+.void-card.end-panel #reasonText {
+  font-size: 15px;
+}
+
+.void-card.end-panel .end-stats {
+  gap: 10px;
+  margin: 18px 0 20px;
+}
+
+.void-card.end-panel .end-stats::before,
+.void-card.end-panel .end-stat-card {
+  grid-template-columns: 220px 1fr;
+}
+
+.void-card.end-panel .end-stats::before {
+  padding: 0 16px 3px;
+  font-size: 10px;
+}
+
+.void-card.end-panel .end-stat-card {
+  min-height: 76px;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 14px;
+}
+
+.void-card.end-panel .end-stat-head {
+  padding: 6px 12px 6px 2px;
+}
+
+.void-card.end-panel .end-stat-head strong {
+  font-size: 15px;
+}
+
+.void-card.end-panel .end-stat-head span {
+  font-size: 10.5px;
+}
+
+.void-card.end-panel .end-stat-head i {
+  padding: 3px 7px;
+  font-size: 8.5px;
+}
+
+.void-card.end-panel .end-stat-grid {
+  grid-template-columns: repeat(auto-fit, minmax(104px, 1fr));
+  gap: 8px;
+}
+
+.void-card.end-panel .end-stat {
+  min-height: 56px;
+  padding: 9px 9px;
+  border-radius: 9px;
+}
+
+.void-card.end-panel .end-stat span {
+  min-height: 21px;
+  font-size: 8.7px;
+}
+
+.void-card.end-panel .end-stat strong {
+  margin-top: 5px;
+  font-size: 20px;
+}
+
+.void-card.end-panel .button-row.center {
+  margin-top: 4px;
+}
+
+.void-card.end-panel .button-row.center button {
+  padding: 13px 18px;
+}
+
+@media (max-width: 880px) {
+  .void-card.end-panel .end-stats::before,
+  .void-card.end-panel .end-stat-card {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-height: 860px) and (min-width: 981px) {
+  .void-card.end-panel {
+    padding: 18px 22px;
+  }
+
+  .void-card.end-panel #winnerText {
+    font-size: clamp(34px, 4.1vw, 58px);
+  }
+
+  .void-card.end-panel .end-stat-card {
+    min-height: 68px;
+  }
+
+  .void-card.end-panel .end-stat {
+    min-height: 50px;
+    padding: 7px 8px;
+  }
 }

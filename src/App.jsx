@@ -205,6 +205,14 @@ function MainMenu() {
           {MENU_ACTIONS.map((action) => (
             <button id={action.id} className={action.className} type="button" key={action.id}>{action.label}</button>
           ))}
+          <a
+            className="coffee-link"
+            href="https://buymeacoffee.com/riftrunner"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Buy me a Coffee
+          </a>
         </nav>
 
         <div className="menu-footer-strip">
