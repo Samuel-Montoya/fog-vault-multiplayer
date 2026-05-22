@@ -22,9 +22,9 @@
   const PERFORMANCE_CONFIG = GAMEPLAY_CONFIG.performance || {};
   const ADAPTIVE_PERFORMANCE_CONFIG = {
     // Be aggressive. Older laptops need the cheap renderer before they hit slideshow territory.
-    lowFps: cfgNumber(PERFORMANCE_CONFIG.lowFps, 52),
+    lowFps: cfgNumber(PERFORMANCE_CONFIG.lowFps, 60),
     ultraFps: cfgNumber(PERFORMANCE_CONFIG.ultraFps, 45),
-    recoverFps: cfgNumber(PERFORMANCE_CONFIG.recoverFps, 57),
+    recoverFps: cfgNumber(PERFORMANCE_CONFIG.recoverFps, 62),
     ultraRecoverFps: cfgNumber(PERFORMANCE_CONFIG.ultraRecoverFps, 47),
     lowSamples: Math.max(2, Math.round(cfgNumber(PERFORMANCE_CONFIG.lowSamples, 3))),
     ultraSamples: Math.max(2, Math.round(cfgNumber(PERFORMANCE_CONFIG.ultraSamples, 2))),
@@ -63,69 +63,78 @@
       voidBodySpikeCount: 3,
       swipeSteps: 22,
       chargeSteps: 16,
-      shakeScale: 1
+      shakeScale: 1,
+      remoteActorRate: 14,
+      localReconcileRate: 4.8,
+      visionConeDirect: 0
     },
     low: {
       label: "LOW",
-      targetFps: 45,
-      dynamicWorldFps: 3,
+      targetFps: 60,
+      dynamicWorldFps: 2.5,
       generatorFps: 3,
-      scratchDrawFps: 4,
-      lightingFps: 18,
-      wallVisionFps: 8,
-      actorVisionFps: 18,
-      particleFps: 14,
-      dotFadeFps: 7,
-      maxParticles: 14,
-      maxShockwaves: 1,
-      particleScale: 0.28,
-      shockwaveScale: 0.32,
-      lightingAlphaScale: 0.62,
-      coneSegments: 6,
+      scratchDrawFps: 3,
+      lightingFps: 60,
+      wallVisionFps: 7,
+      actorVisionFps: 16,
+      particleFps: 10,
+      dotFadeFps: 6,
+      maxParticles: 8,
+      maxShockwaves: 0,
+      particleScale: 0.16,
+      shockwaveScale: 0,
+      lightingAlphaScale: 0.50,
+      coneSegments: 5,
       voidRushGapMs: 999999,
       voidRushCount: 0,
       voidRushAlpha: 0,
-      voidRedrawMs: 230,
-      survivorRedrawMs: 145,
-      heldOrbMaxDots: 12,
-      heldOrbSpinScale: 0.35,
-      heldOrbBobScale: 0.35,
-      voidBodyOrbCount: 4,
-      voidBodySpikeCount: 1,
-      swipeSteps: 10,
-      chargeSteps: 8,
-      shakeScale: 0.38
+      voidRedrawMs: 280,
+      survivorRedrawMs: 190,
+      heldOrbMaxDots: 8,
+      heldOrbSpinScale: 0.15,
+      heldOrbBobScale: 0.12,
+      voidBodyOrbCount: 3,
+      voidBodySpikeCount: 0,
+      swipeSteps: 5,
+      chargeSteps: 4,
+      shakeScale: 0.16,
+      remoteActorRate: 18,
+      localReconcileRate: 7.5,
+      visionConeDirect: 1
     },
     ultra: {
       label: "ULTRA LOW",
-      targetFps: 45,
-      dynamicWorldFps: 1.5,
-      generatorFps: 2,
-      scratchDrawFps: 2,
-      lightingFps: 9,
-      wallVisionFps: 4,
-      actorVisionFps: 8,
-      particleFps: 8,
-      dotFadeFps: 3,
+      targetFps: 60,
+      dynamicWorldFps: 1,
+      generatorFps: 1.5,
+      scratchDrawFps: 1.5,
+      lightingFps: 60,
+      wallVisionFps: 3,
+      actorVisionFps: 6,
+      particleFps: 5,
+      dotFadeFps: 2,
       maxParticles: 0,
       maxShockwaves: 0,
       particleScale: 0,
       shockwaveScale: 0,
-      lightingAlphaScale: 0.36,
-      coneSegments: 4,
+      lightingAlphaScale: 0.32,
+      coneSegments: 3,
       voidRushGapMs: 999999,
       voidRushCount: 0,
       voidRushAlpha: 0,
-      voidRedrawMs: 360,
-      survivorRedrawMs: 260,
-      heldOrbMaxDots: 6,
+      voidRedrawMs: 520,
+      survivorRedrawMs: 360,
+      heldOrbMaxDots: 3,
       heldOrbSpinScale: 0,
       heldOrbBobScale: 0,
-      voidBodyOrbCount: 2,
+      voidBodyOrbCount: 1,
       voidBodySpikeCount: 0,
-      swipeSteps: 6,
-      chargeSteps: 5,
-      shakeScale: 0.12
+      swipeSteps: 3,
+      chargeSteps: 3,
+      shakeScale: 0,
+      remoteActorRate: 22,
+      localReconcileRate: 9,
+      visionConeDirect: 1
     }
   };
 
@@ -136,7 +145,8 @@
     ultraSamples: 0,
     recoverSamples: 0,
     lockedUntil: 0,
-    lastToastAt: 0
+    lastToastAt: 0,
+    stickyLow: LOW_POWER_MODE
   };
 
   function performanceProfile() {
@@ -154,6 +164,7 @@
     if (adaptivePerformance.mode === next) return;
 
     adaptivePerformance.mode = next;
+    if (next === "low" || next === "ultra") adaptivePerformance.stickyLow = true;
     adaptivePerformance.lowSamples = 0;
     adaptivePerformance.ultraSamples = 0;
     adaptivePerformance.recoverSamples = 0;
@@ -4664,15 +4675,17 @@
         const y = item.current.y;
         const pulse = 0.65 + Math.sin(performance.now() * 0.018) * 0.25;
 
-        const points = [{ x, y }];
-        const steps = Math.max(4, Math.floor(performanceValue("chargeSteps", 16)));
-        for (let n = 0; n <= steps; n++) {
-          const a = angle - arc / 2 + (arc * n) / steps;
-          points.push({ x: x + Math.cos(a) * range, y: y + Math.sin(a) * range });
+        if (adaptivePerformance.mode === "normal") {
+          const points = [{ x, y }];
+          const steps = Math.max(4, Math.floor(performanceValue("chargeSteps", 16)));
+          for (let n = 0; n <= steps; n++) {
+            const a = angle - arc / 2 + (arc * n) / steps;
+            points.push({ x: x + Math.cos(a) * range, y: y + Math.sin(a) * range });
+          }
+          g.fillStyle(0xffb36b, 0.10 + 0.16 * t);
+          g.fillPoints(points, true, true);
         }
-        g.fillStyle(0xffb36b, 0.10 + 0.16 * t);
-        g.fillPoints(points, true, true);
-        g.lineStyle(2 + 2 * t, 0xffe2b9, 0.35 + 0.35 * pulse);
+        g.lineStyle(adaptivePerformance.mode === "normal" ? 2 + 2 * t : 2, 0xffe2b9, adaptivePerformance.mode === "normal" ? 0.35 + 0.35 * pulse : 0.34);
         g.beginPath();
         g.arc(x, y, 25 + t * 12, 0, Math.PI * 2);
         g.strokePath();
@@ -4734,26 +4747,31 @@
           });
         }
 
-        // Soft warning/windup fill, then a brighter moving slash edge.
-        g.fillStyle(windup ? 0xa3421f : 0xffd5bd, windup ? 0.08 + 0.10 * sweepT : 0.12 * fade);
-        g.fillPoints(points, true, true);
+        const cheapSwipe = adaptivePerformance.mode !== "normal";
+        if (!cheapSwipe) {
+          // Soft warning/windup fill, then a brighter moving slash edge.
+          g.fillStyle(windup ? 0xa3421f : 0xffd5bd, windup ? 0.08 + 0.10 * sweepT : 0.12 * fade);
+          g.fillPoints(points, true, true);
+        }
 
         const slashA = angle - arc / 2 + arc * clamp(windup ? sweepT * 0.35 : sweepT, 0, 1);
         const slashLen = range * (windup ? 0.72 : 1);
         const inner = windup ? 22 : 18;
-        g.lineStyle(windup ? 3 : 6, windup ? 0xff995c : 0xffeee0, windup ? 0.32 + 0.30 * sweepT : 0.72 * fade);
+        g.lineStyle(cheapSwipe ? 3 : (windup ? 3 : 6), windup ? 0xff995c : 0xffeee0, cheapSwipe ? 0.42 * fade : (windup ? 0.32 + 0.30 * sweepT : 0.72 * fade));
         g.beginPath();
         g.moveTo(x + Math.cos(slashA) * inner, y + Math.sin(slashA) * inner);
         g.lineTo(x + Math.cos(slashA) * slashLen, y + Math.sin(slashA) * slashLen);
         g.strokePath();
 
-        g.lineStyle(2, windup ? 0xffc089 : 0xffb68c, windup ? 0.22 + 0.28 * sweepT : 0.40 * fade);
-        g.beginPath();
-        for (let n = 1; n < points.length; n++) {
-          if (n === 1) g.moveTo(points[n].x, points[n].y);
-          else g.lineTo(points[n].x, points[n].y);
+        if (!cheapSwipe) {
+          g.lineStyle(2, windup ? 0xffc089 : 0xffb68c, windup ? 0.22 + 0.28 * sweepT : 0.40 * fade);
+          g.beginPath();
+          for (let n = 1; n < points.length; n++) {
+            if (n === 1) g.moveTo(points[n].x, points[n].y);
+            else g.lineTo(points[n].x, points[n].y);
+          }
+          g.strokePath();
         }
-        g.strokePath();
       }
     }
 
@@ -4880,14 +4898,15 @@
         return;
       }
 
-      if (!LOW_POWER_MODE && mode === "ultra" && now > adaptivePerformance.lockedUntil && fps >= cfg.ultraRecoverFps && avgFps >= cfg.ultraRecoverFps - 1) {
+      if (mode === "ultra" && now > adaptivePerformance.lockedUntil && fps >= cfg.ultraRecoverFps && avgFps >= cfg.ultraRecoverFps - 1) {
+        // Ultra can relax back to LOW if the machine catches up, but once the client
+        // proves it cannot hold 60 FPS, stay in the cheap renderer for the whole match.
         setAdaptivePerformanceMode("low", `stabilized ${fps}`);
         return;
       }
 
-      if (!LOW_POWER_MODE && mode === "low" && now > adaptivePerformance.lockedUntil && adaptivePerformance.recoverSamples >= cfg.recoverSamples) {
-        setAdaptivePerformanceMode("normal", `recovered ${fps}`);
-      }
+      // Do not recover back to NORMAL automatically. A client that dipped under 60 once
+      // should stay on the stable low-cost path instead of bouncing modes mid-chase.
     }
 
     applyAdaptivePerformanceMode(mode) {
@@ -5061,8 +5080,9 @@
       if (!this.localWouldCollide(data.role, this.localVisual.x, ny)) this.localVisual.y = ny;
 
       // Soft reconciliation with server authority. Not syrupy, not teleporty. Finally, a compromise that doesn't smell like despair.
-      this.localVisual.x += (this.localServerTarget.x - this.localVisual.x) * 0.075;
-      this.localVisual.y += (this.localServerTarget.y - this.localVisual.y) * 0.075;
+      const reconcileAlpha = dampAlpha(performanceValue("localReconcileRate", 4.8), dt);
+      this.localVisual.x += (this.localServerTarget.x - this.localVisual.x) * reconcileAlpha;
+      this.localVisual.y += (this.localServerTarget.y - this.localVisual.y) * reconcileAlpha;
     }
 
     localWouldCollide(role, x, y) {
@@ -5341,16 +5361,23 @@
             item.current.x = vault.x;
             item.current.y = vault.y;
           } else {
-            item.current.x = lerp(item.current.x, item.target.x, 0.35);
-            item.current.y = lerp(item.current.y, item.target.y, 0.35);
+            const vaultAlpha = Math.max(dampAlpha(performanceValue("remoteActorRate", 16) + 5, dt), 0.28);
+            item.current.x = lerp(item.current.x, item.target.x, vaultAlpha);
+            item.current.y = lerp(item.current.y, item.target.y, vaultAlpha);
           }
-          item.current.angle = lerpAngle(item.current.angle, item.target.angle, 0.24);
+          item.current.angle = lerpAngle(item.current.angle, item.target.angle, dampAlpha(16, dt));
         } else {
           item.vaultPlayback = null;
           if (!this.killerHidesRemoteHookedSurvivor(item.data)) {
-            item.current.x = lerp(item.current.x, item.target.x, 0.22);
-            item.current.y = lerp(item.current.y, item.target.y, 0.22);
-            item.current.angle = lerpAngle(item.current.angle, item.target.angle, 0.24);
+            const dx = item.target.x - item.current.x;
+            const dy = item.target.y - item.current.y;
+            const gap = Math.hypot(dx, dy);
+            let moveAlpha = dampAlpha(performanceValue("remoteActorRate", 14), dt);
+            if (gap > 180) moveAlpha = 1;
+            else if (gap > 82) moveAlpha = Math.max(moveAlpha, 0.52);
+            item.current.x = lerp(item.current.x, item.target.x, moveAlpha);
+            item.current.y = lerp(item.current.y, item.target.y, moveAlpha);
+            item.current.angle = lerpAngle(item.current.angle, item.target.angle, dampAlpha(16, dt));
           }
         }
         item.container.setPosition(item.current.x, item.current.y);
@@ -5436,15 +5463,16 @@
 
       const interval = lerp(IMMERSION.HEARTBEAT_MAX_INTERVAL, IMMERSION.HEARTBEAT_MIN_INTERVAL, clamp(this.terrorBlend + this.chaseBlend * 0.45, 0, 1));
       this.heartbeatTimer += dt;
+      const cheapRenderer = adaptivePerformance.mode !== "normal" || LOW_POWER_MODE;
       if ((this.terrorBlend > 0.08 || this.chaseBlend > 0.05) && this.heartbeatTimer >= interval) {
         this.heartbeatTimer = 0;
-        this.heartbeatPulse = 1;
+        this.heartbeatPulse = cheapRenderer ? 0 : 1;
         const intensity = IMMERSION.HEARTBEAT_SHAKE_BASE * this.terrorBlend + IMMERSION.HEARTBEAT_SHAKE_CHASE * this.chaseBlend;
-        if (intensity > 0.0005) this.cameras.main.shake(90, intensity * performanceValue("shakeScale", 1));
+        if (!cheapRenderer && intensity > 0.0005) this.cameras.main.shake(90, intensity * performanceValue("shakeScale", 1));
       }
 
       const rawChase = levels.chase > 0;
-      if (rawChase && !this.lastRawChase) {
+      if (!cheapRenderer && rawChase && !this.lastRawChase) {
         this.cameras.main.shake(IMMERSION.CHASE_START_SHAKE_DURATION, IMMERSION.CHASE_START_SHAKE_INTENSITY * performanceValue("shakeScale", 1));
       }
       this.lastRawChase = rawChase;
@@ -5624,7 +5652,8 @@
         this.lastMoveAngle = moveAngle;
       }
 
-      const breath = Math.sin(now * 0.0042) * (IMMERSION.BREATH_SWAY * this.terrorBlend + IMMERSION.CHASE_SWAY * this.chaseBlend);
+      const cheapRenderer = adaptivePerformance.mode !== "normal" || LOW_POWER_MODE;
+      const breath = cheapRenderer ? 0 : Math.sin(now * 0.0042) * (IMMERSION.BREATH_SWAY * this.terrorBlend + IMMERSION.CHASE_SWAY * this.chaseBlend);
       const desiredX = Math.cos((localData?.angle ?? item.container.rotation) || 0) * breath;
       const desiredY = Math.sin((localData?.angle ?? item.container.rotation) || 0) * breath;
       const dtClamped = clamp(dt || 0, 0, 0.05);
@@ -5829,8 +5858,9 @@
         + Math.sin(this.lightFlickerPhase * 2.37) * LIGHTING.FLICKER_STRENGTH * 0.06;
 
       const targetLength = length * flicker;
-      const smooth = dampAlpha(LIGHTING.CONE_VISUAL_SMOOTHING, dt || 1 / 60);
-      if (!this.visionConeVisual) {
+      const directCone = adaptivePerformance.mode !== "normal" || performanceValue("visionConeDirect", 0) > 0;
+      const smooth = directCone ? 1 : dampAlpha(LIGHTING.CONE_VISUAL_SMOOTHING, dt || 1 / 60);
+      if (!this.visionConeVisual || directCone) {
         this.visionConeVisual = {
           x: targetX,
           y: targetY,

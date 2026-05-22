@@ -32,15 +32,16 @@ const GAMEPLAY_CONFIG = {
   // Client-only adaptive performance mode. If the browser drops under lowFps for a few samples,
   // Phaser automatically reduces particles, redraw rates, cone effects, shockwaves, and heavy Void FX.
   performance: {
-    // Adaptive renderer thresholds. Ultra is intentionally entered at ~45 FPS now,
-    // because waiting until 24 FPS means the match already feels awful on old PCs.
-    lowFps: 52,
+    // Adaptive renderer thresholds. If the browser cannot hold a clean 60 FPS,
+    // drop into the cheap renderer and stay there for the match. Bouncing back
+    // to normal mid-chase is how frame pacing becomes a flipbook with feelings.
+    lowFps: 60,
     ultraFps: 45,
-    recoverFps: 57,
-    ultraRecoverFps: 47,
-    lowSamples: 3,
+    recoverFps: 62,
+    ultraRecoverFps: 48,
+    lowSamples: 2,
     ultraSamples: 2,
-    recoverSamples: 18,
+    recoverSamples: 9999,
     minModeSeconds: 9,
     // Cap high-DPI laptops. Rendering 2x pixels for a browser game is how GPUs go to therapy.
     maxDevicePixelRatio: 1,
@@ -56,14 +57,14 @@ const GAMEPLAY_CONFIG = {
     lowPowerMinZoom: 0.42,
 
     terrorZoom: 0.04,
-    lowPowerTerrorZoom: 0.025,
+    lowPowerTerrorZoom: 0.012,
     chaseZoom: 0.45,
-    lowPowerChaseZoom: 0.42,
+    lowPowerChaseZoom: 0.18,
 
     voidM1HoldZoom: 0.085,
-    lowPowerVoidM1HoldZoom: 0.045,
+    lowPowerVoidM1HoldZoom: 0.018,
     voidM1PulseZoom: 0.065,
-    lowPowerVoidM1PulseZoom: 0.035,
+    lowPowerVoidM1PulseZoom: 0.012,
 
     riftDepositZoom: 0.12,
     lowPowerRiftDepositZoom: 0.055,
@@ -231,7 +232,8 @@ const GAMEPLAY_CONFIG = {
     holdSeconds: 3,
     closeRevealRadius: 120,
     musicLayer1Volume: 0.12,
-    musicLayer2MaxVolume: 0.30,
+    // Layer 2 is intentionally skipped. Chase goes straight from ambient layer_1 to layer_3.
+    musicLayer2MaxVolume: 0,
     musicLayer3Volume: 0.30
   },
 
