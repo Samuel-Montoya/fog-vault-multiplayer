@@ -18,9 +18,149 @@
     (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4)
     || window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches
   );
-  const RENDER_RESOLUTION = Math.max(1, Math.min(window.devicePixelRatio || 1, LOW_POWER_MODE ? 1 : 1.5));
+
+  const PERFORMANCE_CONFIG = GAMEPLAY_CONFIG.performance || {};
+  const ADAPTIVE_PERFORMANCE_CONFIG = {
+    lowFps: cfgNumber(PERFORMANCE_CONFIG.lowFps, 30),
+    ultraFps: cfgNumber(PERFORMANCE_CONFIG.ultraFps, 24),
+    recoverFps: cfgNumber(PERFORMANCE_CONFIG.recoverFps, 50),
+    lowSamples: Math.max(2, Math.round(cfgNumber(PERFORMANCE_CONFIG.lowSamples, 4))),
+    ultraSamples: Math.max(2, Math.round(cfgNumber(PERFORMANCE_CONFIG.ultraSamples, 3))),
+    recoverSamples: Math.max(8, Math.round(cfgNumber(PERFORMANCE_CONFIG.recoverSamples, 18))),
+    minModeSeconds: cfgNumber(PERFORMANCE_CONFIG.minModeSeconds, 9),
+    toastCooldownMs: cfgNumber(PERFORMANCE_CONFIG.toastCooldownMs, 12000)
+  };
+
+  const ADAPTIVE_PERFORMANCE_PROFILES = {
+    normal: {
+      label: "NORMAL",
+      targetFps: 60,
+      dynamicWorldFps: 7,
+      generatorFps: 6,
+      scratchDrawFps: 8,
+      lightingFps: 60,
+      wallVisionFps: 22,
+      actorVisionFps: 60,
+      particleFps: 60,
+      dotFadeFps: 18,
+      maxParticles: 58,
+      maxShockwaves: 6,
+      particleScale: 1,
+      shockwaveScale: 1,
+      lightingAlphaScale: 1,
+      coneSegments: 12,
+      voidRushGapMs: 72,
+      voidRushCount: 2,
+      voidRushAlpha: 0.42,
+      voidRedrawMs: 95,
+      survivorRedrawMs: 0,
+      shakeScale: 1
+    },
+    low: {
+      label: "LOW",
+      targetFps: 45,
+      dynamicWorldFps: 4,
+      generatorFps: 4,
+      scratchDrawFps: 5,
+      lightingFps: 24,
+      wallVisionFps: 11,
+      actorVisionFps: 24,
+      particleFps: 28,
+      dotFadeFps: 10,
+      maxParticles: 24,
+      maxShockwaves: 3,
+      particleScale: 0.48,
+      shockwaveScale: 0.55,
+      lightingAlphaScale: 0.72,
+      coneSegments: 8,
+      voidRushGapMs: 180,
+      voidRushCount: 1,
+      voidRushAlpha: 0.22,
+      voidRedrawMs: 170,
+      survivorRedrawMs: 90,
+      shakeScale: 0.62
+    },
+    ultra: {
+      label: "ULTRA LOW",
+      targetFps: 30,
+      dynamicWorldFps: 2,
+      generatorFps: 2.5,
+      scratchDrawFps: 3,
+      lightingFps: 15,
+      wallVisionFps: 6,
+      actorVisionFps: 12,
+      particleFps: 15,
+      dotFadeFps: 6,
+      maxParticles: 8,
+      maxShockwaves: 1,
+      particleScale: 0.18,
+      shockwaveScale: 0.25,
+      lightingAlphaScale: 0.46,
+      coneSegments: 5,
+      voidRushGapMs: 999999,
+      voidRushCount: 0,
+      voidRushAlpha: 0,
+      voidRedrawMs: 260,
+      survivorRedrawMs: 170,
+      shakeScale: 0.30
+    }
+  };
+
+  const adaptivePerformance = {
+    mode: LOW_POWER_MODE ? "low" : "normal",
+    fpsAverage: 60,
+    lowSamples: 0,
+    ultraSamples: 0,
+    recoverSamples: 0,
+    lockedUntil: 0,
+    lastToastAt: 0
+  };
+
+  function performanceProfile() {
+    return ADAPTIVE_PERFORMANCE_PROFILES[adaptivePerformance.mode] || ADAPTIVE_PERFORMANCE_PROFILES.normal;
+  }
+
+  function performanceValue(key, fallback) {
+    const value = performanceProfile()[key];
+    return Number.isFinite(Number(value)) ? Number(value) : fallback;
+  }
+
+  function setAdaptivePerformanceMode(mode, reason = "") {
+    const next = ADAPTIVE_PERFORMANCE_PROFILES[mode] ? mode : "normal";
+    if (LOW_POWER_MODE && next === "normal") return;
+    if (adaptivePerformance.mode === next) return;
+
+    adaptivePerformance.mode = next;
+    adaptivePerformance.lowSamples = 0;
+    adaptivePerformance.ultraSamples = 0;
+    adaptivePerformance.recoverSamples = 0;
+    adaptivePerformance.lockedUntil = performance.now() + ADAPTIVE_PERFORMANCE_CONFIG.minModeSeconds * 1000;
+
+    const root = document.documentElement;
+    root.classList.toggle("low-power", LOW_POWER_MODE || next !== "normal");
+    root.classList.toggle("adaptive-low-power", next !== "normal");
+    root.classList.toggle("ultra-low-power", next === "ultra");
+    root.dataset.performanceMode = next;
+
+    phaserScene?.applyAdaptivePerformanceMode?.(next, reason);
+  }
+
+  function maybeToastPerformanceMode(mode) {
+    if (mode === "normal") return;
+    const now = performance.now();
+    if (now - adaptivePerformance.lastToastAt < ADAPTIVE_PERFORMANCE_CONFIG.toastCooldownMs) return;
+    adaptivePerformance.lastToastAt = now;
+    const label = mode === "ultra" ? "Ultra low performance mode" : "Low performance mode";
+    toast(`${label} enabled to keep the game smooth.`, 2400);
+  }
+
+  const initialRenderCap = LOW_POWER_MODE ? 1 : cfgNumber(PERFORMANCE_CONFIG.maxDevicePixelRatio, 1.25);
+  const RENDER_RESOLUTION = Math.max(1, Math.min(window.devicePixelRatio || 1, initialRenderCap));
 
   document.documentElement.classList.toggle("low-power", LOW_POWER_MODE);
+  document.documentElement.classList.toggle("adaptive-low-power", adaptivePerformance.mode !== "normal");
+  document.documentElement.classList.toggle("ultra-low-power", adaptivePerformance.mode === "ultra");
+  document.documentElement.dataset.performanceMode = adaptivePerformance.mode;
 
   // Minimal vision knobs. The map itself is dark; there is no simulated fog RenderTexture.
   // Instead, gameplay objects fade in when they are inside the local POV cone / near bubble,
@@ -2212,6 +2352,10 @@
       this.lastSnapshotAt = 0;
       this.renderedMapKey = "";
       this.wallVisionTimer = 0;
+      this.actorVisionTimer = 0;
+      this.lightingRedrawTimer = 0;
+      this.particleRedrawTimer = 0;
+      this.activePerformanceMode = adaptivePerformance.mode;
       this.chaseBlend = 0;
       this.terrorBlend = 0;
       this.heartbeatTimer = 0;
@@ -4215,21 +4359,22 @@
     emitVoidRushTrail(item, data) {
       if (!item || !data || data.role !== "killer" || !(data.voidSpeedBoost > 0)) return;
       const now = performance.now();
-      const gap = LOW_POWER_MODE ? 130 : 72;
+      const gap = performanceValue("voidRushGapMs", LOW_POWER_MODE ? 130 : 72);
+      const count = Math.max(0, Math.floor(performanceValue("voidRushCount", LOW_POWER_MODE ? 1 : 2)));
+      if (count <= 0) return;
       if (item.lastVoidRushBubbleAt && now - item.lastVoidRushBubbleAt < gap) return;
       item.lastVoidRushBubbleAt = now;
 
       const angle = Number.isFinite(data.angle) ? data.angle : (item.current?.angle || 0);
       const baseX = item.current?.x ?? data.x ?? 0;
       const baseY = item.current?.y ?? data.y ?? 0;
-      const count = LOW_POWER_MODE ? 1 : 2;
       for (let i = 0; i < count; i += 1) {
         const side = (Math.random() - 0.5) * 22;
         const back = 22 + Math.random() * 18 + i * 7;
         const x = baseX - Math.cos(angle) * back + Math.cos(angle + Math.PI / 2) * side;
         const y = baseY - Math.sin(angle) * back + Math.sin(angle + Math.PI / 2) * side;
         const radius = 3.5 + Math.random() * 4.5;
-        const bubble = this.add.circle(x, y, radius, 0xf8fafc, LOW_POWER_MODE ? 0.30 : 0.42)
+        const bubble = this.add.circle(x, y, radius, 0xf8fafc, performanceValue("voidRushAlpha", LOW_POWER_MODE ? 0.30 : 0.42))
           .setDepth(10)
           .setBlendMode(Phaser.BlendModes.SCREEN);
         this.tweens.add({
@@ -4246,6 +4391,7 @@
     }
 
     styleActor(item, data) {
+      const now = performance.now();
       if (data.role === "killer") {
         if (item.healAura) {
           item.healAura.clear();
@@ -4253,9 +4399,8 @@
         }
         const charging = data.attackState === "charging";
         const attacking = data.attacking || data.attackState === "quick" || data.attackState === "lunge";
-        const now = performance.now();
         const voidStateKey = `${data.attackState || "idle"}:${data.attacking ? 1 : 0}:${data.recovery > 0 ? 1 : 0}:${data.voidStun > 0 ? 1 : 0}:${data.voidSpeedBoost > 0 ? 1 : 0}`;
-        const redrawEvery = LOW_POWER_MODE ? 150 : 95;
+        const redrawEvery = performanceValue("voidRedrawMs", LOW_POWER_MODE ? 150 : 95);
         // The Void still animates, but not by redrawing 20+ circles every single frame.
         // Position updates remain smooth because the container moves independently.
         if (item.lastVoidStateKey !== voidStateKey || !item.lastVoidDrawAt || now - item.lastVoidDrawAt >= redrawEvery) {
@@ -4276,13 +4421,24 @@
         const showProgress = progress > 0 && !data.dead && !data.escaped;
         const progressColor = data.hooked ? 0x75d5ff : downedHealProgress ? 0x8dff9a : hookOrExecuteProgress ? 0xff4040 : data.downed ? 0xffb36b : 0x8dff9a;
         const outlineColor = showProgress ? progressColor : data.invuln > 0 ? 0xffffff : data.hooked ? 0xffc06a : skin.outline;
-        this.drawActorShape(item, data, data.dead ? 0x555555 : color, disabled ? 0.45 : 1, outlineColor, showProgress || data.invuln > 0 ? 1 : 0.82);
-        this.drawHealingAura(item, data);
-        if (data.downed && !disabled && !data.hooked && (item.visionAlpha ?? 0) > ACTOR_VISION.MIN_VISIBLE_ALPHA) {
-          this.drawDownedSurvivorPulse(item, data);
-        }
-        if (data.hooked && !disabled && (item.visionAlpha ?? 0) > ACTOR_VISION.MIN_VISIBLE_ALPHA) {
-          this.drawHookedSurvivorPulse(item, data);
+        const progressStep = Math.round(progress * (adaptivePerformance.mode === "ultra" ? 10 : 24));
+        const survivorStateKey = `${data.skin || ""}:${data.health}:${data.injured ? 1 : 0}:${data.downed ? 1 : 0}:${data.hooked ? 1 : 0}:${data.dead ? 1 : 0}:${data.escaped ? 1 : 0}:${data.invuln > 0 ? 1 : 0}:${progressStep}:${Math.round((item.dotDisplay || 0) * 2)}`;
+        const survivorRedrawEvery = performanceValue("survivorRedrawMs", LOW_POWER_MODE ? 85 : 0);
+        const shouldRedrawSurvivor = item.lastSurvivorStateKey !== survivorStateKey
+          || !item.lastSurvivorDrawAt
+          || survivorRedrawEvery <= 0
+          || now - item.lastSurvivorDrawAt >= survivorRedrawEvery;
+        if (shouldRedrawSurvivor) {
+          item.lastSurvivorStateKey = survivorStateKey;
+          item.lastSurvivorDrawAt = now;
+          this.drawActorShape(item, data, data.dead ? 0x555555 : color, disabled ? 0.45 : 1, outlineColor, showProgress || data.invuln > 0 ? 1 : 0.82);
+          this.drawHealingAura(item, data);
+          if (data.downed && !disabled && !data.hooked && (item.visionAlpha ?? 0) > ACTOR_VISION.MIN_VISIBLE_ALPHA) {
+            this.drawDownedSurvivorPulse(item, data);
+          }
+          if (data.hooked && !disabled && (item.visionAlpha ?? 0) > ACTOR_VISION.MIN_VISIBLE_ALPHA) {
+            this.drawHookedSurvivorPulse(item, data);
+          }
         }
         item.facing.setFillStyle(0xffffff, disabled || data.hooked ? 0.15 : 0.42);
         if (item.healBarBg && item.healBar) {
@@ -4306,7 +4462,7 @@
           const localActor = this.actors.get(myId);
           if (event.actorId === myId && localActor?.data?.role === "killer") {
             this.killerM1Pulse = 1;
-            this.cameras.main.shake(LOW_POWER_MODE ? 48 : 64, LOW_POWER_MODE ? 0.00012 : 0.00020);
+            this.cameras.main.shake(LOW_POWER_MODE ? 48 : 64, (LOW_POWER_MODE ? 0.00012 : 0.00020) * performanceValue("shakeScale", 1));
           }
         }
         if (event.type === "hooked") {
@@ -4359,7 +4515,7 @@
             const impactStrength = shouldShakeForImpact
               ? (heavy ? (LOW_POWER_MODE ? 0.0058 : 0.0074) : (LOW_POWER_MODE ? 0.0038 : 0.0052))
               : (heavy ? 0.0055 : 0.0032);
-            this.cameras.main.shake(impactDuration, impactStrength);
+            this.cameras.main.shake(impactDuration, impactStrength * performanceValue("shakeScale", 1));
             if (shouldShakeForImpact) triggerSurvivorHitImpact(heavy);
           }
         }
@@ -4384,11 +4540,11 @@
           this.addShockwave(event.palletX || event.x, event.palletY || event.y, 0xff5268, 0.54, LOW_POWER_MODE ? 84 : 125);
           const localPalletStunner = event.actorId === myId || event.survivorId === myId;
           if (event.killerId === myId) {
-            this.cameras.main.shake(LOW_POWER_MODE ? 170 : 230, LOW_POWER_MODE ? 0.0044 : 0.0068);
+            this.cameras.main.shake(LOW_POWER_MODE ? 170 : 230, (LOW_POWER_MODE ? 0.0044 : 0.0068) * performanceValue("shakeScale", 1));
           } else if (localPalletStunner) {
-            this.cameras.main.shake(LOW_POWER_MODE ? 115 : 155, LOW_POWER_MODE ? 0.0024 : 0.0038);
+            this.cameras.main.shake(LOW_POWER_MODE ? 115 : 155, (LOW_POWER_MODE ? 0.0024 : 0.0038) * performanceValue("shakeScale", 1));
           } else if (distanceToLocalEvent(event) <= 260) {
-            this.cameras.main.shake(LOW_POWER_MODE ? 70 : 95, LOW_POWER_MODE ? 0.0008 : 0.0014);
+            this.cameras.main.shake(LOW_POWER_MODE ? 70 : 95, (LOW_POWER_MODE ? 0.0008 : 0.0014) * performanceValue("shakeScale", 1));
           }
         }
         if (event.type === "voidAbility") {
@@ -4574,18 +4730,26 @@
       this.burst(x, y, secondary, introLocked ? (LOW_POWER_MODE ? 6 : 10) : (LOW_POWER_MODE ? 12 : 24), introLocked ? 80 : (LOW_POWER_MODE ? 95 : 145));
 
       if (!introLocked) {
-        this.cameras.main.shake(LOW_POWER_MODE ? 80 : 120, LOW_POWER_MODE ? 0.0009 : 0.0015);
+        this.cameras.main.shake(LOW_POWER_MODE ? 80 : 120, (LOW_POWER_MODE ? 0.0009 : 0.0015) * performanceValue("shakeScale", 1));
       }
     }
 
     addShockwave(x, y, color = 0xffffff, alpha = 0.62, maxRadius = 120) {
-      this.shockwaves.push({ x, y, color, alpha, maxRadius, life: 0, ttl: 0.72, radius: 8 });
-      if (this.shockwaves.length > PERFORMANCE.MAX_SHOCKWAVES) this.shockwaves.splice(0, this.shockwaves.length - PERFORMANCE.MAX_SHOCKWAVES);
+      const profile = performanceProfile();
+      const scaledAlpha = alpha * performanceValue("shockwaveScale", 1);
+      const scaledRadius = maxRadius * clamp(performanceValue("shockwaveScale", 1), 0.25, 1);
+      if (scaledAlpha <= 0.04 || performanceValue("maxShockwaves", PERFORMANCE.MAX_SHOCKWAVES) <= 0) return;
+      this.shockwaves.push({ x, y, color, alpha: scaledAlpha, maxRadius: scaledRadius, life: 0, ttl: adaptivePerformance.mode === "ultra" ? 0.42 : 0.72, radius: 8 });
+      const max = Math.max(0, Math.floor(profile.maxShockwaves ?? PERFORMANCE.MAX_SHOCKWAVES));
+      if (this.shockwaves.length > max) this.shockwaves.splice(0, this.shockwaves.length - max);
     }
 
     burst(x, y, color, count, speed) {
-      const room = Math.max(0, PERFORMANCE.MAX_PARTICLES - this.particles.length);
-      const actualCount = Math.min(count, room);
+      const profile = performanceProfile();
+      const maxParticles = Math.max(0, Math.floor(profile.maxParticles ?? PERFORMANCE.MAX_PARTICLES));
+      const room = Math.max(0, maxParticles - this.particles.length);
+      const scaledCount = Math.max(0, Math.floor(count * performanceValue("particleScale", 1)));
+      const actualCount = Math.min(scaledCount, room);
       for (let i = 0; i < actualCount; i++) {
         const a = Math.random() * Math.PI * 2;
         const v = speed * (0.35 + Math.random() * 0.65);
@@ -4604,15 +4768,89 @@
 
     updateFpsCounter(dt) {
       const node = ensureFpsCounter();
-      if (!node) return;
       this.fpsAccum = (this.fpsAccum || 0) + dt;
       this.fpsFrames = (this.fpsFrames || 0) + 1;
-      if (this.fpsAccum < 0.35) return;
+      if (this.fpsAccum < 0.45) return;
+
       const fps = Math.max(0, Math.round(this.fpsFrames / Math.max(0.001, this.fpsAccum)));
-      node.textContent = String(fps);
-      node.style.color = fps >= 55 ? "#bcffb8" : fps >= 35 ? "#fff3b0" : "#ff9a9a";
+      adaptivePerformance.fpsAverage = adaptivePerformance.fpsAverage
+        ? adaptivePerformance.fpsAverage * 0.72 + fps * 0.28
+        : fps;
+
+      this.updateAdaptivePerformance(fps, adaptivePerformance.fpsAverage);
+
+      if (node) {
+        const mode = adaptivePerformance.mode;
+        const suffix = mode === "normal" ? "" : ` ${performanceProfile().label}`;
+        node.textContent = `${fps}${suffix}`;
+        node.style.color = fps >= 55 ? "#bcffb8" : fps >= 35 ? "#fff3b0" : "#ff9a9a";
+      }
+
       this.fpsAccum = 0;
       this.fpsFrames = 0;
+    }
+
+    updateAdaptivePerformance(fps, avgFps) {
+      const now = performance.now();
+      const cfg = ADAPTIVE_PERFORMANCE_CONFIG;
+      const mode = adaptivePerformance.mode;
+      const hotFps = Math.min(fps, avgFps);
+
+      if (hotFps < cfg.ultraFps) {
+        adaptivePerformance.ultraSamples += 1;
+        adaptivePerformance.lowSamples += 1;
+      } else if (hotFps < cfg.lowFps) {
+        adaptivePerformance.lowSamples += 1;
+        adaptivePerformance.ultraSamples = Math.max(0, adaptivePerformance.ultraSamples - 1);
+      } else {
+        adaptivePerformance.lowSamples = Math.max(0, adaptivePerformance.lowSamples - 1);
+        adaptivePerformance.ultraSamples = Math.max(0, adaptivePerformance.ultraSamples - 1);
+      }
+
+      if (fps >= cfg.recoverFps && avgFps >= cfg.recoverFps - 2) {
+        adaptivePerformance.recoverSamples += 1;
+      } else {
+        adaptivePerformance.recoverSamples = 0;
+      }
+
+      if (adaptivePerformance.ultraSamples >= cfg.ultraSamples && mode !== "ultra") {
+        setAdaptivePerformanceMode("ultra", `fps ${fps}`);
+        maybeToastPerformanceMode("ultra");
+        return;
+      }
+
+      if (adaptivePerformance.lowSamples >= cfg.lowSamples && mode === "normal") {
+        setAdaptivePerformanceMode("low", `fps ${fps}`);
+        maybeToastPerformanceMode("low");
+        return;
+      }
+
+      if (mode === "low" && adaptivePerformance.ultraSamples >= cfg.ultraSamples + 1) {
+        setAdaptivePerformanceMode("ultra", `fps ${fps}`);
+        maybeToastPerformanceMode("ultra");
+        return;
+      }
+
+      if (!LOW_POWER_MODE && mode !== "normal" && now > adaptivePerformance.lockedUntil && adaptivePerformance.recoverSamples >= cfg.recoverSamples) {
+        setAdaptivePerformanceMode("normal", `recovered ${fps}`);
+      }
+    }
+
+    applyAdaptivePerformanceMode(mode) {
+      this.activePerformanceMode = mode;
+      const profile = performanceProfile();
+      if (this.game?.loop) {
+        if (Number.isFinite(profile.targetFps)) this.game.loop.targetFps = profile.targetFps;
+        if (Number.isFinite(profile.targetFps)) this.game.loop.minFps = Math.max(18, Math.min(30, profile.targetFps - 10));
+      }
+      if (this.particles.length > profile.maxParticles) this.particles.splice(0, this.particles.length - profile.maxParticles);
+      if (this.shockwaves.length > profile.maxShockwaves) this.shockwaves.splice(0, this.shockwaves.length - profile.maxShockwaves);
+      this.needsDynamicRedraw = true;
+      this.needsGeneratorRedraw = true;
+      this.needsScratchRedraw = true;
+      this.wallVisionTimer = 999;
+      this.actorVisionTimer = 999;
+      this.lightingRedrawTimer = 999;
     }
 
     update(time, deltaMs) {
@@ -4631,7 +4869,7 @@
       this.maybeDrawDynamicWorld(dt);
       this.maybeDrawGeneratorLayer(dt);
       this.maybeUpdateScratchGraphics(dt);
-      this.drawLighting(dt);
+      this.maybeDrawLighting(dt);
       this.updateHookIndicators();
       this.drawChargeIndicators(dt);
       this.drawSwipes(dt);
@@ -4908,16 +5146,23 @@
       const minAlpha = ACTOR_VISION.MIN_VISIBLE_ALPHA;
       const nameAlpha = ACTOR_VISION.NAME_CHAT_ALPHA;
 
+      this.actorVisionTimer = (this.actorVisionTimer || 0) + dt;
+      const actorVisionInterval = 1 / Math.max(1, performanceValue("actorVisionFps", 60));
+      const shouldRecomputeVision = this.actorVisionTimer >= actorVisionInterval;
+      if (shouldRecomputeVision) this.actorVisionTimer = 0;
+
       for (const [id, item] of this.actors.entries()) {
         const data = item.data || {};
-        let target = 0;
+        let target = item.visionTargetAlpha ?? 0;
 
         if (id === myId) {
           target = this.isSpectating() ? 0.32 : 1;
         } else if (item.forceFullVision) {
           target = 1;
-        } else if (item.serverVisible) {
-          target = subject ? this.computePointVisionAlpha(item.current.x, item.current.y, subject) : 1;
+        } else if (shouldRecomputeVision) {
+          target = item.serverVisible
+            ? (subject ? this.computePointVisionAlpha(item.current.x, item.current.y, subject) : 1)
+            : 0;
         }
 
         item.visionTargetAlpha = target;
@@ -4997,7 +5242,7 @@
 
       const subjectVaulting = !!subject?.data?.vaulting;
       this.wallVisionTimer = (this.wallVisionTimer || 0) + dt;
-      const shouldRecompute = subjectVaulting || this.wallVisionTimer >= 1 / PERFORMANCE.WALL_VISION_FPS;
+      const shouldRecompute = subjectVaulting || this.wallVisionTimer >= 1 / Math.max(1, performanceValue("wallVisionFps", PERFORMANCE.WALL_VISION_FPS));
       if (shouldRecompute) this.wallVisionTimer = 0;
 
       const fadeInRate = WALL_VISION.FADE_IN_PER_SECOND;
@@ -5138,12 +5383,12 @@
         this.heartbeatTimer = 0;
         this.heartbeatPulse = 1;
         const intensity = IMMERSION.HEARTBEAT_SHAKE_BASE * this.terrorBlend + IMMERSION.HEARTBEAT_SHAKE_CHASE * this.chaseBlend;
-        if (intensity > 0.0005) this.cameras.main.shake(90, intensity);
+        if (intensity > 0.0005) this.cameras.main.shake(90, intensity * performanceValue("shakeScale", 1));
       }
 
       const rawChase = levels.chase > 0;
       if (rawChase && !this.lastRawChase) {
-        this.cameras.main.shake(IMMERSION.CHASE_START_SHAKE_DURATION, IMMERSION.CHASE_START_SHAKE_INTENSITY);
+        this.cameras.main.shake(IMMERSION.CHASE_START_SHAKE_DURATION, IMMERSION.CHASE_START_SHAKE_INTENSITY * performanceValue("shakeScale", 1));
       }
       this.lastRawChase = rawChase;
 
@@ -5367,7 +5612,7 @@
       const animatingHooks = (currentSnapshot?.map?.hooks || this.map?.hooks || []).some((hook) => hook && hook.active !== false);
       const animatingGates = (currentSnapshot?.map?.gates || this.map?.gates || []).some((gate) => gate && gate.open);
       const animated = animatingDots || animatingHooks || animatingGates;
-      const interval = 1 / (animatingDots ? DOT_FADE_VISUAL.FPS : (animatingHooks || animatingGates) ? 12 : PERFORMANCE.DYNAMIC_WORLD_FPS);
+      const interval = 1 / (animatingDots ? performanceValue("dotFadeFps", DOT_FADE_VISUAL.FPS) : (animatingHooks || animatingGates) ? Math.min(12, performanceValue("dynamicWorldFps", PERFORMANCE.DYNAMIC_WORLD_FPS) + 3) : performanceValue("dynamicWorldFps", PERFORMANCE.DYNAMIC_WORLD_FPS));
       if (!this.needsDynamicRedraw && !animated && this.dynamicRedrawTimer < interval) return;
       if (this.dynamicRedrawTimer < interval) return;
       const key = this.getDynamicWorldKey();
@@ -5450,7 +5695,7 @@
       const depositAnimating = this.updateGeneratorDepositVisuals(dt);
       const riftVisibilityAnimating = this.updateGeneratorVisionVisuals(dt);
       this.generatorRedrawTimer += dt;
-      const interval = 1 / PERFORMANCE.GENERATOR_FPS;
+      const interval = 1 / Math.max(1, performanceValue("generatorFps", PERFORMANCE.GENERATOR_FPS));
 
       if (depositAnimating || riftVisibilityAnimating) {
         this.drawGeneratorLayer();
@@ -5470,7 +5715,7 @@
 
     maybeUpdateScratchGraphics(dt) {
       this.scratchRedrawTimer += dt;
-      if (!this.needsScratchRedraw || this.scratchRedrawTimer < 1 / PERFORMANCE.SCRATCH_DRAW_FPS) return;
+      if (!this.needsScratchRedraw || this.scratchRedrawTimer < 1 / Math.max(1, performanceValue("scratchDrawFps", PERFORMANCE.SCRATCH_DRAW_FPS))) return;
       this.updateScratchGraphics(this.pendingScratchMarks || []);
       this.needsScratchRedraw = false;
       this.scratchRedrawTimer = 0;
@@ -5491,6 +5736,15 @@
       }
       g.closePath();
       g.fillPath();
+    }
+
+    maybeDrawLighting(dt = 0) {
+      this.lightingRedrawTimer = (this.lightingRedrawTimer || 0) + dt;
+      const interval = 1 / Math.max(1, performanceValue("lightingFps", PERFORMANCE.LIGHTING_FPS));
+      if (this.visionConeVisual && this.lightingRedrawTimer < interval) return;
+      const stepDt = this.lightingRedrawTimer || dt;
+      this.lightingRedrawTimer = 0;
+      this.drawLighting(stepDt);
     }
 
     drawLighting(dt = 0) {
@@ -5545,8 +5799,9 @@
 
       const lightColor = role === "killer" ? 0x9f5cff : 0xa7dcff;
       const coreColor = role === "killer" ? 0x5b21b6 : 0x38bdf8;
-      const coneAlpha = role === "killer" ? (LOW_POWER_MODE ? 0.036 : 0.052) : (LOW_POWER_MODE ? 0.044 : 0.066);
-      const nearAlpha = role === "killer" ? 0.036 : 0.048;
+      const alphaScale = performanceValue("lightingAlphaScale", 1);
+      const coneAlpha = (role === "killer" ? (LOW_POWER_MODE ? 0.036 : 0.052) : (LOW_POWER_MODE ? 0.044 : 0.066)) * alphaScale;
+      const nearAlpha = (role === "killer" ? 0.036 : 0.048) * alphaScale;
 
       // Near bubble keeps close corners readable. Single fill only for cheaper redraws.
       g.fillStyle(coreColor, nearAlpha);
@@ -5554,7 +5809,7 @@
 
       // One cone only. The previous feather pass looked smoother, but doubled the Graphics work
       // during movement/zoom and caused noticeable hitches on weaker browsers.
-      const segments = LIGHTING.CONE_SEGMENTS;
+      const segments = Math.max(4, Math.floor(performanceValue("coneSegments", LIGHTING.CONE_SEGMENTS)));
       this.drawVisionConeGraphic(g, vx, vy, vfacing, vlength, vangle, lightColor, coneAlpha, segments);
     }
 
@@ -5669,10 +5924,26 @@
 
     updateParticles(dt) {
       const g = this.particleGraphics;
+      if (!g) return;
+      const hasFx = this.shockwaves.length > 0 || this.particles.length > 0;
+      if (!hasFx) {
+        if (this.particleLayerDirty) {
+          g.clear();
+          this.particleLayerDirty = false;
+        }
+        return;
+      }
+
+      this.particleRedrawTimer = (this.particleRedrawTimer || 0) + dt;
+      const interval = 1 / Math.max(1, performanceValue("particleFps", 60));
+      if (this.particleRedrawTimer < interval) return;
+      const stepDt = this.particleRedrawTimer;
+      this.particleRedrawTimer = 0;
+      this.particleLayerDirty = true;
       g.clear();
       for (let i = this.shockwaves.length - 1; i >= 0; i--) {
         const wave = this.shockwaves[i];
-        wave.life += dt;
+        wave.life += stepDt;
         if (wave.life >= wave.ttl) {
           this.shockwaves.splice(i, 1);
           continue;
@@ -5686,13 +5957,13 @@
       }
       for (let i = this.particles.length - 1; i >= 0; i--) {
         const p = this.particles[i];
-        p.life += dt;
+        p.life += stepDt;
         if (p.life >= p.ttl) {
           this.particles.splice(i, 1);
           continue;
         }
-        p.x += p.vx * dt;
-        p.y += p.vy * dt;
+        p.x += p.vx * stepDt;
+        p.y += p.vy * stepDt;
         p.vx *= 0.9;
         p.vy *= 0.9;
         const alpha = 1 - p.life / p.ttl;
@@ -5734,7 +6005,7 @@
         clearBeforeRender: true
       },
       fps: {
-        target: 60,
+        target: performanceValue("targetFps", LOW_POWER_MODE ? 45 : 60),
         min: LOW_POWER_MODE ? 24 : 30,
         forceSetTimeOut: false
       },

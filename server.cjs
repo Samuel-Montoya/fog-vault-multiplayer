@@ -404,6 +404,13 @@ const BOT_SURVIVOR_OBJECTIVE_COMMIT_SECONDS = Math.max(1.75, cfgNumber(GAMEPLAY_
 const BOT_SURVIVOR_MIN_DECISION_LOCK_SECONDS = Math.max(1.2, cfgNumber(GAMEPLAY_CONFIG.bots?.survivorMinDecisionLockSeconds, 1.55));
 const BOT_SURVIVOR_FAR_OBSERVED_DISTANCE = Math.max(BOT_SURVIVOR_PANIC_RADIUS * 1.55, cfgNumber(GAMEPLAY_CONFIG.bots?.survivorFarObservedDistance, 470));
 const BOT_SURVIVOR_TASK_REACHED_DISTANCE = cfgNumber(GAMEPLAY_CONFIG.bots?.survivorTaskReachedDistance, 44);
+// Runner bots need a separate "oh no, The Void is basically touching me" mode.
+// Treating this like normal flee scoring makes them compare almost-equal escape tiles and
+// jitter in place while a stationary killer watches. Tiny ballet of failure.
+const BOT_SURVIVOR_CONTACT_RADIUS = Math.max(150, cfgNumber(GAMEPLAY_CONFIG.bots?.survivorContactRadius, 178));
+const BOT_SURVIVOR_FLEE_PROGRESS_SECONDS = cfgNumber(GAMEPLAY_CONFIG.bots?.survivorFleeProgressSeconds, 0.62);
+const BOT_SURVIVOR_FLEE_PROGRESS_MIN_GAIN = cfgNumber(GAMEPLAY_CONFIG.bots?.survivorFleeProgressMinGain, 24);
+const BOT_SURVIVOR_EMERGENCY_FLEE_SECONDS = cfgNumber(GAMEPLAY_CONFIG.bots?.survivorEmergencyFleeSeconds, 1.55);
 
 const CHAT_MESSAGE_DURATION = 3.0;
 const CHAT_WHEEL_MESSAGES = RIFTRUNNER_CHATS.chatWheel || {
@@ -4952,6 +4959,135 @@ function botFindBestLoopEscape(game, survivor, killer) {
   return best && best.score > 80 ? best : null;
 }
 
+
+function botRunnerVectorAwayFromKiller(survivor, killer) {
+  let dx = survivor.x - killer.x;
+  let dy = survivor.y - killer.y;
+  let len = Math.hypot(dx, dy);
+  if (len < 0.001) {
+    const angle = Number.isFinite(survivor.angle) ? survivor.angle : Math.random() * Math.PI * 2;
+    dx = Math.cos(angle);
+    dy = Math.sin(angle);
+    len = 1;
+  }
+  return { x: dx / len, y: dy / len };
+}
+
+function botRunnerEmergencyFleePoint(game, survivor, killer) {
+  if (!game || !survivor || !killer) return null;
+
+  const away = botRunnerVectorAwayFromKiller(survivor, killer);
+  const tangent = { x: -away.y, y: away.x };
+  const currentKillerDistance = dist(survivor.x, survivor.y, killer.x, killer.y);
+  const radii = [
+    game.map.tile * 3.2,
+    game.map.tile * 4.7,
+    game.map.tile * 6.2,
+    game.map.tile * 8.0
+  ];
+  const offsets = [0, 0.35, -0.35, 0.72, -0.72, 1.1, -1.1];
+
+  let best = null;
+  let bestScore = -Infinity;
+  for (const radius of radii) {
+    for (const sideOffset of offsets) {
+      const vx = away.x * Math.cos(sideOffset) + tangent.x * Math.sin(sideOffset);
+      const vy = away.y * Math.cos(sideOffset) + tangent.y * Math.sin(sideOffset);
+      const rawX = clamp(survivor.x + vx * radius, 44, game.map.width - 44);
+      const rawY = clamp(survivor.y + vy * radius, 44, game.map.height - 44);
+      const endpoint = botRouteEndpoint(game, survivor, rawX, rawY, { role: "survivor" });
+      if (!endpoint) continue;
+      if (wouldCollide(game, survivor, endpoint.x, endpoint.y)) continue;
+
+      const killerDistance = dist(endpoint.x, endpoint.y, killer.x, killer.y);
+      if (killerDistance < currentKillerDistance + game.map.tile * 0.55) continue;
+
+      const route = botCheapRouteDistance(game, survivor, endpoint.x, endpoint.y, { role: "survivor", exact: false });
+      if (!Number.isFinite(route)) continue;
+
+      const breaksLos = !segmentClear(game, killer.x, killer.y, endpoint.x, endpoint.y);
+      const directAwayAlignment = ((endpoint.x - survivor.x) * away.x + (endpoint.y - survivor.y) * away.y) / Math.max(1, dist(survivor.x, survivor.y, endpoint.x, endpoint.y));
+      const nearEdgePenalty = (
+        endpoint.x < game.map.tile * 2 || endpoint.y < game.map.tile * 2 ||
+        endpoint.x > game.map.width - game.map.tile * 2 || endpoint.y > game.map.height - game.map.tile * 2
+      ) ? 180 : 0;
+      const routePenalty = Math.min(route, game.map.tile * 14) * 0.28;
+      const score = killerDistance * 1.42
+        + (breaksLos ? 520 : 0)
+        + directAwayAlignment * 260
+        - routePenalty
+        - nearEdgePenalty
+        - botTileClearancePenalty(game, survivor, endpoint.tileX, endpoint.tileY) * 95;
+
+      if (score > bestScore) {
+        bestScore = score;
+        best = { x: endpoint.x, y: endpoint.y, score, emergency: true };
+      }
+    }
+  }
+
+  if (best) return best;
+
+  // Last resort: don't stand there vibrating. Pick a local nudge away from the killer.
+  const fallback = chooseBotUnstuckPoint(game, survivor, survivor.x + away.x * game.map.tile * 4, survivor.y + away.y * game.map.tile * 4);
+  if (fallback) return { ...fallback, emergency: true, score: -1 };
+  return {
+    x: clamp(survivor.x + away.x * game.map.tile * 3, 44, game.map.width - 44),
+    y: clamp(survivor.y + away.y * game.map.tile * 3, 44, game.map.height - 44),
+    emergency: true,
+    score: -2
+  };
+}
+
+function botRunnerFleeProgressStalled(game, survivor, killer, killerDistance, dt) {
+  const bot = survivor.bot || (survivor.bot = {});
+  const now = game.time || 0;
+  if (!killer || !Number.isFinite(killerDistance)) {
+    bot.fleeProgressLastDistance = null;
+    bot.fleeProgressLastAt = now;
+    bot.fleeNoProgressFor = 0;
+    return false;
+  }
+
+  const lastDistance = Number.isFinite(bot.fleeProgressLastDistance) ? bot.fleeProgressLastDistance : killerDistance;
+  const gained = killerDistance - lastDistance;
+  if (gained >= BOT_SURVIVOR_FLEE_PROGRESS_MIN_GAIN || killerDistance > BOT_SURVIVOR_LOOP_RADIUS) {
+    bot.fleeProgressLastDistance = killerDistance;
+    bot.fleeProgressLastAt = now;
+    bot.fleeNoProgressFor = 0;
+    return false;
+  }
+
+  // If the bot is close to The Void and has not increased distance, escalate quickly.
+  // This is the real fix for the stationary-Void jiggle: progress away is mandatory.
+  if (killerDistance < BOT_SURVIVOR_CONTACT_RADIUS * 1.28) {
+    bot.fleeNoProgressFor = (bot.fleeNoProgressFor || 0) + Math.max(0.001, dt || 1 / BOT_THINK_RATE);
+  } else {
+    bot.fleeNoProgressFor = Math.max(0, (bot.fleeNoProgressFor || 0) - Math.max(0.001, dt || 1 / BOT_THINK_RATE) * 0.5);
+  }
+
+  // Slowly update the baseline so a bot doesn't get punished forever after one bad route,
+  // while still requiring visible distance gain when body-close to The Void.
+  if (now - (bot.fleeProgressLastAt || now) > 0.85) {
+    bot.fleeProgressLastDistance = Math.min(lastDistance, killerDistance);
+    bot.fleeProgressLastAt = now;
+  }
+
+  return (bot.fleeNoProgressFor || 0) >= BOT_SURVIVOR_FLEE_PROGRESS_SECONDS;
+}
+
+function botRunnerSetFleeTarget(game, survivor, flee, duration = BOT_SURVIVOR_FLEE_COMMIT_SECONDS) {
+  const bot = survivor.bot || (survivor.bot = {});
+  bot.fleeX = flee.x;
+  bot.fleeY = flee.y;
+  bot.fleeTimer = duration + Math.random() * 0.18;
+  bot.fleeLockUntil = (game.time || 0) + bot.fleeTimer + 0.35;
+  bot.path = [];
+  bot.repath = 0;
+  bot.goalX = null;
+  bot.goalY = null;
+}
+
 function chooseFleePoint(game, survivor, killer) {
   const actorTile = tileAt(game, survivor.x, survivor.y);
   let best = { x: survivor.x, y: survivor.y, score: -Infinity, loop: null };
@@ -5375,6 +5511,7 @@ function botFleeTargetStillUseful(game, survivor, killer) {
   if (wouldCollide(game, survivor, target.x, target.y)) return false;
   const currentKillerDistance = dist(survivor.x, survivor.y, killer.x, killer.y);
   const targetKillerDistance = dist(target.x, target.y, killer.x, killer.y);
+  if (currentKillerDistance < BOT_SURVIVOR_CONTACT_RADIUS && targetKillerDistance < currentKillerDistance + game.map.tile * 1.15) return false;
   const breaksLos = !segmentClear(game, killer.x, killer.y, target.x, target.y);
   const targetHasRoute = Number.isFinite(botCheapRouteDistance(game, survivor, target.x, target.y, { role: "survivor", exact: false }));
   if (!targetHasRoute) return false;
@@ -5875,10 +6012,11 @@ function updateBotInputs(game, dt) {
     if (actor.role === "survivor") {
       const killerDistance = killer && !killer.dead ? dist(actor.x, actor.y, killer.x, killer.y) : Infinity;
       const killerHasLos = killer && segmentClear(game, actor.x, actor.y, killer.x, killer.y);
+      const contactThreat = killer && killerDistance < BOT_SURVIVOR_CONTACT_RADIUS;
       const panicThreat = killer && killerDistance < BOT_SURVIVOR_PANIC_RADIUS;
       const loopThreat = killer && killerHasLos && killerDistance < BOT_SURVIVOR_LOOP_RADIUS;
       const activeChaseThreat = killer && actor.chaseHold > 0 && killerDistance < BOT_SURVIVOR_FAR_OBSERVED_DISTANCE;
-      const threatened = !!(killer && (panicThreat || loopThreat || activeChaseThreat));
+      const threatened = !!(killer && (contactThreat || panicThreat || loopThreat || activeChaseThreat));
       const observedButSafe = !!(killer && !threatened && killerHasLos && killerDistance < BOT_SURVIVOR_THREAT_RADIUS);
 
       if (observedButSafe) {
@@ -5894,29 +6032,56 @@ function updateBotInputs(game, dt) {
       if (threatened) {
         actor.bot.runnerTask = null;
         actor.bot.survivorTask = null;
-        actor.bot.fleeTimer = Math.max(0, (actor.bot.fleeTimer || 0) - dt);
-        if (actor.bot.fleeTimer <= 0 || !botFleeTargetStillUseful(game, actor, killer)) {
-          const flee = chooseFleePoint(game, actor, killer);
-          actor.bot.fleeX = flee.x;
-          actor.bot.fleeY = flee.y;
-          actor.bot.fleeTimer = BOT_SURVIVOR_FLEE_COMMIT_SECONDS + Math.random() * 0.32;
-          actor.bot.fleeLockUntil = (game.time || 0) + actor.bot.fleeTimer + 0.35;
+
+        const fleeStalled = botRunnerFleeProgressStalled(game, actor, killer, killerDistance, dt);
+        if (contactThreat || fleeStalled) {
+          actor.bot.emergencyFleeUntil = Math.max(actor.bot.emergencyFleeUntil || 0, (game.time || 0) + BOT_SURVIVOR_EMERGENCY_FLEE_SECONDS);
+          actor.bot.preferredLoopUntil = 0;
+          actor.bot.preferredLoopId = null;
+          actor.bot.fleeTimer = 0;
+          actor.bot.path = [];
+          actor.bot.repath = 0;
         }
 
-        const usingLoop = actor.bot.preferredLoopId && (actor.bot.preferredLoopUntil || 0) > (game.time || 0)
+        actor.bot.fleeTimer = Math.max(0, (actor.bot.fleeTimer || 0) - dt);
+        const emergencyFleeActive = contactThreat || (actor.bot.emergencyFleeUntil || 0) > (game.time || 0);
+        if (actor.bot.fleeTimer <= 0 || !botFleeTargetStillUseful(game, actor, killer)) {
+          const flee = emergencyFleeActive
+            ? (botRunnerEmergencyFleePoint(game, actor, killer) || chooseFleePoint(game, actor, killer))
+            : chooseFleePoint(game, actor, killer);
+          botRunnerSetFleeTarget(
+            game,
+            actor,
+            flee,
+            emergencyFleeActive ? BOT_SURVIVOR_EMERGENCY_FLEE_SECONDS : BOT_SURVIVOR_FLEE_COMMIT_SECONDS
+          );
+        }
+
+        const usingLoop = !emergencyFleeActive
+          && actor.bot.preferredLoopId && (actor.bot.preferredLoopUntil || 0) > (game.time || 0)
           && Number.isFinite(actor.bot.fleeLoopApproachX) && Number.isFinite(actor.bot.fleeLoopApproachY)
           && dist(actor.x, actor.y, actor.bot.fleeLoopApproachX, actor.bot.fleeLoopApproachY) > INTERACT_DISTANCE * 0.7;
         const moveX = usingLoop ? actor.bot.fleeLoopApproachX : actor.bot.fleeX;
         const moveY = usingLoop ? actor.bot.fleeLoopApproachY : actor.bot.fleeY;
 
-        // If the bot is already at a useful window/pallet, take it now. Waiting until after
-        // movement could pull it away from the interact range and make it ignore the safe play.
-        const usedLoopBeforeMove = botUseLoopObject(game, actor, killer);
+        // If body-close to The Void, distance comes first. Windows/pallets are still useful,
+        // but only after the bot has started progressing away instead of jiggling in place.
+        const usedLoopBeforeMove = !emergencyFleeActive && botUseLoopObject(game, actor, killer);
         if (!usedLoopBeforeMove) {
-          followPath(game, actor, moveX, moveY, true);
-          botUseLoopObject(game, actor, killer);
+          if (Number.isFinite(moveX) && Number.isFinite(moveY)) {
+            followPath(game, actor, moveX, moveY, true);
+          } else {
+            setMoveAway(actor, killer.x, killer.y, true);
+          }
+          if (!emergencyFleeActive || killerDistance > BOT_SURVIVOR_CONTACT_RADIUS * 1.18) {
+            botUseLoopObject(game, actor, killer);
+          }
         }
         continue;
+      } else if (actor.bot) {
+        actor.bot.fleeProgressLastDistance = null;
+        actor.bot.fleeNoProgressFor = 0;
+        actor.bot.emergencyFleeUntil = 0;
       }
 
       botMoveToObjective(game, actor);

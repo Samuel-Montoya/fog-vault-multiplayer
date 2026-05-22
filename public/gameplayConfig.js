@@ -29,6 +29,20 @@ const GAMEPLAY_CONFIG = {
     mapDarkness: 0.38
   },
 
+  // Client-only adaptive performance mode. If the browser drops under lowFps for a few samples,
+  // Phaser automatically reduces particles, redraw rates, cone effects, shockwaves, and heavy Void FX.
+  performance: {
+    lowFps: 30,
+    ultraFps: 24,
+    recoverFps: 50,
+    lowSamples: 4,
+    ultraSamples: 3,
+    recoverSamples: 18,
+    minModeSeconds: 9,
+    maxDevicePixelRatio: 1.25,
+    toastCooldownMs: 12000
+  },
+
   // Client camera / immersion knobs. These only affect how the camera feels, not server hitboxes.
   camera: {
     baseZoom: 1,
@@ -218,23 +232,16 @@ const GAMEPLAY_CONFIG = {
   },
 
   bots: {
-    repathMin: 0.24,
-    repathMax: 0.52,
-    survivorThreatRadius: 690,
-    survivorPanicRadius: 315,
-    survivorLoopRadius: 470,
-    survivorRescueRadius: 920,
-    survivorHealRadius: 760,
-    survivorSafeKillerDistance: 520,
-    survivorAbilityThreatRadius: 560,
-    voidMemorySeconds: 7.5,
-    voidScratchMemorySeconds: 3.25,
-    voidInteractCooldown: 1.05,
-    voidWindowReuseCooldown: 0.85,
-    voidStuckSeconds: 0.72,
-    voidHookPursuitRadius: 980,
-    voidAbilityChaseRadius: 720,
-    pathStuckRepathDistance: 7
+    repathMin: 0.32,
+    repathMax: 0.68,
+    survivorThreatRadius: 640,
+    survivorPanicRadius: 285,
+    survivorLoopRadius: 430,
+    voidMemorySeconds: 6.0,
+    voidScratchMemorySeconds: 2.5,
+    voidInteractCooldown: 1.25,
+    voidWindowReuseCooldown: 0.95,
+    voidStuckSeconds: 0.85
   }
 };
 
