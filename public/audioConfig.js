@@ -14,7 +14,7 @@ window.GAME_AUDIO_CONFIG = {
     layerVolumes: {
       layer1: 1.0,
       layer2: 1.0,
-      layer3: 0.6
+      layer3: 0.8
     },
 
     // Main menu music volume multiplier.

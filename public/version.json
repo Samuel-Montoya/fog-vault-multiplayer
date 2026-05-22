@@ -1,12 +1,19 @@
 {
   "latest": {
-    "version": "0.1.33",
-    "title": "Performance and AI Polish",
-    "summary": "Adaptive polish for low-end PCs, high-end effects, and sturdier Runner bots",
-    "description": "Added high-fidelity visual scaling for stronger machines, reduced low-power DOM and Graphics churn, throttled redundant actor restyling, lowered UI animation pressure in performance modes, and tightened Runner bot flee behavior so chase targets reject dead zones and recover out of corners toward usable loops or safer center routes.",
+    "version": "0.1.34",
+    "title": "Omniscient Runner Escape AI",
+    "summary": "Runner bots always account for The Void and choose real escape routes",
+    "description": "Updated Runner bot chase behavior so server-controlled bots always know The Void's position, abandon objectives under map-aware pressure, route toward windows and pallets, reject dead-end and corner escape tiles, score follow-up escape lanes after vaults, and keep moving along routes with safe exits instead of drifting into map edges.",
     "date": "2026-05-22"
   },
   "history": [
+    {
+      "version": "0.1.34",
+      "title": "Omniscient Runner Escape AI",
+      "summary": "Runner bots always account for The Void and choose real escape routes",
+      "description": "Updated Runner bot chase behavior so server-controlled bots always know The Void's position, abandon objectives under map-aware pressure, route toward windows and pallets, reject dead-end and corner escape tiles, score follow-up escape lanes after vaults, and keep moving along routes with safe exits instead of drifting into map edges.",
+      "date": "2026-05-22"
+    },
     {
       "version": "0.1.33",
       "title": "Performance and AI Polish",

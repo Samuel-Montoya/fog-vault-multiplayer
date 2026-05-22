@@ -274,6 +274,12 @@ const GAMEPLAY_CONFIG = {
     survivorObjectiveStallSeconds: 1.0,
     survivorStallRedirectSeconds: 1.0,
     survivorTerrorFleeSeconds: 3.0,
+    // Runner bots use server omniscience for escape planning. They should not pretend
+    // The Void vanished because a wall blocked line-of-sight for half a second.
+    survivorMapAwareRadius: 1080,
+    survivorEscapePlanSeconds: 2.65,
+    survivorEscapeScanSteps: 2,
+    survivorEscapeMinSafeExits: 2,
     voidMemorySeconds: 6.0,
     voidScratchMemorySeconds: 2.5,
     voidInteractCooldown: 1.25,
