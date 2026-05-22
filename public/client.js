@@ -14,18 +14,12 @@
     return cfgNumber(value, fallback);
   }
 
-  const IS_TOUCH_DEVICE = Boolean(
-    (navigator.maxTouchPoints && navigator.maxTouchPoints > 0)
-    || window.matchMedia?.("(pointer: coarse)")?.matches
-  );
   const LOW_POWER_MODE = Boolean(
-    IS_TOUCH_DEVICE
-    || (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4)
+    (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4)
     || window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches
   );
   const RENDER_RESOLUTION = Math.max(1, Math.min(window.devicePixelRatio || 1, LOW_POWER_MODE ? 1 : 1.5));
 
-  document.documentElement.classList.toggle("touch-device", IS_TOUCH_DEVICE);
   document.documentElement.classList.toggle("low-power", LOW_POWER_MODE);
 
   // Minimal vision knobs. The map itself is dark; there is no simulated fog RenderTexture.
@@ -587,8 +581,7 @@
     endStats: document.getElementById("endStats"),
     backToLobbyBtn: document.getElementById("backToLobbyBtn"),
     spectateBtn: document.getElementById("spectateBtn"),
-    mainMenuBtn: document.getElementById("mainMenuBtn"),
-    mobileControls: document.getElementById("mobileControls")
+    mainMenuBtn: document.getElementById("mainMenuBtn")
   };
 
   function ensureFpsCounter() {
@@ -922,7 +915,6 @@
       clearTimeout(survivorHitImpactTimer);
       document.body.classList.remove("survivor-hit-impact", "survivor-hit-heavy");
     }
-    ui.mobileControls?.classList.toggle("hidden", name !== "game" || !IS_TOUCH_DEVICE);
     if (name !== "game") {
       dispatchVoidAbilityHud(null);
       if (reactAbilityWheelOpen) closeReactAbilityWheel(false);
@@ -5710,8 +5702,8 @@
       if (!target) return;
       if (target.disabled || target.getAttribute("aria-disabled") === "true") return;
 
-      // Only UI screens get button click sounds. This avoids mobile gameplay controls
-      // and in-match canvas clicks triggering menu audio like an overeager vending machine.
+      // Only UI screens get button click sounds. This avoids in-match canvas clicks
+      // triggering menu audio like an overeager vending machine.
       const screen = target.closest(".screen");
       if (!screen || !screen.classList.contains("screen-open")) return;
 
@@ -6192,121 +6184,6 @@
   }
 
 
-  function setupMobileControls() {
-    const controls = document.getElementById("mobileControls");
-    if (!controls) return;
-    controls.classList.toggle("hidden", !IS_TOUCH_DEVICE);
-
-    const stickBase = controls.querySelector(".mobile-stick-base");
-    const stickKnob = controls.querySelector(".mobile-stick-knob");
-    const buttons = [...controls.querySelectorAll("[data-mobile-action]")];
-    let stickPointerId = null;
-    let stickOrigin = { x: 0, y: 0 };
-
-    function sendTouchInput(immediate = true) {
-      ensureAudioStarted();
-      sendInput({}, immediate);
-    }
-
-    function resetStick() {
-      stickPointerId = null;
-      input.up = false;
-      input.down = false;
-      input.left = false;
-      input.right = false;
-      if (stickKnob) stickKnob.style.transform = "translate(-50%, -50%)";
-      sendTouchInput(true);
-    }
-
-    function updateStick(clientX, clientY) {
-      if (isIntroInputLocked()) {
-        resetStick();
-        return;
-      }
-      const dx = clientX - stickOrigin.x;
-      const dy = clientY - stickOrigin.y;
-      const max = 46;
-      const len = Math.hypot(dx, dy);
-      const dead = 10;
-      const nx = len > max ? (dx / len) * max : dx;
-      const ny = len > max ? (dy / len) * max : dy;
-
-      if (stickKnob) stickKnob.style.transform = `translate(calc(-50% + ${nx}px), calc(-50% + ${ny}px))`;
-
-      input.left = dx < -dead;
-      input.right = dx > dead;
-      input.up = dy < -dead;
-      input.down = dy > dead;
-      sendTouchInput(false);
-    }
-
-    if (stickBase) {
-      stickBase.addEventListener("pointerdown", (e) => {
-        e.preventDefault();
-        stickPointerId = e.pointerId;
-        stickBase.setPointerCapture?.(e.pointerId);
-        const rect = stickBase.getBoundingClientRect();
-        stickOrigin = { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
-        updateStick(e.clientX, e.clientY);
-      }, { passive: false });
-
-      stickBase.addEventListener("pointermove", (e) => {
-        if (e.pointerId !== stickPointerId) return;
-        e.preventDefault();
-        updateStick(e.clientX, e.clientY);
-      }, { passive: false });
-
-      stickBase.addEventListener("pointerup", (e) => {
-        if (e.pointerId === stickPointerId) resetStick();
-      });
-      stickBase.addEventListener("pointercancel", (e) => {
-        if (e.pointerId === stickPointerId) resetStick();
-      });
-    }
-
-    for (const button of buttons) {
-      const action = button.dataset.mobileAction;
-      button.addEventListener("pointerdown", (e) => {
-        e.preventDefault();
-        button.setPointerCapture?.(e.pointerId);
-        ensureAudioStarted();
-        if (isIntroInputLocked() && action !== "chat") {
-          clearMovementInputOnly();
-          sendInput({}, true);
-          return;
-        }
-        if (action === "sprint") input.sprint = true;
-        if (action === "interact") input.repair = true;
-        if (action === "action") sendInput({ action: true }, true);
-        if (action === "attack") {
-          input.attackHeld = true;
-          sendInput({}, true);
-        }
-        if (action === "chat") openReactChatWheel(e);
-        sendTouchInput(true);
-      }, { passive: false });
-
-      const release = (e) => {
-        e.preventDefault?.();
-        if (action === "sprint") input.sprint = false;
-        if (action === "interact") input.repair = false;
-        if (action === "attack" && input.attackHeld) {
-          input.attackHeld = false;
-          sendInput({ attackReleased: true }, true);
-          return;
-        }
-        if (action === "chat") {
-          closeReactChatWheel(true);
-          return;
-        }
-        sendTouchInput(true);
-      };
-
-      button.addEventListener("pointerup", release, { passive: false });
-      button.addEventListener("pointercancel", release, { passive: false });
-    }
-  }
-
   function setupSockets() {
     const socketOptions = {
       transports: ["websocket", "polling"],
@@ -6382,7 +6259,6 @@
     setupReactChatWheelBridge();
     setupReactAbilityWheelBridge();
     setupKeyboard();
-    setupMobileControls();
     setupSockets();
     bootPhaser();
     showScreen("menu");
@@ -6393,7 +6269,6 @@
     };
     document.addEventListener("pointerdown", unlockAudio, { once: true });
     document.addEventListener("keydown", unlockAudio, { once: true });
-    document.addEventListener("touchstart", unlockAudio, { once: true, passive: true });
   }
 
   start();

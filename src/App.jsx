@@ -44,77 +44,11 @@ const HOW_TO_PLAY = [
   }
 ]
 
-const MOBILE_BUTTONS = [
-  { action: "chat", label: "R", className: "mobile-btn small" },
-  { action: "interact", label: "E", className: "mobile-btn" },
-  { action: "action", label: "SPACE", className: "mobile-btn primary" },
-  { action: "attack", label: "M1", className: "mobile-btn killer" },
-  { action: "sprint", label: "RUN", className: "mobile-btn small" }
-]
 
 const VERSION_FALLBACK = {
   version: "0.1.0",
   title: "Version Tracking",
   summary: "Main menu version log online"
-}
-
-
-function detectBlockedMobileDevice() {
-  if (typeof window === "undefined") {
-    return {
-      blocked: false,
-      label: "Desktop ready",
-      shortestSide: 0,
-      longestSide: 0
-    }
-  }
-
-  const userAgent = window.navigator?.userAgent || ""
-  const maxTouchPoints = window.navigator?.maxTouchPoints || 0
-  const width = window.innerWidth || window.screen?.width || 0
-  const height = window.innerHeight || window.screen?.height || 0
-  const shortestSide = Math.min(width, height)
-  const longestSide = Math.max(width, height)
-  const coarsePointer = typeof window.matchMedia === "function"
-    ? window.matchMedia("(pointer: coarse)").matches
-    : false
-
-  const phoneUserAgent = /Android.*Mobile|iPhone|iPod|IEMobile|Windows Phone|BlackBerry|BB10|webOS|Opera Mini/i.test(userAgent)
-  const mobileUserAgent = /Android|iPad|iPhone|iPod|IEMobile|Windows Phone|BlackBerry|BB10|webOS|Opera Mini/i.test(userAgent)
-  const smallTouchScreen = coarsePointer && maxTouchPoints > 0 && shortestSide <= 820 && longestSide <= 1180
-  const blocked = phoneUserAgent || smallTouchScreen
-
-  return {
-    blocked,
-    label: phoneUserAgent ? "Phone detected" : mobileUserAgent || smallTouchScreen ? "Mobile touch device detected" : "Desktop ready",
-    shortestSide,
-    longestSide
-  }
-}
-
-function useMobileDeviceBlock() {
-  const [deviceBlock, setDeviceBlock] = useState(() => detectBlockedMobileDevice())
-
-  useEffect(() => {
-    const updateDeviceBlock = () => setDeviceBlock(detectBlockedMobileDevice())
-    const pointerQuery = typeof window.matchMedia === "function"
-      ? window.matchMedia("(pointer: coarse)")
-      : null
-
-    window.addEventListener("resize", updateDeviceBlock)
-    window.addEventListener("orientationchange", updateDeviceBlock)
-    window.visualViewport?.addEventListener("resize", updateDeviceBlock)
-    pointerQuery?.addEventListener?.("change", updateDeviceBlock)
-
-    return () => {
-      window.removeEventListener("resize", updateDeviceBlock)
-      window.removeEventListener("orientationchange", updateDeviceBlock)
-      window.visualViewport?.removeEventListener("resize", updateDeviceBlock)
-      pointerQuery?.removeEventListener?.("change", updateDeviceBlock)
-    }
-  }, [])
-
-  return deviceBlock
 }
 
 function resolveLatestVersion(payload) {
@@ -987,7 +921,6 @@ function SurvivorStatusHud() {
   )
 }
 
-
 function PointFeed() {
   const [items, setItems] = useState([])
   const nextId = useRef(1)
@@ -1067,21 +1000,6 @@ function HookEdgeIndicators() {
   )
 }
 
-function MobileControls() {
-  return (
-    <div id="mobileControls" className="mobile-controls hidden" aria-label="Touch controls">
-      <div className="mobile-stick-base" aria-label="Move">
-        <div className="mobile-stick-knob" />
-      </div>
-      <div className="mobile-button-cluster">
-        {MOBILE_BUTTONS.map((button) => (
-          <button className={button.className} data-mobile-action={button.action} type="button" key={button.action}>{button.label}</button>
-        ))}
-      </div>
-    </div>
-  )
-}
-
 function EndScreen() {
   return (
     <div id="endScreen" className="screen io-screen">
@@ -1097,31 +1015,6 @@ function EndScreen() {
         </div>
       </div>
     </div>
-  )
-}
-
-
-function MobileBlockedScreen({ device }) {
-  return (
-    <>
-      <MenuBackground />
-      <main className="mobile-block-screen" role="alert" aria-live="assertive">
-        <section className="void-card mobile-block-card" aria-label="Desktop required">
-          <div className="mobile-block-mark" aria-hidden="true">
-            <span />
-          </div>
-          <div className="eyebrow">desktop needed</div>
-          <h1 style={{textTransform:"lowercase"}}>RiftRunner needs a mouse and keyboard</h1>
-          <p className="screen-copy">
-            Mobile and phone play is disabled for now. RiftRunner uses mouse aim and keyboard movement for the best experience.
-          </p>
-          <div className="mobile-block-meta">
-            <span>{device?.label || "Mobile device detected"}</span>
-            <b>Open this page on a desktop or laptop to play.</b>
-          </div>
-        </section>
-      </main>
-    </>
   )
 }
 
@@ -1170,13 +1063,7 @@ function SeoIntroBadge() {
 }
 
 export default function App() {
-  const mobileBlock = useMobileDeviceBlock()
-
-  useVoidriftClient(mobileBlock.blocked)
-
-  if (mobileBlock.blocked) {
-    return <MobileBlockedScreen device={mobileBlock} />
-  }
+  useVoidriftClient()
 
   return (
     <>
@@ -1196,7 +1083,6 @@ export default function App() {
       <HookEdgeIndicators />
       <PointFeed />
       <div id="toast" className="toast hidden" />
-      <MobileControls />
       <div id="screenFadeOverlay" className="screen-fade-overlay" aria-hidden="true" />
       <EndScreen />
     </>

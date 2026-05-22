@@ -1835,37 +1835,29 @@ function movementDirection(input) {
   };
 }
 
-function directionFromInput(input) {
-  const { dx, dy } = movementDirection(input);
-  if (dx === 0 && dy === 0) return null;
-
-  // actionDir is a one-frame hint from the client. Never trust a stale value when
-  // the player is no longer pressing a movement key. That stale direction was what
-  // made standing pallet drops behave like accidental vaults/side swaps. Delightful.
-  if (["up", "down", "left", "right"].includes(input.actionDir)) return input.actionDir;
-
-  if (Math.abs(dy) >= Math.abs(dx)) return dy < 0 ? "up" : "down";
-  return dx < 0 ? "left" : "right";
+function clampOrCenter(value, min, max) {
+  if (min > max) return (min + max) / 2;
+  return clamp(value, min, max);
 }
 
-function palletSidePosition(actor, pallet, direction, slideOffset = 0) {
+function palletSidePosition(actor, pallet, direction, slideOffset = 0, extraClearance = 0) {
   const size = actor.role === "killer" ? KILLER_SIZE : PLAYER_SIZE;
-  const margin = size / 2 + 7;
+  const margin = size / 2 + 8 + Math.max(0, extraClearance || 0);
   const minX = pallet.x + margin;
   const maxX = pallet.x + pallet.w - margin;
   const minY = pallet.y + margin;
   const maxY = pallet.y + pallet.h - margin;
 
   if (direction === "up") {
-    return { x: clamp(actor.x + slideOffset, minX, maxX), y: pallet.y - margin };
+    return { x: clampOrCenter(actor.x + slideOffset, minX, maxX), y: pallet.y - margin };
   }
   if (direction === "down") {
-    return { x: clamp(actor.x + slideOffset, minX, maxX), y: pallet.y + pallet.h + margin };
+    return { x: clampOrCenter(actor.x + slideOffset, minX, maxX), y: pallet.y + pallet.h + margin };
   }
   if (direction === "left") {
-    return { x: pallet.x - margin, y: clamp(actor.y + slideOffset, minY, maxY) };
+    return { x: pallet.x - margin, y: clampOrCenter(actor.y + slideOffset, minY, maxY) };
   }
-  return { x: pallet.x + pallet.w + margin, y: clamp(actor.y + slideOffset, minY, maxY) };
+  return { x: pallet.x + pallet.w + margin, y: clampOrCenter(actor.y + slideOffset, minY, maxY) };
 }
 
 function wouldCollideWithFuturePallet(game, actor, x, y, pallet) {
@@ -1875,36 +1867,82 @@ function wouldCollideWithFuturePallet(game, actor, x, y, pallet) {
   return blockers.some((r) => rectsOverlap(box, r));
 }
 
-function moveToPalletSideByInput(game, actor, pallet) {
-  const direction = directionFromInput(actor.input);
+function actorOverlapsPallet(actor, pallet) {
+  return rectsOverlap(actorRect(actor), pallet);
+}
 
-  // No movement key held: do not move the player. Drop the pallet and grant a short
-  // grace window so they can walk out if the collision volume overlaps them.
-  if (!direction) {
-    actor.palletGraceId = pallet.id;
-    actor.palletGraceTime = 0.65;
-    return;
-  }
+function nearestPalletSideDirections(actor, pallet) {
+  const directions = ["up", "down", "left", "right"];
+  const center = centerOf(pallet);
+  const orientationBias = pallet.orientation === "horizontal"
+    ? new Set([actor.y <= center.y ? "up" : "down", actor.y <= center.y ? "down" : "up"])
+    : pallet.orientation === "vertical"
+      ? new Set([actor.x <= center.x ? "left" : "right", actor.x <= center.x ? "right" : "left"])
+      : new Set();
 
-  // IMPORTANT: never fall back to the opposite side. If the player presses W,
-  // they go to the top side or stay put with grace. The old fallback system was
-  // what caused the cursed random-side teleport nonsense.
-  const offsets = [0, -18, 18, -36, 36, -54, 54];
-  for (const offset of offsets) {
-    const pos = palletSidePosition(actor, pallet, direction, offset);
-    const x = clamp(pos.x, 36, game.map.width - 36);
-    const y = clamp(pos.y, 36, game.map.height - 36);
-    if (!wouldCollideWithFuturePallet(game, actor, x, y, pallet)) {
-      actor.x = x;
-      actor.y = y;
-      actor.palletGraceId = null;
-      actor.palletGraceTime = 0;
-      return;
+  return directions
+    .map((direction) => {
+      const pos = palletSidePosition(actor, pallet, direction, 0);
+      const orientationPenalty = orientationBias.size && !orientationBias.has(direction) ? 24 : 0;
+      return { direction, distance: dist(actor.x, actor.y, pos.x, pos.y) + orientationPenalty };
+    })
+    .sort((a, b) => a.distance - b.distance)
+    .map((item) => item.direction);
+}
+
+function moveToNearestClearPalletSide(game, actor, pallet, { force = false } = {}) {
+  if (!actor || actor.dead || actor.escaped) return false;
+  if (!force && !actorOverlapsPallet(actor, pallet)) return false;
+
+  const directions = nearestPalletSideDirections(actor, pallet);
+  const offsets = [0, -16, 16, -32, 32, -48, 48, -64, 64, -80, 80];
+  const clearances = [0, 8, 16, 28, 40, 56, 72];
+  let fallback = null;
+  let fallbackScore = Infinity;
+
+  for (const direction of directions) {
+    for (const clearance of clearances) {
+      for (const offset of offsets) {
+        const pos = palletSidePosition(actor, pallet, direction, offset, clearance);
+        const x = clamp(pos.x, 36, game.map.width - 36);
+        const y = clamp(pos.y, 36, game.map.height - 36);
+        const score = dist(actor.x, actor.y, x, y) + clearance * 0.35 + Math.abs(offset) * 0.08;
+        if (score < fallbackScore) {
+          fallbackScore = score;
+          fallback = { x, y };
+        }
+        if (!wouldCollideWithFuturePallet(game, actor, x, y, pallet)) {
+          actor.x = x;
+          actor.y = y;
+          actor.palletGraceId = null;
+          actor.palletGraceTime = 0;
+          return true;
+        }
+      }
     }
   }
 
-  actor.palletGraceId = pallet.id;
-  actor.palletGraceTime = 0.65;
+  // If the map is cramped, still force them out of the dropped pallet instead of leaving
+  // their collision box fused with it. Movement can resolve wall pressure after this,
+  // unless the Void is intentionally stunned.
+  if (fallback) {
+    actor.x = fallback.x;
+    actor.y = fallback.y;
+  }
+  actor.palletGraceId = null;
+  actor.palletGraceTime = 0;
+  return !!fallback;
+}
+
+function separateActorsFromDroppedPallet(game, pallet, dropper) {
+  if (dropper) moveToNearestClearPalletSide(game, dropper, pallet, { force: true });
+
+  for (const actor of game.actors.values()) {
+    if (actor === dropper || actor.dead || actor.escaped) continue;
+    if (actorOverlapsPallet(actor, pallet)) {
+      moveToNearestClearPalletSide(game, actor, pallet, { force: true });
+    }
+  }
 }
 
 function handleAction(game, actor) {
@@ -1915,8 +1953,8 @@ function handleAction(game, actor) {
   if (hit.type === "window" || hit.type === "palletVault") {
     startVault(game, actor, hit.object, hit.type === "palletVault" ? "pallet" : "window");
   } else if (hit.type === "palletDrop") {
-    moveToPalletSideByInput(game, actor, hit.object);
     hit.object.state = "dropped";
+    separateActorsFromDroppedPallet(game, hit.object, actor);
 
     // Dropping a pallet is a commitment too. Without this, a survivor can slam the pallet
     // and instantly vault it on the next Space press, which turns the pallet into a tiny
@@ -2608,8 +2646,8 @@ function updateDotDeposits(game, dt) {
     const depositSeconds = dotDepositSecondsForActor(actor);
     actor.dotDepositProgress = clamp((actor.dotDepositProgress || 0) + dt / depositSeconds, 0, 1);
 
-    // Depositing is automatic and mobile: survivors can circle the gen while
-    // feeding orbs. Bots keep facing the gen so their intent is readable.
+    // Depositing is automatic: survivors can circle the gen while feeding orbs.
+    // Bots keep facing the gen so their intent is readable.
     if (actor.isBot) actor.input.angle = Math.atan2(gen.y - actor.y, gen.x - actor.x);
 
     let bucket = buckets.get(gen.id);

@@ -1561,68 +1561,6 @@ body.is-void-stunned .horror-fx .fx-vignette {
   to { transform: translate(-50%, -50%) scale(1); opacity: 1; }
 }
 
-/* Touch controls */
-.mobile-controls {
-  position: fixed;
-  inset: 0;
-  z-index: 3100;
-  pointer-events: none;
-  user-select: none;
-}
-
-.mobile-controls.hidden,
-.no-touch .mobile-controls { display: none !important; }
-.touch-device .mobile-controls:not(.hidden) { display: block; }
-
-.mobile-stick-base {
-  position: absolute;
-  left: max(18px, env(safe-area-inset-left));
-  bottom: max(22px, env(safe-area-inset-bottom));
-  width: 126px;
-  height: 126px;
-  border-radius: 999px;
-  pointer-events: auto;
-  background: radial-gradient(circle, rgba(255,255,255,0.10), rgba(0,0,0,0.40));
-  border: 1px solid rgba(255,255,255,0.18);
-  box-shadow: 0 18px 50px rgba(0,0,0,0.45), inset 0 0 28px rgba(0,0,0,0.32);
-  backdrop-filter: blur(7px);
-}
-
-.mobile-stick-knob {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 54px;
-  height: 54px;
-  border-radius: 999px;
-  transform: translate(-50%, -50%);
-  background: rgba(103,232,249,0.18);
-  border: 1px solid rgba(255,255,255,0.28);
-  box-shadow: inset 0 0 18px rgba(255,255,255,0.08), 0 10px 24px rgba(0,0,0,0.36);
-}
-
-.mobile-button-cluster {
-  position: absolute;
-  right: max(16px, env(safe-area-inset-right));
-  bottom: max(18px, env(safe-area-inset-bottom));
-  display: grid;
-  grid-template-columns: repeat(3, 64px);
-  grid-auto-rows: 56px;
-  gap: 10px;
-  pointer-events: auto;
-}
-
-.mobile-btn {
-  border-radius: 18px;
-  color: #eff6ff;
-  background: rgba(7,10,22,0.70);
-  backdrop-filter: blur(7px);
-}
-.mobile-btn.primary { grid-column: span 2; background: rgba(24, 58, 91, 0.78); }
-.mobile-btn.killer { background: rgba(128, 17, 44, 0.72); }
-.mobile-btn.small { font-size: 12px; }
-.mobile-btn:active { transform: scale(0.96); }
-
 .low-power .fog-layer,
 .low-power .rift-sigil,
 .low-power .fx-grain,
@@ -1756,15 +1694,6 @@ body.ultra-low-power.survivor-hit-impact #gameWrap {
   .chat-wheel-left { left: 16px; }
 }
 
-@media (max-width: 620px) {
-  .mobile-stick-base { width: 112px; height: 112px; }
-  .mobile-button-cluster {
-    grid-template-columns: repeat(3, 56px);
-    grid-auto-rows: 50px;
-    gap: 8px;
-  }
-  .mobile-btn { border-radius: 15px; font-size: 11px; }
-}
 
 .fps-counter-row {
   margin-top: 4px !important;
@@ -2128,7 +2057,7 @@ body.ultra-low-power.survivor-hit-impact #gameWrap {
   letter-spacing: 0.18em;
 }
 
-.io-screen:not(.menu-screen) button:not(.mobile-btn),
+.io-screen:not(.menu-screen) button,
 .io-screen:not(.menu-screen) .skin-btn,
 .io-screen:not(.menu-screen) .text-btn,
 .io-screen:not(.menu-screen) .menu-music-toggle {
@@ -2141,7 +2070,7 @@ body.ultra-low-power.survivor-hit-impact #gameWrap {
   letter-spacing: 0.07em;
 }
 
-.io-screen:not(.menu-screen) button:not(.mobile-btn):hover,
+.io-screen:not(.menu-screen) button:hover,
 .io-screen:not(.menu-screen) .skin-btn:hover,
 .io-screen:not(.menu-screen) .text-btn:hover,
 .io-screen:not(.menu-screen) .menu-music-toggle:hover {
@@ -4163,99 +4092,3 @@ body.ultra-low-power.survivor-hit-impact #gameWrap {
   content: " BANK";
   color: rgba(196, 181, 253, 0.68);
 }
-
-/* Desktop-only mobile block */
-.mobile-block-screen {
-  position: fixed;
-  inset: 0;
-  z-index: 90;
-  display: grid;
-  place-items: center;
-  padding: max(18px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right)) max(18px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left));
-  background:
-    radial-gradient(circle at 50% 35%, rgba(103, 232, 249, 0.14), transparent 34%),
-    radial-gradient(circle at 72% 74%, rgba(255, 59, 106, 0.12), transparent 34%),
-    rgba(2, 3, 9, 0.78);
-}
-
-.mobile-block-card {
-  width: min(620px, calc(100vw - 28px));
-  max-height: calc(100vh - 32px);
-  overflow: auto;
-  text-align: left;
-}
-
-.mobile-block-card h1 {
-  max-width: 9.5em;
-  margin-bottom: 16px;
-  font-size: clamp(40px, 12vw, 68px);
-}
-
-.mobile-block-mark {
-  position: relative;
-  width: 86px;
-  height: 86px;
-  margin-bottom: 18px;
-  border-radius: 28px;
-  display: grid;
-  place-items: center;
-  border: 1px solid rgba(103, 232, 249, 0.36);
-  background:
-    radial-gradient(circle at 40% 28%, rgba(255,255,255,0.9), transparent 12%),
-    linear-gradient(135deg, rgba(103,232,249,0.22), rgba(167,139,250,0.18)),
-    rgba(7, 9, 20, 0.92);
-  box-shadow: 0 0 34px rgba(103,232,249,0.16), inset 0 1px 0 rgba(255,255,255,0.1);
-}
-
-.mobile-block-mark::before,
-.mobile-block-mark::after {
-  content: "";
-  position: absolute;
-  left: 23px;
-  right: 23px;
-  top: 17px;
-  bottom: 17px;
-  border-radius: 999px;
-  background: linear-gradient(180deg, rgba(255,255,255,0.88), rgba(103,232,249,0.92));
-  box-shadow: 0 0 24px rgba(103,232,249,0.32);
-}
-
-.mobile-block-mark::before { transform: rotate(42deg); }
-.mobile-block-mark::after { transform: rotate(-42deg); background: linear-gradient(180deg, rgba(255,255,255,0.88), rgba(255,59,106,0.92)); }
-
-.mobile-block-mark span {
-  position: relative;
-  z-index: 2;
-  width: 34px;
-  height: 50px;
-  border-radius: 12px;
-  border: 2px solid rgba(8, 10, 22, 0.95);
-  background:
-    linear-gradient(180deg, rgba(8,10,22,0.94), rgba(17,24,39,0.96)) padding-box,
-    linear-gradient(135deg, var(--rift), var(--void)) border-box;
-  box-shadow: inset 0 0 0 4px rgba(255,255,255,0.06), 0 0 18px rgba(0,0,0,0.42);
-}
-
-.mobile-block-meta {
-  display: grid;
-  gap: 7px;
-  margin-top: 20px;
-  padding: 14px 16px;
-  border: 1px solid rgba(103,232,249,0.18);
-  border-radius: 18px;
-  background: rgba(3, 7, 18, 0.54);
-}
-
-.mobile-block-meta span {
-  color: var(--rift);
-  font-size: 11px;
-  font-weight: 1000;
-  letter-spacing: 0.13em;
-  text-transform: uppercase;
-}
-
-.mobile-block-meta b {
-  color: #fff;
-  font-size: 14px;
-}
-
