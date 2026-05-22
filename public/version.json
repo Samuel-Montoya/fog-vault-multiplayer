@@ -1,12 +1,19 @@
 {
   "latest": {
-    "version": "0.1.30",
-    "title": "Performance Mode Polish",
-    "summary": "Smoother low-power movement and Void POV",
-    "description": "Improved low-performance play by optimizing local movement prediction with nearby collision checks, smoothing The Void's local and remote position updates, reducing expensive lighting and visibility redraws on weaker clients, and keeping Runner-side low-power movement responsive while preserving server-authoritative positions.",
+    "version": "0.1.31",
+    "title": "Low Power Movement Deep Fix",
+    "summary": "Smoother low-performance play and Runner bot unstuck logic",
+    "description": "Reduced low-power render pressure, removed camera smoothing from local controlled movement, throttled local collision overlap checks without giving up server authority, and added Runner bot direction-change recovery so bots abandon corners and stalled objective paths after one second.",
     "date": "2026-05-22"
   },
   "history": [
+    {
+      "version": "0.1.31",
+      "title": "Low Power Movement Deep Fix",
+      "summary": "Smoother low-performance play and Runner bot unstuck logic",
+      "description": "Reduced low-power render pressure, removed camera smoothing from local controlled movement, throttled local collision overlap checks without giving up server authority, and added Runner bot direction-change recovery so bots abandon corners and stalled objective paths after one second.",
+      "date": "2026-05-22"
+    },
     {
       "version": "0.1.30",
       "title": "Performance Mode Polish",

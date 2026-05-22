@@ -82,16 +82,16 @@
     },
     low: {
       label: "LOW",
-      targetFps: 60,
-      dynamicWorldFps: 2.5,
-      generatorFps: 3,
-      scratchDrawFps: 3,
-      lightingFps: 36,
-      wallVisionFps: 7,
-      actorVisionFps: 16,
-      particleFps: 10,
-      dotFadeFps: 6,
-      maxParticles: 8,
+      targetFps: 50,
+      dynamicWorldFps: 2.0,
+      generatorFps: 2.4,
+      scratchDrawFps: 2.5,
+      lightingFps: 24,
+      wallVisionFps: 5,
+      actorVisionFps: 10,
+      particleFps: 7,
+      dotFadeFps: 4,
+      maxParticles: 4,
       maxShockwaves: 0,
       particleScale: 0.16,
       shockwaveScale: 0,
@@ -101,11 +101,11 @@
       voidRushCount: 0,
       voidRushAlpha: 0,
       voidRedrawMs: 280,
-      survivorRedrawMs: 190,
-      heldOrbMaxDots: 8,
+      survivorRedrawMs: 260,
+      heldOrbMaxDots: 5,
       heldOrbSpinScale: 0.15,
       heldOrbBobScale: 0.12,
-      voidBodyOrbCount: 3,
+      voidBodyOrbCount: 2,
       voidBodySpikeCount: 0,
       swipeSteps: 5,
       chargeSteps: 4,
@@ -122,20 +122,20 @@
       localCorrectionDeadzoneIdle: 4,
       localCorrectionDeadzoneMoving: 14,
       localCorrectionSnapDistance: 230,
-      localCameraFollowRate: 18,
+      localCameraFollowRate: 999,
       localCameraSnapDistance: 300,
       visionConeDirect: 1
     },
     ultra: {
       label: "ULTRA LOW",
-      targetFps: 45,
-      dynamicWorldFps: 1,
-      generatorFps: 1.5,
-      scratchDrawFps: 1.5,
-      lightingFps: 24,
-      wallVisionFps: 3,
-      actorVisionFps: 6,
-      particleFps: 5,
+      targetFps: 40,
+      dynamicWorldFps: 0.75,
+      generatorFps: 1,
+      scratchDrawFps: 1,
+      lightingFps: 14,
+      wallVisionFps: 2,
+      actorVisionFps: 4,
+      particleFps: 2,
       dotFadeFps: 2,
       maxParticles: 0,
       maxShockwaves: 0,
@@ -147,8 +147,8 @@
       voidRushCount: 0,
       voidRushAlpha: 0,
       voidRedrawMs: 520,
-      survivorRedrawMs: 360,
-      heldOrbMaxDots: 3,
+      survivorRedrawMs: 480,
+      heldOrbMaxDots: 1,
       heldOrbSpinScale: 0,
       heldOrbBobScale: 0,
       voidBodyOrbCount: 1,
@@ -168,7 +168,7 @@
       localCorrectionDeadzoneIdle: 6,
       localCorrectionDeadzoneMoving: 22,
       localCorrectionSnapDistance: 270,
-      localCameraFollowRate: 14,
+      localCameraFollowRate: 999,
       localCameraSnapDistance: 340,
       visionConeDirect: 1
     }
@@ -225,11 +225,11 @@
   }
 
   const initialRenderCap = LOW_POWER_MODE
-    ? cfgNumber(PERFORMANCE_CONFIG.lowPowerDevicePixelRatio, 0.82)
+    ? cfgNumber(PERFORMANCE_CONFIG.lowPowerDevicePixelRatio, 0.72)
     : cfgNumber(PERFORMANCE_CONFIG.maxDevicePixelRatio, 1);
   // Allow sub-1 render resolution on old hardware. Phaser upscales the canvas via CSS,
   // which is a much better trade than dropping inputs when a Void swing spawns effects.
-  const minRenderResolution = LOW_POWER_MODE ? 0.68 : 0.8;
+  const minRenderResolution = LOW_POWER_MODE ? 0.58 : 0.8;
   const RENDER_RESOLUTION = Math.max(minRenderResolution, Math.min(window.devicePixelRatio || 1, initialRenderCap));
 
   document.documentElement.classList.toggle("low-power", LOW_POWER_MODE);
@@ -4204,7 +4204,7 @@
       // If local prediction ever wedged the actor into geometry, free it before
       // applying server correction. Otherwise the client can keep drawing a stuck
       // body while the server has already slid it clear.
-      this.resolveLocalActorOverlaps(role, 2);
+      this.maybeResolveLocalActorOverlaps(role, 2, false);
 
       const dx = targetX - this.localVisual.x;
       const dy = targetY - this.localVisual.y;
@@ -4241,7 +4241,7 @@
       this.localVisual.x += dx / gap * step;
       this.localVisual.y += dy / gap * step;
 
-      this.resolveLocalActorOverlaps(role, 1);
+      this.maybeResolveLocalActorOverlaps(role, 1, true);
     }
 
     getSurvivorDotVisualTarget(item) {
@@ -5415,6 +5415,14 @@
       return this.localCollisionRectsAt(role, x, y).length > 0;
     }
 
+    maybeResolveLocalActorOverlaps(role, maxIterations = 2, force = false) {
+      const now = performance.now();
+      const cadence = (adaptivePerformance.mode !== "normal" || LOW_POWER_MODE) ? 85 : 24;
+      if (!force && now - (this.lastLocalOverlapResolveAt || 0) < cadence) return false;
+      this.lastLocalOverlapResolveAt = now;
+      return this.resolveLocalActorOverlaps(role, maxIterations);
+    }
+
     resolveLocalActorOverlaps(role, maxIterations = 4) {
       if (!this.map || !this.localVisual) return false;
       let moved = false;
@@ -5450,7 +5458,7 @@
       if (!this.map || !this.localVisual) return false;
       if (!Number.isFinite(moveX) || !Number.isFinite(moveY)) return false;
 
-      this.resolveLocalActorOverlaps(role);
+      this.maybeResolveLocalActorOverlaps(role, 2, false);
 
       const distance = Math.hypot(moveX, moveY);
       if (distance <= 0.0001) return false;
@@ -5461,6 +5469,7 @@
       const steps = Math.max(1, Math.ceil(distance / maxStep));
       const stepX = moveX / steps;
       const stepY = moveY / steps;
+      let handledCollision = false;
 
       for (let i = 0; i < steps; i += 1) {
         const startX = this.localVisual.x;
@@ -5475,6 +5484,7 @@
           continue;
         }
 
+        handledCollision = true;
         const tryX = !this.localWouldCollide(role, desiredX, startY);
         const tryY = !this.localWouldCollide(role, startX, desiredY);
 
@@ -5539,12 +5549,12 @@
         }
 
         if (!nudged) {
-          this.resolveLocalActorOverlaps(role, 2);
+          this.maybeResolveLocalActorOverlaps(role, 2, true);
           break;
         }
       }
 
-      this.resolveLocalActorOverlaps(role, 1);
+      if (handledCollision) this.maybeResolveLocalActorOverlaps(role, 1, true);
       return moved;
     }
 
@@ -6161,9 +6171,10 @@
 
       const targetCameraX = x + this.cameraSwayX;
       const targetCameraY = y + this.cameraSwayY;
-      const followRate = performanceValue("localCameraFollowRate", LOW_POWER_MODE ? 18 : 999);
+      const followRate = performanceValue("localCameraFollowRate", LOW_POWER_MODE ? 999 : 999);
       const followSnapDistance = performanceValue("localCameraSnapDistance", LOW_POWER_MODE ? 300 : 240);
-      const needsCameraSmoothing = !this.isSpectating() && adaptivePerformance.mode !== "normal";
+      const localPlayerControlled = !this.isSpectating() && item?.data?.id === myId;
+      const needsCameraSmoothing = !localPlayerControlled && adaptivePerformance.mode !== "normal" && followRate < 300;
 
       if (!needsCameraSmoothing || followRate >= 300) {
         this.cameraFollowX = targetCameraX;

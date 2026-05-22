@@ -47,7 +47,7 @@ const GAMEPLAY_CONFIG = {
     maxDevicePixelRatio: 1,
     // Low-power clients render fewer pixels and upscale the canvas. The game stays responsive;
     // only the browser's unnecessary pixel-count vanity project gets sacrificed.
-    lowPowerDevicePixelRatio: 0.82,
+    lowPowerDevicePixelRatio: 0.72,
     // Client visual smoothing for networked actors. Server still owns movement;
     // the client renders remote actors slightly in the past so low FPS/network jitter
     // does not look like teleporting. Yes, this is the part that keeps bots from moonwalking.
@@ -63,7 +63,7 @@ const GAMEPLAY_CONFIG = {
     localCorrectionDeadzoneIdle: 6,
     localCorrectionDeadzoneMoving: 22,
     localCorrectionSnapDistance: 270,
-    localCameraFollowRate: 14,
+    localCameraFollowRate: 999,
     localCameraSnapDistance: 340,
     toastCooldownMs: 12000
   },
@@ -263,6 +263,9 @@ const GAMEPLAY_CONFIG = {
     survivorThreatRadius: 640,
     survivorPanicRadius: 285,
     survivorLoopRadius: 430,
+    survivorStuckSeconds: 1.0,
+    survivorObjectiveStallSeconds: 1.0,
+    survivorTerrorFleeSeconds: 3.0,
     voidMemorySeconds: 6.0,
     voidScratchMemorySeconds: 2.5,
     voidInteractCooldown: 1.25,

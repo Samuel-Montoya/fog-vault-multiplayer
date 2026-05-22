@@ -391,6 +391,8 @@ const BOT_KILLER_STUCK_SECONDS = cfgNumber(GAMEPLAY_CONFIG.bots?.voidStuckSecond
 const BOT_KILLER_HOOK_PURSUIT_RADIUS = cfgNumber(GAMEPLAY_CONFIG.bots?.voidHookPursuitRadius, 980);
 const BOT_KILLER_ABILITY_CHASE_RADIUS = cfgNumber(GAMEPLAY_CONFIG.bots?.voidAbilityChaseRadius, 720);
 const BOT_PATH_STUCK_REPATH_DISTANCE = cfgNumber(GAMEPLAY_CONFIG.bots?.pathStuckRepathDistance, 7);
+const BOT_SURVIVOR_STUCK_SECONDS = Math.max(0.8, cfgNumber(GAMEPLAY_CONFIG.bots?.survivorStuckSeconds, 1.0));
+const BOT_SURVIVOR_OBJECTIVE_STALL_SECONDS = Math.max(0.85, cfgNumber(GAMEPLAY_CONFIG.bots?.survivorObjectiveStallSeconds, 1.0));
 // AI quality is useless if it burns the tick loop. Keep expensive A* calls on a small
 // per-think budget and use cheap tactical estimates for broad scoring sweeps.
 const BOT_EXACT_ROUTE_BUDGET_BASE = cfgNumber(GAMEPLAY_CONFIG.bots?.exactRouteBudgetBase, IS_BOOSTED_HOST ? 18 : 12);
@@ -4086,17 +4088,29 @@ function followPath(game, actor, targetX, targetY, sprint = false, options = {})
 
   const targetChangedThreshold = options.chase ? game.map.tile * 1.15 : game.map.tile * 0.55;
   const targetChanged = dist(bot.goalX || 0, bot.goalY || 0, targetX, targetY) > targetChangedThreshold;
-  const forcedRepath = bot.stuckTimer > BOT_KILLER_STUCK_SECONDS;
+  const stuckSeconds = actor.role === "survivor" ? BOT_SURVIVOR_STUCK_SECONDS : BOT_KILLER_STUCK_SECONDS;
+  const forcedRepath = (bot.stuckTimer || 0) >= stuckSeconds;
   if (forcedRepath) {
-    const emergency = bot.hardStuckTimer > BOT_KILLER_STUCK_SECONDS * 2.35
+    const hardThreshold = actor.role === "survivor" ? BOT_SURVIVOR_STUCK_SECONDS * 2.6 : BOT_KILLER_STUCK_SECONDS * 2.35;
+    const emergency = (bot.hardStuckTimer || 0) > hardThreshold
       ? botEmergencyUnstuck(game, actor, targetX, targetY)
       : null;
-    const unstuck = emergency || chooseBotUnstuckPoint(game, actor, targetX, targetY);
+    const killer = actor.role === "survivor" ? botNearestKiller(game) : null;
+    const directionChange = actor.role === "survivor"
+      ? chooseRunnerDirectionChangePoint(game, actor, targetX, targetY, killer)
+      : null;
+    const unstuck = emergency || directionChange || chooseBotUnstuckPoint(game, actor, targetX, targetY);
     bot.stuckTimer = 0;
     if (emergency) bot.hardStuckTimer = 0;
-    else bot.hardStuckTimer = Math.max(0, (bot.hardStuckTimer || 0) - BOT_KILLER_STUCK_SECONDS * 0.45);
+    else bot.hardStuckTimer = Math.max(0, (bot.hardStuckTimer || 0) - stuckSeconds * 0.45);
     bot.path = unstuck ? [unstuck] : [];
-    bot.repath = BOT_REPATH_MIN * 0.55;
+    bot.repath = BOT_REPATH_MIN * 0.45;
+    if (actor.role === "survivor") {
+      bot.runnerDirectionChangeUntil = (game.time || 0) + 0.95;
+      bot.lastTaskProgressAt = game.time || 0;
+      bot.goalX = null;
+      bot.goalY = null;
+    }
     if (unstuck) {
       setMoveToward(actor, unstuck.x, unstuck.y, sprint);
       return;
@@ -4119,7 +4133,9 @@ function followPath(game, actor, targetX, targetY, sprint = false, options = {})
       return;
     }
 
-    const unstuck = chooseBotUnstuckPoint(game, actor, targetX, targetY);
+    const unstuck = actor.role === "survivor"
+      ? (chooseRunnerDirectionChangePoint(game, actor, targetX, targetY, botNearestKiller(game)) || chooseBotUnstuckPoint(game, actor, targetX, targetY))
+      : chooseBotUnstuckPoint(game, actor, targetX, targetY);
     if (unstuck) {
       setMoveToward(actor, unstuck.x, unstuck.y, sprint);
       bot.path = [unstuck];
@@ -4238,13 +4254,17 @@ function visibleLivingSurvivors(game, killer) {
   return visibleSurvivorsForKiller(game, killer).map((item) => item.survivor);
 }
 
+function botNearestKiller(game) {
+  return [...(game?.actors?.values?.() || [])].find((p) => p.role === "killer" && !p.dead) || null;
+}
+
 function botDistanceToKiller(game, actor) {
-  const killer = [...game.actors.values()].find((p) => p.role === "killer" && !p.dead);
+  const killer = botNearestKiller(game);
   return killer ? dist(actor.x, actor.y, killer.x, killer.y) : Infinity;
 }
 
 function botKillerHasLineOfSight(game, actor) {
-  const killer = [...game.actors.values()].find((p) => p.role === "killer" && !p.dead);
+  const killer = botNearestKiller(game);
   return !!(killer && segmentClear(game, actor.x, actor.y, killer.x, killer.y));
 }
 
@@ -4534,6 +4554,95 @@ function chooseBotUnstuckPoint(game, actor, targetX, targetY) {
   }
 
   return best;
+}
+
+function chooseRunnerDirectionChangePoint(game, actor, targetX, targetY, killer = null) {
+  if (!game || !actor) return null;
+  const bot = actor.bot || (actor.bot = {});
+  const tile = game.map.tile || 64;
+  const center = { x: game.map.width / 2, y: game.map.height / 2 };
+  const targetAngle = Number.isFinite(targetX) && Number.isFinite(targetY)
+    ? Math.atan2(targetY - actor.y, targetX - actor.x)
+    : Math.atan2(center.y - actor.y, center.x - actor.x);
+  const centerAngle = Math.atan2(center.y - actor.y, center.x - actor.x);
+  const currentCenterDistance = dist(actor.x, actor.y, center.x, center.y);
+  const currentTargetDistance = Number.isFinite(targetX) && Number.isFinite(targetY) ? dist(actor.x, actor.y, targetX, targetY) : currentCenterDistance;
+  const currentKillerDistance = killer ? dist(actor.x, actor.y, killer.x, killer.y) : Infinity;
+  const nearEdge = actor.x < tile * 2.4 || actor.y < tile * 2.4 || actor.x > game.map.width - tile * 2.4 || actor.y > game.map.height - tile * 2.4;
+  const away = killer ? botRunnerVectorAwayFromKiller(actor, killer) : null;
+  const awayAngle = away ? Math.atan2(away.y, away.x) : null;
+  const radii = [tile * 1.4, tile * 2.2, tile * 3.2, tile * 4.25];
+  const angles = [];
+
+  const addAngle = (angle) => {
+    if (!Number.isFinite(angle)) return;
+    const key = Math.round(angle * 1000);
+    if (!angles.some((a) => Math.round(a * 1000) === key)) angles.push(angle);
+  };
+
+  addAngle(centerAngle);
+  addAngle(targetAngle + Math.PI * 0.5);
+  addAngle(targetAngle - Math.PI * 0.5);
+  addAngle(targetAngle + Math.PI);
+  if (awayAngle != null) {
+    addAngle(awayAngle);
+    addAngle(awayAngle + 0.55);
+    addAngle(awayAngle - 0.55);
+    addAngle(awayAngle + 1.05);
+    addAngle(awayAngle - 1.05);
+  }
+  for (let i = 0; i < 16; i += 1) addAngle((Math.PI * 2 * i) / 16);
+
+  let best = null;
+  let bestScore = -Infinity;
+  const lastAngle = Number.isFinite(bot.lastRunnerDirectionChangeAngle) ? bot.lastRunnerDirectionChangeAngle : null;
+
+  for (const radius of radii) {
+    for (const angle of angles) {
+      const x = clamp(actor.x + Math.cos(angle) * radius, 44, game.map.width - 44);
+      const y = clamp(actor.y + Math.sin(angle) * radius, 44, game.map.height - 44);
+      if (wouldCollide(game, actor, x, y)) continue;
+
+      const tileAtPoint = tileAt(game, x, y);
+      if (isPathTileBodyBlocked(game, actor, tileAtPoint.x, tileAtPoint.y, "survivor")) continue;
+      const segmentClearToPoint = botMovementSegmentClear(game, actor, actor.x, actor.y, x, y);
+      const route = botCheapRouteDistance(game, actor, x, y, { role: "survivor", exact: false });
+      const routePenalty = Number.isFinite(route) ? Math.min(route, tile * 8) * 0.05 : 110;
+      const centerGain = currentCenterDistance - dist(x, y, center.x, center.y);
+      const targetGain = currentTargetDistance - (Number.isFinite(targetX) && Number.isFinite(targetY) ? dist(x, y, targetX, targetY) : dist(x, y, center.x, center.y));
+      const killerGain = killer ? dist(x, y, killer.x, killer.y) - currentKillerDistance : 0;
+      const breaksLos = killer ? !segmentClear(game, killer.x, killer.y, x, y) : false;
+      const edgeDistance = Math.min(x, y, game.map.width - x, game.map.height - y);
+      const edgePenalty = edgeDistance < tile * 1.55 ? 560 : edgeDistance < tile * 2.6 ? 260 : 0;
+      const cornerPenalty = ((x < tile * 2.1 || x > game.map.width - tile * 2.1) && (y < tile * 2.1 || y > game.map.height - tile * 2.1)) ? 420 : 0;
+      const clearancePenalty = botTileClearancePenalty(game, actor, tileAtPoint.x, tileAtPoint.y) * 130;
+      const sameDirectionPenalty = lastAngle == null ? 0 : Math.max(0, Math.cos(angle - lastAngle)) * 90;
+
+      const score = radius * 0.05
+        + (segmentClearToPoint ? 130 : -40)
+        + centerGain * (nearEdge ? 1.9 : 0.28)
+        + targetGain * (nearEdge ? 0.05 : 0.35)
+        + killerGain * (killer ? 2.35 : 0)
+        + (breaksLos ? 360 : 0)
+        - edgePenalty
+        - cornerPenalty
+        - clearancePenalty
+        - routePenalty
+        - sameDirectionPenalty
+        + Math.random() * 8;
+
+      if (score > bestScore) {
+        bestScore = score;
+        best = { x, y, score, directionChange: true };
+      }
+    }
+  }
+
+  if (best) {
+    bot.lastRunnerDirectionChangeAngle = Math.atan2(best.y - actor.y, best.x - actor.x);
+    return best;
+  }
+  return null;
 }
 
 function botEmergencyUnstuck(game, actor, targetX, targetY) {
@@ -5136,10 +5245,11 @@ function botRunnerBestNoBacktrackPoint(game, survivor, killer, target = null, op
       : 0;
     const tile = tileAt(game, raw.x, raw.y);
     const clearancePenalty = botTileClearancePenalty(game, survivor, tile.x, tile.y) * 115;
-    const edgePenalty = (
-      raw.x < game.map.tile * 1.5 || raw.y < game.map.tile * 1.5 ||
-      raw.x > game.map.width - game.map.tile * 1.5 || raw.y > game.map.height - game.map.tile * 1.5
-    ) ? 150 : 0;
+    const edgeDistance = Math.min(raw.x, raw.y, game.map.width - raw.x, game.map.height - raw.y);
+    const edgePenalty = edgeDistance < game.map.tile * 1.55 ? 360 : edgeDistance < game.map.tile * 2.5 ? 170 : 0;
+    const cornerPenalty = ((raw.x < game.map.tile * 2 || raw.x > game.map.width - game.map.tile * 2)
+      && (raw.y < game.map.tile * 2 || raw.y > game.map.height - game.map.tile * 2)) ? 290 : 0;
+    const centerGain = dist(survivor.x, survivor.y, game.map.width / 2, game.map.height / 2) - dist(raw.x, raw.y, game.map.width / 2, game.map.height / 2);
     const route = botCheapRouteDistance(game, survivor, raw.x, raw.y, { role: "survivor", exact: false });
     const routePenalty = Number.isFinite(route) ? Math.min(route, game.map.tile * 7) * 0.05 : 120;
 
@@ -5149,8 +5259,10 @@ function botRunnerBestNoBacktrackPoint(game, survivor, killer, target = null, op
       + (segmentClearToPoint ? 125 : -45)
       + targetAlignment * 70
       - routePenalty
+      + centerGain * 0.22
       - clearancePenalty
-      - edgePenalty;
+      - edgePenalty
+      - cornerPenalty;
 
     if (score > bestScore) {
       bestScore = score;
@@ -5216,16 +5328,19 @@ function botRunnerEmergencyFleePoint(game, survivor, killer) {
 
       const breaksLos = !segmentClear(game, killer.x, killer.y, endpoint.x, endpoint.y);
       const directAwayAlignment = ((endpoint.x - survivor.x) * away.x + (endpoint.y - survivor.y) * away.y) / Math.max(1, dist(survivor.x, survivor.y, endpoint.x, endpoint.y));
-      const nearEdgePenalty = (
-        endpoint.x < game.map.tile * 2 || endpoint.y < game.map.tile * 2 ||
-        endpoint.x > game.map.width - game.map.tile * 2 || endpoint.y > game.map.height - game.map.tile * 2
-      ) ? 180 : 0;
+      const edgeDistance = Math.min(endpoint.x, endpoint.y, game.map.width - endpoint.x, game.map.height - endpoint.y);
+      const nearEdgePenalty = edgeDistance < game.map.tile * 1.65 ? 520 : edgeDistance < game.map.tile * 2.75 ? 240 : 0;
+      const cornerPenalty = ((endpoint.x < game.map.tile * 2.1 || endpoint.x > game.map.width - game.map.tile * 2.1)
+        && (endpoint.y < game.map.tile * 2.1 || endpoint.y > game.map.height - game.map.tile * 2.1)) ? 380 : 0;
+      const centerGain = dist(survivor.x, survivor.y, game.map.width / 2, game.map.height / 2) - dist(endpoint.x, endpoint.y, game.map.width / 2, game.map.height / 2);
       const routePenalty = Math.min(route, game.map.tile * 14) * 0.28;
       const score = killerDistance * 1.42
         + (breaksLos ? 520 : 0)
         + directAwayAlignment * 260
+        + centerGain * 0.34
         - routePenalty
         - nearEdgePenalty
+        - cornerPenalty
         - botTileClearancePenalty(game, survivor, endpoint.tileX, endpoint.tileY) * 95;
 
       if (score > bestScore) {
@@ -5421,10 +5536,10 @@ function chooseFleePoint(game, survivor, killer) {
     const route = botCheapRouteDistance(game, survivor, p.x, p.y, { role: "survivor", exact: false });
     const selfHasPath = Number.isFinite(route) && route < game.map.tile * 11.5;
     const pathPenalty = Number.isFinite(route) ? route * 0.10 : distanceFromSelf * 0.32 + 160;
-    const nearEdgePenalty = (
-      p.x < game.map.tile * 2 || p.y < game.map.tile * 2 ||
-      p.x > game.map.width - game.map.tile * 2 || p.y > game.map.height - game.map.tile * 2
-    ) ? 180 : 0;
+    const edgeDistance = Math.min(p.x, p.y, game.map.width - p.x, game.map.height - p.y);
+    const nearEdgePenalty = edgeDistance < game.map.tile * 1.65 ? 520 : edgeDistance < game.map.tile * 2.8 ? 230 : 0;
+    const cornerPenalty = ((p.x < game.map.tile * 2.1 || p.x > game.map.width - game.map.tile * 2.1)
+      && (p.y < game.map.tile * 2.1 || p.y > game.map.height - game.map.tile * 2.1)) ? 380 : 0;
 
     let loopBonus = 0;
     for (const item of nearbyLoops) {
@@ -5433,7 +5548,7 @@ function chooseFleePoint(game, survivor, killer) {
       if (d < game.map.tile * 3.8) loopBonus += Math.max(0, item.value - d * 0.55);
     }
 
-    const towardMapCenter = -dist(p.x, p.y, game.map.width / 2, game.map.height / 2) * 0.025;
+    const towardMapCenter = (dist(survivor.x, survivor.y, game.map.width / 2, game.map.height / 2) - dist(p.x, p.y, game.map.width / 2, game.map.height / 2)) * 0.18;
     const score = distanceFromKiller * 1.25
       + (breaksLos ? 460 : 0)
       + (selfHasPath ? 120 : 0)
@@ -5441,7 +5556,8 @@ function chooseFleePoint(game, survivor, killer) {
       + towardMapCenter
       - pathPenalty
       - distanceFromSelf * 0.08
-      - nearEdgePenalty;
+      - nearEdgePenalty
+      - cornerPenalty;
     if (score > best.score) best = { x: p.x, y: p.y, score, loop: null };
   }
 
@@ -5938,15 +6054,17 @@ function botRunnerProgressWatchdog(game, actor, target) {
     bot.lastTaskProgressAt = now;
   }
 
-  if (now - (bot.lastTaskProgressAt || now) > 1.75) {
+  if (now - (bot.lastTaskProgressAt || now) > BOT_SURVIVOR_OBJECTIVE_STALL_SECONDS) {
     bot.path = [];
     bot.goalX = null;
     bot.goalY = null;
     bot.repath = 0;
-    bot.stuckTimer = Math.max(bot.stuckTimer || 0, BOT_KILLER_STUCK_SECONDS * 1.05);
+    bot.stuckTimer = Math.max(bot.stuckTimer || 0, BOT_SURVIVOR_STUCK_SECONDS);
+    bot.runnerDirectionChangeUntil = now + 0.95;
     bot.lastTaskProgressAt = now;
     bot.lastTaskProgressDistance = d;
-    const nudge = chooseBotUnstuckPoint(game, actor, target.x, target.y);
+    const nudge = chooseRunnerDirectionChangePoint(game, actor, target.x, target.y, botNearestKiller(game))
+      || chooseBotUnstuckPoint(game, actor, target.x, target.y);
     if (nudge) {
       setMoveToward(actor, nudge.x, nudge.y, true);
       return false;
@@ -6043,16 +6161,17 @@ function botRunnerFindKillerAvoidPoint(game, actor, killer, target, kind = "move
       const currentToTarget = dist(actor.x, actor.y, target.x, target.y);
       const improvesTarget = progressToTarget < currentToTarget + game.map.tile * 2.1;
       const targetPenalty = improvesTarget ? 0 : 260;
-      const edgePenalty = (
-        endpoint.x < game.map.tile * 2 || endpoint.y < game.map.tile * 2 ||
-        endpoint.x > game.map.width - game.map.tile * 2 || endpoint.y > game.map.height - game.map.tile * 2
-      ) ? 220 : 0;
+      const edgeDistance = Math.min(endpoint.x, endpoint.y, game.map.width - endpoint.x, game.map.height - endpoint.y);
+      const edgePenalty = edgeDistance < game.map.tile * 1.7 ? 460 : edgeDistance < game.map.tile * 2.8 ? 220 : 0;
+      const cornerPenalty = ((endpoint.x < game.map.tile * 2.1 || endpoint.x > game.map.width - game.map.tile * 2.1)
+        && (endpoint.y < game.map.tile * 2.1 || endpoint.y > game.map.height - game.map.tile * 2.1)) ? 330 : 0;
       const losBreakBonus = !segmentClear(game, killer.x, killer.y, endpoint.x, endpoint.y) ? 260 : 0;
       const clearancePenalty = botTileClearancePenalty(game, actor, endpoint.tileX, endpoint.tileY) * 180;
       const score = route
         + progressToTarget * 0.34
         + targetPenalty
         + edgePenalty
+        + cornerPenalty
         + clearancePenalty
         - losBreakBonus
         - Math.max(0, killerDistance - BOT_SURVIVOR_LOOP_RADIUS) * 0.18;
