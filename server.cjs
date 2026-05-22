@@ -1347,18 +1347,28 @@ function moveActorWithCollision(game, actor, moveX, moveY, options = {}) {
     }
 
     // If both component moves are blocked, we are probably pressing into a convex corner
-    // or already kissing a wall. Try a tiny perpendicular slip so players and bots can
-    // peel off geometry instead of getting welded to it.
+    // or already kissing a wall. Try several tiny peel-off moves so players and bots can
+    // escape geometry pressure instead of getting welded to it.
     const len = Math.hypot(stepX, stepY) || 1;
     const nudge = Math.max(2, Math.min(8, len * 1.4));
     const tangentA = { x: (-stepY / len) * nudge, y: (stepX / len) * nudge };
     const tangentB = { x: -tangentA.x, y: -tangentA.y };
-    const nudges = options.preferTarget && Number.isFinite(options.preferTarget.x) && Number.isFinite(options.preferTarget.y)
-      ? [tangentA, tangentB].sort((a, b) => (
-          dist(startX + a.x, startY + a.y, options.preferTarget.x, options.preferTarget.y)
-          - dist(startX + b.x, startY + b.y, options.preferTarget.x, options.preferTarget.y)
-        ))
-      : [tangentA, tangentB];
+    const backOff = { x: (-stepX / len) * Math.min(4, nudge), y: (-stepY / len) * Math.min(4, nudge) };
+    const halfA = { x: tangentA.x * 0.5, y: tangentA.y * 0.5 };
+    const halfB = { x: tangentB.x * 0.5, y: tangentB.y * 0.5 };
+    const cardinal = [
+      { x: nudge, y: 0 },
+      { x: -nudge, y: 0 },
+      { x: 0, y: nudge },
+      { x: 0, y: -nudge }
+    ];
+    let nudges = [tangentA, tangentB, halfA, halfB, backOff, ...cardinal];
+    if (options.preferTarget && Number.isFinite(options.preferTarget.x) && Number.isFinite(options.preferTarget.y)) {
+      nudges = nudges.sort((a, b) => (
+        dist(startX + a.x, startY + a.y, options.preferTarget.x, options.preferTarget.y)
+        - dist(startX + b.x, startY + b.y, options.preferTarget.x, options.preferTarget.y)
+      ));
+    }
 
     let nudged = false;
     for (const n of nudges) {
@@ -1374,7 +1384,7 @@ function moveActorWithCollision(game, actor, moveX, moveY, options = {}) {
     }
 
     if (!nudged) {
-      resolveActorOverlaps(game, actor, 2);
+      resolveActorOverlaps(game, actor, 4);
       break;
     }
   }
@@ -2016,9 +2026,15 @@ function moveActor(game, actor, dt) {
   if (actor.role === "survivor" && (actor.orbSlow || 0) > 0) speed *= RED_ORB_SLOW_MULT;
   if (actor.role === "survivor" && (actor.voidSlow || 0) > 0) speed *= GRAVITY_WELL_SLOW_MULT;
 
-  moveActorWithCollision(game, actor, dx * speed * dt, dy * speed * dt, {
+  const moved = moveActorWithCollision(game, actor, dx * speed * dt, dy * speed * dt, {
     preferTarget: { x: actor.x + dx * 96, y: actor.y + dy * 96 }
   });
+
+  if (!moved && (Math.abs(dx) + Math.abs(dy) > 0.05)) {
+    // Last server-side de-stick pass. If input is active but the actor did not move,
+    // separate from any tiny overlap so the next tick can slide instead of grinding.
+    resolveActorOverlaps(game, actor, 4);
+  }
 
   if (actor.role === "survivor" && !actor.downed && actor.input.sprint && (Math.abs(dx) + Math.abs(dy) > 0.05)) {
     if (Math.random() < 0.45) addScratch(game, actor);

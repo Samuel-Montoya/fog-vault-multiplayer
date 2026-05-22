@@ -50,6 +50,11 @@ const GAMEPLAY_CONFIG = {
     // does not look like teleporting. Yes, this is the part that keeps bots from moonwalking.
     remoteInterpolationDelayMs: 165,
     remoteExtrapolateMs: 115,
+    // The Void gets a shorter render delay than normal remote actors. Survivors need to see
+    // where the server says the killer is now, not where he was three browser hiccups ago.
+    voidInterpolationDelayMs: 90,
+    voidExtrapolateMs: 135,
+    voidMaxVisualLag: 72,
     remoteSnapDistance: 300,
     localMaxCorrectionPerSecond: 115,
     localCorrectionDeadzoneIdle: 6,

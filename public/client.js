@@ -67,6 +67,9 @@
       remoteActorRate: 14,
       remoteInterpolationDelayMs: 80,
       remoteExtrapolateMs: 70,
+      voidInterpolationDelayMs: 55,
+      voidExtrapolateMs: 95,
+      voidMaxVisualLag: 96,
       remoteSnapDistance: 230,
       localReconcileRate: 4.8,
       localMaxCorrectionPerSecond: 260,
@@ -110,6 +113,9 @@
       remoteActorRate: 18,
       remoteInterpolationDelayMs: 120,
       remoteExtrapolateMs: 90,
+      voidInterpolationDelayMs: 70,
+      voidExtrapolateMs: 120,
+      voidMaxVisualLag: 84,
       remoteSnapDistance: 260,
       localReconcileRate: 5.2,
       localMaxCorrectionPerSecond: 150,
@@ -153,6 +159,9 @@
       remoteActorRate: 22,
       remoteInterpolationDelayMs: 165,
       remoteExtrapolateMs: 115,
+      voidInterpolationDelayMs: 90,
+      voidExtrapolateMs: 135,
+      voidMaxVisualLag: 72,
       remoteSnapDistance: 300,
       localReconcileRate: 4.6,
       localMaxCorrectionPerSecond: 115,
@@ -4066,10 +4075,15 @@
       if (!Number.isFinite(x) || !Number.isFinite(y)) return;
 
       const angle = Number.isFinite(data.angle) ? data.angle : (item.target?.angle || 0);
-      const sample = { x, y, angle, t: now };
+      const sample = { x, y, angle, t: now, seq: currentSnapshot?.seq || 0 };
+      item.latestServer = sample;
+      item.latestServerAt = now;
       const samples = item.netSamples || (item.netSamples = []);
       const last = samples[samples.length - 1];
-      const snapDistance = performanceValue("remoteSnapDistance", LOW_POWER_MODE ? 260 : 230);
+      const isVoid = data.role === "killer";
+      const snapDistance = isVoid
+        ? Math.max(160, performanceValue("remoteSnapDistance", LOW_POWER_MODE ? 260 : 230) * 0.78)
+        : performanceValue("remoteSnapDistance", LOW_POWER_MODE ? 260 : 230);
       const stateKey = `${data.role || "actor"}:${data.dead ? 1 : 0}:${data.escaped ? 1 : 0}:${data.hooked ? 1 : 0}:${data.vaulting ? 1 : 0}`;
 
       if (!last) {
@@ -4106,7 +4120,10 @@
       if (!samples || samples.length < 2) return null;
 
       const now = performance.now();
-      const delay = Math.max(40, performanceValue("remoteInterpolationDelayMs", LOW_POWER_MODE ? 120 : 80));
+      const isVoid = item.data?.role === "killer";
+      const delay = Math.max(35, isVoid
+        ? performanceValue("voidInterpolationDelayMs", LOW_POWER_MODE ? 70 : 55)
+        : performanceValue("remoteInterpolationDelayMs", LOW_POWER_MODE ? 120 : 80));
       const renderTime = now - delay;
 
       while (samples.length > 2 && samples[1].t <= renderTime) samples.shift();
@@ -4131,7 +4148,9 @@
       // enough to cover jitter. This is capped hard so a dropped packet does not
       // launch actors into the nearest zip code, which is rude even for netcode.
       const sampleDt = Math.max(0.001, (second.t - first.t) / 1000);
-      const maxExtrapolateMs = Math.max(0, performanceValue("remoteExtrapolateMs", LOW_POWER_MODE ? 90 : 70));
+      const maxExtrapolateMs = Math.max(0, item.data?.role === "killer"
+        ? performanceValue("voidExtrapolateMs", LOW_POWER_MODE ? 120 : 95)
+        : performanceValue("remoteExtrapolateMs", LOW_POWER_MODE ? 90 : 70));
       const extraSeconds = clamp((renderTime - second.t) / 1000, 0, maxExtrapolateMs / 1000);
       const vx = (second.x - first.x) / sampleDt;
       const vy = (second.y - first.y) / sampleDt;
@@ -4147,6 +4166,21 @@
       };
     }
 
+    pullRemoteVoidTowardLatest(item, state) {
+      if (!item || !state || item.data?.role !== "killer" || !item.latestServer) return state;
+      const latest = item.latestServer;
+      const gap = dist(state.x, state.y, latest.x, latest.y);
+      const maxLag = Math.max(48, performanceValue("voidMaxVisualLag", LOW_POWER_MODE ? 84 : 96));
+      if (gap <= maxLag) return state;
+
+      const pull = (gap - maxLag) / gap;
+      return {
+        x: lerp(state.x, latest.x, pull),
+        y: lerp(state.y, latest.y, pull),
+        angle: lerpAngle(state.angle, latest.angle, Math.min(0.65, pull + 0.15))
+      };
+    }
+
     localInputMagnitude() {
       return Math.hypot(
         (input.right ? 1 : 0) - (input.left ? 1 : 0),
@@ -4154,15 +4188,25 @@
       );
     }
 
-    reconcileLocalVisual(dt, targetX, targetY) {
+    reconcileLocalVisual(dt, targetX, targetY, sourceData = this.localServerTarget?.data) {
       if (!this.localVisual || !Number.isFinite(targetX) || !Number.isFinite(targetY)) return;
+      const role = sourceData?.role || this.localVisual.role || "survivor";
+
+      // If local prediction ever wedged the actor into geometry, free it before
+      // applying server correction. Otherwise the client can keep drawing a stuck
+      // body while the server has already slid it clear.
+      this.resolveLocalActorOverlaps(role, 2);
+
       const dx = targetX - this.localVisual.x;
       const dy = targetY - this.localVisual.y;
       const gap = Math.hypot(dx, dy);
       if (gap < 0.02) return;
 
       const moving = this.localInputMagnitude() > 0.05;
-      const snapDistance = performanceValue("localCorrectionSnapDistance", LOW_POWER_MODE ? 230 : 190);
+      const isVoid = role === "killer";
+      const snapDistance = isVoid
+        ? Math.max(140, performanceValue("localCorrectionSnapDistance", LOW_POWER_MODE ? 230 : 190) * 0.66)
+        : performanceValue("localCorrectionSnapDistance", LOW_POWER_MODE ? 230 : 190);
       if (gap > snapDistance) {
         this.localVisual.x = targetX;
         this.localVisual.y = targetY;
@@ -4171,23 +4215,24 @@
         return;
       }
 
-      // When playing locally, prediction is usually smoother than the newest server
-      // packet. Spectating looks clean because it renders remote actors from an
-      // interpolation buffer. For the local player, ignore tiny correction noise,
-      // then bleed larger errors in gradually. This keeps server authority without
-      // turning every delayed packet into a visible shove on low-end hardware.
-      const deadzone = performanceValue(
-        moving ? "localCorrectionDeadzoneMoving" : "localCorrectionDeadzoneIdle",
-        moving ? (LOW_POWER_MODE ? 14 : 3.5) : (LOW_POWER_MODE ? 4 : 1.5)
-      );
+      const deadzone = isVoid
+        ? (moving ? (LOW_POWER_MODE ? 6 : 2.8) : (LOW_POWER_MODE ? 2.5 : 1.2))
+        : performanceValue(
+            moving ? "localCorrectionDeadzoneMoving" : "localCorrectionDeadzoneIdle",
+            moving ? (LOW_POWER_MODE ? 14 : 3.5) : (LOW_POWER_MODE ? 4 : 1.5)
+          );
       if (gap <= deadzone) return;
 
       const correctionGap = gap - deadzone;
-      const alphaStep = correctionGap * dampAlpha(performanceValue("localReconcileRate", 4.8), dt);
-      const maxStep = Math.max(1, performanceValue("localMaxCorrectionPerSecond", LOW_POWER_MODE ? 150 : 260) * dt);
+      const reconcileRate = isVoid ? (LOW_POWER_MODE ? 9.5 : 7.2) : performanceValue("localReconcileRate", 4.8);
+      const correctionSpeed = isVoid ? (LOW_POWER_MODE ? 360 : 430) : performanceValue("localMaxCorrectionPerSecond", LOW_POWER_MODE ? 150 : 260);
+      const alphaStep = correctionGap * dampAlpha(reconcileRate, dt);
+      const maxStep = Math.max(1, correctionSpeed * dt);
       const step = Math.min(correctionGap, Math.min(alphaStep, maxStep));
       this.localVisual.x += dx / gap * step;
       this.localVisual.y += dy / gap * step;
+
+      this.resolveLocalActorOverlaps(role, 1);
     }
 
     getSurvivorDotVisualTarget(item) {
@@ -4253,14 +4298,15 @@
       item.outline.lineStyle(2, outlineColor, outlineAlpha);
 
       if (data.role === "killer") {
-        const now = performance.now();
+        const cheapVoidVisual = adaptivePerformance.mode !== "normal" || LOW_POWER_MODE;
+        const now = cheapVoidVisual ? ((data.id || "void").length * 997) : performance.now();
         const attacking = data.attacking || data.attackState === "quick" || data.attackState === "lunge";
         const charging = data.attackState === "charging";
         const stunned = (data.voidStun || 0) > 0;
         const speedBoost = (data.voidSpeedBoost || 0) > 0;
         const angry = stunned ? 0.82 : attacking ? 1 : charging ? 0.65 : speedBoost ? 0.52 : data.recovery > 0 ? 0.38 : 0.18;
-        const wobble = Math.sin(now / 145) * 1.25;
-        const pulse = Math.sin(now / 210) * 0.5 + 0.5;
+        const wobble = cheapVoidVisual ? 0 : Math.sin(now / 145) * 1.25;
+        const pulse = cheapVoidVisual ? 0.45 : Math.sin(now / 210) * 0.5 + 0.5;
         const coreR = 18.5 + wobble + angry * 3.0;
 
 
@@ -5196,7 +5242,7 @@
 
       if (this.isMatchIntroLocked()) {
         clearMovementInputOnly();
-        this.reconcileLocalVisual(dt, this.localServerTarget.x, this.localServerTarget.y);
+        this.reconcileLocalVisual(dt, this.localServerTarget.x, this.localServerTarget.y, data);
         return;
       }
 
@@ -5213,7 +5259,7 @@
       }
 
       if (data.dead || data.escaped || data.hooked || data.breaking || (data.role === "killer" && data.voidStun > 0)) {
-        this.reconcileLocalVisual(dt, this.localServerTarget.x, this.localServerTarget.y);
+        this.reconcileLocalVisual(dt, this.localServerTarget.x, this.localServerTarget.y, data);
         return;
       }
 
@@ -5240,20 +5286,18 @@
         speed = 0;
       } else if (data.role === "killer" && data.recovery > 0) speed *= LOCAL_SPEEDS.killerRecoveryMult;
 
-      const nx = clamp(this.localVisual.x + dx * speed * dt, 36, this.map.width - 36);
-      const ny = clamp(this.localVisual.y + dy * speed * dt, 36, this.map.height - 36);
-      if (!this.localWouldCollide(data.role, nx, this.localVisual.y)) this.localVisual.x = nx;
-      if (!this.localWouldCollide(data.role, this.localVisual.x, ny)) this.localVisual.y = ny;
+      this.moveLocalWithCollision(data.role, dx * speed * dt, dy * speed * dt, {
+        preferTarget: { x: this.localVisual.x + dx * 96, y: this.localVisual.y + dy * 96 }
+      });
 
-      // Soft reconciliation with server authority. In low/ultra, cap correction speed so
-      // a late server packet does not visibly yank the local player across the floor.
-      this.reconcileLocalVisual(dt, this.localServerTarget.x, this.localServerTarget.y);
+      // Soft reconciliation with server authority. The Void uses tighter correction so
+      // the client never displays an old position while the server hitbox has moved on.
+      this.reconcileLocalVisual(dt, this.localServerTarget.x, this.localServerTarget.y, data);
     }
 
-    localWouldCollide(role, x, y) {
-      const box = actorRect({ role }, x, y);
-      const solids = [...(this.map.walls || []), ...(this.map.windows || [])];
-      for (const p of currentSnapshot?.map?.pallets || []) {
+    localCollisionBlockingRects(role) {
+      const solids = [...(this.map?.walls || []), ...(this.map?.windows || [])];
+      for (const p of currentSnapshot?.map?.pallets || this.map?.pallets || []) {
         if (!p.broken && p.state === "dropped") solids.push(p);
       }
       if (role === "survivor") {
@@ -5262,7 +5306,150 @@
           solids.push({ id: gen.id, x: gen.x - size / 2, y: gen.y - size / 2, w: size, h: size });
         }
       }
-      return solids.some((r) => rectsOverlap(box, r));
+      return solids;
+    }
+
+    localCollisionRectsAt(role, x = this.localVisual?.x, y = this.localVisual?.y) {
+      if (!this.localVisual || !Number.isFinite(x) || !Number.isFinite(y)) return [];
+      const box = actorRect({ role }, x, y);
+      return this.localCollisionBlockingRects(role).filter((r) => rectsOverlap(box, r));
+    }
+
+    localWouldCollide(role, x, y) {
+      return this.localCollisionRectsAt(role, x, y).length > 0;
+    }
+
+    resolveLocalActorOverlaps(role, maxIterations = 4) {
+      if (!this.map || !this.localVisual) return false;
+      let moved = false;
+      for (let i = 0; i < maxIterations; i += 1) {
+        const box = actorRect({ role }, this.localVisual.x, this.localVisual.y);
+        const hits = this.localCollisionBlockingRects(role).filter((r) => rectsOverlap(box, r));
+        if (!hits.length) break;
+
+        let best = null;
+        for (const r of hits) {
+          const options = [
+            { dx: r.x - (box.x + box.w), dy: 0 },
+            { dx: (r.x + r.w) - box.x, dy: 0 },
+            { dx: 0, dy: r.y - (box.y + box.h) },
+            { dx: 0, dy: (r.y + r.h) - box.y }
+          ].map((o) => ({ ...o, amount: Math.hypot(o.dx, o.dy) }))
+            .filter((o) => o.amount > 0 && Number.isFinite(o.amount));
+          const local = options.sort((a, b) => a.amount - b.amount)[0];
+          if (local && (!best || local.amount < best.amount)) best = local;
+        }
+
+        if (!best) break;
+        const padX = best.dx ? Math.sign(best.dx) * 0.75 : 0;
+        const padY = best.dy ? Math.sign(best.dy) * 0.75 : 0;
+        this.localVisual.x = clamp(this.localVisual.x + best.dx + padX, 36, this.map.width - 36);
+        this.localVisual.y = clamp(this.localVisual.y + best.dy + padY, 36, this.map.height - 36);
+        moved = true;
+      }
+      return moved;
+    }
+
+    moveLocalWithCollision(role, moveX, moveY, options = {}) {
+      if (!this.map || !this.localVisual) return false;
+      if (!Number.isFinite(moveX) || !Number.isFinite(moveY)) return false;
+
+      this.resolveLocalActorOverlaps(role);
+
+      const distance = Math.hypot(moveX, moveY);
+      if (distance <= 0.0001) return false;
+
+      let moved = false;
+      const bodySize = role === "killer" ? LOCAL_SPEEDS.killerSize : LOCAL_SPEEDS.survivorSize;
+      const maxStep = options.maxStep || Math.max(6, Math.min(10, bodySize * 0.30));
+      const steps = Math.max(1, Math.ceil(distance / maxStep));
+      const stepX = moveX / steps;
+      const stepY = moveY / steps;
+
+      for (let i = 0; i < steps; i += 1) {
+        const startX = this.localVisual.x;
+        const startY = this.localVisual.y;
+        const desiredX = clamp(startX + stepX, 36, this.map.width - 36);
+        const desiredY = clamp(startY + stepY, 36, this.map.height - 36);
+
+        if (!this.localWouldCollide(role, desiredX, desiredY)) {
+          this.localVisual.x = desiredX;
+          this.localVisual.y = desiredY;
+          moved = true;
+          continue;
+        }
+
+        const tryX = !this.localWouldCollide(role, desiredX, startY);
+        const tryY = !this.localWouldCollide(role, startX, desiredY);
+
+        if (tryX && tryY) {
+          if (Math.abs(stepX) >= Math.abs(stepY)) {
+            this.localVisual.x = desiredX;
+            if (!this.localWouldCollide(role, this.localVisual.x, desiredY)) this.localVisual.y = desiredY;
+          } else {
+            this.localVisual.y = desiredY;
+            if (!this.localWouldCollide(role, desiredX, this.localVisual.y)) this.localVisual.x = desiredX;
+          }
+          moved = true;
+          continue;
+        }
+
+        if (tryX) {
+          this.localVisual.x = desiredX;
+          moved = true;
+          continue;
+        }
+
+        if (tryY) {
+          this.localVisual.y = desiredY;
+          moved = true;
+          continue;
+        }
+
+        // Last-resort peel-off for convex corners. This mirrors the server, so the
+        // client prediction does not insist it is stuck while the server calmly slides away.
+        const len = Math.hypot(stepX, stepY) || 1;
+        const nudge = Math.max(1.5, Math.min(6, len * 1.25));
+        const tangentA = { x: (-stepY / len) * nudge, y: (stepX / len) * nudge };
+        const tangentB = { x: -tangentA.x, y: -tangentA.y };
+        const backOff = { x: (-stepX / len) * Math.min(3, nudge), y: (-stepY / len) * Math.min(3, nudge) };
+        const halfA = { x: tangentA.x * 0.5, y: tangentA.y * 0.5 };
+        const halfB = { x: tangentB.x * 0.5, y: tangentB.y * 0.5 };
+        const cardinal = [
+          { x: nudge, y: 0 },
+          { x: -nudge, y: 0 },
+          { x: 0, y: nudge },
+          { x: 0, y: -nudge }
+        ];
+        let nudges = [tangentA, tangentB, halfA, halfB, backOff, ...cardinal];
+        if (options.preferTarget && Number.isFinite(options.preferTarget.x) && Number.isFinite(options.preferTarget.y)) {
+          nudges = nudges.sort((a, b) => (
+            dist(startX + a.x, startY + a.y, options.preferTarget.x, options.preferTarget.y)
+            - dist(startX + b.x, startY + b.y, options.preferTarget.x, options.preferTarget.y)
+          ));
+        }
+
+        let nudged = false;
+        for (const n of nudges) {
+          const nx = clamp(startX + n.x, 36, this.map.width - 36);
+          const ny = clamp(startY + n.y, 36, this.map.height - 36);
+          if (!this.localWouldCollide(role, nx, ny)) {
+            this.localVisual.x = nx;
+            this.localVisual.y = ny;
+            moved = true;
+            nudged = true;
+            break;
+          }
+        }
+
+        if (!nudged) {
+          this.resolveLocalActorOverlaps(role, 2);
+          break;
+        }
+      }
+
+      this.resolveLocalActorOverlaps(role, 1);
+      return moved;
     }
 
     isOuterMapWall(rect) {
@@ -5534,10 +5721,13 @@
         } else {
           item.vaultPlayback = null;
           if (!this.killerHidesRemoteHookedSurvivor(item.data)) {
-            const interpolated = this.getInterpolatedRemoteState(item);
+            let interpolated = this.getInterpolatedRemoteState(item);
             if (interpolated) {
+              interpolated = this.pullRemoteVoidTowardLatest(item, interpolated);
               const gap = dist(item.current.x, item.current.y, interpolated.x, interpolated.y);
-              const snapDistance = performanceValue("remoteSnapDistance", LOW_POWER_MODE ? 260 : 230);
+              const snapDistance = item.data?.role === "killer"
+                ? Math.max(160, performanceValue("remoteSnapDistance", LOW_POWER_MODE ? 260 : 230) * 0.78)
+                : performanceValue("remoteSnapDistance", LOW_POWER_MODE ? 260 : 230);
               if (gap > snapDistance) {
                 item.current.x = interpolated.x;
                 item.current.y = interpolated.y;
