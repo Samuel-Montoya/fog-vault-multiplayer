@@ -177,11 +177,16 @@ const GAMEPLAY_CONFIG = {
     dotsPerRift: 30,
     depositDistance: 96,
     depositSecondsPerOrb: 0.5,
-    maxDepositChain: 10
+    maxDepositChain: 30
+  },
+
+  survivorAbilities: {
+    riftLensLengthMultiplier: 1.55,
+    riftLensAngleMultiplier: 1.38
   },
 
   orbs: {
-    survivorMax: 10,
+    survivorMax: 30,
     voidMax: 999,
     survivorDropOnHitPercent: 1.0,
     survivorPickupRadius: 48,

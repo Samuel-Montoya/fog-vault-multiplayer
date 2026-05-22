@@ -40,7 +40,7 @@ const HOW_TO_PLAY = [
   },
   {
     title: "Controls",
-    text: "WASD move, mouse aim, Shift sprint, Space vault/drop/break, R quick chat. Stand still near injured or hooked teammates to heal or rescue them."
+    text: "WASD move, mouse aim, Shift sprint, Space vault/drop/break, hold Q for abilities, R quick chat. Stand still near injured or hooked teammates to heal or rescue them."
   }
 ]
 
@@ -452,27 +452,39 @@ function GameHud() {
 }
 
 
-const ABILITY_WHEEL_FALLBACK = [
+const VOID_ABILITY_WHEEL_FALLBACK = [
   { id: "nullRush", name: "Null Rush", shortName: "Rush", cost: 15, summary: "Move faster.", accent: "gray" },
   { id: "redshiftOrbs", name: "Redshift Bloom", shortName: "Redshift", cost: 25, summary: "Corrupts orbs.", accent: "red" },
   { id: "cancel", name: "Cancel", shortName: "Cancel", cost: 0, summary: "Close the wheel.", accent: "muted", cancel: true },
   { id: "voidReveal", name: "Void Sight", shortName: "Sight", cost: 15, summary: "Reveals all Runners.", accent: "purple", cooldown: 20 }
 ]
 
-function normalizeAbilities(abilities) {
+const RUNNER_ABILITY_WHEEL_FALLBACK = [
+  { id: "stealthStep", name: "Stealth Step", shortName: "Stealth", cost: 10, summary: "Hide scratch marks.", accent: "cyan", cooldown: 30 },
+  { id: "riftLens", name: "Rift Lens", shortName: "Lens", cost: 10, summary: "Widen your vision cone.", accent: "gold", cooldown: 30 },
+  { id: "cancel", name: "Cancel", shortName: "Cancel", cost: 0, summary: "Close the wheel.", accent: "muted", cancel: true },
+  { id: "moreSoon", name: "More Soon", shortName: "Soon", cost: 0, summary: "More abilities later.", accent: "muted", cancel: true, disabled: true }
+]
+
+function abilityFallbackForRole(role) {
+  return role === "survivor" ? RUNNER_ABILITY_WHEEL_FALLBACK : VOID_ABILITY_WHEEL_FALLBACK
+}
+
+function normalizeAbilities(abilities, role = "killer") {
+  const fallback = abilityFallbackForRole(role)
   const safe = Array.isArray(abilities) ? abilities.slice(0, 4) : []
-  while (safe.length < 4) safe.push(ABILITY_WHEEL_FALLBACK[safe.length])
+  while (safe.length < 4) safe.push(fallback[safe.length])
   return safe.map((ability, index) => ({
-    id: String(ability?.id || ABILITY_WHEEL_FALLBACK[index]?.id || `ability-${index}`),
-    name: String(ability?.name || ABILITY_WHEEL_FALLBACK[index]?.name || "Void Ability"),
-    shortName: String(ability?.shortName || ability?.name || ABILITY_WHEEL_FALLBACK[index]?.shortName || "Ability"),
-    cost: Number.isFinite(Number(ability?.cost)) ? Number(ability.cost) : Number(ABILITY_WHEEL_FALLBACK[index]?.cost || 0),
-    summary: String(ability?.summary || ABILITY_WHEEL_FALLBACK[index]?.summary || "The Void bends the run."),
-    accent: String(ability?.accent || "purple"),
-    cancel: !!ability?.cancel || String(ability?.id || "") === "cancel",
-    available: ability?.available !== false,
+    id: String(ability?.id || fallback[index]?.id || `ability-${index}`),
+    name: String(ability?.name || fallback[index]?.name || "Ability"),
+    shortName: String(ability?.shortName || ability?.name || fallback[index]?.shortName || "Ability"),
+    cost: Number.isFinite(Number(ability?.cost)) ? Number(ability.cost) : Number(fallback[index]?.cost || 0),
+    summary: String(ability?.summary || fallback[index]?.summary || "Spend orbs to bend the run."),
+    accent: String(ability?.accent || (role === "survivor" ? "cyan" : "purple")),
+    cancel: !!ability?.cancel || String(ability?.id || "") === "cancel" || String(ability?.id || "") === "moreSoon" || !!ability?.disabled,
+    available: ability?.available !== false && !ability?.disabled,
     active: !!ability?.active,
-    cooldown: Number.isFinite(Number(ability?.cooldown)) ? Number(ability.cooldown) : 20,
+    cooldown: Number.isFinite(Number(ability?.cooldown)) ? Number(ability.cooldown) : Number(fallback[index]?.cooldown || (role === "survivor" ? 30 : 20)),
     cooldownRemaining: Math.max(0, Number.isFinite(Number(ability?.cooldownRemaining)) ? Number(ability.cooldownRemaining) : 0)
   }))
 }
@@ -480,15 +492,18 @@ function normalizeAbilities(abilities) {
 function AbilityWheel() {
   const [wheel, setWheel] = useState({
     open: false,
+    role: "killer",
+    title: "Void abilities",
     orbs: 0,
-    abilities: ABILITY_WHEEL_FALLBACK,
+    abilities: VOID_ABILITY_WHEEL_FALLBACK,
     selected: -1
   })
 
   const openRef = useRef(false)
   const selectedRef = useRef(-1)
   const lastPointerRef = useRef(null)
-  const abilitiesRef = useRef(ABILITY_WHEEL_FALLBACK)
+  const abilitiesRef = useRef(VOID_ABILITY_WHEEL_FALLBACK)
+  const roleRef = useRef("killer")
 
   useEffect(() => {
     const setSelected = (selected) => {
@@ -504,14 +519,18 @@ function AbilityWheel() {
 
     const handleOpen = (event) => {
       const detail = event.detail || {}
+      const role = detail.role === "survivor" ? "survivor" : "killer"
       const point = detail.pointer || lastPointerRef.current
       const selected = getChatWheelSelectionFromPoint(point)
-      const abilities = normalizeAbilities(detail.abilities)
+      const abilities = normalizeAbilities(detail.abilities, role)
       abilitiesRef.current = abilities
+      roleRef.current = role
       openRef.current = true
       selectedRef.current = selected
       setWheel({
         open: true,
+        role,
+        title: String(detail.title || (role === "survivor" ? "Runner abilities" : "Void abilities")),
         orbs: Number(detail.orbs || 0),
         abilities,
         selected
@@ -521,10 +540,14 @@ function AbilityWheel() {
     const handleUpdate = (event) => {
       const detail = event.detail || {}
       setWheel((current) => {
-        const abilities = detail.abilities ? normalizeAbilities(detail.abilities) : current.abilities
+        const role = detail.role === "survivor" ? "survivor" : current.role
+        const abilities = detail.abilities ? normalizeAbilities(detail.abilities, role) : current.abilities
         abilitiesRef.current = abilities
+        roleRef.current = role
         return {
           ...current,
+          role,
+          title: String(detail.title || current.title),
           orbs: Number(detail.orbs ?? current.orbs ?? 0),
           abilities
         }
@@ -537,7 +560,7 @@ function AbilityWheel() {
       const ability = abilitiesRef.current[selected]
 
       if (shouldSubmit && selected >= 0 && !ability?.cancel && ability?.available !== false) {
-        window.dispatchEvent(new CustomEvent("riftrunner:void-ability-submit", { detail: { index: selected } }))
+        window.dispatchEvent(new CustomEvent("riftrunner:ability-submit", { detail: { index: selected, role: roleRef.current } }))
       }
 
       openRef.current = false
@@ -546,28 +569,29 @@ function AbilityWheel() {
     }
 
     window.addEventListener("pointermove", handlePointerMove, { passive: true })
-    window.addEventListener("riftrunner:void-ability-open", handleOpen)
-    window.addEventListener("riftrunner:void-ability-update", handleUpdate)
-    window.addEventListener("riftrunner:void-ability-close", handleClose)
+    window.addEventListener("riftrunner:ability-open", handleOpen)
+    window.addEventListener("riftrunner:ability-update", handleUpdate)
+    window.addEventListener("riftrunner:ability-close", handleClose)
 
     return () => {
       window.removeEventListener("pointermove", handlePointerMove)
-      window.removeEventListener("riftrunner:void-ability-open", handleOpen)
-      window.removeEventListener("riftrunner:void-ability-update", handleUpdate)
-      window.removeEventListener("riftrunner:void-ability-close", handleClose)
+      window.removeEventListener("riftrunner:ability-open", handleOpen)
+      window.removeEventListener("riftrunner:ability-update", handleUpdate)
+      window.removeEventListener("riftrunner:ability-close", handleClose)
     }
   }, [])
 
   return (
-    <div className={`ability-wheel-overlay ${wheel.open ? "is-open" : ""}`} aria-hidden={!wheel.open}>
+    <div className={`ability-wheel-overlay ${wheel.open ? "is-open" : ""} is-${wheel.role === "survivor" ? "runner" : "void"}`} aria-hidden={!wheel.open}>
       <div className="ability-wheel-backdrop" />
-      <div className="ability-wheel" role="menu" aria-label="Void ability wheel">
+      <div className="ability-wheel" role="menu" aria-label={wheel.title}>
         <div className="ability-wheel-center" aria-hidden="true">
           <strong>{wheel.orbs}</strong>
           <span>orbs</span>
         </div>
         {CHAT_WHEEL_SEGMENTS.map((segment) => {
-          const ability = wheel.abilities[segment.index] || ABILITY_WHEEL_FALLBACK[segment.index]
+          const fallback = abilityFallbackForRole(wheel.role)[segment.index]
+          const ability = wheel.abilities[segment.index] || fallback
           const selected = wheel.selected === segment.index
           const cancel = !!ability.cancel
           const ready = cancel || ability.available !== false
@@ -578,7 +602,7 @@ function AbilityWheel() {
               className={`ability-wheel-segment ability-wheel-${segment.className} ${selected ? "selected" : ""} ${ready ? "can-use" : "locked"} ${ability.active ? "is-active" : ""} ${cancel ? "is-cancel" : ""} accent-${ability.accent || "purple"}`}
               role="menuitem"
               aria-label={cancel ? "Cancel ability wheel" : `${ability.name}, ${costLabel}`}
-              key={ability.id}
+              key={`${wheel.role}-${ability.id}-${segment.index}`}
             >
               <span className="ability-name">{ability.shortName || ability.name}</span>
               {!cancel && <span className="ability-cost">{costLabel}</span>}
@@ -631,9 +655,49 @@ function VoidAbilityHud() {
   )
 }
 
+function RunnerAbilityHud() {
+  const [hud, setHud] = useState({ visible: false, orbs: 0, effects: [] })
+
+  useEffect(() => {
+    const handleHud = (event) => {
+      const detail = event.detail || {}
+      setHud({
+        visible: !!detail.visible,
+        orbs: Number(detail.orbs || 0),
+        effects: Array.isArray(detail.effects) ? detail.effects : []
+      })
+    }
+
+    window.addEventListener("riftrunner:runner-ability-hud", handleHud)
+    return () => window.removeEventListener("riftrunner:runner-ability-hud", handleHud)
+  }, [])
+
+  if (!hud.visible) return null
+
+  return (
+    <div className="void-ability-hud runner-ability-hud" aria-live="polite">
+      <div className="void-orb-bank runner-orb-bank">
+        <span className="void-orb-icon runner-orb-icon" aria-hidden="true" />
+        <div>
+          <span>Runner Orbs</span>
+          <strong>{hud.orbs}</strong>
+        </div>
+      </div>
+      {!!hud.effects.length && (
+        <div className="void-active-effects runner-active-effects">
+          {hud.effects.map((effect) => (
+            <span key={effect.id}>{effect.label} {Math.ceil(effect.time)}s</span>
+          ))}
+        </div>
+      )}
+      <p>Hold <b>Q</b> for abilities</p>
+    </div>
+  )
+}
+
 const CHAT_WHEEL_FALLBACK_MESSAGES = ["Let's feed a rift.", "I'm so scared...", "Here he comes!", "What was that?!"]
 
-const SURVIVOR_DOT_MAX = Number(window.GAMEPLAY_CONFIG?.orbs?.survivorMax) || 10
+const SURVIVOR_DOT_MAX = Number(window.GAMEPLAY_CONFIG?.orbs?.survivorMax) || 30
 
 const ORB_FULL_CHAT_MESSAGES = new Set([
   "I have too many orbs...",
@@ -1086,6 +1150,7 @@ export default function App() {
       <GameHud />
       <SurvivorStatusHud />
       <VoidAbilityHud />
+      <RunnerAbilityHud />
       <ChatWheel />
       <AbilityWheel />
       <HookEdgeIndicators />

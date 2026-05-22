@@ -48,9 +48,9 @@ window.GAME_AUDIO_CONFIG = {
     enablePitchVariation: true,
 
     // Orb pickup pitch follows carried orb count.
-    // 1 carried orb = 1.00 pitch, 10 carried orbs = 1.45 pitch.
+    // 1 carried orb = 1.00 pitch, 30 carried orbs = 1.45 pitch.
     // This is intentionally more dramatic so the full-orb climb is actually noticeable.
-    orbPickupPitch: { min: 1.0, max: 1.45, countMax: 10 },
+    orbPickupPitch: { min: 1.0, max: 1.45, countMax: 30 },
 
     // Sound effect file paths. Put these files in public/sfx.
     files: {

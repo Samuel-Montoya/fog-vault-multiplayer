@@ -31,6 +31,8 @@
     // The old clientCone values were wider/longer, which made the guide show more than the player could actually see.
     SURVIVOR_LENGTH: cfgNumber(GAMEPLAY_CONFIG.survivor?.coneLength, cfgNumber(GAMEPLAY_CONFIG.survivor?.clientConeLength, 620)),
     SURVIVOR_ANGLE: cfgNumber(GAMEPLAY_CONFIG.survivor?.coneAngle, cfgNumber(GAMEPLAY_CONFIG.survivor?.clientConeAngle, Math.PI / 2.6)),
+    SURVIVOR_RIFT_LENS_LENGTH_MULT: cfgNumber(GAMEPLAY_CONFIG.survivorAbilities?.riftLensLengthMultiplier, 1.55),
+    SURVIVOR_RIFT_LENS_ANGLE_MULT: cfgNumber(GAMEPLAY_CONFIG.survivorAbilities?.riftLensAngleMultiplier, 1.38),
     KILLER_LENGTH: cfgNumber(GAMEPLAY_CONFIG.void?.coneLength, cfgNumber(GAMEPLAY_CONFIG.void?.clientConeLength, 920)),
     KILLER_ANGLE: cfgNumber(GAMEPLAY_CONFIG.void?.coneAngle, cfgNumber(GAMEPLAY_CONFIG.void?.clientConeAngle, Math.PI / 1.75)),
     CONE_TEXTURE_WIDTH: LOW_POWER_MODE ? 512 : 768,
@@ -79,7 +81,7 @@
       // Add any SFX key to pitchSteps and playSfx(name) will automatically use it.
       // Orb pickup and deposit pitch are intentionally separate and ramp from carried counts.
       enablePitchVariation: true,
-      orbPickupPitch: { min: 1.0, max: 1.45, countMax: 10 },
+      orbPickupPitch: { min: 1.0, max: 1.45, countMax: 30 },
       files: {
         hooked: "/sfx/hooked.mp3",
         dead: "/sfx/dead.mp3",
@@ -402,7 +404,7 @@
     collectibleDotGlow: 0xffe08a
   };
 
-  const SURVIVOR_DOT_MAX = cfgNumber(GAMEPLAY_CONFIG.orbs?.survivorMax, 10);
+  const SURVIVOR_DOT_MAX = cfgNumber(GAMEPLAY_CONFIG.orbs?.survivorMax, 30);
 
   const DOT_ORBIT_VISUAL = {
     RADIUS_BASE: 22,
@@ -430,6 +432,8 @@
   const SHARED_ABILITIES = window.RIFTRUNNER_ABILITIES || {};
   const VOID_ABILITIES = SHARED_ABILITIES.abilities || {};
   const VOID_ABILITY_ORDER = Array.isArray(SHARED_ABILITIES.wheelOrder) ? SHARED_ABILITIES.wheelOrder : Object.keys(VOID_ABILITIES);
+  const SURVIVOR_ABILITIES = SHARED_ABILITIES.survivorAbilities || {};
+  const SURVIVOR_ABILITY_ORDER = Array.isArray(SHARED_ABILITIES.survivorWheelOrder) ? SHARED_ABILITIES.survivorWheelOrder : Object.keys(SURVIVOR_ABILITIES);
   const CHAT_AUTOMATIC = SHARED_CHATS.automatic || {};
   const ORB_FULL_CHAT_MESSAGES = new Set(CHAT_AUTOMATIC.orbFull || [
     "I have too many orbs...",
@@ -916,7 +920,7 @@
       document.body.classList.remove("survivor-hit-impact", "survivor-hit-heavy");
     }
     if (name !== "game") {
-      dispatchVoidAbilityHud(null);
+      dispatchAbilityHuds(null);
       if (reactAbilityWheelOpen) closeReactAbilityWheel(false);
     }
   }
@@ -1334,39 +1338,52 @@
   }
 
   let reactAbilityWheelOpen = false;
+  let reactAbilityWheelRole = null;
 
-  function getAbilityListForVoid(actor = getLocalPlayerData()) {
+  function normalizeAbilityList(order, defs, actor, role) {
     const orbs = Math.max(0, Math.floor(actor?.dots || 0));
-    return VOID_ABILITY_ORDER.slice(0, 4).map((id) => {
-      const ability = VOID_ABILITIES[id] || { id, name: "Void Ability", shortName: "Ability", cost: 0, summary: "The Void bends the run.", cooldown: 20 };
-      const isCancel = !!ability.cancel || id === "cancel";
-      const cooldownRemaining = isCancel ? 0 : Math.max(0, Number(actor?.voidAbilityCooldowns?.[ability.id || id] || 0));
+    return order.slice(0, 4).map((id) => {
+      const fallbackName = role === "survivor" ? "Runner Ability" : "Void Ability";
+      const ability = defs[id] || { id, name: fallbackName, shortName: "Ability", cost: 0, summary: "Spend orbs to bend the run.", cooldown: role === "survivor" ? 30 : 20 };
+      const isCancel = !!ability.cancel || id === "cancel" || !!ability.disabled;
+      const cooldowns = role === "survivor" ? actor?.survivorAbilityCooldowns : actor?.voidAbilityCooldowns;
+      const cooldownRemaining = isCancel ? 0 : Math.max(0, Number(cooldowns?.[ability.id || id] || 0));
+      const active = !!(actor && !isCancel && (
+        (role === "killer" && ability.id === "nullRush" && (actor.voidSpeedBoost || 0) > 0) ||
+        (role === "killer" && ability.id === "redshiftOrbs" && (currentSnapshot?.voidEffects?.redOrbs || 0) > 0) ||
+        (role === "killer" && ability.id === "voidReveal" && (currentSnapshot?.voidEffects?.runnerReveal || 0) > 0) ||
+        (role === "survivor" && ability.id === "stealthStep" && (actor.stealthStep || 0) > 0) ||
+        (role === "survivor" && ability.id === "riftLens" && (actor.riftLens || 0) > 0)
+      ));
       return {
         id: ability.id || id,
-        name: ability.name || (isCancel ? "Cancel" : "Void Ability"),
+        name: ability.name || (isCancel ? "Cancel" : fallbackName),
         shortName: ability.shortName || ability.name || (isCancel ? "Cancel" : "Ability"),
         cost: Number(ability.cost || 0),
-        summary: ability.summary || (isCancel ? "Close the wheel." : "The Void bends the run."),
-        accent: ability.accent || (isCancel ? "muted" : "purple"),
+        summary: ability.summary || (isCancel ? "Close the wheel." : "Spend orbs to bend the run."),
+        accent: ability.accent || (isCancel ? "muted" : role === "survivor" ? "cyan" : "purple"),
         cancel: isCancel,
-        cooldown: Number(ability.cooldown || 20),
+        cooldown: Number(ability.cooldown || (role === "survivor" ? 30 : 20)),
         cooldownRemaining,
         available: isCancel || (orbs >= Number(ability.cost || 0) && cooldownRemaining <= 0),
-        active: !!(actor && !isCancel && (
-          (ability.id === "nullRush" && (actor.voidSpeedBoost || 0) > 0) ||
-          (ability.id === "redshiftOrbs" && (currentSnapshot?.voidEffects?.redOrbs || 0) > 0) ||
-          (ability.id === "voidReveal" && (currentSnapshot?.voidEffects?.runnerReveal || 0) > 0)
-        ))
+        active
       };
     });
   }
 
+  function getAbilityListForActor(actor = getLocalPlayerData()) {
+    if (actor?.role === "survivor") return normalizeAbilityList(SURVIVOR_ABILITY_ORDER, SURVIVOR_ABILITIES, actor, "survivor");
+    return normalizeAbilityList(VOID_ABILITY_ORDER, VOID_ABILITIES, actor, "killer");
+  }
+
   function getAbilityWheelDetail(pointerEvent = null) {
     const me = getLocalPlayerData();
+    const role = me?.role === "survivor" ? "survivor" : "killer";
     return {
-      role: "killer",
+      role,
+      title: role === "survivor" ? "Runner abilities" : "Void abilities",
       orbs: Math.max(0, Math.floor(me?.dots || 0)),
-      abilities: getAbilityListForVoid(me),
+      abilities: getAbilityListForActor(me),
       pointer: Number.isFinite(pointerEvent?.clientX) && Number.isFinite(pointerEvent?.clientY)
         ? { x: pointerEvent.clientX, y: pointerEvent.clientY }
         : null
@@ -1380,50 +1397,77 @@
   function openReactAbilityWheel(pointerEvent = null) {
     const me = getLocalPlayerData();
     if (reactAbilityWheelOpen) return;
-    if (!currentSnapshot || currentSnapshot.phase !== "game" || me?.role !== "killer" || me.dead || (currentSnapshot.matchStartFreezeRemaining || 0) > 0) return;
+    const canOpen = currentSnapshot
+      && currentSnapshot.phase === "game"
+      && (me?.role === "killer" || me?.role === "survivor")
+      && !me.dead
+      && !me.escaped
+      && !me.hooked
+      && !(me.role === "survivor" && me.downed)
+      && (currentSnapshot.matchStartFreezeRemaining || 0) <= 0;
+    if (!canOpen) return;
     reactAbilityWheelOpen = true;
-    dispatchAbilityWheelEvent("riftrunner:void-ability-open", getAbilityWheelDetail(pointerEvent));
+    reactAbilityWheelRole = me.role === "survivor" ? "survivor" : "killer";
+    dispatchAbilityWheelEvent("riftrunner:ability-open", getAbilityWheelDetail(pointerEvent));
   }
 
   function closeReactAbilityWheel(submit = true) {
     if (!reactAbilityWheelOpen) return;
     reactAbilityWheelOpen = false;
-    dispatchAbilityWheelEvent("riftrunner:void-ability-close", { submit: !!submit });
+    dispatchAbilityWheelEvent("riftrunner:ability-close", { submit: !!submit, role: reactAbilityWheelRole });
+    reactAbilityWheelRole = null;
   }
 
-  function sendVoidAbilitySelection(selection) {
+  function sendAbilitySelection(selection) {
     let abilityId = String(selection?.id || selection || "");
+    const me = getLocalPlayerData();
     if (Number.isInteger(selection?.index)) {
-      abilityId = getAbilityListForVoid()[selection.index]?.id || "";
+      abilityId = getAbilityListForActor(me)[selection.index]?.id || "";
     }
-    if (!abilityId || abilityId === "cancel" || !socket || currentSnapshot?.phase !== "game") return;
-    socket.emit("voidAbility", { id: abilityId });
+    if (!abilityId || abilityId === "cancel" || abilityId === "moreSoon" || !socket || currentSnapshot?.phase !== "game") return;
+    if (me?.role === "survivor") socket.emit("survivorAbility", { id: abilityId });
+    else if (me?.role === "killer") socket.emit("voidAbility", { id: abilityId });
   }
 
   function setupReactAbilityWheelBridge() {
-    window.addEventListener("riftrunner:void-ability-submit", (event) => {
-      sendVoidAbilitySelection(event.detail || {});
+    window.addEventListener("riftrunner:ability-submit", (event) => {
+      sendAbilitySelection(event.detail || {});
     });
   }
 
-  function dispatchVoidAbilityHud(snapshot = currentSnapshot) {
+  function dispatchAbilityHuds(snapshot = currentSnapshot) {
     const me = snapshot?.actors?.find((a) => a.id === myId);
     const isVoid = me?.role === "killer" && snapshot?.phase === "game" && !me.dead;
-    const effects = [];
-    if (isVoid && (me.voidSpeedBoost || 0) > 0) effects.push({ id: "nullRush", label: "rush", time: me.voidSpeedBoost });
-    if (isVoid && (snapshot?.voidEffects?.redOrbs || 0) > 0) effects.push({ id: "redshiftOrbs", label: "redshift", time: snapshot.voidEffects.redOrbs });
-    if (isVoid && (snapshot?.voidEffects?.runnerReveal || 0) > 0) effects.push({ id: "voidReveal", label: "sight", time: snapshot.voidEffects.runnerReveal });
+    const isRunner = me?.role === "survivor" && snapshot?.phase === "game" && !me.dead && !me.escaped;
+    const voidEffects = [];
+    if (isVoid && (me.voidSpeedBoost || 0) > 0) voidEffects.push({ id: "nullRush", label: "rush", time: me.voidSpeedBoost });
+    if (isVoid && (snapshot?.voidEffects?.redOrbs || 0) > 0) voidEffects.push({ id: "redshiftOrbs", label: "redshift", time: snapshot.voidEffects.redOrbs });
+    if (isVoid && (snapshot?.voidEffects?.runnerReveal || 0) > 0) voidEffects.push({ id: "voidReveal", label: "sight", time: snapshot.voidEffects.runnerReveal });
     window.dispatchEvent(new CustomEvent("riftrunner:void-ability-hud", {
       detail: {
         visible: isVoid,
         orbs: isVoid ? Math.max(0, Math.floor(me.dots || 0)) : 0,
-        effects
+        effects: voidEffects
       }
     }));
-    if (reactAbilityWheelOpen && isVoid) {
-      dispatchAbilityWheelEvent("riftrunner:void-ability-update", {
+
+    const runnerEffects = [];
+    if (isRunner && (me.stealthStep || 0) > 0) runnerEffects.push({ id: "stealthStep", label: "stealth", time: me.stealthStep });
+    if (isRunner && (me.riftLens || 0) > 0) runnerEffects.push({ id: "riftLens", label: "lens", time: me.riftLens });
+    window.dispatchEvent(new CustomEvent("riftrunner:runner-ability-hud", {
+      detail: {
+        visible: isRunner,
+        orbs: isRunner ? Math.max(0, Math.floor(me.dots || 0)) : 0,
+        effects: runnerEffects
+      }
+    }));
+
+    if (reactAbilityWheelOpen && (isVoid || isRunner)) {
+      dispatchAbilityWheelEvent("riftrunner:ability-update", {
+        role: me.role === "survivor" ? "survivor" : "killer",
+        title: me.role === "survivor" ? "Runner abilities" : "Void abilities",
         orbs: Math.max(0, Math.floor(me.dots || 0)),
-        abilities: getAbilityListForVoid(me)
+        abilities: getAbilityListForActor(me)
       });
     }
   }
@@ -1978,8 +2022,8 @@
     if (!event || event.survivorId !== myId) return;
     const index = clamp(Number(event.depositIndex || event.chainIndex || 1), 1, SURVIVOR_DOT_MAX);
     const t = SURVIVOR_DOT_MAX <= 1 ? 1 : (index - 1) / (SURVIVOR_DOT_MAX - 1);
-    // 1/10 is grounded, 10/10 is clearly higher. Perfectly subtle, unlike human UI requests.
-    const rate = 0.86 + t * 1.04;
+    // 1/30 is grounded, 30/30 is higher without becoming chipmunk nonsense.
+    const rate = 0.86 + t * 0.74;
     playSfx("orbDeposit", { playbackRate: rate });
   }
 
@@ -2987,11 +3031,12 @@
       const subject = this.getCameraSubjectItem();
       const hasSubject = !!subject?.container;
       const role = subject?.data?.role || "survivor";
+      const riftLensActive = role === "survivor" && (subject?.data?.riftLens || 0) > 0;
       const worldX = subject?.container?.x ?? 0;
       const worldY = subject?.container?.y ?? 0;
       const facing = subject?.container?.rotation || 0;
-      const baseLength = role === "killer" ? LIGHTING.KILLER_LENGTH : LIGHTING.SURVIVOR_LENGTH;
-      const baseAngle = role === "killer" ? LIGHTING.KILLER_ANGLE : LIGHTING.SURVIVOR_ANGLE;
+      const baseLength = role === "killer" ? LIGHTING.KILLER_LENGTH : LIGHTING.SURVIVOR_LENGTH * (riftLensActive ? LIGHTING.SURVIVOR_RIFT_LENS_LENGTH_MULT : 1);
+      const baseAngle = role === "killer" ? LIGHTING.KILLER_ANGLE : Math.min(Math.PI * 1.08, LIGHTING.SURVIVOR_ANGLE * (riftLensActive ? LIGHTING.SURVIVOR_RIFT_LENS_ANGLE_MULT : 1));
       const length = baseLength + WALL_VISION.CONE_EXTRA_LENGTH;
       const coneAngle = baseAngle + WALL_VISION.CONE_EXTRA_ANGLE;
       const nearRadius = role === "killer" ? WALL_VISION.KILLER_NEAR_RADIUS : WALL_VISION.SURVIVOR_NEAR_RADIUS;
@@ -3517,7 +3562,7 @@
         dots: (snapshot.collectibleDots || []).map((d) => d.id).join(","),
         redOrbs: snapshot.voidEffects?.redOrbs || 0
       });
-      dispatchVoidAbilityHud(snapshot);
+      dispatchAbilityHuds(snapshot);
       if (hudKey === this.lastHudKey && now - this.lastHudRenderAt < 180) return;
       this.lastHudKey = hudKey;
       this.lastHudRenderAt = now;
@@ -3526,7 +3571,7 @@
       ui.roleLabel.textContent = me.role === "killer" ? "The Void" : "Runner";
       ui.controlsLabel.textContent = me.role === "killer"
         ? "WASD move • Mouse aim • M1 attack/lunge • Space vault/break • hold E hook/execute/kick Rift • hold Q abilities • hold R chat"
-        : "WASD move • Shift sprint • Mouse flashlight • Space vault/drop • collect orbs, stand near active Rifts to deposit • stand still near teammates to heal/rescue • hold R chat";
+        : "WASD move • Shift sprint • Mouse flashlight • Space vault/drop • hold Q abilities • collect orbs, stand near active Rifts to deposit • stand still near teammates to heal/rescue • hold R chat";
       const shownDone = Math.min(done, required);
       ui.genText.textContent = `${shownDone} / ${required}${total > required ? ` (${total} on map)` : ""}`;
       if (ui.bigGenText) ui.bigGenText.textContent = `${shownDone} / ${required}`;
@@ -4351,6 +4396,11 @@
           this.burst(event.x, event.y, color, LOW_POWER_MODE ? 18 : 34, LOW_POWER_MODE ? 130 : 210);
           this.addShockwave(event.x, event.y, color, 0.55, event.radius || (LOW_POWER_MODE ? 110 : 155));
         }
+        if (event.type === "survivorAbility") {
+          const color = event.abilityId === "riftLens" ? 0xfbbf24 : 0x67e8f9;
+          this.burst(event.x, event.y, color, LOW_POWER_MODE ? 16 : 28, LOW_POWER_MODE ? 110 : 180);
+          this.addShockwave(event.x, event.y, color, 0.42, LOW_POWER_MODE ? 92 : 138);
+        }
         if (event.type === "redOrbSlow") {
           this.burst(event.x, event.y, 0xff3048, LOW_POWER_MODE ? 10 : 18, 95);
         }
@@ -4935,11 +4985,12 @@
       const subject = this.getCameraSubjectItem();
       const hasSubject = !!subject?.container;
       const role = subject?.data?.role || "survivor";
+      const riftLensActive = role === "survivor" && (subject?.data?.riftLens || 0) > 0;
       const worldX = subject?.container?.x ?? 0;
       const worldY = subject?.container?.y ?? 0;
       const facing = subject?.container?.rotation || 0;
-      const baseLength = role === "killer" ? LIGHTING.KILLER_LENGTH : LIGHTING.SURVIVOR_LENGTH;
-      const baseAngle = role === "killer" ? LIGHTING.KILLER_ANGLE : LIGHTING.SURVIVOR_ANGLE;
+      const baseLength = role === "killer" ? LIGHTING.KILLER_LENGTH : LIGHTING.SURVIVOR_LENGTH * (riftLensActive ? LIGHTING.SURVIVOR_RIFT_LENS_LENGTH_MULT : 1);
+      const baseAngle = role === "killer" ? LIGHTING.KILLER_ANGLE : Math.min(Math.PI * 1.08, LIGHTING.SURVIVOR_ANGLE * (riftLensActive ? LIGHTING.SURVIVOR_RIFT_LENS_ANGLE_MULT : 1));
       const length = baseLength + WALL_VISION.CONE_EXTRA_LENGTH;
       const coneAngle = baseAngle + WALL_VISION.CONE_EXTRA_ANGLE;
       const nearRadius = role === "killer" ? WALL_VISION.KILLER_NEAR_RADIUS : WALL_VISION.SURVIVOR_NEAR_RADIUS;
@@ -5454,8 +5505,9 @@
       }
 
       const role = me.data?.role || "survivor";
-      const length = role === "killer" ? LIGHTING.KILLER_LENGTH : LIGHTING.SURVIVOR_LENGTH;
-      const angle = role === "killer" ? LIGHTING.KILLER_ANGLE : LIGHTING.SURVIVOR_ANGLE;
+      const riftLensActive = role === "survivor" && (me.data?.riftLens || 0) > 0;
+      const length = role === "killer" ? LIGHTING.KILLER_LENGTH : LIGHTING.SURVIVOR_LENGTH * (riftLensActive ? LIGHTING.SURVIVOR_RIFT_LENS_LENGTH_MULT : 1);
+      const angle = role === "killer" ? LIGHTING.KILLER_ANGLE : Math.min(Math.PI * 1.08, LIGHTING.SURVIVOR_ANGLE * (riftLensActive ? LIGHTING.SURVIVOR_RIFT_LENS_ANGLE_MULT : 1));
       const targetX = me.container.x;
       const targetY = me.container.y;
       const targetFacing = me.container.rotation || 0;

@@ -1,5 +1,5 @@
 // public/abilities.js
-// Shared Void ability definitions for the React UI, Phaser client bridge, and Node server.
+// Shared Void + Runner ability definitions for the React UI, Phaser client bridge, and Node server.
 // Internal role names stay "killer"/"survivor" because games enjoy not detonating.
 
 const RIFTRUNNER_ABILITIES = {
@@ -48,6 +48,56 @@ const RIFTRUNNER_ABILITIES = {
       summary: "Reveals all Runners for 5 seconds.",
       detail: "The Void sees every Runner and pulls the camera back.",
       accent: "purple"
+    }
+  },
+
+  survivorWheelOrder: ["stealthStep", "riftLens", "cancel", "moreSoon"],
+  survivorAbilities: {
+    stealthStep: {
+      id: "stealthStep",
+      name: "Stealth Step",
+      shortName: "Stealth",
+      cost: 10,
+      duration: 10,
+      cooldown: 30,
+      summary: "Hide scratch marks for 10 seconds.",
+      detail: "Move quietly enough that The Void loses your trail.",
+      accent: "cyan"
+    },
+    riftLens: {
+      id: "riftLens",
+      name: "Rift Lens",
+      shortName: "Lens",
+      cost: 10,
+      duration: 15,
+      cooldown: 30,
+      summary: "Widen your vision cone for 15 seconds.",
+      detail: "Your cone expands and reveals more of the world: orbs, players, The Void, walls, and objectives.",
+      accent: "gold"
+    },
+    cancel: {
+      id: "cancel",
+      name: "Cancel",
+      shortName: "Cancel",
+      cost: 0,
+      duration: 0,
+      summary: "Close the wheel.",
+      detail: "Drop the selection without spending orbs.",
+      accent: "muted",
+      cancel: true
+    },
+    moreSoon: {
+      id: "moreSoon",
+      name: "More Soon",
+      shortName: "Soon",
+      cost: 0,
+      duration: 0,
+      cooldown: 0,
+      summary: "More Runner abilities later.",
+      detail: "A quiet little placeholder, because apparently two powers are not enough forever.",
+      accent: "muted",
+      cancel: true,
+      disabled: true
     }
   }
 };

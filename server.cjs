@@ -332,23 +332,27 @@ const HOOKS_BEFORE_EXECUTION = cfgNumber(GAMEPLAY_CONFIG.hook?.hooksBeforeExecut
 const HOOK_INTERACT_DISTANCE = cfgNumber(GAMEPLAY_CONFIG.hook?.interactDistance, 128);
 const HOOK_RESCUE_DISTANCE = cfgNumber(GAMEPLAY_CONFIG.survivor?.hookRescueDistance, 108);
 const HOOK_MIN_KILLER_DISTANCE = cfgNumber(GAMEPLAY_CONFIG.void?.hookMinDistance, 430);
-const SURVIVOR_DOT_MAX = cfgNumber(GAMEPLAY_CONFIG.orbs?.survivorMax, 10);
+const SURVIVOR_DOT_MAX = cfgNumber(GAMEPLAY_CONFIG.orbs?.survivorMax, 30);
 const KILLER_DOT_MAX = cfgNumber(GAMEPLAY_CONFIG.orbs?.voidMax, 999);
 // Dot economy: survivors complete rifts by collecting orbs and standing near a rift.
 // No hold-E rift repair. One inserted orb takes a flat 1.5s and each rift needs dotsPerRift orbs.
-const DOTS_PER_GENERATOR = cfgNumber(GAMEPLAY_CONFIG.rift?.dotsPerRift, 25);
+const DOTS_PER_GENERATOR = cfgNumber(GAMEPLAY_CONFIG.rift?.dotsPerRift, 30);
 const SURVIVOR_DOT_DROP_ON_HIT_PERCENT = cfgNumber(GAMEPLAY_CONFIG.orbs?.survivorDropOnHitPercent, 0.5);
 const SURVIVOR_DOT_PICKUP_RADIUS = cfgNumber(GAMEPLAY_CONFIG.orbs?.survivorPickupRadius, 48);
 const KILLER_DOT_PICKUP_RADIUS = cfgNumber(GAMEPLAY_CONFIG.orbs?.voidPickupRadius, 92);
 const VOID_ABILITY_DEFS = RIFTRUNNER_ABILITIES.abilities || {};
 const VOID_ABILITY_ORDER = Array.isArray(RIFTRUNNER_ABILITIES.wheelOrder) ? RIFTRUNNER_ABILITIES.wheelOrder : Object.keys(VOID_ABILITY_DEFS);
+const SURVIVOR_ABILITY_DEFS = RIFTRUNNER_ABILITIES.survivorAbilities || {};
+const SURVIVOR_ABILITY_ORDER = Array.isArray(RIFTRUNNER_ABILITIES.survivorWheelOrder) ? RIFTRUNNER_ABILITIES.survivorWheelOrder : Object.keys(SURVIVOR_ABILITY_DEFS);
+const SURVIVOR_RIFT_LENS_LENGTH_MULT = cfgNumber(GAMEPLAY_CONFIG.survivorAbilities?.riftLensLengthMultiplier, 1.55);
+const SURVIVOR_RIFT_LENS_ANGLE_MULT = cfgNumber(GAMEPLAY_CONFIG.survivorAbilities?.riftLensAngleMultiplier, 1.38);
 const VOID_SPEED_BUFF_MULT = cfgNumber(GAMEPLAY_CONFIG.voidAbilities?.speedBuffMultiplier, 1.28);
 const RED_ORB_SLOW_MULT = cfgNumber(GAMEPLAY_CONFIG.voidAbilities?.redOrbSlowMultiplier, 0.55);
 const RED_ORB_SLOW_SECONDS = cfgNumber(GAMEPLAY_CONFIG.voidAbilities?.redOrbSlowSeconds, 0.5);
 const DOT_DEPOSIT_DISTANCE = cfgNumber(GAMEPLAY_CONFIG.rift?.depositDistance, 96);
 const DOT_DEPOSIT_SECONDS = cfgNumber(GAMEPLAY_CONFIG.rift?.depositSecondsPerOrb, 1.5);
 // Chain is still tracked for audio pitch / UI feedback, but it no longer changes deposit speed.
-const DOT_DEPOSIT_MAX_CHAIN = cfgNumber(GAMEPLAY_CONFIG.rift?.maxDepositChain, SURVIVOR_DOT_MAX);
+const DOT_DEPOSIT_MAX_CHAIN = cfgNumber(GAMEPLAY_CONFIG.rift?.maxDepositChain, 30);
 const DOT_REPAIR_PROGRESS = 1 / DOTS_PER_GENERATOR;
 const DOT_MIN_TILE_SPACING = cfgNumber(GAMEPLAY_CONFIG.orbs?.minTileSpacing, 3.0);
 const DOT_MIN_OBJECTIVE_TILE_DIST = cfgNumber(GAMEPLAY_CONFIG.orbs?.minObjectiveTileDistance, 1.8);
@@ -593,6 +597,86 @@ function applyVoidAbility(game, actor, abilityId) {
     redOrbs: game.redOrbs || 0,
     runnerReveal: game.runnerReveal || 0,
     speedBoost: actor.voidSpeedBoost || 0,
+    cooldown: cooldowns[ability.id] || 0
+  });
+  return { ok: true };
+}
+
+
+function getSurvivorAbilityDef(id) {
+  const key = String(id || "");
+  const ability = SURVIVOR_ABILITY_DEFS[key];
+  if (!ability || ability.cancel || ability.disabled || !SURVIVOR_ABILITY_ORDER.includes(key)) return null;
+  return {
+    id: ability.id || key,
+    name: ability.name || key,
+    cost: Math.max(0, Math.floor(cfgNumber(ability.cost, 0))),
+    duration: Math.max(0, cfgNumber(ability.duration, 0)),
+    cooldown: Math.max(0, cfgNumber(ability.cooldown, 30))
+  };
+}
+
+function survivorVisionLengthFor(actor) {
+  const base = SURVIVOR_CONE_LENGTH;
+  return actor?.role === "survivor" && (actor.riftLens || 0) > 0
+    ? base * SURVIVOR_RIFT_LENS_LENGTH_MULT
+    : base;
+}
+
+function survivorVisionAngleFor(actor) {
+  const base = SURVIVOR_CONE_ANGLE;
+  return actor?.role === "survivor" && (actor.riftLens || 0) > 0
+    ? Math.min(Math.PI * 1.08, base * SURVIVOR_RIFT_LENS_ANGLE_MULT)
+    : base;
+}
+
+function applySurvivorAbility(game, actor, abilityId) {
+  if (!game || !actor || actor.role !== "survivor" || actor.dead || actor.escaped) {
+    return { ok: false, message: "Only Runners can use that." };
+  }
+  if ((game.time || 0) < (game.matchStartFreezeSeconds || MATCH_START_FREEZE_SECONDS)) {
+    return { ok: false, message: "The run has not started yet." };
+  }
+  if (actor.hooked || actor.downed || actor.vault || actor.actionLock > 0) {
+    return { ok: false, message: "You cannot use that right now." };
+  }
+
+  const ability = getSurvivorAbilityDef(abilityId);
+  if (!ability) return { ok: false, message: "Unknown Runner ability." };
+
+  const cooldowns = actor.survivorAbilityCooldowns || (actor.survivorAbilityCooldowns = {});
+  const remainingCooldown = Math.max(0, cfgNumber(cooldowns[ability.id], 0));
+  if (remainingCooldown > 0) {
+    return { ok: false, message: `${ability.name} is cooling down for ${Math.ceil(remainingCooldown)}s.` };
+  }
+
+  const currentOrbs = Math.max(0, Math.floor(actor.dots || 0));
+  if (currentOrbs < ability.cost) {
+    return { ok: false, message: `${ability.name} needs ${ability.cost} orbs.` };
+  }
+
+  if (ability.id === "stealthStep") {
+    actor.stealthStep = Math.max(actor.stealthStep || 0, ability.duration || 10);
+  } else if (ability.id === "riftLens") {
+    actor.riftLens = Math.max(actor.riftLens || 0, ability.duration || 15);
+  } else {
+    return { ok: false, message: "That Runner ability is not ready." };
+  }
+
+  actor.dots = clamp(currentOrbs - ability.cost, 0, SURVIVOR_DOT_MAX);
+  cooldowns[ability.id] = ability.cooldown || 30;
+  addEvent(game, "survivorAbility", {
+    x: actor.x,
+    y: actor.y,
+    actorId: actor.id,
+    survivorId: actor.id,
+    abilityId: ability.id,
+    name: ability.name,
+    cost: ability.cost,
+    duration: ability.duration,
+    survivorDots: actor.dots,
+    stealthStep: actor.stealthStep || 0,
+    riftLens: actor.riftLens || 0,
     cooldown: cooldowns[ability.id] || 0
   });
   return { ok: true };
@@ -1264,6 +1348,9 @@ function makePlayer(socket, role, name, options = {}) {
     voidStun: 0,
     voidSpeedBoost: 0,
     voidAbilityCooldowns: {},
+    stealthStep: 0,
+    riftLens: 0,
+    survivorAbilityCooldowns: {},
     orbSlow: 0,
     voidSlow: 0,
     actionLock: 0,
@@ -1632,6 +1719,7 @@ function addEvent(game, type, data = {}) {
 }
 
 function addScratch(game, actor) {
+  if (actor?.role === "survivor" && (actor.stealthStep || 0) > 0) return;
   game.scratchMarks.push({ id: uid("scratch"), x: actor.x, y: actor.y, angle: actor.angle + (Math.random() - 0.5), ttl: 4.0, createdAt: game.time || 0 });
   if (game.scratchMarks.length > SCRATCH_MARK_MAX) game.scratchMarks.splice(0, game.scratchMarks.length - SCRATCH_MARK_MAX);
 }
@@ -2309,6 +2397,15 @@ function updateTimers(game, dt) {
         const nextRemaining = Math.max(0, cfgNumber(remaining, 0) - dt);
         if (nextRemaining <= 0) delete actor.voidAbilityCooldowns[abilityId];
         else actor.voidAbilityCooldowns[abilityId] = nextRemaining;
+      }
+    }
+    actor.stealthStep = Math.max(0, (actor.stealthStep || 0) - dt);
+    actor.riftLens = Math.max(0, (actor.riftLens || 0) - dt);
+    if (actor.survivorAbilityCooldowns) {
+      for (const [abilityId, remaining] of Object.entries(actor.survivorAbilityCooldowns)) {
+        const nextRemaining = Math.max(0, cfgNumber(remaining, 0) - dt);
+        if (nextRemaining <= 0) delete actor.survivorAbilityCooldowns[abilityId];
+        else actor.survivorAbilityCooldowns[abilityId] = nextRemaining;
       }
     }
     actor.orbSlow = Math.max(0, (actor.orbSlow || 0) - dt);
@@ -4082,7 +4179,7 @@ function isActorVisibleToViewer(game, viewer, actor) {
 
   if (viewer.role === "survivor" && actor.role === "killer") {
     if (d <= CLOSE_REVEAL_RADIUS && los) return true;
-    return los && coneSees(viewer, actor, SURVIVOR_CONE_LENGTH, SURVIVOR_CONE_ANGLE);
+    return los && coneSees(viewer, actor, survivorVisionLengthFor(viewer), survivorVisionAngleFor(viewer));
   }
 
   if (viewer.role === "killer" && actor.role === "survivor") {
@@ -4100,7 +4197,7 @@ function isActorVisibleToViewer(game, viewer, actor) {
     if (actor.hooked || actor.downed) return true;
     if (!los) return false;
     if (d <= CLOSE_REVEAL_RADIUS) return true;
-    return coneSees(viewer, actor, SURVIVOR_CONE_LENGTH, SURVIVOR_CONE_ANGLE);
+    return coneSees(viewer, actor, survivorVisionLengthFor(viewer), survivorVisionAngleFor(viewer));
   }
 
   return true;
@@ -4163,6 +4260,11 @@ function serializeActor(game, actor, visible = true) {
     voidAbilityCooldowns: actor.role === "killer" ? Object.fromEntries(
       Object.entries(actor.voidAbilityCooldowns || {}).map(([id, remaining]) => [id, Number(Math.max(0, remaining || 0).toFixed(2))])
     ) : {},
+    stealthStep: actor.role === "survivor" ? actor.stealthStep || 0 : 0,
+    riftLens: actor.role === "survivor" ? actor.riftLens || 0 : 0,
+    survivorAbilityCooldowns: actor.role === "survivor" ? Object.fromEntries(
+      Object.entries(actor.survivorAbilityCooldowns || {}).map(([id, remaining]) => [id, Number(Math.max(0, remaining || 0).toFixed(2))])
+    ) : {},
     orbSlow: actor.role === "survivor" ? actor.orbSlow || 0 : 0,
     voidSlow: actor.role === "survivor" ? actor.voidSlow || 0 : 0,
     attackState: actor.attackState,
@@ -4213,8 +4315,8 @@ function canViewerSeeGeneratorDetails(game, viewer, gen) {
 
 function canViewerSeeCollectibleDot(game, viewer, dot) {
   if (!viewer || !dot || viewer.dead || viewer.escaped || viewer.hooked) return false;
-  const length = viewer.role === "killer" ? KILLER_CONE_LENGTH : SURVIVOR_CONE_LENGTH;
-  const angle = viewer.role === "killer" ? KILLER_CONE_ANGLE : SURVIVOR_CONE_ANGLE;
+  const length = viewer.role === "killer" ? KILLER_CONE_LENGTH : survivorVisionLengthFor(viewer);
+  const angle = viewer.role === "killer" ? KILLER_CONE_ANGLE : survivorVisionAngleFor(viewer);
   const target = { x: dot.x, y: dot.y };
   if (dist(viewer.x, viewer.y, dot.x, dot.y) > length) return false;
   return coneSees(viewer, target, length, angle) && segmentClear(game, viewer.x, viewer.y, dot.x, dot.y);
@@ -4575,6 +4677,15 @@ io.on("connection", (socket) => {
     const actor = lobby.game.actors.get(socket.id);
     const result = applyVoidAbility(lobby.game, actor, payload.id);
     if (!result.ok) socket.emit("toast", { type: "error", message: result.message || "The Void cannot use that." });
+  });
+
+  socket.on("survivorAbility", (payload = {}) => {
+    if (!allowSocketEvent(socket, "action")) return;
+    const lobby = lobbies.get(socketToLobby.get(socket.id));
+    if (!lobby || !lobby.game || lobby.game.phase !== "game") return;
+    const actor = lobby.game.actors.get(socket.id);
+    const result = applySurvivorAbility(lobby.game, actor, payload.id);
+    if (!result.ok) socket.emit("toast", { type: "error", message: result.message || "Runner ability cannot be used." });
   });
 
   socket.on("chatWheel", (payload = {}) => {
