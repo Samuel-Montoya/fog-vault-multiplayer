@@ -1,12 +1,19 @@
 {
   "latest": {
-    "version": "0.1.29",
-    "title": "Smarter Bot AI",
-    "summary": "More tactical Runner and Void bots",
-    "description": "Improved bot pathfinding with diagonal A* movement, path smoothing, stuck recovery, smarter objective scoring, stronger Void target selection, more human Runner rescue/heal/deposit priorities, tactical loop use, and server-side bot ability usage for Void and Runner abilities.",
+    "version": "0.1.30",
+    "title": "Performance Mode Polish",
+    "summary": "Smoother low-power movement and Void POV",
+    "description": "Improved low-performance play by optimizing local movement prediction with nearby collision checks, smoothing The Void's local and remote position updates, reducing expensive lighting and visibility redraws on weaker clients, and keeping Runner-side low-power movement responsive while preserving server-authoritative positions.",
     "date": "2026-05-22"
   },
   "history": [
+    {
+      "version": "0.1.30",
+      "title": "Performance Mode Polish",
+      "summary": "Smoother low-power movement and Void POV",
+      "description": "Improved low-performance play by optimizing local movement prediction with nearby collision checks, smoothing The Void's local and remote position updates, reducing expensive lighting and visibility redraws on weaker clients, and keeping Runner-side low-power movement responsive while preserving server-authoritative positions.",
+      "date": "2026-05-22"
+    },
     {
       "version": "0.1.29",
       "title": "Smarter Bot AI",

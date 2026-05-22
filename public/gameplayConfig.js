@@ -45,6 +45,9 @@ const GAMEPLAY_CONFIG = {
     minModeSeconds: 9,
     // Cap high-DPI laptops. Rendering 2x pixels for a browser game is how GPUs go to therapy.
     maxDevicePixelRatio: 1,
+    // Low-power clients render fewer pixels and upscale the canvas. The game stays responsive;
+    // only the browser's unnecessary pixel-count vanity project gets sacrificed.
+    lowPowerDevicePixelRatio: 0.82,
     // Client visual smoothing for networked actors. Server still owns movement;
     // the client renders remote actors slightly in the past so low FPS/network jitter
     // does not look like teleporting. Yes, this is the part that keeps bots from moonwalking.

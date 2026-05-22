@@ -86,7 +86,7 @@
       dynamicWorldFps: 2.5,
       generatorFps: 3,
       scratchDrawFps: 3,
-      lightingFps: 60,
+      lightingFps: 36,
       wallVisionFps: 7,
       actorVisionFps: 16,
       particleFps: 10,
@@ -132,7 +132,7 @@
       dynamicWorldFps: 1,
       generatorFps: 1.5,
       scratchDrawFps: 1.5,
-      lightingFps: 60,
+      lightingFps: 24,
       wallVisionFps: 3,
       actorVisionFps: 6,
       particleFps: 5,
@@ -224,10 +224,13 @@
     toast(`${label} enabled to keep the game smooth.`, 2400);
   }
 
-  const initialRenderCap = LOW_POWER_MODE ? 1 : cfgNumber(PERFORMANCE_CONFIG.maxDevicePixelRatio, 1);
+  const initialRenderCap = LOW_POWER_MODE
+    ? cfgNumber(PERFORMANCE_CONFIG.lowPowerDevicePixelRatio, 0.82)
+    : cfgNumber(PERFORMANCE_CONFIG.maxDevicePixelRatio, 1);
   // Allow sub-1 render resolution on old hardware. Phaser upscales the canvas via CSS,
   // which is a much better trade than dropping inputs when a Void swing spawns effects.
-  const RENDER_RESOLUTION = Math.max(0.8, Math.min(window.devicePixelRatio || 1, initialRenderCap));
+  const minRenderResolution = LOW_POWER_MODE ? 0.68 : 0.8;
+  const RENDER_RESOLUTION = Math.max(minRenderResolution, Math.min(window.devicePixelRatio || 1, initialRenderCap));
 
   document.documentElement.classList.toggle("low-power", LOW_POWER_MODE);
   document.documentElement.classList.toggle("adaptive-low-power", adaptivePerformance.mode !== "normal");
@@ -2456,6 +2459,10 @@
       this.lastSpectateEmitAt = 0;
       this.localEscapeScreenShown = false;
       this.lastLocalChatText = "";
+      this.localCollisionCache = new Map();
+      this.localCollisionCacheEpoch = 0;
+      this.localCollisionCellSize = 96;
+      this.killerWallVisionStableKey = "";
     }
 
     isSpectating() {
@@ -2779,6 +2786,8 @@
       this.needsGeneratorRedraw = true;
       this.localVisual = null;
       this.localServerTarget = null;
+      this.invalidateLocalCollisionCache();
+      this.killerWallVisionStableKey = "";
       this.spectateTargetId = null;
       this.lastSpectateEmitId = "";
       this.introCameraPrimed = false;
@@ -5132,6 +5141,7 @@
       this.wallVisionTimer = 999;
       this.actorVisionTimer = 999;
       this.lightingRedrawTimer = 999;
+      this.killerWallVisionStableKey = "";
     }
 
     update(time, deltaMs) {
@@ -5286,16 +5296,67 @@
         speed = 0;
       } else if (data.role === "killer" && data.recovery > 0) speed *= LOCAL_SPEEDS.killerRecoveryMult;
 
-      this.moveLocalWithCollision(data.role, dx * speed * dt, dy * speed * dt, {
-        preferTarget: { x: this.localVisual.x + dx * 96, y: this.localVisual.y + dy * 96 }
-      });
+      const moveX = dx * speed * dt;
+      const moveY = dy * speed * dt;
+      if (Math.hypot(moveX, moveY) > 0.001) {
+        this.moveLocalWithCollision(data.role, moveX, moveY, {
+          preferTarget: { x: this.localVisual.x + dx * 96, y: this.localVisual.y + dy * 96 }
+        });
+      }
 
       // Soft reconciliation with server authority. The Void uses tighter correction so
       // the client never displays an old position while the server hitbox has moved on.
       this.reconcileLocalVisual(dt, this.localServerTarget.x, this.localServerTarget.y, data);
     }
 
-    localCollisionBlockingRects(role) {
+    invalidateLocalCollisionCache() {
+      if (this.localCollisionCache) this.localCollisionCache.clear();
+      this.localCollisionCacheEpoch = (this.localCollisionCacheEpoch || 0) + 1;
+    }
+
+    localCollisionSignature(role) {
+      if (!this.map) return `${role}:no-map`;
+      const pallets = currentSnapshot?.map?.pallets || this.map?.pallets || [];
+      const palletKey = pallets
+        .map((p) => `${p.id || ""}:${Math.round(p.x)}:${Math.round(p.y)}:${Math.round(p.w)}:${Math.round(p.h)}:${p.state || ""}:${p.broken ? 1 : 0}`)
+        .join("|");
+      const generatorKey = role === "survivor"
+        ? this.visibleGenerators()
+            .map((g) => `${g.id || ""}:${Math.round(g.x)}:${Math.round(g.y)}:${g.done ? 1 : 0}`)
+            .join("|")
+        : "";
+      return `${this.localCollisionCacheEpoch || 0}:${role}:${this.map.width}:${this.map.height}:${palletKey}:${generatorKey}`;
+    }
+
+    buildLocalCollisionGrid(rects) {
+      const cellSize = Math.max(48, Math.round(this.map?.tile || this.localCollisionCellSize || 96));
+      const grid = new Map();
+      for (const rect of rects) {
+        if (!rect || !Number.isFinite(rect.x) || !Number.isFinite(rect.y) || !Number.isFinite(rect.w) || !Number.isFinite(rect.h)) continue;
+        const minX = Math.floor(rect.x / cellSize);
+        const maxX = Math.floor((rect.x + rect.w) / cellSize);
+        const minY = Math.floor(rect.y / cellSize);
+        const maxY = Math.floor((rect.y + rect.h) / cellSize);
+        for (let cy = minY; cy <= maxY; cy += 1) {
+          for (let cx = minX; cx <= maxX; cx += 1) {
+            const key = `${cx},${cy}`;
+            let bucket = grid.get(key);
+            if (!bucket) {
+              bucket = [];
+              grid.set(key, bucket);
+            }
+            bucket.push(rect);
+          }
+        }
+      }
+      return { rects, grid, cellSize };
+    }
+
+    localCollisionCacheFor(role) {
+      const signature = this.localCollisionSignature(role);
+      const cached = this.localCollisionCache?.get(signature);
+      if (cached) return cached;
+
       const solids = [...(this.map?.walls || []), ...(this.map?.windows || [])];
       for (const p of currentSnapshot?.map?.pallets || this.map?.pallets || []) {
         if (!p.broken && p.state === "dropped") solids.push(p);
@@ -5306,13 +5367,48 @@
           solids.push({ id: gen.id, x: gen.x - size / 2, y: gen.y - size / 2, w: size, h: size });
         }
       }
-      return solids;
+
+      const cache = this.buildLocalCollisionGrid(solids);
+      if (!this.localCollisionCache) this.localCollisionCache = new Map();
+      this.localCollisionCache.clear();
+      this.localCollisionCache.set(signature, cache);
+      return cache;
+    }
+
+    localCollisionBlockingRects(role) {
+      return this.localCollisionCacheFor(role).rects;
+    }
+
+    localCollisionCandidatesForBox(role, box) {
+      const cache = this.localCollisionCacheFor(role);
+      if (!cache?.grid || !Number.isFinite(box?.x) || !Number.isFinite(box?.y) || !Number.isFinite(box?.w) || !Number.isFinite(box?.h)) {
+        return cache?.rects || [];
+      }
+      const cellSize = cache.cellSize || 96;
+      const minX = Math.floor(box.x / cellSize);
+      const maxX = Math.floor((box.x + box.w) / cellSize);
+      const minY = Math.floor(box.y / cellSize);
+      const maxY = Math.floor((box.y + box.h) / cellSize);
+      const seen = new Set();
+      const results = [];
+      for (let cy = minY; cy <= maxY; cy += 1) {
+        for (let cx = minX; cx <= maxX; cx += 1) {
+          const bucket = cache.grid.get(`${cx},${cy}`);
+          if (!bucket) continue;
+          for (const rect of bucket) {
+            if (seen.has(rect)) continue;
+            seen.add(rect);
+            results.push(rect);
+          }
+        }
+      }
+      return results;
     }
 
     localCollisionRectsAt(role, x = this.localVisual?.x, y = this.localVisual?.y) {
       if (!this.localVisual || !Number.isFinite(x) || !Number.isFinite(y)) return [];
       const box = actorRect({ role }, x, y);
-      return this.localCollisionBlockingRects(role).filter((r) => rectsOverlap(box, r));
+      return this.localCollisionCandidatesForBox(role, box).filter((r) => rectsOverlap(box, r));
     }
 
     localWouldCollide(role, x, y) {
@@ -5324,7 +5420,7 @@
       let moved = false;
       for (let i = 0; i < maxIterations; i += 1) {
         const box = actorRect({ role }, this.localVisual.x, this.localVisual.y);
-        const hits = this.localCollisionBlockingRects(role).filter((r) => rectsOverlap(box, r));
+        const hits = this.localCollisionCandidatesForBox(role, box).filter((r) => rectsOverlap(box, r));
         if (!hits.length) break;
 
         let best = null;
@@ -5567,6 +5663,7 @@
 
     updateActorVisionAlpha(dt) {
       const subject = this.getCameraSubjectItem();
+      const cheapKillerVision = subject?.data?.role === "killer" && (LOW_POWER_MODE || adaptivePerformance.mode !== "normal");
       const fadeInRate = ACTOR_VISION.FADE_IN_PER_SECOND;
       const fadeOutRate = ACTOR_VISION.FADE_OUT_PER_SECOND;
       const minAlpha = ACTOR_VISION.MIN_VISIBLE_ALPHA;
@@ -5585,6 +5682,10 @@
           target = this.isSpectating() ? 0.32 : 1;
         } else if (item.forceFullVision) {
           target = 1;
+        } else if (cheapKillerVision) {
+          // The server already decides which runners The Void can see. On weak clients,
+          // do not run local cone + wall LOS for every actor just to rediscover it.
+          target = item.serverVisible ? 1 : 0;
         } else if (shouldRecomputeVision) {
           target = item.serverVisible
             ? (subject ? this.computePointVisionAlpha(item.current.x, item.current.y, subject) : 1)
@@ -5649,6 +5750,19 @@
       return clamp(Math.max(nearAlpha, coneAlpha) + readableBoost * Math.max(nearAlpha, coneAlpha), 0, 1);
     }
 
+    applyKillerFullWallVisionIfStable() {
+      if (!this.wallVisuals?.length) return;
+      const key = `${this.wallVisuals.length}:${this.getPalletVisionKey()}:${this.activePerformanceMode}`;
+      if (this.killerWallVisionStableKey === key) return;
+      this.killerWallVisionStableKey = key;
+      for (const item of this.wallVisuals) {
+        item.targetAlpha = 1;
+        item.alpha = 1;
+        item.graphics.setVisible(true);
+        item.graphics.setAlpha(1);
+      }
+    }
+
     updateWallVision(dt) {
       if (!this.wallVisuals?.length) return;
       this.syncPalletVisionVisuals();
@@ -5665,6 +5779,14 @@
       const length = baseLength + WALL_VISION.CONE_EXTRA_LENGTH;
       const coneAngle = baseAngle + WALL_VISION.CONE_EXTRA_ANGLE;
       const nearRadius = role === "killer" ? WALL_VISION.KILLER_NEAR_RADIUS : WALL_VISION.SURVIVOR_NEAR_RADIUS;
+
+      if (role !== "killer") this.killerWallVisionStableKey = "";
+      if (role === "killer" && (LOW_POWER_MODE || adaptivePerformance.mode !== "normal")) {
+        // Low-performance Void POV does not need per-frame wall fading math. The Void
+        // should read the whole arena while local prediction gets the CPU budget.
+        this.applyKillerFullWallVisionIfStable();
+        return;
+      }
 
       const subjectVaulting = !!subject?.data?.vaulting;
       this.wallVisionTimer = (this.wallVisionTimer || 0) + dt;
