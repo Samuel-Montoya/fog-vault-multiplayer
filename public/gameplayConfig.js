@@ -32,14 +32,18 @@ const GAMEPLAY_CONFIG = {
   // Client-only adaptive performance mode. If the browser drops under lowFps for a few samples,
   // Phaser automatically reduces particles, redraw rates, cone effects, shockwaves, and heavy Void FX.
   performance: {
-    lowFps: 30,
-    ultraFps: 24,
-    recoverFps: 50,
-    lowSamples: 4,
-    ultraSamples: 3,
+    // Adaptive renderer thresholds. Ultra is intentionally entered at ~45 FPS now,
+    // because waiting until 24 FPS means the match already feels awful on old PCs.
+    lowFps: 52,
+    ultraFps: 45,
+    recoverFps: 57,
+    ultraRecoverFps: 47,
+    lowSamples: 3,
+    ultraSamples: 2,
     recoverSamples: 18,
     minModeSeconds: 9,
-    maxDevicePixelRatio: 1.25,
+    // Cap high-DPI laptops. Rendering 2x pixels for a browser game is how GPUs go to therapy.
+    maxDevicePixelRatio: 1,
     toastCooldownMs: 12000
   },
 

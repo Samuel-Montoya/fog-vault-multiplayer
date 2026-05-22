@@ -411,6 +411,10 @@ const BOT_SURVIVOR_CONTACT_RADIUS = Math.max(150, cfgNumber(GAMEPLAY_CONFIG.bots
 const BOT_SURVIVOR_FLEE_PROGRESS_SECONDS = cfgNumber(GAMEPLAY_CONFIG.bots?.survivorFleeProgressSeconds, 0.62);
 const BOT_SURVIVOR_FLEE_PROGRESS_MIN_GAIN = cfgNumber(GAMEPLAY_CONFIG.bots?.survivorFleeProgressMinGain, 24);
 const BOT_SURVIVOR_EMERGENCY_FLEE_SECONDS = cfgNumber(GAMEPLAY_CONFIG.bots?.survivorEmergencyFleeSeconds, 1.55);
+const BOT_SURVIVOR_PRESSURE_RADIUS = Math.max(BOT_SURVIVOR_LOOP_RADIUS + 76, cfgNumber(GAMEPLAY_CONFIG.bots?.survivorPressureRadius, 515));
+const BOT_SURVIVOR_DANGER_CORRIDOR_RADIUS = Math.max(BOT_SURVIVOR_PANIC_RADIUS * 1.05, cfgNumber(GAMEPLAY_CONFIG.bots?.survivorDangerCorridorRadius, 335));
+const BOT_SURVIVOR_AVOID_KILLER_SECONDS = cfgNumber(GAMEPLAY_CONFIG.bots?.survivorAvoidKillerSeconds, 1.85);
+const BOT_SURVIVOR_RISK_RUN_SECONDS = cfgNumber(GAMEPLAY_CONFIG.bots?.survivorRiskRunSeconds, 1.55);
 
 const CHAT_MESSAGE_DURATION = 3.0;
 const CHAT_WHEEL_MESSAGES = RIFTRUNNER_CHATS.chatWheel || {
@@ -818,6 +822,15 @@ function clamp(value, min, max) {
 
 function dist(ax, ay, bx, by) {
   return Math.hypot(ax - bx, ay - by);
+}
+
+function pointSegmentDistance(px, py, ax, ay, bx, by) {
+  const abx = bx - ax;
+  const aby = by - ay;
+  const lengthSq = abx * abx + aby * aby;
+  if (lengthSq <= 0.0001) return dist(px, py, ax, ay);
+  const t = clamp(((px - ax) * abx + (py - ay) * aby) / lengthSq, 0, 1);
+  return dist(px, py, ax + abx * t, ay + aby * t);
 }
 
 function angleDiff(a, b) {
@@ -5667,6 +5680,178 @@ function botRunnerProgressWatchdog(game, actor, target) {
   return true;
 }
 
+function botRunnerObjectiveRiskScore(game, actor, kind, target) {
+  if (!target) return 0;
+  const carried = actor.dots || 0;
+  if (kind === "gate") return 1200;
+  if (kind === "hook") return 720;
+  if (kind === "heal") return target.downed ? 360 : 220;
+  if (kind === "gen") {
+    const progress = clamp(Number(target.progress || 0), 0, 1);
+    const missingDeposits = Math.ceil(Math.max(0, 1 - progress) / Math.max(0.0001, DOT_REPAIR_PROGRESS));
+    return progress * 920
+      + Math.min(carried, SURVIVOR_DOT_MAX) * 26
+      + (carried >= missingDeposits ? 540 : 0)
+      + (progress >= 0.72 ? 360 : 0)
+      + (progress >= 0.9 ? 420 : 0);
+  }
+  if (kind === "dot") return 80 + Math.max(0, 16 - carried) * 8;
+  return 120;
+}
+
+function botRunnerPressureTargetId(kind, target) {
+  if (!target) return "none";
+  return `${kind || "move"}:${target.id || Math.round(target.x || 0) + ":" + Math.round(target.y || 0)}`;
+}
+
+function botRunnerFindKillerAvoidPoint(game, actor, killer, target, kind = "move") {
+  if (!game || !actor || !killer || !target) return null;
+
+  const now = game.time || 0;
+  const bot = actor.bot || (actor.bot = {});
+  const pressureId = botRunnerPressureTargetId(kind, target);
+  if (
+    (bot.runnerAvoidUntil || 0) > now
+    && bot.runnerAvoidTargetId === pressureId
+    && Number.isFinite(bot.runnerAvoidX)
+    && Number.isFinite(bot.runnerAvoidY)
+    && dist(actor.x, actor.y, bot.runnerAvoidX, bot.runnerAvoidY) > game.map.tile * 0.48
+    && dist(killer.x, killer.y, bot.runnerAvoidX, bot.runnerAvoidY) > BOT_SURVIVOR_LOOP_RADIUS * 0.98
+    && !wouldCollide(game, actor, bot.runnerAvoidX, bot.runnerAvoidY)
+  ) {
+    return { x: bot.runnerAvoidX, y: bot.runnerAvoidY, reused: true };
+  }
+
+  const awayFromKiller = botRunnerVectorAwayFromKiller(actor, killer);
+  const targetVector = { x: target.x - actor.x, y: target.y - actor.y };
+  const targetLen = Math.max(1, Math.hypot(targetVector.x, targetVector.y));
+  targetVector.x /= targetLen;
+  targetVector.y /= targetLen;
+
+  const baseAngle = Math.atan2(actor.y - killer.y, actor.x - killer.x);
+  const tangentPreference = Math.sign((-awayFromKiller.y * targetVector.x + awayFromKiller.x * targetVector.y) || (Math.random() - 0.5)) || 1;
+  const angleOffsets = [
+    tangentPreference * 0.82,
+    tangentPreference * 1.12,
+    -tangentPreference * 0.82,
+    -tangentPreference * 1.12,
+    tangentPreference * 1.55,
+    -tangentPreference * 1.55,
+    0
+  ];
+  const radii = [
+    BOT_SURVIVOR_PRESSURE_RADIUS + game.map.tile * 0.45,
+    BOT_SURVIVOR_PRESSURE_RADIUS + game.map.tile * 1.45,
+    BOT_SURVIVOR_PRESSURE_RADIUS + game.map.tile * 2.35
+  ];
+
+  let best = null;
+  let bestScore = Infinity;
+  for (const radius of radii) {
+    for (const offset of angleOffsets) {
+      const angle = baseAngle + offset;
+      const rawX = clamp(killer.x + Math.cos(angle) * radius, 44, game.map.width - 44);
+      const rawY = clamp(killer.y + Math.sin(angle) * radius, 44, game.map.height - 44);
+      const endpoint = botRouteEndpoint(game, actor, rawX, rawY, { role: "survivor" });
+      if (!endpoint || wouldCollide(game, actor, endpoint.x, endpoint.y)) continue;
+
+      const killerDistance = dist(endpoint.x, endpoint.y, killer.x, killer.y);
+      if (killerDistance < BOT_SURVIVOR_LOOP_RADIUS * 0.95) continue;
+
+      const corridorDistance = pointSegmentDistance(killer.x, killer.y, actor.x, actor.y, endpoint.x, endpoint.y);
+      if (corridorDistance < BOT_SURVIVOR_PANIC_RADIUS * 0.76) continue;
+
+      const route = botCheapRouteDistance(game, actor, endpoint.x, endpoint.y, { role: "survivor", exact: false });
+      if (!Number.isFinite(route)) continue;
+
+      const progressToTarget = dist(endpoint.x, endpoint.y, target.x, target.y);
+      const currentToTarget = dist(actor.x, actor.y, target.x, target.y);
+      const improvesTarget = progressToTarget < currentToTarget + game.map.tile * 2.1;
+      const targetPenalty = improvesTarget ? 0 : 260;
+      const edgePenalty = (
+        endpoint.x < game.map.tile * 2 || endpoint.y < game.map.tile * 2 ||
+        endpoint.x > game.map.width - game.map.tile * 2 || endpoint.y > game.map.height - game.map.tile * 2
+      ) ? 220 : 0;
+      const losBreakBonus = !segmentClear(game, killer.x, killer.y, endpoint.x, endpoint.y) ? 260 : 0;
+      const clearancePenalty = botTileClearancePenalty(game, actor, endpoint.tileX, endpoint.tileY) * 180;
+      const score = route
+        + progressToTarget * 0.34
+        + targetPenalty
+        + edgePenalty
+        + clearancePenalty
+        - losBreakBonus
+        - Math.max(0, killerDistance - BOT_SURVIVOR_LOOP_RADIUS) * 0.18;
+
+      if (score < bestScore) {
+        bestScore = score;
+        best = { x: endpoint.x, y: endpoint.y, score };
+      }
+    }
+  }
+
+  if (best) {
+    bot.runnerAvoidX = best.x;
+    bot.runnerAvoidY = best.y;
+    bot.runnerAvoidUntil = now + BOT_SURVIVOR_AVOID_KILLER_SECONDS + Math.random() * 0.25;
+    bot.runnerAvoidTargetId = pressureId;
+    bot.path = [];
+    bot.goalX = null;
+    bot.goalY = null;
+    bot.repath = 0;
+  }
+
+  return best;
+}
+
+function botRunnerKillerPressurePlan(game, actor, target, options = {}) {
+  if (!game || !actor || !target) return null;
+  const killer = options.killer || [...game.actors.values()].find((p) => p.role === "killer" && !p.dead) || null;
+  if (!killer || killer.dead) return null;
+
+  const now = game.time || 0;
+  const bot = actor.bot || (actor.bot = {});
+  const currentDistance = dist(actor.x, actor.y, killer.x, killer.y);
+  if (currentDistance < BOT_SURVIVOR_PANIC_RADIUS * 0.96 || currentDistance > BOT_SURVIVOR_THREAT_RADIUS * 1.08) return null;
+
+  const kind = options.objectiveKind || actor.bot?.runnerTask?.kind || actor.bot?.survivorTask?.kind || "move";
+  const targetDistance = dist(target.x, target.y, killer.x, killer.y);
+  const corridorDistance = pointSegmentDistance(killer.x, killer.y, actor.x, actor.y, target.x, target.y);
+  const actorSeen = segmentClear(game, actor.x, actor.y, killer.x, killer.y);
+  const targetSeen = segmentClear(game, target.x, target.y, killer.x, killer.y);
+  const movingIntoPressure = targetDistance < currentDistance - game.map.tile * 0.22;
+  const crossesDangerCorridor = corridorDistance < BOT_SURVIVOR_DANGER_CORRIDOR_RADIUS;
+  const targetInsideLoop = targetDistance < BOT_SURVIVOR_LOOP_RADIUS * 1.05;
+  const edgePressure = currentDistance < BOT_SURVIVOR_PRESSURE_RADIUS && (actorSeen || targetSeen || crossesDangerCorridor);
+
+  if (!edgePressure || (!movingIntoPressure && !crossesDangerCorridor && !targetInsideLoop)) return null;
+
+  const pressureId = botRunnerPressureTargetId(kind, target);
+  if ((bot.runnerRiskUntil || 0) > now && bot.runnerRiskTargetId === pressureId) {
+    return { type: "risk" };
+  }
+
+  const riskScore = botRunnerObjectiveRiskScore(game, actor, kind, target);
+  const canRisk = riskScore >= 720
+    && currentDistance > BOT_SURVIVOR_PANIC_RADIUS * 1.08
+    && (kind === "gen" || kind === "gate" || kind === "hook");
+
+  if (canRisk) {
+    bot.runnerRiskUntil = now + BOT_SURVIVOR_RISK_RUN_SECONDS + Math.random() * 0.2;
+    bot.runnerRiskTargetId = pressureId;
+    bot.runnerAvoidUntil = 0;
+    return { type: "risk" };
+  }
+
+  const avoid = botRunnerFindKillerAvoidPoint(game, actor, killer, target, kind);
+  if (avoid) return { type: "avoid", x: avoid.x, y: avoid.y };
+
+  // If the bot cannot find a proper flank, commit to a short risk run instead of
+  // bouncing on the chase edge. Progress beats indecision; panic range still overrides it.
+  bot.runnerRiskUntil = now + Math.min(1.05, BOT_SURVIVOR_RISK_RUN_SECONDS);
+  bot.runnerRiskTargetId = pressureId;
+  return { type: "risk" };
+}
+
 function botRunnerMoveTo(game, actor, target, sprint = true, options = {}) {
   if (!target) return false;
   const stopDistance = options.stopDistance || BOT_SURVIVOR_TASK_REACHED_DISTANCE;
@@ -5676,6 +5861,15 @@ function botRunnerMoveTo(game, actor, target, sprint = true, options = {}) {
     else setMoveToward(actor, target.x, target.y, sprint);
     return true;
   }
+
+  const pressurePlan = botRunnerKillerPressurePlan(game, actor, target, options);
+  if (pressurePlan?.type === "avoid") {
+    const avoidTarget = { x: pressurePlan.x, y: pressurePlan.y };
+    if (!botRunnerProgressWatchdog(game, actor, avoidTarget)) return true;
+    followPath(game, actor, avoidTarget.x, avoidTarget.y, true, { allowSurvivorInteract: false });
+    return true;
+  }
+
   if (!botRunnerProgressWatchdog(game, actor, target)) return true;
   followPath(game, actor, target.x, target.y, sprint, { allowSurvivorInteract: false });
   return true;
@@ -5814,7 +6008,7 @@ function botRunnerExecuteTask(game, actor, kind, target, killer = null) {
   if (!target) return false;
   if (kind === "gate") {
     botRunnerCommitTask(game, actor, "gate", target, 8.5);
-    botRunnerMoveTo(game, actor, target, true, { stopDistance: INTERACT_DISTANCE * 0.8, stopAtTarget: true });
+    botRunnerMoveTo(game, actor, target, true, { stopDistance: INTERACT_DISTANCE * 0.8, stopAtTarget: true, killer, objectiveKind: "gate" });
     return true;
   }
 
@@ -5823,7 +6017,7 @@ function botRunnerExecuteTask(game, actor, kind, target, killer = null) {
     if (dist(actor.x, actor.y, target.x, target.y) <= HOOK_RESCUE_DISTANCE && segmentClear(game, actor.x, actor.y, target.x, target.y)) {
       botRunnerStopAndFace(actor, target);
     } else {
-      botRunnerMoveTo(game, actor, target, true, { stopDistance: HOOK_RESCUE_DISTANCE * 0.72, requireLine: true });
+      botRunnerMoveTo(game, actor, target, true, { stopDistance: HOOK_RESCUE_DISTANCE * 0.72, requireLine: true, killer, objectiveKind: "hook" });
     }
     return true;
   }
@@ -5838,7 +6032,7 @@ function botRunnerExecuteTask(game, actor, kind, target, killer = null) {
         target.bot.holdForHealUntil = Math.max(target.bot.holdForHealUntil || 0, (game.time || 0) + 0.6);
       }
     } else {
-      botRunnerMoveTo(game, actor, target, true, { stopDistance: HEAL_DISTANCE * 0.72, requireLine: true });
+      botRunnerMoveTo(game, actor, target, true, { stopDistance: HEAL_DISTANCE * 0.72, requireLine: true, killer, objectiveKind: "heal" });
     }
     return true;
   }
@@ -5849,14 +6043,14 @@ function botRunnerExecuteTask(game, actor, kind, target, killer = null) {
     if (dist(actor.x, actor.y, target.x, target.y) <= DOT_DEPOSIT_DISTANCE && segmentClear(game, actor.x, actor.y, target.x, target.y)) {
       botStandAndDepositAtGen(game, actor, target);
     } else {
-      botRunnerMoveTo(game, actor, target, true, { stopDistance: DOT_DEPOSIT_DISTANCE * 0.72, requireLine: true });
+      botRunnerMoveTo(game, actor, target, true, { stopDistance: DOT_DEPOSIT_DISTANCE * 0.72, requireLine: true, killer, objectiveKind: "gen" });
     }
     return true;
   }
 
   if (kind === "dot") {
     botRunnerCommitTask(game, actor, "dot", target, 6.5);
-    botRunnerMoveTo(game, actor, target, true, { stopDistance: Math.max(18, game.map.tile * 0.28) });
+    botRunnerMoveTo(game, actor, target, true, { stopDistance: Math.max(18, game.map.tile * 0.28), killer, objectiveKind: "dot" });
     return true;
   }
 
@@ -5934,12 +6128,12 @@ function botMoveToObjective(game, actor) {
 
   // 8) No orbs available? Move toward the most valuable unfinished rift so the bot is never idle.
   if (bestRift) {
-    botRunnerMoveTo(game, actor, bestRift, true, { stopDistance: game.map.tile * 0.8 });
+    botRunnerMoveTo(game, actor, bestRift, true, { stopDistance: game.map.tile * 0.8, killer, objectiveKind: "gen" });
     return;
   }
 
   const fallback = chooseBotFallbackObjectivePoint(game, actor, killer);
-  if (fallback) botRunnerMoveTo(game, actor, fallback, true, { stopDistance: game.map.tile * 0.45 });
+  if (fallback) botRunnerMoveTo(game, actor, fallback, true, { stopDistance: game.map.tile * 0.45, killer, objectiveKind: fallback.kind || "move" });
 }
 
 function updateBotInputs(game, dt) {
@@ -6012,10 +6206,15 @@ function updateBotInputs(game, dt) {
     if (actor.role === "survivor") {
       const killerDistance = killer && !killer.dead ? dist(actor.x, actor.y, killer.x, killer.y) : Infinity;
       const killerHasLos = killer && segmentClear(game, actor.x, actor.y, killer.x, killer.y);
+      const riskRunActive = !!(
+        killer
+        && (actor.bot.runnerRiskUntil || 0) > (game.time || 0)
+        && killerDistance > BOT_SURVIVOR_PANIC_RADIUS * 0.96
+      );
       const contactThreat = killer && killerDistance < BOT_SURVIVOR_CONTACT_RADIUS;
       const panicThreat = killer && killerDistance < BOT_SURVIVOR_PANIC_RADIUS;
-      const loopThreat = killer && killerHasLos && killerDistance < BOT_SURVIVOR_LOOP_RADIUS;
-      const activeChaseThreat = killer && actor.chaseHold > 0 && killerDistance < BOT_SURVIVOR_FAR_OBSERVED_DISTANCE;
+      const loopThreat = killer && !riskRunActive && killerHasLos && killerDistance < BOT_SURVIVOR_LOOP_RADIUS;
+      const activeChaseThreat = killer && !riskRunActive && actor.chaseHold > 0 && killerDistance < BOT_SURVIVOR_FAR_OBSERVED_DISTANCE;
       const threatened = !!(killer && (contactThreat || panicThreat || loopThreat || activeChaseThreat));
       const observedButSafe = !!(killer && !threatened && killerHasLos && killerDistance < BOT_SURVIVOR_THREAT_RADIUS);
 

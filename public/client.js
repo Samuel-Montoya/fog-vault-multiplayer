@@ -21,11 +21,13 @@
 
   const PERFORMANCE_CONFIG = GAMEPLAY_CONFIG.performance || {};
   const ADAPTIVE_PERFORMANCE_CONFIG = {
-    lowFps: cfgNumber(PERFORMANCE_CONFIG.lowFps, 30),
-    ultraFps: cfgNumber(PERFORMANCE_CONFIG.ultraFps, 24),
-    recoverFps: cfgNumber(PERFORMANCE_CONFIG.recoverFps, 50),
-    lowSamples: Math.max(2, Math.round(cfgNumber(PERFORMANCE_CONFIG.lowSamples, 4))),
-    ultraSamples: Math.max(2, Math.round(cfgNumber(PERFORMANCE_CONFIG.ultraSamples, 3))),
+    // Be aggressive. Older laptops need the cheap renderer before they hit slideshow territory.
+    lowFps: cfgNumber(PERFORMANCE_CONFIG.lowFps, 52),
+    ultraFps: cfgNumber(PERFORMANCE_CONFIG.ultraFps, 45),
+    recoverFps: cfgNumber(PERFORMANCE_CONFIG.recoverFps, 57),
+    ultraRecoverFps: cfgNumber(PERFORMANCE_CONFIG.ultraRecoverFps, 47),
+    lowSamples: Math.max(2, Math.round(cfgNumber(PERFORMANCE_CONFIG.lowSamples, 3))),
+    ultraSamples: Math.max(2, Math.round(cfgNumber(PERFORMANCE_CONFIG.ultraSamples, 2))),
     recoverSamples: Math.max(8, Math.round(cfgNumber(PERFORMANCE_CONFIG.recoverSamples, 18))),
     minModeSeconds: cfgNumber(PERFORMANCE_CONFIG.minModeSeconds, 9),
     toastCooldownMs: cfgNumber(PERFORMANCE_CONFIG.toastCooldownMs, 12000)
@@ -54,55 +56,76 @@
       voidRushAlpha: 0.42,
       voidRedrawMs: 95,
       survivorRedrawMs: 0,
+      heldOrbMaxDots: 30,
+      heldOrbSpinScale: 1,
+      heldOrbBobScale: 1,
+      voidBodyOrbCount: 9,
+      voidBodySpikeCount: 3,
+      swipeSteps: 22,
+      chargeSteps: 16,
       shakeScale: 1
     },
     low: {
       label: "LOW",
       targetFps: 45,
-      dynamicWorldFps: 4,
-      generatorFps: 4,
-      scratchDrawFps: 5,
-      lightingFps: 24,
-      wallVisionFps: 11,
-      actorVisionFps: 24,
-      particleFps: 28,
-      dotFadeFps: 10,
-      maxParticles: 24,
-      maxShockwaves: 3,
-      particleScale: 0.48,
-      shockwaveScale: 0.55,
-      lightingAlphaScale: 0.72,
-      coneSegments: 8,
-      voidRushGapMs: 180,
-      voidRushCount: 1,
-      voidRushAlpha: 0.22,
-      voidRedrawMs: 170,
-      survivorRedrawMs: 90,
-      shakeScale: 0.62
-    },
-    ultra: {
-      label: "ULTRA LOW",
-      targetFps: 30,
-      dynamicWorldFps: 2,
-      generatorFps: 2.5,
-      scratchDrawFps: 3,
-      lightingFps: 15,
-      wallVisionFps: 6,
-      actorVisionFps: 12,
-      particleFps: 15,
-      dotFadeFps: 6,
-      maxParticles: 8,
+      dynamicWorldFps: 3,
+      generatorFps: 3,
+      scratchDrawFps: 4,
+      lightingFps: 18,
+      wallVisionFps: 8,
+      actorVisionFps: 18,
+      particleFps: 14,
+      dotFadeFps: 7,
+      maxParticles: 14,
       maxShockwaves: 1,
-      particleScale: 0.18,
-      shockwaveScale: 0.25,
-      lightingAlphaScale: 0.46,
-      coneSegments: 5,
+      particleScale: 0.28,
+      shockwaveScale: 0.32,
+      lightingAlphaScale: 0.62,
+      coneSegments: 6,
       voidRushGapMs: 999999,
       voidRushCount: 0,
       voidRushAlpha: 0,
-      voidRedrawMs: 260,
-      survivorRedrawMs: 170,
-      shakeScale: 0.30
+      voidRedrawMs: 230,
+      survivorRedrawMs: 145,
+      heldOrbMaxDots: 12,
+      heldOrbSpinScale: 0.35,
+      heldOrbBobScale: 0.35,
+      voidBodyOrbCount: 4,
+      voidBodySpikeCount: 1,
+      swipeSteps: 10,
+      chargeSteps: 8,
+      shakeScale: 0.38
+    },
+    ultra: {
+      label: "ULTRA LOW",
+      targetFps: 45,
+      dynamicWorldFps: 1.5,
+      generatorFps: 2,
+      scratchDrawFps: 2,
+      lightingFps: 9,
+      wallVisionFps: 4,
+      actorVisionFps: 8,
+      particleFps: 8,
+      dotFadeFps: 3,
+      maxParticles: 0,
+      maxShockwaves: 0,
+      particleScale: 0,
+      shockwaveScale: 0,
+      lightingAlphaScale: 0.36,
+      coneSegments: 4,
+      voidRushGapMs: 999999,
+      voidRushCount: 0,
+      voidRushAlpha: 0,
+      voidRedrawMs: 360,
+      survivorRedrawMs: 260,
+      heldOrbMaxDots: 6,
+      heldOrbSpinScale: 0,
+      heldOrbBobScale: 0,
+      voidBodyOrbCount: 2,
+      voidBodySpikeCount: 0,
+      swipeSteps: 6,
+      chargeSteps: 5,
+      shakeScale: 0.12
     }
   };
 
@@ -154,8 +177,10 @@
     toast(`${label} enabled to keep the game smooth.`, 2400);
   }
 
-  const initialRenderCap = LOW_POWER_MODE ? 1 : cfgNumber(PERFORMANCE_CONFIG.maxDevicePixelRatio, 1.25);
-  const RENDER_RESOLUTION = Math.max(1, Math.min(window.devicePixelRatio || 1, initialRenderCap));
+  const initialRenderCap = LOW_POWER_MODE ? 1 : cfgNumber(PERFORMANCE_CONFIG.maxDevicePixelRatio, 1);
+  // Allow sub-1 render resolution on old hardware. Phaser upscales the canvas via CSS,
+  // which is a much better trade than dropping inputs when a Void swing spawns effects.
+  const RENDER_RESOLUTION = Math.max(0.8, Math.min(window.devicePixelRatio || 1, initialRenderCap));
 
   document.documentElement.classList.toggle("low-power", LOW_POWER_MODE);
   document.documentElement.classList.toggle("adaptive-low-power", adaptivePerformance.mode !== "normal");
@@ -4009,25 +4034,38 @@
       const display = item.dotDisplay ?? 0;
       if (display <= 0.03) return;
 
-      const orbitPhase = item.dotOrbitPhase ?? 0;
-      const spreadCount = Math.max(1, Math.min(SURVIVOR_DOT_MAX, display));
+      const maxVisualDots = Math.max(0, Math.min(
+        SURVIVOR_DOT_MAX,
+        Math.floor(performanceValue("heldOrbMaxDots", SURVIVOR_DOT_MAX))
+      ));
+      if (maxVisualDots <= 0) return;
 
-      for (let i = 0; i < SURVIVOR_DOT_MAX; i++) {
-        const fill = clamp(display - i, 0, 1);
+      const visualDots = Math.max(1, Math.min(maxVisualDots, Math.ceil(display)));
+      const spreadCount = Math.max(1, visualDots);
+      const spinScale = clamp(performanceValue("heldOrbSpinScale", 1), 0, 1);
+      const bobScale = clamp(performanceValue("heldOrbBobScale", 1), 0, 1);
+      const orbitPhase = (item.dotOrbitPhase ?? 0) * spinScale;
+      const represented = Math.max(1, display / visualDots);
+      const highCountScale = display > visualDots ? clamp(display / Math.max(1, SURVIVOR_DOT_MAX), 0.35, 1) : 1;
+
+      for (let i = 0; i < visualDots; i++) {
+        const rawFill = display - i * represented;
+        const fill = clamp(rawFill / Math.max(1, represented), 0, 1);
         if (fill <= 0.02) continue;
 
         const orbitSpin = orbitPhase * (1.05 + i * 0.1);
         const slotAngle = orbitSpin + (i / spreadCount) * Math.PI * 2 - Math.PI / 2;
         const localAngle = slotAngle - (playerAngle || 0);
-        const radius = DOT_ORBIT_VISUAL.RADIUS_BASE + (i % 3) * DOT_ORBIT_VISUAL.RADIUS_STEP;
-        const bob = Math.sin(orbitPhase * 2.3 + i * 0.85) * DOT_ORBIT_VISUAL.BOB;
+        const radius = DOT_ORBIT_VISUAL.RADIUS_BASE + (i % 3) * DOT_ORBIT_VISUAL.RADIUS_STEP + highCountScale * 3;
+        const bob = Math.sin(orbitPhase * 2.3 + i * 0.85) * DOT_ORBIT_VISUAL.BOB * bobScale;
         const exitT = 1 - fill;
         const exitEase = exitT * exitT;
         const exitPush = exitEase * DOT_ORBIT_VISUAL.DEPOSIT_EXIT_PUSH;
         const ox = Math.cos(localAngle) * (radius + bob + exitPush);
         const oy = Math.sin(localAngle) * (radius + bob + exitPush);
-        const size = (i % 2 === 1 ? DOT_ORBIT_VISUAL.SIZE_PRIMARY : DOT_ORBIT_VISUAL.SIZE_SECONDARY) * (0.65 + fill * 0.35);
-        const alpha = bodyAlpha * 0.86 * fill * fill;
+        const baseSize = i % 2 === 1 ? DOT_ORBIT_VISUAL.SIZE_PRIMARY : DOT_ORBIT_VISUAL.SIZE_SECONDARY;
+        const size = (baseSize + highCountScale * 0.9) * (0.65 + fill * 0.35);
+        const alpha = bodyAlpha * (adaptivePerformance.mode === "ultra" ? 0.58 : 0.78) * fill * fill;
         const color = i % 2 === 1 ? accent : glow;
 
         body.fillStyle(color, alpha);
@@ -4068,7 +4106,7 @@
         item.body.fillStyle(0x090014, 0.78);
         item.body.fillCircle(-7, 7, coreR * 0.34);
 
-        const orbCount = LOW_POWER_MODE ? 5 : 9;
+        const orbCount = Math.max(0, Math.floor(performanceValue("voidBodyOrbCount", LOW_POWER_MODE ? 5 : 9)));
         for (let i = 0; i < orbCount; i++) {
           const seed = i * 1.731;
           const band = i % 3;
@@ -4081,7 +4119,7 @@
           item.body.fillCircle(Math.cos(a) * r, Math.sin(a * (1.06 + band * 0.04)) * r, size);
         }
 
-        for (let i = 0; i < (LOW_POWER_MODE ? 2 : 3); i++) {
+        for (let i = 0; i < Math.max(0, Math.floor(performanceValue("voidBodySpikeCount", LOW_POWER_MODE ? 2 : 3))); i++) {
           const a = -Math.PI * 0.85 + i * (Math.PI * 1.7 / 4) + Math.sin(now / 360 + i) * 0.08;
           const inner = 18 + angry * 2;
           const outer = 32 + i % 2 * 3 + angry * 4;
@@ -4422,7 +4460,9 @@
         const progressColor = data.hooked ? 0x75d5ff : downedHealProgress ? 0x8dff9a : hookOrExecuteProgress ? 0xff4040 : data.downed ? 0xffb36b : 0x8dff9a;
         const outlineColor = showProgress ? progressColor : data.invuln > 0 ? 0xffffff : data.hooked ? 0xffc06a : skin.outline;
         const progressStep = Math.round(progress * (adaptivePerformance.mode === "ultra" ? 10 : 24));
-        const survivorStateKey = `${data.skin || ""}:${data.health}:${data.injured ? 1 : 0}:${data.downed ? 1 : 0}:${data.hooked ? 1 : 0}:${data.dead ? 1 : 0}:${data.escaped ? 1 : 0}:${data.invuln > 0 ? 1 : 0}:${progressStep}:${Math.round((item.dotDisplay || 0) * 2)}`;
+        const dotKeyStep = adaptivePerformance.mode === "ultra" ? 2 : adaptivePerformance.mode === "low" ? 1 : 0.5;
+        const dotVisualKey = Math.round((item.dotDisplay || 0) / dotKeyStep) * dotKeyStep;
+        const survivorStateKey = `${data.skin || ""}:${data.health}:${data.injured ? 1 : 0}:${data.downed ? 1 : 0}:${data.hooked ? 1 : 0}:${data.dead ? 1 : 0}:${data.escaped ? 1 : 0}:${data.invuln > 0 ? 1 : 0}:${progressStep}:${dotVisualKey}`;
         const survivorRedrawEvery = performanceValue("survivorRedrawMs", LOW_POWER_MODE ? 85 : 0);
         const shouldRedrawSurvivor = item.lastSurvivorStateKey !== survivorStateKey
           || !item.lastSurvivorDrawAt
@@ -4500,12 +4540,14 @@
           const hookBurstHidden = event.type === "hooked"
             && this.getPovSurvivorData()?.role === "killer"
             && !this.killerCanRevealWorldPoint(event.x, event.y);
-          if (!hookBurstHidden) {
+          const isLocalSurvivorEvent = event.survivorId === myId;
+          if (!hookBurstHidden && (adaptivePerformance.mode !== "ultra" || isLocalSurvivorEvent)) {
             const color = event.type === "unhooked" ? 0x75d5ff : event.type === "hooked" ? COLORS.hook : COLORS.blood;
-            this.burst(event.x, event.y, color, event.type === "hooked" ? 52 : event.type === "execute" || event.type === "death" ? 62 : 38, event.type === "unhooked" ? 140 : 220);
+            const baseCount = event.type === "hooked" ? 52 : event.type === "execute" || event.type === "death" ? 62 : 38;
+            const fxCount = adaptivePerformance.mode === "ultra" ? 5 : LOW_POWER_MODE ? Math.ceil(baseCount * 0.32) : baseCount;
+            this.burst(event.x, event.y, color, fxCount, event.type === "unhooked" ? 140 : 220);
           }
 
-          const isLocalSurvivorEvent = event.survivorId === myId;
           const shouldShakeForImpact = (event.type === "hit" || event.type === "downed") && isLocalSurvivorEvent;
           const shouldShakeForStateChange = ["death", "execute", "hooked"].includes(event.type) && isLocalSurvivorEvent;
           if (shouldShakeForImpact || shouldShakeForStateChange) {
@@ -4520,24 +4562,28 @@
           }
         }
         if (event.type === "genDone") {
-          this.burst(event.x, event.y, COLORS.gen, 58, 190);
-          this.addShockwave(event.x, event.y, COLORS.gen);
+          this.burst(event.x, event.y, COLORS.gen, adaptivePerformance.mode === "ultra" ? 0 : LOW_POWER_MODE ? 18 : 58, 190);
+          if (adaptivePerformance.mode !== "ultra") this.addShockwave(event.x, event.y, COLORS.gen);
         }
         if (event.type === "genKick") {
-          this.burst(event.x, event.y, 0xff4b4b, 26, 150);
-          this.addShockwave(event.x, event.y, 0xff4b4b);
+          this.burst(event.x, event.y, 0xff4b4b, adaptivePerformance.mode === "ultra" ? 0 : LOW_POWER_MODE ? 8 : 26, 150);
+          if (adaptivePerformance.mode === "normal") this.addShockwave(event.x, event.y, 0xff4b4b);
         }
-        if (event.type === "vault") this.burst(event.x, event.y, 0xd8d0bd, 12, 90);
+        if (event.type === "vault" && adaptivePerformance.mode !== "ultra") this.burst(event.x, event.y, 0xd8d0bd, LOW_POWER_MODE ? 4 : 12, 90);
         if (event.type === "palletDrop") {
           playLocalizedPalletDrop(event);
           this.burst(event.x, event.y, COLORS.pallet, 16, 130);
         }
-        if (event.type === "palletBreak" || event.type === "palletBreakStart") this.burst(event.x, event.y, 0xffc36a, 18, 150);
+        if ((event.type === "palletBreak" || event.type === "palletBreakStart") && adaptivePerformance.mode !== "ultra") this.burst(event.x, event.y, 0xffc36a, LOW_POWER_MODE ? 6 : 18, 150);
         if (event.type === "voidStun" || event.type === "killerStun") {
           playLocalizedVoidStun(event);
-          this.burst(event.x, event.y, 0xff3048, LOW_POWER_MODE ? 26 : 46, LOW_POWER_MODE ? 150 : 230);
-          this.addShockwave(event.x, event.y, 0xff1f3a, 0.88, LOW_POWER_MODE ? 105 : 165);
-          this.addShockwave(event.palletX || event.x, event.palletY || event.y, 0xff5268, 0.54, LOW_POWER_MODE ? 84 : 125);
+          this.burst(event.x, event.y, 0xff3048, adaptivePerformance.mode === "ultra" ? 3 : LOW_POWER_MODE ? 10 : 46, LOW_POWER_MODE ? 150 : 230);
+          if (adaptivePerformance.mode === "normal") {
+            this.addShockwave(event.x, event.y, 0xff1f3a, 0.88, 165);
+            this.addShockwave(event.palletX || event.x, event.palletY || event.y, 0xff5268, 0.54, 125);
+          } else if (adaptivePerformance.mode === "low") {
+            this.addShockwave(event.x, event.y, 0xff1f3a, 0.42, 74);
+          }
           const localPalletStunner = event.actorId === myId || event.survivorId === myId;
           if (event.killerId === myId) {
             this.cameras.main.shake(LOW_POWER_MODE ? 170 : 230, (LOW_POWER_MODE ? 0.0044 : 0.0068) * performanceValue("shakeScale", 1));
@@ -4549,19 +4595,19 @@
         }
         if (event.type === "voidAbility") {
           const color = event.abilityId === "redshiftOrbs" ? 0xff3048 : event.abilityId === "voidReveal" ? 0xa78bfa : 0xcbd5e1;
-          this.burst(event.x, event.y, color, LOW_POWER_MODE ? 18 : 34, LOW_POWER_MODE ? 130 : 210);
-          this.addShockwave(event.x, event.y, color, 0.55, event.radius || (LOW_POWER_MODE ? 110 : 155));
+          this.burst(event.x, event.y, color, adaptivePerformance.mode === "ultra" ? 0 : LOW_POWER_MODE ? 6 : 34, LOW_POWER_MODE ? 130 : 210);
+          if (adaptivePerformance.mode === "normal") this.addShockwave(event.x, event.y, color, 0.55, event.radius || 155);
         }
         if (event.type === "survivorAbility") {
           const color = event.abilityId === "riftLens" ? 0xfbbf24 : 0x67e8f9;
-          this.burst(event.x, event.y, color, LOW_POWER_MODE ? 16 : 28, LOW_POWER_MODE ? 110 : 180);
-          this.addShockwave(event.x, event.y, color, 0.42, LOW_POWER_MODE ? 92 : 138);
+          this.burst(event.x, event.y, color, adaptivePerformance.mode === "ultra" ? 0 : LOW_POWER_MODE ? 5 : 28, LOW_POWER_MODE ? 110 : 180);
+          if (adaptivePerformance.mode === "normal") this.addShockwave(event.x, event.y, color, 0.42, 138);
         }
-        if (event.type === "redOrbSlow") {
-          this.burst(event.x, event.y, 0xff3048, LOW_POWER_MODE ? 10 : 18, 95);
+        if (event.type === "redOrbSlow" && adaptivePerformance.mode !== "ultra") {
+          this.burst(event.x, event.y, 0xff3048, LOW_POWER_MODE ? 4 : 18, 95);
         }
-        if (event.type === "voidOrbSteal") {
-          this.burst(event.x, event.y, 0xfbbf24, LOW_POWER_MODE ? 12 : 20, 105);
+        if (event.type === "voidOrbSteal" && adaptivePerformance.mode !== "ultra") {
+          this.burst(event.x, event.y, 0xfbbf24, LOW_POWER_MODE ? 4 : 20, 105);
         }
         if (event.type === "escape") {
           this.burst(event.x, event.y, 0xa78bfa, 54, 190);
@@ -4575,15 +4621,17 @@
           this.burst(event.x, event.y, 0xa78bfa, 44, 170);
           this.addShockwave(event.x, event.y, 0x67e8f9);
         }
-        if (event.type === "healDone") this.burst(event.x, event.y, 0x8dff9a, 24, 120);
+        if (event.type === "healDone" && adaptivePerformance.mode !== "ultra") this.burst(event.x, event.y, 0x8dff9a, LOW_POWER_MODE ? 7 : 24, 120);
         if (event.type === "dotPickup") {
-          this.burst(event.x, event.y, COLORS.collectibleDot, 10, 95);
+          if (adaptivePerformance.mode === "normal") this.burst(event.x, event.y, COLORS.collectibleDot, 10, 95);
           playOrbPickupSfx(event);
         }
         if (event.type === "dotDeposit") {
           playOrbDepositSfx(event);
-          this.burst(event.x, event.y, COLORS.collectibleDotGlow, 18, 110);
-          this.addShockwave(event.x, event.y, COLORS.collectibleDot);
+          if (adaptivePerformance.mode === "normal") {
+            this.burst(event.x, event.y, COLORS.collectibleDotGlow, 18, 110);
+            this.addShockwave(event.x, event.y, COLORS.collectibleDot);
+          }
           if (event.generatorId) {
             if (!this.generatorDepositVisual) this.generatorDepositVisual = new Map();
             if (!this.depositCompleteHold) this.depositCompleteHold = new Map();
@@ -4593,7 +4641,7 @@
           }
         }
         // dotFull is now shown as the same under-player chat bubble used by the R chat wheel.
-        if (event.type === "dotLoss") this.burst(event.x, event.y, COLORS.collectibleDot, 14, 120);
+        if (event.type === "dotLoss" && adaptivePerformance.mode === "normal") this.burst(event.x, event.y, COLORS.collectibleDot, 14, 120);
       }
     }
 
@@ -4617,7 +4665,7 @@
         const pulse = 0.65 + Math.sin(performance.now() * 0.018) * 0.25;
 
         const points = [{ x, y }];
-        const steps = 16;
+        const steps = Math.max(4, Math.floor(performanceValue("chargeSteps", 16)));
         for (let n = 0; n <= steps; n++) {
           const a = angle - arc / 2 + (arc * n) / steps;
           points.push({ x: x + Math.cos(a) * range, y: y + Math.sin(a) * range });
@@ -4638,6 +4686,7 @@
       const actorVisible = !actorItem || actorItem.container.alpha > 0.05 || actorId === myId;
       if (!actorVisible) return;
 
+      const ttlScale = adaptivePerformance.mode === "ultra" ? 0.62 : adaptivePerformance.mode === "low" ? 0.78 : 1;
       this.swipes.push({
         actorId,
         x: event.x,
@@ -4645,7 +4694,7 @@
         angle: event.angle || 0,
         range: event.range || 82,
         arc: event.arc || Math.PI * 0.58,
-        ttl: Math.max(0.18, (event.duration || 0.24) + 0.08),
+        ttl: Math.max(0.12, ((event.duration || 0.24) + 0.08) * ttlScale),
         startup: event.startup || 0,
         life: 0,
         type: event.attackType || event.type || "quick"
@@ -4673,7 +4722,7 @@
         const fade = windup ? 0.26 + 0.28 * sweepT : Math.pow(1 - rawT, 1.35);
         const range = s.range * (windup ? 0.84 + 0.16 * sweepT : 1);
         const arc = s.arc * (windup ? 0.55 + 0.45 * sweepT : 1);
-        const steps = 22;
+        const steps = Math.max(4, Math.floor(performanceValue("swipeSteps", 22)));
         const points = [{ x, y }];
 
         for (let n = 0; n <= steps; n++) {
@@ -4831,7 +4880,12 @@
         return;
       }
 
-      if (!LOW_POWER_MODE && mode !== "normal" && now > adaptivePerformance.lockedUntil && adaptivePerformance.recoverSamples >= cfg.recoverSamples) {
+      if (!LOW_POWER_MODE && mode === "ultra" && now > adaptivePerformance.lockedUntil && fps >= cfg.ultraRecoverFps && avgFps >= cfg.ultraRecoverFps - 1) {
+        setAdaptivePerformanceMode("low", `stabilized ${fps}`);
+        return;
+      }
+
+      if (!LOW_POWER_MODE && mode === "low" && now > adaptivePerformance.lockedUntil && adaptivePerformance.recoverSamples >= cfg.recoverSamples) {
         setAdaptivePerformanceMode("normal", `recovered ${fps}`);
       }
     }
@@ -4841,7 +4895,7 @@
       const profile = performanceProfile();
       if (this.game?.loop) {
         if (Number.isFinite(profile.targetFps)) this.game.loop.targetFps = profile.targetFps;
-        if (Number.isFinite(profile.targetFps)) this.game.loop.minFps = Math.max(18, Math.min(30, profile.targetFps - 10));
+        if (Number.isFinite(profile.targetFps)) this.game.loop.minFps = Math.max(24, Math.min(42, profile.targetFps - 6));
       }
       if (this.particles.length > profile.maxParticles) this.particles.splice(0, this.particles.length - profile.maxParticles);
       if (this.shockwaves.length > profile.maxShockwaves) this.shockwaves.splice(0, this.shockwaves.length - profile.maxShockwaves);
@@ -5333,7 +5387,10 @@
             ? DOT_ORBIT_VISUAL.DEPOSIT_SMOOTHING
             : DOT_ORBIT_VISUAL.PICKUP_SMOOTHING;
 
-          item.dotOrbitPhase = (item.dotOrbitPhase || 0) + dt * DOT_ORBIT_VISUAL.SPIN_SPEED;
+          const heldOrbSpinScale = clamp(performanceValue("heldOrbSpinScale", 1), 0, 1);
+          if (heldOrbSpinScale > 0) {
+            item.dotOrbitPhase = (item.dotOrbitPhase || 0) + dt * DOT_ORBIT_VISUAL.SPIN_SPEED * heldOrbSpinScale;
+          }
           item.dotDisplay = lerp(prevDisplay, targetDots, dampAlpha(smoothing, dt));
         }
       }
