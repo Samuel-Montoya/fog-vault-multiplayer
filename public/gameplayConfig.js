@@ -218,16 +218,23 @@ const GAMEPLAY_CONFIG = {
   },
 
   bots: {
-    repathMin: 0.32,
-    repathMax: 0.68,
-    survivorThreatRadius: 640,
-    survivorPanicRadius: 285,
-    survivorLoopRadius: 430,
-    voidMemorySeconds: 6.0,
-    voidScratchMemorySeconds: 2.5,
-    voidInteractCooldown: 1.25,
-    voidWindowReuseCooldown: 0.95,
-    voidStuckSeconds: 0.85
+    repathMin: 0.24,
+    repathMax: 0.52,
+    survivorThreatRadius: 690,
+    survivorPanicRadius: 315,
+    survivorLoopRadius: 470,
+    survivorRescueRadius: 920,
+    survivorHealRadius: 760,
+    survivorSafeKillerDistance: 520,
+    survivorAbilityThreatRadius: 560,
+    voidMemorySeconds: 7.5,
+    voidScratchMemorySeconds: 3.25,
+    voidInteractCooldown: 1.05,
+    voidWindowReuseCooldown: 0.85,
+    voidStuckSeconds: 0.72,
+    voidHookPursuitRadius: 980,
+    voidAbilityChaseRadius: 720,
+    pathStuckRepathDistance: 7
   }
 };
 

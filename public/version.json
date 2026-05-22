@@ -1,12 +1,19 @@
 {
   "latest": {
-    "version": "0.1.28",
-    "title": "Point Feed and M1 Polish",
-    "summary": "Compact point notifications and better quick M1 range",
-    "description": "Added a React-driven top-left point feed for tracked stat gains, slimmed and widened the end results scoreboard with The Void always listed first, added Runner Void stun tracking, and made quick M1 taps use a more forgiving cone with better range and startup timing.",
-    "date": "2026-05-21"
+    "version": "0.1.29",
+    "title": "Smarter Bot AI",
+    "summary": "More tactical Runner and Void bots",
+    "description": "Improved bot pathfinding with diagonal A* movement, path smoothing, stuck recovery, smarter objective scoring, stronger Void target selection, more human Runner rescue/heal/deposit priorities, tactical loop use, and server-side bot ability usage for Void and Runner abilities.",
+    "date": "2026-05-22"
   },
   "history": [
+    {
+      "version": "0.1.29",
+      "title": "Smarter Bot AI",
+      "summary": "More tactical Runner and Void bots",
+      "description": "Improved bot pathfinding with diagonal A* movement, path smoothing, stuck recovery, smarter objective scoring, stronger Void target selection, more human Runner rescue/heal/deposit priorities, tactical loop use, and server-side bot ability usage for Void and Runner abilities.",
+      "date": "2026-05-22"
+    },
     {
       "version": "0.1.28",
       "title": "Point Feed and M1 Polish",

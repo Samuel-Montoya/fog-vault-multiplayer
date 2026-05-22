@@ -379,11 +379,31 @@ const BOT_REPATH_MAX = cfgNumber(GAMEPLAY_CONFIG.bots?.repathMax, 0.68);
 const BOT_SURVIVOR_THREAT_RADIUS = cfgNumber(GAMEPLAY_CONFIG.bots?.survivorThreatRadius, 640);
 const BOT_SURVIVOR_PANIC_RADIUS = cfgNumber(GAMEPLAY_CONFIG.bots?.survivorPanicRadius, 285);
 const BOT_SURVIVOR_LOOP_RADIUS = cfgNumber(GAMEPLAY_CONFIG.bots?.survivorLoopRadius, 430);
-const BOT_KILLER_MEMORY_SECONDS = cfgNumber(GAMEPLAY_CONFIG.bots?.voidMemorySeconds, 6.0);
-const BOT_KILLER_SCRATCH_MEMORY_SECONDS = cfgNumber(GAMEPLAY_CONFIG.bots?.voidScratchMemorySeconds, 2.5);
-const BOT_KILLER_INTERACT_COOLDOWN = cfgNumber(GAMEPLAY_CONFIG.bots?.voidInteractCooldown, 1.25);
-const BOT_KILLER_WINDOW_REUSE_COOLDOWN = cfgNumber(GAMEPLAY_CONFIG.bots?.voidWindowReuseCooldown, 0.95);
-const BOT_KILLER_STUCK_SECONDS = cfgNumber(GAMEPLAY_CONFIG.bots?.voidStuckSeconds, 0.85);
+const BOT_SURVIVOR_RESCUE_RADIUS = cfgNumber(GAMEPLAY_CONFIG.bots?.survivorRescueRadius, 920);
+const BOT_SURVIVOR_HEAL_RADIUS = cfgNumber(GAMEPLAY_CONFIG.bots?.survivorHealRadius, 760);
+const BOT_SURVIVOR_SAFE_KILLER_DISTANCE = cfgNumber(GAMEPLAY_CONFIG.bots?.survivorSafeKillerDistance, 520);
+const BOT_SURVIVOR_ABILITY_THREAT_RADIUS = cfgNumber(GAMEPLAY_CONFIG.bots?.survivorAbilityThreatRadius, 560);
+const BOT_KILLER_MEMORY_SECONDS = cfgNumber(GAMEPLAY_CONFIG.bots?.voidMemorySeconds, 7.5);
+const BOT_KILLER_SCRATCH_MEMORY_SECONDS = cfgNumber(GAMEPLAY_CONFIG.bots?.voidScratchMemorySeconds, 3.25);
+const BOT_KILLER_INTERACT_COOLDOWN = cfgNumber(GAMEPLAY_CONFIG.bots?.voidInteractCooldown, 1.05);
+const BOT_KILLER_WINDOW_REUSE_COOLDOWN = cfgNumber(GAMEPLAY_CONFIG.bots?.voidWindowReuseCooldown, 0.85);
+const BOT_KILLER_STUCK_SECONDS = cfgNumber(GAMEPLAY_CONFIG.bots?.voidStuckSeconds, 0.72);
+const BOT_KILLER_HOOK_PURSUIT_RADIUS = cfgNumber(GAMEPLAY_CONFIG.bots?.voidHookPursuitRadius, 980);
+const BOT_KILLER_ABILITY_CHASE_RADIUS = cfgNumber(GAMEPLAY_CONFIG.bots?.voidAbilityChaseRadius, 720);
+const BOT_PATH_STUCK_REPATH_DISTANCE = cfgNumber(GAMEPLAY_CONFIG.bots?.pathStuckRepathDistance, 7);
+// AI quality is useless if it burns the tick loop. Keep expensive A* calls on a small
+// per-think budget and use cheap tactical estimates for broad scoring sweeps.
+const BOT_EXACT_ROUTE_BUDGET_BASE = cfgNumber(GAMEPLAY_CONFIG.bots?.exactRouteBudgetBase, IS_BOOSTED_HOST ? 18 : 12);
+const BOT_EXACT_ROUTE_BUDGET_PER_BOT = cfgNumber(GAMEPLAY_CONFIG.bots?.exactRouteBudgetPerBot, IS_BOOSTED_HOST ? 5 : 3);
+const BOT_FLEE_SCAN_RADIUS = cfgNumber(GAMEPLAY_CONFIG.bots?.fleeScanRadius, 6);
+const BOT_FLEE_SAMPLE_STRIDE = Math.max(1, Math.floor(cfgNumber(GAMEPLAY_CONFIG.bots?.fleeSampleStride, 2)));
+const BOT_MAX_LOOP_CANDIDATES = Math.max(3, Math.floor(cfgNumber(GAMEPLAY_CONFIG.bots?.maxLoopCandidates, 7)));
+const BOT_MAX_DOT_CANDIDATES = Math.max(6, Math.floor(cfgNumber(GAMEPLAY_CONFIG.bots?.maxDotCandidates, 14)));
+const BOT_SURVIVOR_FLEE_COMMIT_SECONDS = Math.max(1.35, cfgNumber(GAMEPLAY_CONFIG.bots?.survivorFleeCommitSeconds, 1.45));
+const BOT_SURVIVOR_OBJECTIVE_COMMIT_SECONDS = Math.max(1.75, cfgNumber(GAMEPLAY_CONFIG.bots?.survivorObjectiveCommitSeconds, 2.15));
+const BOT_SURVIVOR_MIN_DECISION_LOCK_SECONDS = Math.max(1.2, cfgNumber(GAMEPLAY_CONFIG.bots?.survivorMinDecisionLockSeconds, 1.55));
+const BOT_SURVIVOR_FAR_OBSERVED_DISTANCE = Math.max(BOT_SURVIVOR_PANIC_RADIUS * 1.55, cfgNumber(GAMEPLAY_CONFIG.bots?.survivorFarObservedDistance, 470));
+const BOT_SURVIVOR_TASK_REACHED_DISTANCE = cfgNumber(GAMEPLAY_CONFIG.bots?.survivorTaskReachedDistance, 44);
 
 const CHAT_MESSAGE_DURATION = 3.0;
 const CHAT_WHEEL_MESSAGES = RIFTRUNNER_CHATS.chatWheel || {
@@ -1080,6 +1100,21 @@ function solidRects(game) {
   return solids;
 }
 
+function cachedMovementBlockingRects(game, role) {
+  if (!game?.map) return [];
+  const key = role === "survivor" ? "survivor" : "killer";
+  const epoch = `${game.pathCacheEpoch || 0}:${areRiftsComplete(game) ? 1 : 0}`;
+  if (!game.movementBlockerCache || game.movementBlockerCache.epoch !== epoch) {
+    const solids = solidRects(game);
+    game.movementBlockerCache = {
+      epoch,
+      killer: solids,
+      survivor: [...solids, ...generatorCollisionRects(game)]
+    };
+  }
+  return game.movementBlockerCache[key] || [];
+}
+
 function completedRiftCount(game) {
   return game?.map?.generators?.filter((g) => g.done).length || 0;
 }
@@ -1110,11 +1145,10 @@ function generatorCollisionRects(game) {
 }
 
 function movementBlockingRects(game, actor) {
-  const solids = solidRects(game);
-  // Survivors must path around generators. Killers get to phase through them,
-  // because horror balance apparently requires forklift privileges.
-  if (actor?.role === "survivor") return [...solids, ...generatorCollisionRects(game)];
-  return solids;
+  // Cached because pathfinding/collision asks this hundreds of times per second.
+  // Rebuilding wall/window/pallet/generator arrays in every wouldCollide() call was
+  // one of the reasons the "smart" bots made humans move like they were underwater.
+  return cachedMovementBlockingRects(game, actor?.role);
 }
 
 function visionBlockingRects(game) {
@@ -1167,15 +1201,166 @@ function attackSegmentClearThroughWindow(game, ax, ay, bx, by) {
   return false;
 }
 
-function wouldCollide(game, actor, x, y) {
-  const box = actorRect(actor, x, y);
-  return movementBlockingRects(game, actor).some((r) => {
+function collisionBlockingRects(game, actor) {
+  const blockers = movementBlockingRects(game, actor);
+  if (!(actor?.palletGraceId && actor.palletGraceTime > 0)) return blockers;
+  return blockers.filter((r) => {
     // If a survivor drops a pallet while standing still on top of the interaction zone,
     // give them a tiny pass-through grace on that one pallet so they can step out instead of
     // becoming part of the furniture. Humans apparently dislike being furniture.
-    if (actor.palletGraceId && actor.palletGraceTime > 0 && r.id === actor.palletGraceId) return false;
-    return rectsOverlap(box, r);
+    return r.id !== actor.palletGraceId;
   });
+}
+
+function wouldCollide(game, actor, x, y) {
+  const box = actorRect(actor, x, y);
+  return collisionBlockingRects(game, actor).some((r) => rectsOverlap(box, r));
+}
+
+function getCollisionRectsAt(game, actor, x = actor.x, y = actor.y) {
+  const box = actorRect(actor, x, y);
+  return collisionBlockingRects(game, actor).filter((r) => rectsOverlap(box, r));
+}
+
+function resolveActorOverlaps(game, actor, maxIterations = 6) {
+  if (!game || !actor || actor.dead || actor.escaped || actor.hooked || actor.vault) return false;
+
+  let moved = false;
+  for (let i = 0; i < maxIterations; i++) {
+    const box = actorRect(actor);
+    const hits = collisionBlockingRects(game, actor).filter((r) => rectsOverlap(box, r));
+    if (!hits.length) break;
+
+    let best = null;
+    for (const r of hits) {
+      const pushLeft = (r.x - (box.x + box.w));
+      const pushRight = ((r.x + r.w) - box.x);
+      const pushUp = (r.y - (box.y + box.h));
+      const pushDown = ((r.y + r.h) - box.y);
+      const options = [
+        { dx: pushLeft, dy: 0, amount: Math.abs(pushLeft) },
+        { dx: pushRight, dy: 0, amount: Math.abs(pushRight) },
+        { dx: 0, dy: pushUp, amount: Math.abs(pushUp) },
+        { dx: 0, dy: pushDown, amount: Math.abs(pushDown) }
+      ].filter((item) => item.amount > 0 && Number.isFinite(item.amount));
+      const local = options.sort((a, b) => a.amount - b.amount)[0];
+      if (local && (!best || local.amount < best.amount)) best = local;
+    }
+
+    if (!best) break;
+    const padding = 0.75;
+    actor.x = clamp(actor.x + best.dx + Math.sign(best.dx) * padding, 36, game.map.width - 36);
+    actor.y = clamp(actor.y + best.dy + Math.sign(best.dy) * padding, 36, game.map.height - 36);
+    moved = true;
+  }
+
+  return moved;
+}
+
+function bodySegmentClear(game, actor, ax, ay, bx, by, stepSize = 12) {
+  const distance = dist(ax, ay, bx, by);
+  const steps = Math.max(2, Math.ceil(distance / stepSize));
+  for (let i = 1; i <= steps; i++) {
+    const t = i / steps;
+    const x = ax + (bx - ax) * t;
+    const y = ay + (by - ay) * t;
+    if (wouldCollide(game, actor, x, y)) return false;
+  }
+  return true;
+}
+
+function moveActorWithCollision(game, actor, moveX, moveY, options = {}) {
+  if (!game || !actor) return false;
+  if (!Number.isFinite(moveX) || !Number.isFinite(moveY)) return false;
+
+  resolveActorOverlaps(game, actor);
+
+  const distance = Math.hypot(moveX, moveY);
+  if (distance <= 0.0001) return false;
+
+  let moved = false;
+  const maxStep = options.maxStep || Math.max(7, Math.min(12, (actor.role === "killer" ? KILLER_SIZE : PLAYER_SIZE) * 0.32));
+  const steps = Math.max(1, Math.ceil(distance / maxStep));
+  const stepX = moveX / steps;
+  const stepY = moveY / steps;
+
+  for (let i = 0; i < steps; i++) {
+    const startX = actor.x;
+    const startY = actor.y;
+    const desiredX = clamp(startX + stepX, 36, game.map.width - 36);
+    const desiredY = clamp(startY + stepY, 36, game.map.height - 36);
+
+    if (!wouldCollide(game, actor, desiredX, desiredY)) {
+      actor.x = desiredX;
+      actor.y = desiredY;
+      moved = true;
+      continue;
+    }
+
+    const tryX = !wouldCollide(game, actor, desiredX, startY);
+    const tryY = !wouldCollide(game, actor, startX, desiredY);
+
+    if (tryX && tryY) {
+      // Pick the axis with the larger requested movement first so diagonal input slides
+      // naturally along walls instead of trembling at corners like a nervous shopping cart.
+      if (Math.abs(stepX) >= Math.abs(stepY)) {
+        actor.x = desiredX;
+        if (!wouldCollide(game, actor, actor.x, desiredY)) actor.y = desiredY;
+      } else {
+        actor.y = desiredY;
+        if (!wouldCollide(game, actor, desiredX, actor.y)) actor.x = desiredX;
+      }
+      moved = true;
+      continue;
+    }
+
+    if (tryX) {
+      actor.x = desiredX;
+      moved = true;
+      continue;
+    }
+
+    if (tryY) {
+      actor.y = desiredY;
+      moved = true;
+      continue;
+    }
+
+    // If both component moves are blocked, we are probably pressing into a convex corner
+    // or already kissing a wall. Try a tiny perpendicular slip so players and bots can
+    // peel off geometry instead of getting welded to it.
+    const len = Math.hypot(stepX, stepY) || 1;
+    const nudge = Math.max(2, Math.min(8, len * 1.4));
+    const tangentA = { x: (-stepY / len) * nudge, y: (stepX / len) * nudge };
+    const tangentB = { x: -tangentA.x, y: -tangentA.y };
+    const nudges = options.preferTarget && Number.isFinite(options.preferTarget.x) && Number.isFinite(options.preferTarget.y)
+      ? [tangentA, tangentB].sort((a, b) => (
+          dist(startX + a.x, startY + a.y, options.preferTarget.x, options.preferTarget.y)
+          - dist(startX + b.x, startY + b.y, options.preferTarget.x, options.preferTarget.y)
+        ))
+      : [tangentA, tangentB];
+
+    let nudged = false;
+    for (const n of nudges) {
+      const nx = clamp(startX + n.x, 36, game.map.width - 36);
+      const ny = clamp(startY + n.y, 36, game.map.height - 36);
+      if (!wouldCollide(game, actor, nx, ny)) {
+        actor.x = nx;
+        actor.y = ny;
+        moved = true;
+        nudged = true;
+        break;
+      }
+    }
+
+    if (!nudged) {
+      resolveActorOverlaps(game, actor, 2);
+      break;
+    }
+  }
+
+  resolveActorOverlaps(game, actor, 2);
+  return moved;
 }
 
 function segmentClearAgainst(blockers, ax, ay, bx, by) {
@@ -1740,7 +1925,10 @@ function moveActor(game, actor, dt) {
     const eased = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
     actor.x = actor.vault.fromX + (actor.vault.toX - actor.vault.fromX) * eased;
     actor.y = actor.vault.fromY + (actor.vault.toY - actor.vault.fromY) * eased;
-    if (t >= 1) actor.vault = null;
+    if (t >= 1) {
+      actor.vault = null;
+      resolveActorOverlaps(game, actor);
+    }
     return;
   }
 
@@ -1790,10 +1978,10 @@ function moveActor(game, actor, dt) {
     const lungeSpeed = KILLER_SPEED * LUNGE_SPEED_MULT;
     const lx = Math.cos(actor.angle || 0);
     const ly = Math.sin(actor.angle || 0);
-    const nextX = clamp(actor.x + lx * lungeSpeed * dt, 36, game.map.width - 36);
-    const nextY = clamp(actor.y + ly * lungeSpeed * dt, 36, game.map.height - 36);
-    if (!wouldCollide(game, actor, nextX, actor.y)) actor.x = nextX;
-    if (!wouldCollide(game, actor, actor.x, nextY)) actor.y = nextY;
+    moveActorWithCollision(game, actor, lx * lungeSpeed * dt, ly * lungeSpeed * dt, {
+      maxStep: 8,
+      preferTarget: { x: actor.x + lx * 96, y: actor.y + ly * 96 }
+    });
     return;
   }
 
@@ -1808,11 +1996,9 @@ function moveActor(game, actor, dt) {
   if (actor.role === "survivor" && (actor.orbSlow || 0) > 0) speed *= RED_ORB_SLOW_MULT;
   if (actor.role === "survivor" && (actor.voidSlow || 0) > 0) speed *= GRAVITY_WELL_SLOW_MULT;
 
-  const nextX = clamp(actor.x + dx * speed * dt, 36, game.map.width - 36);
-  const nextY = clamp(actor.y + dy * speed * dt, 36, game.map.height - 36);
-
-  if (!wouldCollide(game, actor, nextX, actor.y)) actor.x = nextX;
-  if (!wouldCollide(game, actor, actor.x, nextY)) actor.y = nextY;
+  moveActorWithCollision(game, actor, dx * speed * dt, dy * speed * dt, {
+    preferTarget: { x: actor.x + dx * 96, y: actor.y + dy * 96 }
+  });
 
   if (actor.role === "survivor" && !actor.downed && actor.input.sprint && (Math.abs(dx) + Math.abs(dy) > 0.05)) {
     if (Math.random() < 0.45) addScratch(game, actor);
@@ -1862,6 +2048,10 @@ function canStartVault(game, actor, object, vaultType = "window") {
     // Survivors need a short commitment window after vaulting so they cannot instantly
     // spam the same window back and forth.
     if (actor.role === "survivor" && (actor.windowVaultCooldown || 0) > 0) return false;
+
+    // Bot killers need a stronger memory. Without this, The Void can decide the same window
+    // is useful every second and perform a tragic little vault recital instead of chasing.
+    if (actor.role === "killer" && actor.isBot && actor.bot?.lastVaultWindowId === object.id && game.time < (actor.bot.lastVaultWindowUntil || 0)) return false;
   }
 
   if (vaultType === "pallet") {
@@ -1910,6 +2100,15 @@ function startVault(game, actor, object, vaultType = "window") {
   }
   if (actor.role === "survivor" && vaultType === "pallet") {
     actor.palletVaultCooldown = Math.max(actor.palletVaultCooldown || 0, SURVIVOR_PALLET_VAULT_COOLDOWN);
+  }
+
+  if (actor.role === "killer" && actor.isBot && vaultType === "window") {
+    const bot = actor.bot || (actor.bot = {});
+    bot.lastVaultWindowId = object.id || null;
+    bot.lastVaultWindowUntil = (game.time || 0) + Math.max(1.35, BOT_KILLER_WINDOW_REUSE_COOLDOWN * 1.75);
+    bot.lastVaultWindowFromSide = botWindowSide(object, actor.x, actor.y);
+    bot.path = [];
+    bot.repath = 0;
   }
 
   addEvent(game, "vault", { x: c.x, y: c.y, role: actor.role, actorId: actor.id, vaultType });
@@ -2796,6 +2995,7 @@ function updateDotDeposits(game, dt) {
         gen.activeRepairers = [];
         const completedRifts = game.map.generators.filter((g) => g.done).length;
         const allRiftsDone = completedRifts >= game.requiredGenerators;
+        if (allRiftsDone) bumpPathCache(game);
         addEvent(game, "genDone", {
           x: gen.x,
           y: gen.y,
@@ -3497,6 +3697,7 @@ function bumpPathCache(game) {
   if (!game) return;
   game.pathCacheEpoch = (game.pathCacheEpoch || 0) + 1;
   game.pathCache?.clear?.();
+  game.movementBlockerCache = null;
 }
 
 function getCachedPath(game, key) {
@@ -3528,28 +3729,175 @@ function isDroppedPalletTile(game, tx, ty) {
   return game.map.pallets.some((p) => !p.broken && p.state === "dropped" && p.tileX === tx && p.tileY === ty);
 }
 
-function isPathTileBlocked(game, tx, ty, role) {
+function isBrokenPalletTile(game, tx, ty) {
+  return game.map.pallets.some((p) => p.broken && p.tileX === tx && p.tileY === ty);
+}
+
+function isWindowTile(game, tx, ty) {
+  return game.map.windows.some((w) => w.tileX === tx && w.tileY === ty);
+}
+
+function botTileClearancePenalty(game, actor, tx, ty) {
+  if (!game || !actor) return 0;
+  const c = tileCenter(game, tx, ty);
+  const body = actor.role === "killer" ? KILLER_SIZE : PLAYER_SIZE;
+  const check = Math.max(8, body * 0.44);
+  const samples = [
+    { x: c.x + check, y: c.y },
+    { x: c.x - check, y: c.y },
+    { x: c.x, y: c.y + check },
+    { x: c.x, y: c.y - check },
+    { x: c.x + check * 0.72, y: c.y + check * 0.72 },
+    { x: c.x - check * 0.72, y: c.y + check * 0.72 },
+    { x: c.x + check * 0.72, y: c.y - check * 0.72 },
+    { x: c.x - check * 0.72, y: c.y - check * 0.72 }
+  ];
+
+  let penalty = 0;
+  for (const sample of samples) {
+    if (wouldCollide(game, actor, sample.x, sample.y)) penalty += 0.55;
+  }
+
+  // Broken pallets are no longer real blockers, but bots were still choosing the old tile
+  // as a path anchor and visually grinding against the debris. Treat it as ugly terrain.
+  if (isBrokenPalletTile(game, tx, ty)) penalty += 1.25;
+  return penalty;
+}
+
+function botMovementBlockingRects(game, actor) {
+  // Use real body blockers for movement tests, not vision blockers. Vision ignores windows
+  // and pallets, which is great for eyeballs and terrible for bots trying not to ram their
+  // little digital faces into furniture.
+  return movementBlockingRects(game, actor);
+}
+
+function botMovementSegmentClear(game, actor, ax, ay, bx, by) {
+  // Body-aware LOS for movement. The old version only tested the actor center, so
+  // bots would smooth paths through wall corners and then get stuck trying to fit
+  // a 38px Void body through a mathematical point. Computers, somehow, remain literal.
+  return bodySegmentClear(game, actor, ax, ay, bx, by, 10);
+}
+
+function isPathTileBlocked(game, tx, ty, role, options = {}) {
   if (isWallTile(game, tx, ty)) return true;
-  // Windows and dropped pallets are intentionally allowed in bot paths. The bot will
-  // vault or break them when it reaches the interaction range instead of walking
-  // around every useful loop forever like a confused office printer.
+
+  // Windows are not normal floor for The Void; they are tactical shortcuts.
+  // During chase we allow the planner to consider them with a cost penalty, then
+  // the tactical layer decides whether vaulting actually improves the chase.
+  // For patrol/objective movement, keep them blocked so the bot does not cosplay
+  // as a windshield wiper through the same window forever.
+  if (role === "killer" && isWindowTile(game, tx, ty) && !options.allowKillerWindows) return true;
+
+  // Dropped pallets remain pathable so The Void can walk to them and break them instead of
+  // planning a mile-long detour around one rectangle.
   return false;
+}
+
+function isPathTileBodyBlocked(game, actor, tx, ty, role, options = {}) {
+  if (isPathTileBlocked(game, tx, ty, role, options)) return true;
+
+  // If the chase planner is allowed to reason about windows, keep the window tile in the
+  // graph as a deliberate doorway/portal. The movement collision still blocks walking
+  // through it; the tactical layer presses Space only when vaulting is actually the right
+  // move. Blocking it here made the bot "know" windows existed but never use them.
+  if (role === "killer" && options.allowKillerWindows && isWindowTile(game, tx, ty)) return false;
+
+  const c = tileCenter(game, tx, ty);
+  return wouldCollide(game, actor, c.x, c.y);
+}
+
+function resolvePathGoalTile(game, actor, targetX, targetY, role, options = {}) {
+  const desired = tileAt(game, targetX, targetY);
+  if (!isPathTileBodyBlocked(game, actor, desired.x, desired.y, role, options)) return desired;
+
+  let best = null;
+  let bestScore = Infinity;
+  const maxRadius = 7;
+
+  for (let radius = 1; radius <= maxRadius; radius++) {
+    for (let dy = -radius; dy <= radius; dy++) {
+      for (let dx = -radius; dx <= radius; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== radius) continue;
+        const tx = desired.x + dx;
+        const ty = desired.y + dy;
+        if (isPathTileBodyBlocked(game, actor, tx, ty, role, options)) continue;
+        const c = tileCenter(game, tx, ty);
+        const score = dist(c.x, c.y, targetX, targetY) + Math.abs(dx) * 5 + Math.abs(dy) * 5;
+        if (score < bestScore) {
+          bestScore = score;
+          best = { x: tx, y: ty };
+        }
+      }
+    }
+    if (best) return best;
+  }
+
+  return null;
+}
+
+function botRouteEndpoint(game, actor, targetX, targetY, options = {}) {
+  const role = options.role || actor.role;
+  const pathOptions = { allowKillerWindows: !!options.allowKillerWindows };
+  const goal = resolvePathGoalTile(game, actor, targetX, targetY, role, pathOptions);
+  if (!goal) return null;
+  const c = tileCenter(game, goal.x, goal.y);
+  return { x: c.x, y: c.y, tileX: goal.x, tileY: goal.y };
+}
+
+
+function botCheapRouteDistance(game, actor, targetX, targetY, options = {}) {
+  if (!game || !actor || !Number.isFinite(targetX) || !Number.isFinite(targetY)) return Infinity;
+
+  const role = options.role || actor.role;
+  const endpoint = botRouteEndpoint(game, actor, targetX, targetY, {
+    role,
+    allowKillerWindows: !!options.allowKillerWindows
+  });
+  if (!endpoint) return Infinity;
+
+  const directDistance = dist(actor.x, actor.y, endpoint.x, endpoint.y);
+  if (
+    options.exact !== true
+    && directDistance < game.map.tile * 6.5
+    && !wouldCollide(game, actor, endpoint.x, endpoint.y)
+    && botMovementSegmentClear(game, actor, actor.x, actor.y, endpoint.x, endpoint.y)
+  ) {
+    return directDistance;
+  }
+
+  const start = tileAt(game, actor.x, actor.y);
+  const goal = { x: endpoint.tileX, y: endpoint.tileY };
+  const dx = Math.abs(goal.x - start.x);
+  const dy = Math.abs(goal.y - start.y);
+  const octile = (dx + dy) + (Math.SQRT2 - 2) * Math.min(dx, dy);
+  const losPenalty = botMovementSegmentClear(game, actor, actor.x, actor.y, endpoint.x, endpoint.y) ? 0 : game.map.tile * 1.5;
+  const tightPenalty = botTileClearancePenalty(game, actor, goal.x, goal.y) * game.map.tile * 1.15;
+  game.botCheapRouteFallbacks = (game.botCheapRouteFallbacks || 0) + 1;
+  return octile * game.map.tile + losPenalty + tightPenalty;
 }
 
 function findPath(game, actor, targetX, targetY, options = {}) {
   const role = options.role || actor.role;
+  const pathOptions = {
+    allowKillerWindows: !!options.allowKillerWindows
+  };
   const start = tileAt(game, actor.x, actor.y);
-  const goal = tileAt(game, targetX, targetY);
+  const goal = resolvePathGoalTile(game, actor, targetX, targetY, role, pathOptions);
   const key = (x, y) => `${x},${y}`;
-  if (isPathTileBlocked(game, goal.x, goal.y, role)) return [];
+  if (!goal) return [];
   const startKey = key(start.x, start.y);
   const goalKey = key(goal.x, goal.y);
   if (startKey === goalKey) return [tileCenter(game, goal.x, goal.y)];
-  if (dist(actor.x, actor.y, targetX, targetY) < game.map.tile * 6 && segmentClear(game, actor.x, actor.y, targetX, targetY)) {
+
+  if (
+    dist(actor.x, actor.y, targetX, targetY) < game.map.tile * 7
+    && !wouldCollide(game, actor, targetX, targetY)
+    && botMovementSegmentClear(game, actor, actor.x, actor.y, targetX, targetY)
+  ) {
     return [{ x: targetX, y: targetY }];
   }
 
-  const pathCacheKey = `${game.pathCacheEpoch || 0}|${role}|${startKey}|${goalKey}`;
+  const pathCacheKey = `${game.pathCacheEpoch || 0}|${role}|${pathOptions.allowKillerWindows ? "kwin" : "solid"}|${startKey}|${goalKey}`;
   const cachedPath = getCachedPath(game, pathCacheKey);
   if (cachedPath) return cachedPath;
 
@@ -3560,15 +3908,31 @@ function findPath(game, actor, targetX, targetY, options = {}) {
   let loops = 0;
 
   function h(x, y) {
-    return Math.abs(x - goal.x) + Math.abs(y - goal.y);
+    const dx = Math.abs(x - goal.x);
+    const dy = Math.abs(y - goal.y);
+    return (dx + dy) + (Math.SQRT2 - 2) * Math.min(dx, dy);
+  }
+
+  function movementCost(x, y, diagonal) {
+    const palletCost = isDroppedPalletTile(game, x, y)
+      ? (role === "killer" ? 2.2 : 1.45)
+      : 0;
+    const windowCost = role === "killer" && pathOptions.allowKillerWindows && isWindowTile(game, x, y)
+      ? 3.35
+      : 0;
+    const clearanceCost = botTileClearancePenalty(game, actor, x, y);
+    return (diagonal ? Math.SQRT2 : 1) + palletCost + windowCost + clearanceCost;
   }
 
   while (open.length && loops++ < PATHFIND_LOOP_LIMIT) {
     let bestIndex = 0;
     let bestF = open[0].f;
+    let bestH = h(open[0].x, open[0].y);
     for (let i = 1; i < open.length; i++) {
-      if (open[i].f < bestF) {
+      const itemH = h(open[i].x, open[i].y);
+      if (open[i].f < bestF || (open[i].f === bestF && itemH < bestH)) {
         bestF = open[i].f;
+        bestH = itemH;
         bestIndex = i;
       }
     }
@@ -3586,23 +3950,41 @@ function findPath(game, actor, targetX, targetY, options = {}) {
         k = cameFrom.get(k);
       }
       tiles.reverse();
+      const last = tiles[tiles.length - 1];
+      if (
+        last
+        && dist(last.x, last.y, targetX, targetY) > game.map.tile * 0.22
+        && !wouldCollide(game, actor, targetX, targetY)
+        && botMovementSegmentClear(game, actor, last.x, last.y, targetX, targetY)
+      ) {
+        tiles.push({ x: targetX, y: targetY });
+      }
       setCachedPath(game, pathCacheKey, tiles);
       return tiles;
     }
 
     const neighbors = [
-      { x: current.x + 1, y: current.y },
-      { x: current.x - 1, y: current.y },
-      { x: current.x, y: current.y + 1 },
-      { x: current.x, y: current.y - 1 }
+      { x: current.x + 1, y: current.y, diagonal: false },
+      { x: current.x - 1, y: current.y, diagonal: false },
+      { x: current.x, y: current.y + 1, diagonal: false },
+      { x: current.x, y: current.y - 1, diagonal: false },
+      { x: current.x + 1, y: current.y + 1, diagonal: true },
+      { x: current.x - 1, y: current.y + 1, diagonal: true },
+      { x: current.x + 1, y: current.y - 1, diagonal: true },
+      { x: current.x - 1, y: current.y - 1, diagonal: true }
     ];
 
     for (const n of neighbors) {
-      if (isPathTileBlocked(game, n.x, n.y, role)) continue;
+      if (isPathTileBodyBlocked(game, actor, n.x, n.y, role, pathOptions)) continue;
+      if (n.diagonal) {
+        if (
+          isPathTileBodyBlocked(game, actor, current.x, n.y, role, pathOptions)
+          || isPathTileBodyBlocked(game, actor, n.x, current.y, role, pathOptions)
+        ) continue;
+      }
       const nk = key(n.x, n.y);
       if (seen.has(nk)) continue;
-      const passableButSlower = isDroppedPalletTile(game, n.x, n.y) ? 3.5 : 1;
-      const tentative = (gScore.get(currentKey) ?? Infinity) + passableButSlower;
+      const tentative = (gScore.get(currentKey) ?? Infinity) + movementCost(n.x, n.y, n.diagonal);
       if (tentative < (gScore.get(nk) ?? Infinity)) {
         cameFrom.set(nk, currentKey);
         gScore.set(nk, tentative);
@@ -3613,39 +3995,150 @@ function findPath(game, actor, targetX, targetY, options = {}) {
   return [];
 }
 
+function botPathDistance(path) {
+  if (!Array.isArray(path) || !path.length) return Infinity;
+  let total = 0;
+  for (let i = 1; i < path.length; i++) {
+    total += dist(path[i - 1].x, path[i - 1].y, path[i].x, path[i].y);
+  }
+  return total;
+}
+
+function botEstimateRouteDistance(game, actor, targetX, targetY, options = {}) {
+  const budgetCost = Math.max(1, Math.floor(options.budgetCost || 1));
+  if (Number.isFinite(game?.botExactRouteBudget)) {
+    if (game.botExactRouteBudget < budgetCost) {
+      return botCheapRouteDistance(game, actor, targetX, targetY, options);
+    }
+    game.botExactRouteBudget -= budgetCost;
+  }
+
+  const path = findPath(game, actor, targetX, targetY, options);
+  if (!path.length) return botCheapRouteDistance(game, actor, targetX, targetY, options);
+  return dist(actor.x, actor.y, path[0].x, path[0].y) + botPathDistance(path);
+}
+
 function followPath(game, actor, targetX, targetY, sprint = false, options = {}) {
-  const bot = actor.bot;
-  bot.repath -= 1 / TICK_RATE;
-  const targetChanged = dist(bot.goalX || 0, bot.goalY || 0, targetX, targetY) > game.map.tile * 0.6;
+  const bot = actor.bot || (actor.bot = {});
+  bot.repath = (bot.repath || 0) - 1 / TICK_RATE;
+
+  const hadMoveInput = actor.input.up || actor.input.down || actor.input.left || actor.input.right;
+  bot.stuckCheckElapsed = (bot.stuckCheckElapsed || 0) + (1 / TICK_RATE);
+  if (bot.stuckCheckElapsed >= 0.34) {
+    const movedSinceLastCheck = dist(actor.x, actor.y, bot.stuckCheckX ?? actor.x, bot.stuckCheckY ?? actor.y);
+    const busy = actor.vault || actor.breakTarget || actor.attackState || actor.actionLock > 0 || (actor.role === "killer" && (actor.voidStun || 0) > 0);
+    if (hadMoveInput && !busy && movedSinceLastCheck < BOT_PATH_STUCK_REPATH_DISTANCE) {
+      bot.stuckTimer = (bot.stuckTimer || 0) + bot.stuckCheckElapsed;
+      bot.hardStuckTimer = (bot.hardStuckTimer || 0) + bot.stuckCheckElapsed;
+    } else {
+      bot.stuckTimer = Math.max(0, (bot.stuckTimer || 0) - bot.stuckCheckElapsed * 1.25);
+      bot.hardStuckTimer = Math.max(0, (bot.hardStuckTimer || 0) - bot.stuckCheckElapsed * 0.65);
+    }
+    bot.stuckCheckElapsed = 0;
+    bot.stuckCheckX = actor.x;
+    bot.stuckCheckY = actor.y;
+  }
+
+  const targetChangedThreshold = options.chase ? game.map.tile * 1.15 : game.map.tile * 0.55;
+  const targetChanged = dist(bot.goalX || 0, bot.goalY || 0, targetX, targetY) > targetChangedThreshold;
+  const forcedRepath = bot.stuckTimer > BOT_KILLER_STUCK_SECONDS;
+  if (forcedRepath) {
+    const emergency = bot.hardStuckTimer > BOT_KILLER_STUCK_SECONDS * 2.35
+      ? botEmergencyUnstuck(game, actor, targetX, targetY)
+      : null;
+    const unstuck = emergency || chooseBotUnstuckPoint(game, actor, targetX, targetY);
+    bot.stuckTimer = 0;
+    if (emergency) bot.hardStuckTimer = 0;
+    else bot.hardStuckTimer = Math.max(0, (bot.hardStuckTimer || 0) - BOT_KILLER_STUCK_SECONDS * 0.45);
+    bot.path = unstuck ? [unstuck] : [];
+    bot.repath = BOT_REPATH_MIN * 0.55;
+    if (unstuck) {
+      setMoveToward(actor, unstuck.x, unstuck.y, sprint);
+      return;
+    }
+  }
+
   if (!bot.path?.length || bot.repath <= 0 || targetChanged) {
     bot.goalX = targetX;
     bot.goalY = targetY;
-    bot.path = findPath(game, actor, targetX, targetY, { role: actor.role });
+    bot.path = findPath(game, actor, targetX, targetY, {
+      role: actor.role,
+      allowKillerWindows: !!options.allowKillerWindows
+    });
     bot.repath = botRandomRepath();
   }
 
   if (!bot.path?.length) {
-    setMoveToward(actor, targetX, targetY, sprint);
+    if (!wouldCollide(game, actor, targetX, targetY) && botMovementSegmentClear(game, actor, actor.x, actor.y, targetX, targetY)) {
+      setMoveToward(actor, targetX, targetY, sprint);
+      return;
+    }
+
+    const unstuck = chooseBotUnstuckPoint(game, actor, targetX, targetY);
+    if (unstuck) {
+      setMoveToward(actor, unstuck.x, unstuck.y, sprint);
+      bot.path = [unstuck];
+      bot.repath = BOT_REPATH_MIN * 0.4;
+      return;
+    }
+
+    actor.input.up = actor.input.down = actor.input.left = actor.input.right = false;
+    actor.input.sprint = false;
+    bot.repath = Math.min(bot.repath || BOT_REPATH_MIN, BOT_REPATH_MIN * 0.5);
     return;
   }
 
-  while (bot.path.length > 1 && dist(actor.x, actor.y, bot.path[0].x, bot.path[0].y) < game.map.tile * 0.28) {
+  // Do not force bots to step back onto the exact center of their current tile before
+  // continuing to the next waypoint. That center-seeking behavior caused Runner bots to
+  // twitch back and forth when their objective path refreshed near walls, rifts, or orbs.
+  while (bot.path.length > 1) {
+    const first = bot.path[0];
+    const second = bot.path[1];
+    const firstTile = tileAt(game, first.x, first.y);
+    const actorTile = tileAt(game, actor.x, actor.y);
+    const firstIsCurrentTileCenter = firstTile.x === actorTile.x && firstTile.y === actorTile.y;
+    const closeToFirst = dist(actor.x, actor.y, first.x, first.y) < game.map.tile * 0.42;
+    const canHeadToSecond = !wouldCollide(game, actor, second.x, second.y)
+      && botMovementSegmentClear(game, actor, actor.x, actor.y, second.x, second.y);
+    if ((firstIsCurrentTileCenter && canHeadToSecond) || closeToFirst) {
+      bot.path.shift();
+      continue;
+    }
+    break;
+  }
+
+  while (bot.path.length > 2) {
+    const skip = bot.path[2];
+    const skipTile = tileAt(game, skip.x, skip.y);
+    const nearTightGeometry = botTileClearancePenalty(game, actor, skipTile.x, skipTile.y) > 0.4;
+    if (nearTightGeometry || !botMovementSegmentClear(game, actor, actor.x, actor.y, skip.x, skip.y)) break;
     bot.path.shift();
   }
 
-  const next = bot.path[Math.min(1, bot.path.length - 1)] || bot.path[0];
+  let next = bot.path[0];
+  if (bot.path.length > 1) {
+    const candidate = bot.path[1];
+    const candidateTile = tileAt(game, candidate.x, candidate.y);
+    const safeToSkip = botTileClearancePenalty(game, actor, candidateTile.x, candidateTile.y) <= 0.25
+      && botMovementSegmentClear(game, actor, actor.x, actor.y, candidate.x, candidate.y);
+    if (safeToSkip) next = candidate;
+  }
   setMoveToward(actor, next.x, next.y, sprint);
 
-  // If the next node is a vault/window/pallet tile and we're close, interact with it.
-  // Killers do NOT auto-vault from generic pathing anymore. That caused bot killers
-  // to ping-pong between windows. Killer interaction is handled tactically in
-  // updateBotInputs() where we know whether the obstacle actually helps the chase.
-  const allowAutoInteract = actor.role === "survivor" || options.allowKillerInteract === true;
+  // Objective path-following should not auto-vault/drop pallets. That was the real
+  // source of the AFK-Void Runner jitter: bots would walk toward an orb/rift, touch a
+  // window or pallet, auto-interact, then path back through/around it again. Survivors
+  // now only use loop objects from the threat/flee layer via botUseLoopObject().
+  const allowAutoInteract = actor.role === "killer"
+    ? options.allowKillerInteract === true
+    : options.allowSurvivorInteract === true;
   if (!allowAutoInteract) return;
 
   const hit = nearestInteractable(game, actor, actor.role === "survivor");
   if (hit && actor.bot.actionCooldown <= 0) {
-    const tactical = hit.type === "window" || hit.type === "palletVault" || hit.type === "palletBreak";
+    const tactical = actor.role === "killer"
+      ? hit.type === "palletBreak"
+      : (hit.type === "window" || hit.type === "palletVault" || hit.type === "palletBreak");
     const objectId = hit.object?.id || `${hit.type}:${hit.object?.x}:${hit.object?.y}`;
     const recentlyUsed = actor.bot.lastInteractableId === objectId && game.time < (actor.bot.lastInteractableUntil || 0);
     if (!recentlyUsed && tactical && dist(actor.x, actor.y, hit.object.x + hit.object.w / 2, hit.object.y + hit.object.h / 2) <= INTERACT_DISTANCE) {
@@ -3671,6 +4164,10 @@ function nearestLivingSurvivor(game, actor) {
   return best;
 }
 
+function livingSurvivors(game) {
+  return [...game.actors.values()].filter((p) => p.role === "survivor" && !p.dead && !p.escaped && !p.hooked);
+}
+
 function visibleSurvivorsForKiller(game, killer) {
   const visible = [];
   for (const p of game.actors.values()) {
@@ -3679,21 +4176,146 @@ function visibleSurvivorsForKiller(game, killer) {
     const los = segmentClear(game, killer.x, killer.y, p.x, p.y);
     if (!los) continue;
     if (d <= CLOSE_REVEAL_RADIUS || coneSees(killer, p, KILLER_CONE_LENGTH, KILLER_CONE_ANGLE)) {
-      visible.push({ survivor: p, d });
+      const carryingBonus = Math.min(SURVIVOR_DOT_MAX, p.dots || 0) * 4;
+      const injuryBonus = (p.health <= 1 || p.injured) ? 95 : 0;
+      const downBonus = p.downed ? 360 : 0;
+      const chaseBonus = p.chaseHold > 0 ? 60 : 0;
+      const gateBonus = p.escapeProgress > 0 ? 170 : 0;
+      const score = d - carryingBonus - injuryBonus - downBonus - chaseBonus - gateBonus;
+      visible.push({ survivor: p, d, score });
     }
   }
+  visible.sort((a, b) => a.score - b.score);
   return visible;
 }
 
-function chooseKillerTarget(game, killer) {
-  let target = null;
-  let bestDist = Infinity;
-  for (const item of visibleSurvivorsForKiller(game, killer)) {
-    if (item.d < bestDist) {
-      bestDist = item.d;
-      target = item.survivor;
+function visibleLivingSurvivors(game, killer) {
+  return visibleSurvivorsForKiller(game, killer).map((item) => item.survivor);
+}
+
+function botDistanceToKiller(game, actor) {
+  const killer = [...game.actors.values()].find((p) => p.role === "killer" && !p.dead);
+  return killer ? dist(actor.x, actor.y, killer.x, killer.y) : Infinity;
+}
+
+function botKillerHasLineOfSight(game, actor) {
+  const killer = [...game.actors.values()].find((p) => p.role === "killer" && !p.dead);
+  return !!(killer && segmentClear(game, actor.x, actor.y, killer.x, killer.y));
+}
+
+function botAbilityReady(actor, abilityId, role) {
+  if (!actor || !abilityId) return false;
+  const ability = role === "killer" ? getVoidAbilityDef(abilityId) : getSurvivorAbilityDef(abilityId);
+  if (!ability) return false;
+  const cooldowns = role === "killer" ? actor.voidAbilityCooldowns : actor.survivorAbilityCooldowns;
+  if (Math.max(0, cfgNumber(cooldowns?.[ability.id], 0)) > 0) return false;
+  return Math.floor(actor.dots || 0) >= ability.cost;
+}
+
+function botTryVoidAbility(game, killer, abilityId) {
+  if (!botAbilityReady(killer, abilityId, "killer")) return false;
+  return !!applyVoidAbility(game, killer, abilityId).ok;
+}
+
+function botTrySurvivorAbility(game, survivor, abilityId) {
+  if (!botAbilityReady(survivor, abilityId, "survivor")) return false;
+  return !!applySurvivorAbility(game, survivor, abilityId).ok;
+}
+
+function chooseDownedSurvivorForHookPursuit(game, killer) {
+  let best = null;
+  let bestScore = Infinity;
+  for (const target of game.actors.values()) {
+    if (target.role !== "survivor" || !target.downed || target.hooked || target.dead || target.escaped || target.health > 0) continue;
+    const d = dist(killer.x, killer.y, target.x, target.y);
+    if (d > BOT_KILLER_HOOK_PURSUIT_RADIUS) continue;
+    const route = botCheapRouteDistance(game, killer, target.x, target.y, { role: "killer", allowKillerWindows: true, exact: false });
+    const allyPressure = [...game.actors.values()].filter((p) => (
+      p.role === "survivor" && p.id !== target.id && !p.dead && !p.escaped && !p.hooked && !p.downed
+      && dist(p.x, p.y, target.x, target.y) < HEAL_DISTANCE * 2.8
+    )).length;
+    const score = (Number.isFinite(route) ? route : d + game.map.tile * 8) - allyPressure * 180 - (target.hookProgress || 0) * 120;
+    if (score < bestScore) {
+      bestScore = score;
+      best = target;
     }
   }
+  return best;
+}
+
+function botKillerMaybeUseAbility(game, killer, targetInfo, targetDistance, hasClearAttack) {
+  if (!killer || killer.role !== "killer" || killer.dead || (killer.voidStun || 0) > 0) return false;
+  const survivors = livingSurvivors(game);
+  if (!survivors.length) return false;
+
+  const visibleCount = visibleLivingSurvivors(game, killer).length;
+  const noReliableTarget = !targetInfo?.actor || targetInfo.visible === false;
+
+  if ((game.runnerReveal || 0) <= 0 && noReliableTarget && survivors.length >= 2 && botTryVoidAbility(game, killer, "voidReveal")) {
+    return true;
+  }
+
+  if (targetInfo?.actor && targetDistance < BOT_KILLER_ABILITY_CHASE_RADIUS) {
+    if ((killer.voidSpeedBoost || 0) <= 0 && targetDistance > LUNGE_ATTACK_RANGE * 1.8 && botTryVoidAbility(game, killer, "nullRush")) {
+      return true;
+    }
+    if ((game.redOrbs || 0) <= 0 && visibleCount >= 1 && (game.collectibleDots?.length || 0) >= 10 && targetDistance > QUICK_ATTACK_RANGE * 1.4) {
+      if (botTryVoidAbility(game, killer, "redshiftOrbs")) return true;
+    }
+  }
+
+  if ((game.runnerReveal || 0) <= 0 && survivors.length === 1 && noReliableTarget && botTryVoidAbility(game, killer, "voidReveal")) {
+    return true;
+  }
+
+  return false;
+}
+
+function botSurvivorMaybeUseAbility(game, survivor, killer, threatened, killerDistance, killerHasLos) {
+  if (!survivor || survivor.role !== "survivor" || survivor.dead || survivor.escaped || survivor.hooked || survivor.downed) return false;
+
+  if (threatened && (survivor.stealthStep || 0) <= 0 && (killerHasLos || killerDistance < BOT_SURVIVOR_ABILITY_THREAT_RADIUS || survivor.chaseHold > 0)) {
+    if (botTrySurvivorAbility(game, survivor, "stealthStep")) return true;
+  }
+
+  const lowInformation = (survivor.riftLens || 0) <= 0 && (survivor.dots || 0) >= 10;
+  const objectivePressure = !threatened && ((survivor.dots || 0) >= 18 || game.escapeOpen || (game.collectibleDots?.length || 0) < 10);
+  const chaseSetup = threatened && killerDistance > BOT_SURVIVOR_PANIC_RADIUS && killerDistance < BOT_SURVIVOR_THREAT_RADIUS;
+  if (lowInformation && (objectivePressure || chaseSetup)) {
+    if (botTrySurvivorAbility(game, survivor, "riftLens")) return true;
+  }
+
+  return false;
+}
+
+function botSafeToRescueOrHeal(game, helper, target, killer, urgent = false) {
+  if (!target) return false;
+  if (!killer || killer.dead) return true;
+  const helperDanger = dist(helper.x, helper.y, killer.x, killer.y);
+  const targetDanger = dist(target.x, target.y, killer.x, killer.y);
+  if (urgent && targetDanger > BOT_SURVIVOR_PANIC_RADIUS * 0.82) return true;
+  if (helperDanger < BOT_SURVIVOR_PANIC_RADIUS || targetDanger < BOT_SURVIVOR_PANIC_RADIUS) return false;
+  if (targetDanger < BOT_SURVIVOR_SAFE_KILLER_DISTANCE && segmentClear(game, killer.x, killer.y, target.x, target.y)) return false;
+  return true;
+}
+
+function nearestUndoneGenerator(game, x, y) {
+  let best = null;
+  let bestDist = Infinity;
+  for (const gen of game.map.generators || []) {
+    if (gen.done) continue;
+    const d = dist(x, y, gen.x, gen.y);
+    if (d < bestDist) {
+      bestDist = d;
+      best = gen;
+    }
+  }
+  return best ? { gen: best, d: bestDist } : null;
+}
+
+function chooseKillerTarget(game, killer) {
+  const visible = visibleSurvivorsForKiller(game, killer);
+  const target = visible[0]?.survivor || null;
 
   if (target) {
     killer.bot.targetId = target.id;
@@ -3704,36 +4326,311 @@ function chooseKillerTarget(game, killer) {
   }
 
   const remembered = killer.bot.targetId ? game.actors.get(killer.bot.targetId) : null;
-  if (remembered && !remembered.dead && !remembered.escaped && !remembered.hooked && game.time - killer.bot.lastSeenTime < BOT_KILLER_MEMORY_SECONDS) {
+  if (remembered && !remembered.dead && !remembered.escaped && !remembered.hooked && game.time - (killer.bot.lastSeenTime || 0) < BOT_KILLER_MEMORY_SECONDS) {
     return { actor: remembered, x: killer.bot.lastSeenX, y: killer.bot.lastSeenY, visible: false };
   }
 
   let scratch = null;
-  let scratchDist = Infinity;
-  for (const s of game.scratchMarks) {
+  let scratchScore = Infinity;
+  for (const s of game.scratchMarks || []) {
     if (s.ttl <= 0 || game.time - (s.createdAt || 0) >= BOT_KILLER_SCRATCH_MEMORY_SECONDS) continue;
     const d = dist(killer.x, killer.y, s.x, s.y);
-    if (d < scratchDist) {
-      scratchDist = d;
+    const freshness = Math.max(0, BOT_KILLER_SCRATCH_MEMORY_SECONDS - (game.time - (s.createdAt || 0)));
+    const score = d - freshness * 95;
+    if (score < scratchScore) {
+      scratchScore = score;
       scratch = s;
     }
   }
   if (scratch) return { actor: null, x: scratch.x, y: scratch.y, visible: false };
 
-  const nearest = nearestLivingSurvivor(game, killer);
-  if (nearest) return { actor: nearest, x: nearest.x, y: nearest.y, visible: false };
+  const patrol = chooseKillerPatrolTarget(game, killer);
+  if (patrol) return patrol;
+
   return null;
 }
 
+function botTargetMovementVector(target) {
+  if (!target?.input) return { x: 0, y: 0 };
+  const x = (target.input.right ? 1 : 0) - (target.input.left ? 1 : 0);
+  const y = (target.input.down ? 1 : 0) - (target.input.up ? 1 : 0);
+  const len = Math.hypot(x, y);
+  return len > 0.001 ? { x: x / len, y: y / len } : { x: 0, y: 0 };
+}
 
-function botKillerCanStartAttack(killer) {
-  return killer
-    && killer.attackCooldown <= 0
-    && killer.recovery <= 0
-    && !killer.attackState
-    && !killer.vault
-    && !killer.breakTarget
-    && killer.actionLock <= 0;
+function chooseKillerChasePoint(game, killer, target, targetDistance, hasClearAttack) {
+  if (!target) return null;
+
+  // Direct chase only when the body can actually travel there. Otherwise choose a small
+  // shortlist of reachable approach points, then spend exact A* only on the best few.
+  if (hasClearAttack && botMovementSegmentClear(game, killer, killer.x, killer.y, target.x, target.y)) {
+    return { x: target.x, y: target.y, direct: true };
+  }
+
+  const move = botTargetMovementVector(target);
+  const awayFromKiller = (() => {
+    const dx = target.x - killer.x;
+    const dy = target.y - killer.y;
+    const len = Math.hypot(dx, dy) || 1;
+    return { x: dx / len, y: dy / len };
+  })();
+  const lead = clamp(targetDistance * 0.18, game.map.tile * 1.0, game.map.tile * 4.0);
+  const side = { x: -awayFromKiller.y, y: awayFromKiller.x };
+
+  const rawCandidates = [
+    { x: target.x + move.x * lead, y: target.y + move.y * lead, weight: -120, label: "lead" },
+    { x: target.x, y: target.y, weight: -30, label: "body" },
+    { x: target.x + awayFromKiller.x * game.map.tile * 1.15, y: target.y + awayFromKiller.y * game.map.tile * 1.15, weight: 12, label: "behind" },
+    { x: target.x + side.x * game.map.tile * 1.45, y: target.y + side.y * game.map.tile * 1.45, weight: 22, label: "flank-a" },
+    { x: target.x - side.x * game.map.tile * 1.45, y: target.y - side.y * game.map.tile * 1.45, weight: 22, label: "flank-b" },
+    { x: target.x + move.x * game.map.tile * 2.8 + side.x * game.map.tile * 0.9, y: target.y + move.y * game.map.tile * 2.8 + side.y * game.map.tile * 0.9, weight: 58, label: "cutoff-a" },
+    { x: target.x + move.x * game.map.tile * 2.8 - side.x * game.map.tile * 0.9, y: target.y + move.y * game.map.tile * 2.8 - side.y * game.map.tile * 0.9, weight: 58, label: "cutoff-b" }
+  ];
+
+  const candidates = [];
+  for (const raw of rawCandidates) {
+    const x = clamp(raw.x, 44, game.map.width - 44);
+    const y = clamp(raw.y, 44, game.map.height - 44);
+    const endpoint = botRouteEndpoint(game, killer, x, y, { role: "killer", allowKillerWindows: true });
+    if (!endpoint) continue;
+    const cheapRoute = botCheapRouteDistance(game, killer, endpoint.x, endpoint.y, { role: "killer", allowKillerWindows: true, exact: false });
+    if (!Number.isFinite(cheapRoute)) continue;
+    const attackLaneBonus = attackSegmentClear(game, endpoint.x, endpoint.y, target.x, target.y) ? -game.map.tile * 1.45 : 0;
+    const seesTargetBonus = segmentClear(game, endpoint.x, endpoint.y, target.x, target.y) ? -game.map.tile * 0.55 : 0;
+    const closeness = dist(endpoint.x, endpoint.y, target.x, target.y) * 0.50;
+    candidates.push({ endpoint, raw, cheapScore: cheapRoute + closeness + raw.weight + attackLaneBonus + seesTargetBonus });
+  }
+
+  let best = null;
+  let bestScore = Infinity;
+  for (const candidate of candidates.sort((a, b) => a.cheapScore - b.cheapScore).slice(0, 3)) {
+    const route = botEstimateRouteDistance(game, killer, candidate.endpoint.x, candidate.endpoint.y, {
+      role: "killer",
+      allowKillerWindows: true,
+      budgetCost: 2
+    });
+    if (!Number.isFinite(route)) continue;
+    const tile = tileAt(game, candidate.endpoint.x, candidate.endpoint.y);
+    const clearance = botTileClearancePenalty(game, killer, tile.x, tile.y) * game.map.tile * 0.72;
+    const score = route + candidate.cheapScore * 0.25 + clearance;
+    if (score < bestScore) {
+      bestScore = score;
+      best = { x: candidate.endpoint.x, y: candidate.endpoint.y, direct: false };
+    }
+  }
+
+  return best || botRouteEndpoint(game, killer, target.x, target.y, { role: "killer", allowKillerWindows: true }) || { x: target.x, y: target.y, direct: false };
+}
+
+function botWindowSide(windowObj, x, y) {
+  if (!windowObj) return 0;
+  const c = centerOf(windowObj);
+  if (windowObj.orientation === "horizontal") return Math.sign(y - c.y) || 0;
+  return Math.sign(x - c.x) || 0;
+}
+
+function predictedVaultDestination(game, actor, object) {
+  if (!game || !actor || !object) return null;
+  const c = centerOf(object);
+  const offset = game.map.tile * 0.92;
+  let toX = actor.x;
+  let toY = actor.y;
+
+  if (object.orientation === "horizontal") {
+    const side = actor.y < c.y ? -1 : 1;
+    toX = clamp(actor.x, object.x + PLAYER_SIZE, object.x + object.w - PLAYER_SIZE);
+    toY = c.y - side * offset;
+  } else {
+    const side = actor.x < c.x ? -1 : 1;
+    toX = c.x - side * offset;
+    toY = clamp(actor.y, object.y + PLAYER_SIZE, object.y + object.h - PLAYER_SIZE);
+  }
+
+  return {
+    x: clamp(toX, 44, game.map.width - 44),
+    y: clamp(toY, 44, game.map.height - 44)
+  };
+}
+
+function chooseBotUnstuckPoint(game, actor, targetX, targetY) {
+  if (!game || !actor) return null;
+
+  let best = null;
+  let bestScore = -Infinity;
+  const baseAngle = Math.atan2(targetY - actor.y, targetX - actor.x);
+  const radii = [game.map.tile * 0.72, game.map.tile * 1.15, game.map.tile * 1.75, game.map.tile * 2.35];
+  const blockers = movementBlockingRects(game, actor);
+
+  for (const radius of radii) {
+    for (let i = 0; i < 24; i++) {
+      const angle = baseAngle + (Math.PI * 2 * i) / 24;
+      const x = clamp(actor.x + Math.cos(angle) * radius, 44, game.map.width - 44);
+      const y = clamp(actor.y + Math.sin(angle) * radius, 44, game.map.height - 44);
+      if (wouldCollide(game, actor, x, y)) continue;
+
+      const segmentClearToPoint = botMovementSegmentClear(game, actor, actor.x, actor.y, x, y);
+      const targetGain = dist(actor.x, actor.y, targetX, targetY) - dist(x, y, targetX, targetY);
+      const nearestBlocker = blockers.length
+        ? Math.min(...blockers.slice(0, 180).map((w) => pointRectDistance(x, y, w)))
+        : game.map.tile * 3;
+      const tile = tileAt(game, x, y);
+      const clearancePenalty = botTileClearancePenalty(game, actor, tile.x, tile.y);
+      const score = targetGain
+        + (segmentClearToPoint ? 95 : -35)
+        + radius * 0.12
+        + Math.min(nearestBlocker || 0, game.map.tile * 3) * 0.09
+        - clearancePenalty * 120
+        + Math.random() * 6;
+      if (score > bestScore) {
+        bestScore = score;
+        best = { x, y };
+      }
+    }
+  }
+
+  return best;
+}
+
+function botEmergencyUnstuck(game, actor, targetX, targetY) {
+  if (!game || !actor?.isBot) return null;
+  const startTile = tileAt(game, actor.x, actor.y);
+  let best = null;
+  let bestScore = Infinity;
+
+  for (let radius = 1; radius <= 7; radius++) {
+    for (let dy = -radius; dy <= radius; dy++) {
+      for (let dx = -radius; dx <= radius; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== radius) continue;
+        const tx = startTile.x + dx;
+        const ty = startTile.y + dy;
+        if (tx < 0 || ty < 0 || tx >= game.map.cols || ty >= game.map.rows) continue;
+        if (isPathTileBodyBlocked(game, actor, tx, ty, actor.role, { allowKillerWindows: actor.role === "killer" })) continue;
+        const c = tileCenter(game, tx, ty);
+        if (wouldCollide(game, actor, c.x, c.y)) continue;
+        const route = botCheapRouteDistance(game, { ...actor, x: c.x, y: c.y }, targetX, targetY, { role: actor.role, allowKillerWindows: actor.role === "killer", exact: false });
+        const routeScore = Number.isFinite(route) ? route : dist(c.x, c.y, targetX, targetY) + game.map.tile * 8;
+        const score = routeScore + dist(actor.x, actor.y, c.x, c.y) * 0.45 + botTileClearancePenalty(game, actor, tx, ty) * 220;
+        if (score < bestScore) {
+          bestScore = score;
+          best = { x: c.x, y: c.y };
+        }
+      }
+    }
+    if (best) break;
+  }
+
+  if (best) {
+    actor.x = best.x;
+    actor.y = best.y;
+    actor.bot.path = [];
+    actor.bot.repath = 0;
+    actor.bot.stuckTimer = 0;
+    actor.bot.hardStuckTimer = 0;
+    actor.bot.stuckCheckX = actor.x;
+    actor.bot.stuckCheckY = actor.y;
+    resolveActorOverlaps(game, actor, 8);
+  }
+  return best;
+}
+
+function botPatrolApproachPoints(game, actor, point, radius = null) {
+  const r = radius || game.map.tile * 2.35;
+  const candidates = [{ x: point.x, y: point.y, direct: true }];
+  const steps = 8;
+  for (let i = 0; i < steps; i++) {
+    const angle = (Math.PI * 2 * i) / steps;
+    candidates.push({
+      x: clamp(point.x + Math.cos(angle) * r, 44, game.map.width - 44),
+      y: clamp(point.y + Math.sin(angle) * r, 44, game.map.height - 44),
+      direct: false
+    });
+  }
+  return candidates
+    .map((candidate) => {
+      const endpoint = botRouteEndpoint(game, actor, candidate.x, candidate.y, { role: actor.role, allowKillerWindows: false });
+      if (!endpoint || wouldCollide(game, actor, endpoint.x, endpoint.y)) return null;
+      return { ...endpoint, direct: candidate.direct };
+    })
+    .filter(Boolean);
+}
+
+function botSightValueFromPoint(game, x, y) {
+  let value = 0;
+  for (const gen of game.map.generators || []) {
+    if (gen.done) continue;
+    if (segmentClear(game, x, y, gen.x, gen.y)) value += 70 + (gen.progress || 0) * 260;
+  }
+  for (const gate of game.map.gates || []) {
+    if (segmentClear(game, x, y, gate.x, gate.y)) value += game.escapeOpen ? 180 : 25;
+  }
+  for (const survivor of game.actors.values()) {
+    if (survivor.role !== "survivor" || survivor.dead || survivor.escaped || survivor.hooked) continue;
+    if (segmentClear(game, x, y, survivor.x, survivor.y)) value += 55;
+  }
+  return value;
+}
+
+function chooseKillerPatrolTarget(game, killer) {
+  if (!game || !killer) return null;
+  if (killer.bot.cachedPatrolTarget && game.time < (killer.bot.cachedPatrolUntil || 0)) {
+    return { ...killer.bot.cachedPatrolTarget };
+  }
+
+  const objectives = [];
+  for (const gen of game.map.generators || []) {
+    if (gen.done) continue;
+    objectives.push({
+      x: gen.x,
+      y: gen.y,
+      kind: "rift",
+      value: 260 + (gen.progress || 0) * 900 + (gen.repairerCount || (gen.repairing ? 1 : 0)) * 320
+    });
+  }
+  for (const gate of game.map.gates || []) {
+    objectives.push({ x: gate.x, y: gate.y, kind: "gate", value: game.escapeOpen ? 920 : 80 });
+  }
+
+  if (!objectives.length) {
+    objectives.push({ x: game.map.width / 2, y: game.map.height / 2, kind: "center", value: 120 });
+  }
+
+  const shortlistedObjectives = objectives
+    .map((objective) => ({
+      objective,
+      prescore: dist(killer.x, killer.y, objective.x, objective.y) - objective.value
+    }))
+    .sort((a, b) => a.prescore - b.prescore)
+    .slice(0, 3)
+    .map((item) => item.objective);
+
+  let best = null;
+  let bestScore = Infinity;
+  for (const objective of shortlistedObjectives) {
+    const points = botPatrolApproachPoints(game, killer, objective, game.map.tile * 2.2)
+      .sort((a, b) => dist(killer.x, killer.y, a.x, a.y) - dist(killer.x, killer.y, b.x, b.y))
+      .slice(0, 5);
+
+    for (const point of points) {
+      const route = botCheapRouteDistance(game, killer, point.x, point.y, { role: "killer", allowKillerWindows: false, exact: false });
+      if (!Number.isFinite(route)) continue;
+      const sight = botSightValueFromPoint(game, point.x, point.y);
+      const recentPenalty = killer.bot.lastPatrolKind === objective.kind && dist(point.x, point.y, killer.bot.lastPatrolX || -99999, killer.bot.lastPatrolY || -99999) < game.map.tile * 2.6 ? 260 : 0;
+      const score = route - objective.value - sight + recentPenalty + Math.random() * 18;
+      if (score < bestScore) {
+        bestScore = score;
+        best = { x: point.x, y: point.y, visible: false, patrol: true, kind: objective.kind };
+      }
+    }
+  }
+
+  if (best) {
+    killer.bot.lastPatrolX = best.x;
+    killer.bot.lastPatrolY = best.y;
+    killer.bot.lastPatrolKind = best.kind;
+    killer.bot.cachedPatrolTarget = { ...best };
+    killer.bot.cachedPatrolUntil = (game.time || 0) + 0.95 + Math.random() * 0.45;
+  }
+  return best;
 }
 
 function botTargetIsInFacingArc(killer, target, arc = ATTACK_ARC * 1.15) {
@@ -3753,22 +4650,46 @@ function botShouldVaultWindow(game, killer, target, hit, hasClearAttack, targetD
   if (!hit || hit.type !== "window" || !target) return false;
   if (targetDistance < QUICK_ATTACK_RANGE * 1.2 && hasClearAttack) return false;
 
-  const objectId = hit.object?.id || `window:${hit.object?.x}:${hit.object?.y}`;
+  const windowObj = hit.object;
+  const objectId = windowObj?.id || `window:${windowObj?.x}:${windowObj?.y}`;
   if (killer.bot.lastInteractableId === objectId && game.time < (killer.bot.lastInteractableUntil || 0)) return false;
+  if (killer.bot.lastVaultWindowId === objectId && game.time < (killer.bot.lastVaultWindowUntil || 0)) return false;
 
-  const c = centerOf(hit.object);
-  if (dist(killer.x, killer.y, c.x, c.y) > INTERACT_DISTANCE + 8) return false;
+  const c = centerOf(windowObj);
+  if (dist(killer.x, killer.y, c.x, c.y) > INTERACT_DISTANCE + 10) return false;
 
-  const windowBetweenKillerAndTarget = segmentClearAgainst([hit.object], killer.x, killer.y, target.x, target.y) === false;
-  const targetNearWindow = dist(target.x, target.y, c.x, c.y) < game.map.tile * 2.25;
-  const attackBlockedAndClose = !hasClearAttack && targetDistance < 500;
-  const chasingThroughLoop = targetDistance < 620 && (targetNearWindow || windowBetweenKillerAndTarget);
+  const killerSide = botWindowSide(windowObj, killer.x, killer.y);
+  const targetSide = botWindowSide(windowObj, target.x, target.y);
+  const targetAcrossWindow = killerSide !== 0 && targetSide !== 0 && killerSide !== targetSide;
 
-  // Vault when the window is part of the current chase lane. The old version waited
-  // for a nearly perfect setup, so the bot stared at windows like it was reading terms of service.
-  return attackBlockedAndClose || chasingThroughLoop;
+  const landing = predictedVaultDestination(game, killer, windowObj);
+  if (!landing || wouldCollide(game, killer, landing.x, landing.y)) return false;
+
+  const currentDist = dist(killer.x, killer.y, target.x, target.y);
+  const landingDist = dist(landing.x, landing.y, target.x, target.y);
+  const targetNearWindow = dist(target.x, target.y, c.x, c.y) < game.map.tile * 3.1;
+  const windowBetweenKillerAndTarget = segmentClearAgainst([windowObj], killer.x, killer.y, target.x, target.y) === false;
+
+  const ghost = { ...killer, x: landing.x, y: landing.y };
+  const noWindowRoute = botEstimateRouteDistance(game, killer, target.x, target.y, { role: "killer", allowKillerWindows: false, budgetCost: 2 });
+  const afterVaultRoute = botEstimateRouteDistance(game, ghost, target.x, target.y, { role: "killer", allowKillerWindows: false, budgetCost: 2 });
+  const vaultCommitCost = KILLER_SPEED * Math.max(0.35, KILLER_VAULT_TIME * 0.72);
+  const vaultRoute = dist(killer.x, killer.y, c.x, c.y) + vaultCommitCost + afterVaultRoute;
+
+  const directGain = currentDist - landingDist;
+  const routeGain = noWindowRoute - vaultRoute;
+  const attackBlockedAndClose = !hasClearAttack && targetDistance < 520;
+  const opensAttackLane = attackSegmentClear(game, landing.x, landing.y, target.x, target.y) && landingDist < LUNGE_ATTACK_RANGE * 1.35;
+
+  // Think a few steps ahead: only take the window if it either shortens the real route,
+  // opens an attack lane, or is the obvious loop cut when the Runner is across/near it.
+  // This lets windows act like pathways without reviving the old back-and-forth vault circus.
+  if (routeGain > game.map.tile * 0.75) return true;
+  if (targetAcrossWindow && targetNearWindow && (directGain > game.map.tile * 0.28 || opensAttackLane)) return true;
+  if (windowBetweenKillerAndTarget && attackBlockedAndClose && (directGain > game.map.tile * 0.35 || opensAttackLane)) return true;
+
+  return false;
 }
-
 function botUseKillerObstacle(game, killer, target, hit, hasClearAttack, targetDistance) {
   if (!hit || killer.bot.actionCooldown > 0) return false;
   const objectId = hit.object?.id || `${hit.type}:${hit.object?.x}:${hit.object?.y}`;
@@ -3776,27 +4697,56 @@ function botUseKillerObstacle(game, killer, target, hit, hasClearAttack, targetD
 
   if (hit.type === "palletBreak") {
     const c = centerOf(hit.object);
-    // Break pallets aggressively if they block a close chase or are directly in front
-    // of the target path. This gets the killer out of loop purgatory.
-    const shouldBreak = !hasClearAttack || targetDistance < 430 || dist(target.x, target.y, c.x, c.y) < game.map.tile * 2.4;
+    // Break pallets aggressively if they block a close chase, trap the bot, or are directly
+    // in front of the target path. Dropped pallets are not scenery; they are tasks.
+    const stuckPressure = (killer.bot.stuckTimer || 0) > BOT_KILLER_STUCK_SECONDS * 0.42;
+    const blocksRoute = target && !botMovementSegmentClear(game, killer, killer.x, killer.y, target.x, target.y);
+    const shouldBreak = stuckPressure || blocksRoute || !hasClearAttack || targetDistance < 430 || dist(target.x, target.y, c.x, c.y) < game.map.tile * 2.4;
     if (shouldBreak) {
       killer.input.action = true;
       killer.bot.actionCooldown = 1.0;
       killer.bot.lastInteractableId = objectId;
       killer.bot.lastInteractableUntil = game.time + 1.1;
+      killer.bot.path = [];
+      killer.bot.repath = 0;
       return true;
     }
   }
 
   if (botShouldVaultWindow(game, killer, target, hit, hasClearAttack, targetDistance)) {
     killer.input.action = true;
-    killer.bot.actionCooldown = BOT_KILLER_INTERACT_COOLDOWN;
+    killer.bot.actionCooldown = Math.max(BOT_KILLER_INTERACT_COOLDOWN, 1.05);
     killer.bot.lastInteractableId = objectId;
-    killer.bot.lastInteractableUntil = game.time + BOT_KILLER_WINDOW_REUSE_COOLDOWN;
+    killer.bot.lastInteractableUntil = game.time + 0.42;
+    // Do not set lastVaultWindowId here. That cooldown is checked by canStartVault(),
+    // so setting it before the action is processed blocks the very vault we just requested.
+    // StartVault sets the real reuse cooldown after the bot actually crosses.
+    killer.bot.path = [];
+    killer.bot.repath = 0;
     return true;
   }
 
   return false;
+}
+
+
+function botKillerCanStartAttack(killer) {
+  if (!killer || killer.role !== "killer" || killer.dead || killer.escaped) return false;
+  if ((killer.voidStun || 0) > 0) return false;
+  if ((killer.recovery || 0) > 0 || (killer.attackCooldown || 0) > 0) return false;
+  if ((killer.actionLock || 0) > 0 || killer.vault || killer.breakTarget || killer.hookActionTargetId) return false;
+
+  // updateKillerAttack requires a clean release frame after a previous swing.
+  // If the bot starts holding again too early, it can get stuck fighting the input gate instead
+  // of actually attacking, because apparently even robots need trigger discipline.
+  if (killer.attackNeedsRelease) {
+    killer.input.attack = false;
+    killer.input.attackHeld = false;
+    killer.input.attackReleased = false;
+    return false;
+  }
+
+  return !killer.attackState;
 }
 
 function botSetAttackIntent(game, killer, target, targetDistance, hasClearAttack) {
@@ -3842,53 +4792,353 @@ function botSetAttackIntent(game, killer, target, targetDistance, hasClearAttack
   return false;
 }
 
-function chooseFleePoint(game, survivor, killer) {
-  const actorTile = tileAt(game, survivor.x, survivor.y);
-  let best = { x: survivor.x, y: survivor.y, score: -Infinity };
-  const radius = 5;
 
-  for (let ty = actorTile.y - radius; ty <= actorTile.y + radius; ty++) {
-    for (let tx = actorTile.x - radius; tx <= actorTile.x + radius; tx++) {
-      if (isPathTileBlocked(game, tx, ty, survivor.role)) continue;
-      const p = tileCenter(game, tx, ty);
-      const distanceFromKiller = dist(p.x, p.y, killer.x, killer.y);
-      const distanceFromSelf = dist(p.x, p.y, survivor.x, survivor.y);
-      if (distanceFromSelf < game.map.tile * 1.5) continue;
-      const breaksLos = !segmentClear(game, killer.x, killer.y, p.x, p.y);
-      const towardMapCenter = -dist(p.x, p.y, game.map.width / 2, game.map.height / 2) * 0.04;
-      const score = distanceFromKiller + (breaksLos ? 260 : 0) - distanceFromSelf * 0.22 + towardMapCenter;
-      if (score > best.score) best = { x: p.x, y: p.y, score };
+function botLoopObjectId(hitOrObject, fallbackType = "loop") {
+  const object = hitOrObject?.object || hitOrObject;
+  if (!object) return `${fallbackType}:unknown`;
+  return object.id || `${fallbackType}:${Math.round(object.x || 0)}:${Math.round(object.y || 0)}`;
+}
+
+function botLoopApproachPoint(game, survivor, object) {
+  if (!game || !survivor || !object) return null;
+  const c = centerOf(object);
+  const offset = game.map.tile * 0.78;
+  const candidates = [];
+
+  if (object.orientation === "horizontal") {
+    const currentSide = Math.sign(survivor.y - c.y) || 1;
+    const x = clamp(survivor.x, object.x + PLAYER_SIZE, object.x + object.w - PLAYER_SIZE);
+    candidates.push({ x, y: c.y + currentSide * offset });
+    candidates.push({ x: c.x, y: c.y + currentSide * offset });
+  } else {
+    const currentSide = Math.sign(survivor.x - c.x) || 1;
+    const y = clamp(survivor.y, object.y + PLAYER_SIZE, object.y + object.h - PLAYER_SIZE);
+    candidates.push({ x: c.x + currentSide * offset, y });
+    candidates.push({ x: c.x + currentSide * offset, y: c.y });
+  }
+
+  let best = null;
+  let bestDistance = Infinity;
+  for (const raw of candidates) {
+    const x = clamp(raw.x, 44, game.map.width - 44);
+    const y = clamp(raw.y, 44, game.map.height - 44);
+    if (wouldCollide(game, survivor, x, y)) continue;
+    const d = dist(survivor.x, survivor.y, x, y);
+    if (d < bestDistance) {
+      bestDistance = d;
+      best = { x, y };
     }
   }
+
+  return best || { x: c.x, y: c.y };
+}
+
+function botLoopLandingPoint(game, survivor, killer, object) {
+  if (!game || !survivor || !killer || !object) return null;
+  const c = centerOf(object);
+  const offset = game.map.tile * 1.18;
+  const candidates = [];
+
+  if (object.orientation === "horizontal") {
+    for (const side of [-1, 1]) {
+      const x = clamp(survivor.x, object.x + PLAYER_SIZE, object.x + object.w - PLAYER_SIZE);
+      const y = c.y + side * offset;
+      candidates.push({ x, y, side });
+    }
+  } else {
+    for (const side of [-1, 1]) {
+      const x = c.x + side * offset;
+      const y = clamp(survivor.y, object.y + PLAYER_SIZE, object.y + object.h - PLAYER_SIZE);
+      candidates.push({ x, y, side });
+    }
+  }
+
+  let best = null;
+  let bestScore = -Infinity;
+  const currentKillerDistance = dist(survivor.x, survivor.y, killer.x, killer.y);
+  for (const raw of candidates) {
+    const x = clamp(raw.x, 44, game.map.width - 44);
+    const y = clamp(raw.y, 44, game.map.height - 44);
+    if (wouldCollide(game, survivor, x, y)) continue;
+
+    const killerDistance = dist(x, y, killer.x, killer.y);
+    const selfDistance = dist(x, y, survivor.x, survivor.y);
+    const breaksLos = !segmentClear(game, killer.x, killer.y, x, y);
+    const onOppositeSide = object.orientation === "horizontal"
+      ? Math.sign(y - c.y) !== Math.sign(killer.y - c.y)
+      : Math.sign(x - c.x) !== Math.sign(killer.x - c.x);
+    const route = botCheapRouteDistance(game, survivor, x, y, { role: "survivor", exact: false });
+    const routePenalty = Number.isFinite(route) ? Math.min(route, 900) * 0.14 : 120;
+    const score = (killerDistance - currentKillerDistance) * 1.4
+      + (breaksLos ? 360 : 0)
+      + (onOppositeSide ? 260 : 0)
+      - selfDistance * 0.18
+      - routePenalty;
+
+    if (score > bestScore) {
+      bestScore = score;
+      best = { x, y, score, breaksLos, onOppositeSide };
+    }
+  }
+
+  return best;
+}
+
+function botFindBestLoopEscape(game, survivor, killer) {
+  if (!game || !survivor || !killer) return null;
+
+  const currentKillerDistance = dist(survivor.x, survivor.y, killer.x, killer.y);
+  const maxApproach = currentKillerDistance < BOT_SURVIVOR_PANIC_RADIUS
+    ? game.map.tile * 5.8
+    : game.map.tile * 7.4;
+  let best = null;
+  let bestScore = -Infinity;
+
+  const objects = [];
+  for (const win of game.map.windows || []) objects.push({ object: win, type: "window", baseValue: 390 });
+  for (const pallet of game.map.pallets || []) {
+    if (pallet.broken) continue;
+    objects.push({
+      object: pallet,
+      type: pallet.state === "dropped" ? "palletVault" : "pallet",
+      baseValue: pallet.state === "upright" ? 340 : 230
+    });
+  }
+
+  objects
+    .map((item) => ({ ...item, center: centerOf(item.object), approachPoint: botLoopApproachPoint(game, survivor, item.object) }))
+    .filter((item) => item.type !== "pallet" || item.object.state === "upright")
+    .filter((item) => item.approachPoint)
+    .map((item) => ({ ...item, directDistance: dist(survivor.x, survivor.y, item.approachPoint.x, item.approachPoint.y) }))
+    .filter((item) => item.directDistance <= maxApproach)
+    .sort((a, b) => a.directDistance - b.directDistance)
+    .slice(0, BOT_MAX_LOOP_CANDIDATES)
+    .forEach((item) => {
+      const { object, type, baseValue, center: c, approachPoint, directDistance } = item;
+      const approach = botCheapRouteDistance(game, survivor, approachPoint.x, approachPoint.y, { role: "survivor", exact: false });
+      if (approach > maxApproach * 1.45) return;
+
+      const landing = botLoopLandingPoint(game, survivor, killer, object);
+      if (!landing) return;
+
+      const killerDistanceAtObject = dist(killer.x, killer.y, c.x, c.y);
+      const killerClosing = killerDistanceAtObject < Math.max(BOT_SURVIVOR_PANIC_RADIUS * 1.35, approach * 1.05);
+      const usableSoon = directDistance <= INTERACT_DISTANCE + game.map.tile * 0.85;
+      const escapeGain = dist(landing.x, landing.y, killer.x, killer.y) - currentKillerDistance;
+      const score = baseValue
+        + landing.score
+        + (killerClosing ? 210 : 0)
+        + (usableSoon ? 160 : 0)
+        + Math.max(-90, escapeGain * 0.9)
+        - approach * 0.62
+        - Math.max(0, directDistance - game.map.tile * 2.2) * 0.28;
+
+      if (score > bestScore) {
+        bestScore = score;
+        best = {
+          id: botLoopObjectId(object, type),
+          type,
+          object,
+          x: landing.x,
+          y: landing.y,
+          approachX: approachPoint.x,
+          approachY: approachPoint.y,
+          score,
+          usableSoon
+        };
+      }
+    });
+
+  return best && best.score > 80 ? best : null;
+}
+
+function chooseFleePoint(game, survivor, killer) {
+  const actorTile = tileAt(game, survivor.x, survivor.y);
+  let best = { x: survivor.x, y: survivor.y, score: -Infinity, loop: null };
+  const radius = BOT_FLEE_SCAN_RADIUS;
+  const currentKillerDistance = dist(survivor.x, survivor.y, killer.x, killer.y);
+  const loopEscape = botFindBestLoopEscape(game, survivor, killer);
+
+  if (loopEscape) {
+    best = {
+      x: loopEscape.x,
+      y: loopEscape.y,
+      score: loopEscape.score + 140,
+      loop: loopEscape
+    };
+  }
+
+  const nearbyLoops = [];
+  for (const win of game.map.windows || []) nearbyLoops.push({ object: win, value: 210 });
+  for (const pallet of game.map.pallets || []) {
+    if (!pallet.broken) nearbyLoops.push({ object: pallet, value: pallet.state === "upright" ? 280 : 150 });
+  }
+
+  const candidates = [];
+  for (let ty = actorTile.y - radius; ty <= actorTile.y + radius; ty++) {
+    for (let tx = actorTile.x - radius; tx <= actorTile.x + radius; tx++) {
+      const edge = Math.abs(tx - actorTile.x) === radius || Math.abs(ty - actorTile.y) === radius;
+      const strideHit = ((Math.abs(tx - actorTile.x) + Math.abs(ty - actorTile.y)) % BOT_FLEE_SAMPLE_STRIDE) === 0;
+      if (!edge && !strideHit) continue;
+      candidates.push({ tx, ty });
+    }
+  }
+
+  // Always include cardinal escape lanes. They make the bot feel more deliberate and avoid
+  // missing obvious safe tiles just because the sampled grid skipped them.
+  for (const [dx, dy] of [[radius,0],[-radius,0],[0,radius],[0,-radius],[radius,radius],[-radius,radius],[radius,-radius],[-radius,-radius]]) {
+    candidates.push({ tx: actorTile.x + dx, ty: actorTile.y + dy });
+  }
+
+  const seen = new Set();
+  for (const { tx, ty } of candidates) {
+    const key = `${tx},${ty}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (tx < 0 || ty < 0 || tx >= game.map.cols || ty >= game.map.rows) continue;
+    if (isPathTileBlocked(game, tx, ty, survivor.role)) continue;
+    const p = tileCenter(game, tx, ty);
+    if (wouldCollide(game, survivor, p.x, p.y)) continue;
+
+    const distanceFromKiller = dist(p.x, p.y, killer.x, killer.y);
+    const distanceFromSelf = dist(p.x, p.y, survivor.x, survivor.y);
+    if (distanceFromSelf < game.map.tile * 1.15) continue;
+    if (distanceFromKiller < currentKillerDistance - game.map.tile * 0.35) continue;
+
+    const breaksLos = !segmentClear(game, killer.x, killer.y, p.x, p.y);
+    const route = botCheapRouteDistance(game, survivor, p.x, p.y, { role: "survivor", exact: false });
+    const selfHasPath = Number.isFinite(route) && route < game.map.tile * 11.5;
+    const pathPenalty = Number.isFinite(route) ? route * 0.10 : distanceFromSelf * 0.32 + 160;
+    const nearEdgePenalty = (
+      p.x < game.map.tile * 2 || p.y < game.map.tile * 2 ||
+      p.x > game.map.width - game.map.tile * 2 || p.y > game.map.height - game.map.tile * 2
+    ) ? 180 : 0;
+
+    let loopBonus = 0;
+    for (const item of nearbyLoops) {
+      const c = centerOf(item.object);
+      const d = dist(p.x, p.y, c.x, c.y);
+      if (d < game.map.tile * 3.8) loopBonus += Math.max(0, item.value - d * 0.55);
+    }
+
+    const towardMapCenter = -dist(p.x, p.y, game.map.width / 2, game.map.height / 2) * 0.025;
+    const score = distanceFromKiller * 1.25
+      + (breaksLos ? 460 : 0)
+      + (selfHasPath ? 120 : 0)
+      + loopBonus
+      + towardMapCenter
+      - pathPenalty
+      - distanceFromSelf * 0.08
+      - nearEdgePenalty;
+    if (score > best.score) best = { x: p.x, y: p.y, score, loop: null };
+  }
+
+  if (best.loop) {
+    survivor.bot.preferredLoopId = best.loop.id;
+    survivor.bot.preferredLoopUntil = (game.time || 0) + 1.15;
+    survivor.bot.fleeLoopApproachX = best.loop.approachX;
+    survivor.bot.fleeLoopApproachY = best.loop.approachY;
+  } else if ((survivor.bot.preferredLoopUntil || 0) < (game.time || 0)) {
+    survivor.bot.preferredLoopId = null;
+  }
+
   return best;
 }
 
 function botShouldDropPallet(game, survivor, killer, hit) {
   if (!hit || hit.type !== "palletDrop") return false;
   const killerDistance = dist(survivor.x, survivor.y, killer.x, killer.y);
-  if (killerDistance > BOT_SURVIVOR_PANIC_RADIUS) return false;
-  // Drop if the killer is behind/near the survivor and not on the survivor's escape side.
-  return segmentClear(game, survivor.x, survivor.y, killer.x, killer.y) || killerDistance < 190;
+  if (killerDistance > BOT_SURVIVOR_PANIC_RADIUS * 1.25) return false;
+  const palletCenter = centerOf(hit.object);
+  const killerNearPallet = dist(killer.x, killer.y, palletCenter.x, palletCenter.y) < game.map.tile * 2.05;
+  const killerHasLos = segmentClear(game, survivor.x, survivor.y, killer.x, killer.y);
+  const survivorInjured = survivor.health <= 1 || survivor.injured;
+  return killerNearPallet || killerDistance < 205 || (survivorInjured && killerHasLos && killerDistance < BOT_SURVIVOR_PANIC_RADIUS * 1.18);
+}
+
+function botNearbyInteractables(game, actor, includePalletDrop = true) {
+  const options = [];
+  for (const win of game.map.windows || []) {
+    const c = centerOf(win);
+    const d = dist(actor.x, actor.y, c.x, c.y);
+    if (d <= INTERACT_DISTANCE) options.push({ type: "window", object: win, d });
+  }
+  for (const pallet of game.map.pallets || []) {
+    if (pallet.broken) continue;
+    const c = centerOf(pallet);
+    const d = dist(actor.x, actor.y, c.x, c.y);
+    if (d <= INTERACT_DISTANCE) {
+      if (pallet.state === "upright" && includePalletDrop) options.push({ type: "palletDrop", object: pallet, d });
+      if (pallet.state === "dropped") options.push({ type: actor.role === "killer" ? "palletBreak" : "palletVault", object: pallet, d });
+    }
+  }
+  options.sort((a, b) => a.d - b.d);
+  return options;
+}
+
+function botVaultGainsSafety(game, survivor, killer, hit, preferred = false) {
+  if (!hit || (hit.type !== "window" && hit.type !== "palletVault")) return false;
+  if (!canStartVault(game, survivor, hit.object, hit.type === "palletVault" ? "pallet" : "window")) return false;
+
+  const landing = predictedVaultDestination(game, survivor, hit.object) || botLoopLandingPoint(game, survivor, killer, hit.object);
+  if (!landing || wouldCollide(game, survivor, landing.x, landing.y)) return false;
+
+  const currentKillerDistance = dist(survivor.x, survivor.y, killer.x, killer.y);
+  const landingKillerDistance = dist(landing.x, landing.y, killer.x, killer.y);
+  const breaksLosNow = !segmentClear(game, killer.x, killer.y, survivor.x, survivor.y);
+  const breaksLosAfter = !segmentClear(game, killer.x, killer.y, landing.x, landing.y);
+  const gainsSafety = landingKillerDistance > currentKillerDistance + game.map.tile * 0.14;
+  const dangerClose = currentKillerDistance < BOT_SURVIVOR_PANIC_RADIUS * 1.25;
+  const oppositeSide = hit.object.orientation === "horizontal"
+    ? Math.sign(landing.y - centerOf(hit.object).y) !== Math.sign(killer.y - centerOf(hit.object).y)
+    : Math.sign(landing.x - centerOf(hit.object).x) !== Math.sign(killer.x - centerOf(hit.object).x);
+
+  return preferred || breaksLosAfter || gainsSafety || (oppositeSide && dangerClose) || (dangerClose && !breaksLosNow);
 }
 
 function botUseLoopObject(game, survivor, killer) {
   if (!killer || survivor.bot.actionCooldown > 0) return false;
-  const hit = nearestInteractable(game, survivor, true);
-  if (!hit) return false;
+  const hits = botNearbyInteractables(game, survivor, true);
+  if (!hits.length) return false;
   const killerDistance = dist(survivor.x, survivor.y, killer.x, killer.y);
-  if ((hit.type === "window" || hit.type === "palletVault") && killerDistance < BOT_SURVIVOR_LOOP_RADIUS) {
-    survivor.input.action = true;
-    survivor.bot.actionCooldown = 0.22;
-    return true;
+  const preferredActive = game.time < (survivor.bot.preferredLoopUntil || 0);
+
+  const sortedHits = hits.slice().sort((a, b) => {
+    const aPreferred = preferredActive && survivor.bot.preferredLoopId === botLoopObjectId(a, a.type);
+    const bPreferred = preferredActive && survivor.bot.preferredLoopId === botLoopObjectId(b, b.type);
+    if (aPreferred !== bPreferred) return aPreferred ? -1 : 1;
+    if (a.type === "window" && b.type !== "window") return -1;
+    if (b.type === "window" && a.type !== "window") return 1;
+    return a.d - b.d;
+  });
+
+  for (const hit of sortedHits) {
+    const objectId = botLoopObjectId(hit, hit.type);
+    const preferred = preferredActive && survivor.bot.preferredLoopId === objectId;
+
+    if (hit.type === "window" || hit.type === "palletVault") {
+      if (killerDistance >= BOT_SURVIVOR_LOOP_RADIUS && !preferred) continue;
+      if (!botVaultGainsSafety(game, survivor, killer, hit, preferred)) continue;
+
+      survivor.input.action = true;
+      survivor.bot.actionCooldown = 0.24;
+      survivor.bot.preferredLoopId = objectId;
+      survivor.bot.preferredLoopUntil = Math.max(survivor.bot.preferredLoopUntil || 0, (game.time || 0) + 0.55);
+      return true;
+    }
+
+    if (botShouldDropPallet(game, survivor, killer, hit)) {
+      const md = movementDirection(survivor.input);
+      if (Math.abs(md.dx) > Math.abs(md.dy)) survivor.input.actionDir = md.dx < 0 ? "left" : "right";
+      else if (md.dy !== 0) survivor.input.actionDir = md.dy < 0 ? "up" : "down";
+      survivor.input.action = true;
+      survivor.bot.actionCooldown = 0.35;
+      survivor.bot.preferredLoopId = objectId;
+      survivor.bot.preferredLoopUntil = (game.time || 0) + 0.85;
+      return true;
+    }
   }
-  if (botShouldDropPallet(game, survivor, killer, hit)) {
-    const md = movementDirection(survivor.input);
-    if (Math.abs(md.dx) > Math.abs(md.dy)) survivor.input.actionDir = md.dx < 0 ? "left" : "right";
-    else if (md.dy !== 0) survivor.input.actionDir = md.dy < 0 ? "up" : "down";
-    survivor.input.action = true;
-    survivor.bot.actionCooldown = 0.35;
-    return true;
-  }
+
   return false;
 }
 
@@ -3897,27 +5147,48 @@ function chooseBotDotTarget(game, actor) {
   const existing = bot.objectiveDotId ? (game.collectibleDots || []).find((d) => d.id === bot.objectiveDotId) : null;
   if (existing && game.time < (bot.objectiveDotUntil || 0)) return existing;
 
+  const killer = [...game.actors.values()].find((p) => p.role === "killer" && !p.dead);
+  const nearestGenInfo = (dot) => nearestUndoneGenerator(game, dot.x, dot.y);
   let best = null;
   let bestScore = Infinity;
-  for (const dot of game.collectibleDots || []) {
-    if (!dot) continue;
-    const dx = actor.x - dot.x;
-    const dy = actor.y - dot.y;
-    const d2 = dx * dx + dy * dy;
-    if (d2 < bestScore && segmentClear(game, actor.x, actor.y, dot.x, dot.y)) {
-      bestScore = d2;
+
+  const candidates = (game.collectibleDots || [])
+    .filter(Boolean)
+    .map((dot) => {
+      const directDistance = dist(actor.x, actor.y, dot.x, dot.y);
+      const killerDanger = killer ? Math.max(0, BOT_SURVIVOR_SAFE_KILLER_DISTANCE - dist(killer.x, killer.y, dot.x, dot.y)) : 0;
+      const genInfo = nearestGenInfo(dot);
+      const genBonus = genInfo ? -Math.max(0, 300 - genInfo.d) * 0.34 - ((genInfo.gen?.progress || 0) * 130) : 0;
+      return { dot, directDistance, prescore: directDistance + killerDanger * 1.15 + genBonus };
+    })
+    .sort((a, b) => a.prescore - b.prescore)
+    .slice(0, BOT_MAX_DOT_CANDIDATES);
+
+  for (const item of candidates) {
+    const dot = item.dot;
+    const route = botCheapRouteDistance(game, actor, dot.x, dot.y, { role: "survivor", exact: false });
+    const routeDistance = Number.isFinite(route) ? route : item.directDistance + game.map.tile * 3;
+    const directBonus = segmentClear(game, actor.x, actor.y, dot.x, dot.y) ? -90 : 0;
+    const killerPenalty = killer ? Math.max(0, BOT_SURVIVOR_SAFE_KILLER_DISTANCE - dist(killer.x, killer.y, dot.x, dot.y)) * 1.35 : 0;
+    const genInfo = nearestGenInfo(dot);
+    const genBonus = genInfo ? -Math.max(0, 300 - genInfo.d) * 0.34 - ((genInfo.gen?.progress || 0) * 130) : 0;
+    const carryPenalty = Math.max(0, (actor.dots || 0) - SURVIVOR_DOT_MAX * 0.65) * 24;
+    const score = routeDistance + killerPenalty + carryPenalty + directBonus + genBonus;
+    if (score < bestScore) {
+      bestScore = score;
       best = dot;
     }
   }
 
   bot.objectiveDotId = best?.id || null;
-  bot.objectiveDotUntil = (game.time || 0) + 0.6 + Math.random() * 0.35;
+  bot.objectiveDotUntil = (game.time || 0) + Math.max(BOT_SURVIVOR_OBJECTIVE_COMMIT_SECONDS, 3.6) + Math.random() * 0.65;
   return best;
 }
 
 function botMoveToDot(game, actor) {
   const dot = chooseBotDotTarget(game, actor);
   if (!dot) return false;
+  botSurvivorCommitTask(game, actor, "dot", dot, Math.max(BOT_SURVIVOR_OBJECTIVE_COMMIT_SECONDS, 3.4));
   followPath(game, actor, dot.x, dot.y, true);
   return true;
 }
@@ -3932,22 +5203,60 @@ function botStandAndDepositAtGen(game, actor, gen) {
   actor.bot.goalY = gen.y;
 }
 
+function botRiftCompletionValue(game, actor, gen, routeDistance, killer) {
+  const progress = clamp(Number(gen.progress || 0), 0, 1);
+  const missing = Math.max(0, 1 - progress);
+  const carried = Math.max(0, actor.dots || 0);
+  const depositsToFinish = Math.ceil(missing / Math.max(0.0001, DOT_REPAIR_PROGRESS));
+  const canMeaningfullyPush = carried > 0;
+  const canFinish = canMeaningfullyPush && carried >= depositsToFinish;
+  const almostDone = progress >= 0.72;
+  const halfDone = progress >= 0.45;
+  const nearby = routeDistance <= game.map.tile * 8.5;
+
+  let value = Math.pow(progress, 1.32) * 1180;
+  if (halfDone) value += 170;
+  if (almostDone) value += 360;
+  if (canFinish) value += 520;
+  if (nearby && progress > 0.05) value += progress * 320;
+  if (game.requiredGenerators && completedRiftCount(game) >= game.requiredGenerators - 1 && progress > 0.55) value += 240;
+  if (gen.dotDepositing || gen.repairing) value += 90;
+
+  if (killer && !killer.dead) {
+    const killerDistance = dist(killer.x, killer.y, gen.x, gen.y);
+    const killerHasLane = segmentClear(game, killer.x, killer.y, gen.x, gen.y);
+    if (killerDistance < BOT_SURVIVOR_PANIC_RADIUS) value -= 420;
+    else if (killerDistance < BOT_SURVIVOR_SAFE_KILLER_DISTANCE && killerHasLane) value -= 210;
+  }
+
+  return value;
+}
+
 function chooseBotGeneratorTarget(game, actor) {
   const bot = actor.bot || (actor.bot = {});
   const existing = bot.objectiveGenId ? game.map.generators.find((g) => g.id === bot.objectiveGenId && !g.done) : null;
   if (existing && game.time < (bot.objectiveGenUntil || 0)) return existing;
 
+  const killer = [...game.actors.values()].find((p) => p.role === "killer" && !p.dead);
   let best = null;
   let bestScore = Infinity;
   for (const gen of game.map.generators) {
     if (gen.done) continue;
-    const dx = actor.x - gen.x;
-    const dy = actor.y - gen.y;
-    const d2 = dx * dx + dy * dy;
-    // Spread bots out a little. Four bots dogpiling one gen makes more network churn
-    // and looks less human, which is somehow still a bar we should clear.
-    const repairerPenalty = (gen.repairerCount || (gen.repairing ? 1 : 0)) * game.map.tile * game.map.tile * 1.35;
-    const score = d2 + repairerPenalty;
+
+    const directDistance = dist(actor.x, actor.y, gen.x, gen.y);
+    const route = botCheapRouteDistance(game, actor, gen.x, gen.y, { role: "survivor", exact: false });
+    const routeDistance = Number.isFinite(route) ? route : directDistance + game.map.tile * 2;
+    const killerPenalty = killer ? Math.max(0, BOT_SURVIVOR_SAFE_KILLER_DISTANCE - dist(killer.x, killer.y, gen.x, gen.y)) * 0.85 : 0;
+    const progressValue = botRiftCompletionValue(game, actor, gen, routeDistance, killer);
+    const helperCount = gen.repairerCount || (gen.repairing ? 1 : 0) || (Array.isArray(gen.activeRepairers) ? gen.activeRepairers.length : 0);
+    // Small crowd penalty only. The old giant penalty made bots abandon nearly finished rifts
+    // just because one teammate had the audacity to also understand the objective.
+    const repairerPenalty = helperCount * 105;
+    const carryingBonus = Math.min(actor.dots || 0, DOTS_PER_GENERATOR) * 14;
+    const nearbyHighProgressBonus = (directDistance < game.map.tile * 7 && (gen.progress || 0) > 0.25)
+      ? (gen.progress || 0) * 260
+      : 0;
+    const score = routeDistance + killerPenalty + repairerPenalty - progressValue - carryingBonus - nearbyHighProgressBonus;
     if (score < bestScore) {
       bestScore = score;
       best = gen;
@@ -3955,65 +5264,545 @@ function chooseBotGeneratorTarget(game, actor) {
   }
 
   bot.objectiveGenId = best?.id || null;
-  bot.objectiveGenUntil = (game.time || 0) + 1.25 + Math.random() * 0.45;
+  bot.objectiveGenUntil = (game.time || 0) + Math.max(BOT_SURVIVOR_OBJECTIVE_COMMIT_SECONDS, 4.2) + Math.random() * 0.65;
   return best;
 }
 
+
+function botSurvivorTaskStillValid(game, actor, kind, target, killer = null) {
+  if (!game || !actor || !target) return false;
+  const task = actor.bot?.survivorTask;
+  if (!task || task.kind !== kind) return false;
+  const targetId = target.id || `${kind}:${Math.round(target.x || 0)}:${Math.round(target.y || 0)}`;
+  if (task.id !== targetId) return false;
+  if ((task.until || 0) < (game.time || 0)) return false;
+  if (kind === "gen" && target.done) return false;
+  if (kind === "dot" && !(game.collectibleDots || []).some((dot) => dot.id === target.id)) return false;
+  if (kind === "hook" && (!target.hooked || target.dead || target.escaped)) return false;
+  if (kind === "heal" && (target.dead || target.escaped || target.hooked || (!target.downed && !(target.health === 1 && target.injured)))) return false;
+  if (killer && !killer.dead) {
+    const danger = dist(killer.x, killer.y, target.x, target.y);
+    const killerHasLane = segmentClear(game, killer.x, killer.y, target.x, target.y);
+    if (danger < BOT_SURVIVOR_PANIC_RADIUS * 0.85) return false;
+    if (danger < BOT_SURVIVOR_SAFE_KILLER_DISTANCE * 0.82 && killerHasLane) return false;
+  }
+  return true;
+}
+
+
+function resolveBotSurvivorTaskTarget(game, actor, killer = null) {
+  const task = actor.bot?.survivorTask;
+  if (!task || (task.until || 0) < (game.time || 0)) return null;
+
+  if (task.kind === "gen") {
+    const gen = game.map.generators.find((g) => g.id === task.id && !g.done);
+    return botSurvivorTaskStillValid(game, actor, "gen", gen, killer) ? gen : null;
+  }
+
+  if (task.kind === "dot") {
+    const dot = (game.collectibleDots || []).find((d) => d.id === task.id);
+    return botSurvivorTaskStillValid(game, actor, "dot", dot, killer) ? dot : null;
+  }
+
+  if (task.kind === "hook") {
+    const ally = game.actors.get(task.id);
+    return botSurvivorTaskStillValid(game, actor, "hook", ally, killer) ? ally : null;
+  }
+
+  if (task.kind === "heal") {
+    const ally = game.actors.get(task.id);
+    return botSurvivorTaskStillValid(game, actor, "heal", ally, killer) ? ally : null;
+  }
+
+  return null;
+}
+
+function botSurvivorCommitTask(game, actor, kind, target, duration = BOT_SURVIVOR_OBJECTIVE_COMMIT_SECONDS) {
+  if (!target) {
+    if (actor.bot) actor.bot.survivorTask = null;
+    return null;
+  }
+  const bot = actor.bot || (actor.bot = {});
+  bot.survivorTask = {
+    kind,
+    id: target.id || `${kind}:${Math.round(target.x || 0)}:${Math.round(target.y || 0)}`,
+    x: target.x,
+    y: target.y,
+    until: (game.time || 0) + duration
+  };
+  return target;
+}
+
+function chooseBotFallbackObjectivePoint(game, actor, killer = null) {
+  if (!game || !actor) return null;
+  const points = [];
+  for (const gen of game.map.generators || []) {
+    if (gen.done) continue;
+    points.push({ x: gen.x, y: gen.y, kind: "rift", value: 220 + (gen.progress || 0) * 820 });
+  }
+  for (const dot of game.collectibleDots || []) {
+    points.push({ x: dot.x, y: dot.y, kind: "orb", value: (actor.dots || 0) >= SURVIVOR_DOT_MAX ? 0 : 110 });
+  }
+  for (const gate of game.map.gates || []) {
+    points.push({ x: gate.x, y: gate.y, kind: "gate", value: game.escapeOpen ? 1000 : 30 });
+  }
+  if (!points.length) points.push({ x: game.map.width / 2, y: game.map.height / 2, kind: "center", value: 40 });
+
+  let best = null;
+  let bestScore = Infinity;
+  for (const point of points) {
+    const route = botCheapRouteDistance(game, actor, point.x, point.y, { role: "survivor", exact: false });
+    const routeDistance = Number.isFinite(route) ? route : dist(actor.x, actor.y, point.x, point.y) + game.map.tile * 6;
+    const dangerPenalty = killer && !killer.dead
+      ? Math.max(0, BOT_SURVIVOR_SAFE_KILLER_DISTANCE - dist(killer.x, killer.y, point.x, point.y)) * 0.85
+      : 0;
+    const score = routeDistance + dangerPenalty - point.value + Math.random() * 8;
+    if (score < bestScore) {
+      bestScore = score;
+      best = point;
+    }
+  }
+  return best;
+}
+
+function botFleeTargetStillUseful(game, survivor, killer) {
+  const bot = survivor.bot || {};
+  if (!Number.isFinite(bot.fleeX) || !Number.isFinite(bot.fleeY)) return false;
+  const now = game.time || 0;
+  if ((bot.fleeLockUntil || 0) < now) return false;
+  const target = { x: bot.fleeX, y: bot.fleeY };
+  if (dist(survivor.x, survivor.y, target.x, target.y) < BOT_SURVIVOR_TASK_REACHED_DISTANCE) return false;
+  if (wouldCollide(game, survivor, target.x, target.y)) return false;
+  const currentKillerDistance = dist(survivor.x, survivor.y, killer.x, killer.y);
+  const targetKillerDistance = dist(target.x, target.y, killer.x, killer.y);
+  const breaksLos = !segmentClear(game, killer.x, killer.y, target.x, target.y);
+  const targetHasRoute = Number.isFinite(botCheapRouteDistance(game, survivor, target.x, target.y, { role: "survivor", exact: false }));
+  if (!targetHasRoute) return false;
+
+  // Flee hysteresis: during the lock window, keep moving to the chosen escape unless
+  // it has become obviously worse. Without this, the bot can alternate between two
+  // almost-equal tiles every think tick while The Void stands still in LOS.
+  const lockRemaining = (bot.fleeLockUntil || 0) - now;
+  if (lockRemaining > 0.35) {
+    const becameMuchWorse = targetKillerDistance < currentKillerDistance - game.map.tile * 1.2
+      && currentKillerDistance < BOT_SURVIVOR_LOOP_RADIUS;
+    return !becameMuchWorse;
+  }
+
+  return breaksLos || targetKillerDistance > currentKillerDistance + game.map.tile * 0.7;
+}
+
+
+function botRunnerTaskKey(kind, target) {
+  if (!target) return null;
+  return String(target.id || `${kind}:${Math.round(target.x || 0)}:${Math.round(target.y || 0)}`);
+}
+
+function botRunnerTaskReservedByOther(game, actor, kind, target) {
+  const targetId = botRunnerTaskKey(kind, target);
+  if (!targetId) return false;
+  for (const other of game.actors.values()) {
+    if (!other || other.id === actor.id || !other.isBot || other.role !== "survivor") continue;
+    if (other.dead || other.escaped || other.hooked || other.downed) continue;
+    const task = other.bot?.runnerTask || other.bot?.survivorTask;
+    if (task?.kind === kind && String(task.id) === targetId && (task.until || 0) > (game.time || 0)) return true;
+    if (kind === "hook" && other.unhookTargetId === targetId) return true;
+  }
+  return false;
+}
+
+function botRunnerClearTask(actor, clearPath = false) {
+  if (!actor?.bot) return;
+  actor.bot.runnerTask = null;
+  actor.bot.survivorTask = null;
+  actor.bot.objectiveDotId = null;
+  actor.bot.objectiveGenId = null;
+  if (clearPath) {
+    actor.bot.path = [];
+    actor.bot.goalX = null;
+    actor.bot.goalY = null;
+    actor.bot.repath = 0;
+  }
+}
+
+function botRunnerCommitTask(game, actor, kind, target, duration = 7.5) {
+  if (!target) {
+    botRunnerClearTask(actor);
+    return null;
+  }
+  const bot = actor.bot || (actor.bot = {});
+  const id = botRunnerTaskKey(kind, target);
+  const now = game.time || 0;
+  const sameTask = bot.runnerTask?.kind === kind && bot.runnerTask?.id === id;
+  bot.runnerTask = {
+    kind,
+    id,
+    x: target.x,
+    y: target.y,
+    until: now + duration,
+    startedAt: sameTask ? (bot.runnerTask.startedAt || now) : now
+  };
+  // Keep the older task field in sync because some legacy helpers still inspect it.
+  bot.survivorTask = { ...bot.runnerTask };
+  if (!sameTask) {
+    // Hysteresis: once a Runner bot picks an objective, force it to honor that
+    // choice briefly. This prevents the classic utility-AI oscillation where two
+    // nearly equal goals make the bot step left, rethink, step right, rethink.
+    bot.runnerDecisionLockUntil = now + BOT_SURVIVOR_MIN_DECISION_LOCK_SECONDS + Math.random() * 0.28;
+    bot.path = [];
+    bot.goalX = null;
+    bot.goalY = null;
+    bot.lastTaskProgressDistance = null;
+    bot.lastTaskProgressAt = now;
+  }
+  return target;
+}
+
+function botRunnerDecisionLocked(game, actor) {
+  const bot = actor?.bot;
+  const task = bot?.runnerTask || bot?.survivorTask;
+  return !!task && (bot.runnerDecisionLockUntil || 0) > (game.time || 0);
+}
+
+function botRunnerResolveTask(game, actor, killer = null) {
+  const task = actor.bot?.runnerTask || actor.bot?.survivorTask;
+  if (!task || (task.until || 0) < (game.time || 0)) return null;
+  let target = null;
+  if (task.kind === "dot") target = (game.collectibleDots || []).find((dot) => dot.id === task.id) || null;
+  else if (task.kind === "gen") target = (game.map.generators || []).find((gen) => gen.id === task.id && !gen.done) || null;
+  else if (task.kind === "hook" || task.kind === "heal") target = game.actors.get(task.id) || null;
+  else if (task.kind === "gate") target = (game.map.gates || []).find((gate) => gate.id === task.id && gate.open) || null;
+  else if (Number.isFinite(task.x) && Number.isFinite(task.y)) target = { id: task.id, x: task.x, y: task.y };
+  if (!target) return null;
+
+  if (task.kind === "dot" && (actor.dots || 0) >= SURVIVOR_DOT_MAX) return null;
+  if (task.kind === "gen" && ((actor.dots || 0) <= 0 || target.done)) return null;
+  if (task.kind === "hook") {
+    if (!target.hooked || target.dead || target.escaped) return null;
+    if (botRunnerTaskReservedByOther(game, actor, "hook", target)) return null;
+  }
+  if (task.kind === "heal") {
+    if (target.dead || target.escaped || target.hooked || (!target.downed && !(target.health === 1 && target.injured))) return null;
+  }
+  if ((task.kind === "hook" || task.kind === "heal" || task.kind === "gen") && killer && !killer.dead) {
+    const danger = dist(killer.x, killer.y, target.x, target.y);
+    if (danger < BOT_SURVIVOR_PANIC_RADIUS * 0.82 && segmentClear(game, killer.x, killer.y, target.x, target.y)) return null;
+  }
+  return { kind: task.kind, target };
+}
+
+function botRunnerStopAndFace(actor, target) {
+  actor.input.up = actor.input.down = actor.input.left = actor.input.right = false;
+  actor.input.sprint = false;
+  actor.input.action = false;
+  actor.input.repair = false;
+  if (target) actor.input.angle = Math.atan2(target.y - actor.y, target.x - actor.x);
+}
+
+function botRunnerProgressWatchdog(game, actor, target) {
+  const bot = actor.bot || (actor.bot = {});
+  if (!target || !Number.isFinite(target.x) || !Number.isFinite(target.y)) return true;
+  const d = dist(actor.x, actor.y, target.x, target.y);
+  const now = game.time || 0;
+  const last = Number.isFinite(bot.lastTaskProgressDistance) ? bot.lastTaskProgressDistance : Infinity;
+  if (d < last - 14 || Math.abs(d - last) < 3) {
+    bot.lastTaskProgressDistance = Math.min(d, last);
+    bot.lastTaskProgressAt = bot.lastTaskProgressAt || now;
+  } else if (d > last + game.map.tile * 0.45) {
+    bot.lastTaskProgressDistance = d;
+    bot.lastTaskProgressAt = now;
+  }
+
+  if (now - (bot.lastTaskProgressAt || now) > 1.75) {
+    bot.path = [];
+    bot.goalX = null;
+    bot.goalY = null;
+    bot.repath = 0;
+    bot.stuckTimer = Math.max(bot.stuckTimer || 0, BOT_KILLER_STUCK_SECONDS * 1.05);
+    bot.lastTaskProgressAt = now;
+    bot.lastTaskProgressDistance = d;
+    const nudge = chooseBotUnstuckPoint(game, actor, target.x, target.y);
+    if (nudge) {
+      setMoveToward(actor, nudge.x, nudge.y, true);
+      return false;
+    }
+  }
+  return true;
+}
+
+function botRunnerMoveTo(game, actor, target, sprint = true, options = {}) {
+  if (!target) return false;
+  const stopDistance = options.stopDistance || BOT_SURVIVOR_TASK_REACHED_DISTANCE;
+  const d = dist(actor.x, actor.y, target.x, target.y);
+  if (d <= stopDistance && (!options.requireLine || segmentClear(game, actor.x, actor.y, target.x, target.y))) {
+    if (options.stopAtTarget) botRunnerStopAndFace(actor, target);
+    else setMoveToward(actor, target.x, target.y, sprint);
+    return true;
+  }
+  if (!botRunnerProgressWatchdog(game, actor, target)) return true;
+  followPath(game, actor, target.x, target.y, sprint, { allowSurvivorInteract: false });
+  return true;
+}
+
+function botRunnerChooseGate(game, actor) {
+  if (!game.escapeOpen || !(game.map.gates || []).length) return null;
+  let best = null;
+  let bestScore = Infinity;
+  for (const gate of game.map.gates) {
+    if (!gate.open) continue;
+    const route = botCheapRouteDistance(game, actor, gate.x, gate.y, { role: "survivor", exact: false });
+    const routeDistance = Number.isFinite(route) ? route : dist(actor.x, actor.y, gate.x, gate.y) + game.map.tile * 5;
+    if (routeDistance < bestScore) {
+      bestScore = routeDistance;
+      best = gate;
+    }
+  }
+  return best;
+}
+
+function botRunnerChooseHookSave(game, actor, killer) {
+  let best = null;
+  let bestScore = Infinity;
+  for (const ally of game.actors.values()) {
+    if (ally.id === actor.id || ally.role !== "survivor" || !ally.hooked || ally.dead || ally.escaped) continue;
+    if (botRunnerTaskReservedByOther(game, actor, "hook", ally)) continue;
+    if (!botSafeToRescueOrHeal(game, actor, ally, killer, true)) continue;
+    const route = botCheapRouteDistance(game, actor, ally.x, ally.y, { role: "survivor", exact: false });
+    const routeDistance = Number.isFinite(route) ? route : dist(actor.x, actor.y, ally.x, ally.y) + game.map.tile * 6;
+    const hookUrgency = (ally.unhookProgress || 0) * 380 + (ally.hookCount || 0) * 260;
+    const score = routeDistance - hookUrgency;
+    if (score < bestScore) {
+      bestScore = score;
+      best = ally;
+    }
+  }
+  return best;
+}
+
+function botRunnerChooseHealTarget(game, actor, killer) {
+  let best = null;
+  let bestScore = Infinity;
+  for (const ally of game.actors.values()) {
+    if (ally.id === actor.id || ally.role !== "survivor" || ally.dead || ally.escaped || ally.hooked) continue;
+    if (!(ally.downed && ally.health <= 0) && !(ally.health === 1 && ally.injured)) continue;
+    const direct = dist(actor.x, actor.y, ally.x, ally.y);
+    // Healing is a close-by opportunistic support action. Long-map rescue/heal trips are what made
+    // bots abandon objectives and shuffle around like confused little Roombas.
+    if (direct > Math.min(BOT_SURVIVOR_HEAL_RADIUS, 360)) continue;
+    if (!botSafeToRescueOrHeal(game, actor, ally, killer, ally.downed)) continue;
+    const route = botCheapRouteDistance(game, actor, ally.x, ally.y, { role: "survivor", exact: false });
+    const routeDistance = Number.isFinite(route) ? route : direct + game.map.tile * 4;
+    const score = routeDistance - (ally.downed ? 260 : 80);
+    if (score < bestScore) {
+      bestScore = score;
+      best = ally;
+    }
+  }
+  return best;
+}
+
+function botRunnerChooseRift(game, actor, killer) {
+  if ((actor.dots || 0) <= 0) return null;
+  let best = null;
+  let bestScore = Infinity;
+  const carried = Math.max(0, actor.dots || 0);
+  for (const gen of game.map.generators || []) {
+    if (gen.done) continue;
+    const route = botCheapRouteDistance(game, actor, gen.x, gen.y, { role: "survivor", exact: false });
+    const routeDistance = Number.isFinite(route) ? route : dist(actor.x, actor.y, gen.x, gen.y) + game.map.tile * 4;
+    const progress = clamp(Number(gen.progress || 0), 0, 1);
+    const missingDeposits = Math.ceil(Math.max(0, 1 - progress) / Math.max(0.0001, DOT_REPAIR_PROGRESS));
+    const canFinish = carried >= missingDeposits;
+    const killerDanger = killer && !killer.dead
+      ? Math.max(0, BOT_SURVIVOR_SAFE_KILLER_DISTANCE - dist(killer.x, killer.y, gen.x, gen.y)) * (segmentClear(game, killer.x, killer.y, gen.x, gen.y) ? 1.1 : 0.45)
+      : 0;
+    const progressBonus = progress * 1250 + (progress >= 0.65 ? 420 : 0) + (progress >= 0.85 ? 420 : 0);
+    const carryBonus = Math.min(carried, SURVIVOR_DOT_MAX) * 34;
+    const finishBonus = canFinish ? 760 : 0;
+    const activeTeamBonus = (gen.dotDepositing || gen.repairing ? 130 : 0);
+    const score = routeDistance + killerDanger - progressBonus - carryBonus - finishBonus - activeTeamBonus;
+    if (score < bestScore) {
+      bestScore = score;
+      best = gen;
+    }
+  }
+  return best;
+}
+
+function botRunnerChooseOrb(game, actor, killer) {
+  if ((actor.dots || 0) >= SURVIVOR_DOT_MAX) return null;
+  const dots = (game.collectibleDots || []).filter(Boolean);
+  if (!dots.length) return null;
+  const carried = actor.dots || 0;
+  const shortlist = dots
+    .map((dot) => ({ dot, direct: dist(actor.x, actor.y, dot.x, dot.y) }))
+    .sort((a, b) => a.direct - b.direct)
+    .slice(0, Math.min(12, dots.length));
+
+  let best = null;
+  let bestScore = Infinity;
+  for (const item of shortlist) {
+    const dot = item.dot;
+    const route = botCheapRouteDistance(game, actor, dot.x, dot.y, { role: "survivor", exact: false });
+    const routeDistance = Number.isFinite(route) ? route : item.direct + game.map.tile * 4;
+    const nearbyRift = nearestUndoneGenerator(game, dot.x, dot.y);
+    const riftBonus = nearbyRift ? Math.max(0, 420 - nearbyRift.d) * 0.45 + ((nearbyRift.gen?.progress || 0) * 180) : 0;
+    const killerDanger = killer && !killer.dead
+      ? Math.max(0, BOT_SURVIVOR_SAFE_KILLER_DISTANCE - dist(killer.x, killer.y, dot.x, dot.y)) * 0.9
+      : 0;
+    const carryPenalty = carried >= SURVIVOR_DOT_MAX * 0.72 ? carried * 42 : carried * 5;
+    const score = routeDistance + killerDanger + carryPenalty - riftBonus;
+    if (score < bestScore) {
+      bestScore = score;
+      best = dot;
+    }
+  }
+  return best;
+}
+
+function botRunnerShouldDeposit(game, actor, rift) {
+  if (!rift || (actor.dots || 0) <= 0) return false;
+  const carried = actor.dots || 0;
+  const progress = clamp(Number(rift.progress || 0), 0, 1);
+  const missingDeposits = Math.ceil(Math.max(0, 1 - progress) / Math.max(0.0001, DOT_REPAIR_PROGRESS));
+  return carried >= SURVIVOR_DOT_MAX
+    || carried >= 18
+    || (carried >= 10 && progress >= 0.25)
+    || (carried >= 6 && progress >= 0.55)
+    || carried >= missingDeposits
+    || (game?.collectibleDots?.length || 0) <= 6;
+}
+
+function botRunnerExecuteTask(game, actor, kind, target, killer = null) {
+  if (!target) return false;
+  if (kind === "gate") {
+    botRunnerCommitTask(game, actor, "gate", target, 8.5);
+    botRunnerMoveTo(game, actor, target, true, { stopDistance: INTERACT_DISTANCE * 0.8, stopAtTarget: true });
+    return true;
+  }
+
+  if (kind === "hook") {
+    botRunnerCommitTask(game, actor, "hook", target, 5.2);
+    if (dist(actor.x, actor.y, target.x, target.y) <= HOOK_RESCUE_DISTANCE && segmentClear(game, actor.x, actor.y, target.x, target.y)) {
+      botRunnerStopAndFace(actor, target);
+    } else {
+      botRunnerMoveTo(game, actor, target, true, { stopDistance: HOOK_RESCUE_DISTANCE * 0.72, requireLine: true });
+    }
+    return true;
+  }
+
+  if (kind === "heal") {
+    botRunnerCommitTask(game, actor, "heal", target, 4.5);
+    if (dist(actor.x, actor.y, target.x, target.y) <= HEAL_DISTANCE && segmentClear(game, actor.x, actor.y, target.x, target.y)) {
+      botRunnerStopAndFace(actor, target);
+      // If both are bots, ask the wounded bot to stop briefly too so the actual heal channel can finish.
+      if (target.isBot && !target.hooked && !target.dead && !target.escaped) {
+        target.bot = target.bot || {};
+        target.bot.holdForHealUntil = Math.max(target.bot.holdForHealUntil || 0, (game.time || 0) + 0.6);
+      }
+    } else {
+      botRunnerMoveTo(game, actor, target, true, { stopDistance: HEAL_DISTANCE * 0.72, requireLine: true });
+    }
+    return true;
+  }
+
+  if (kind === "gen") {
+    botRunnerCommitTask(game, actor, "gen", target, 8.2);
+    if ((actor.dots || 0) <= 0 || target.done) return false;
+    if (dist(actor.x, actor.y, target.x, target.y) <= DOT_DEPOSIT_DISTANCE && segmentClear(game, actor.x, actor.y, target.x, target.y)) {
+      botStandAndDepositAtGen(game, actor, target);
+    } else {
+      botRunnerMoveTo(game, actor, target, true, { stopDistance: DOT_DEPOSIT_DISTANCE * 0.72, requireLine: true });
+    }
+    return true;
+  }
+
+  if (kind === "dot") {
+    botRunnerCommitTask(game, actor, "dot", target, 6.5);
+    botRunnerMoveTo(game, actor, target, true, { stopDistance: Math.max(18, game.map.tile * 0.28) });
+    return true;
+  }
+
+  return false;
+}
+
 function botMoveToObjective(game, actor) {
-  const hookedAlly = [...game.actors.values()]
-    .filter((p) => p.id !== actor.id && p.role === "survivor" && !p.dead && !p.escaped && p.hooked)
-    .sort((a, b) => dist(actor.x, actor.y, a.x, a.y) - dist(actor.x, actor.y, b.x, b.y))[0];
-  if (hookedAlly) {
-    // Rescue still matters after the voids open. Bots should not abandon a hooked teammate
-    // just because an exit exists, which is apparently a moral lesson for geometry.
-    if (dist(actor.x, actor.y, hookedAlly.x, hookedAlly.y) <= HOOK_RESCUE_DISTANCE && segmentClear(game, actor.x, actor.y, hookedAlly.x, hookedAlly.y)) {
-      actor.input.up = actor.input.down = actor.input.left = actor.input.right = false;
-      actor.input.sprint = false;
-      actor.input.angle = Math.atan2(hookedAlly.y - actor.y, hookedAlly.x - actor.x);
-    } else {
-      followPath(game, actor, hookedAlly.x, hookedAlly.y, true);
+  const killer = [...game.actors.values()].find((p) => p.role === "killer" && !p.dead) || null;
+
+  // If another bot is healing this bot, let the heal channel actually complete instead of walking away.
+  if ((actor.bot?.holdForHealUntil || 0) > (game.time || 0) && (actor.health <= 1 || actor.downed)) {
+    botRunnerStopAndFace(actor, killer || actor);
+    return;
+  }
+
+  // 1) Gates open means leave. No heroic indecision, no farming orbs in the endgame.
+  const gate = botRunnerChooseGate(game, actor);
+  if (gate) {
+    botRunnerExecuteTask(game, actor, "gate", gate, killer);
+    return;
+  }
+
+  // 2) Save hooked teammates, but only one bot claims each hook save.
+  // This overrides orb/rift work; objectives matter, but dangling teammates matter more.
+  const hookSave = botRunnerChooseHookSave(game, actor, killer);
+  if (hookSave) {
+    botRunnerExecuteTask(game, actor, "hook", hookSave, killer);
+    return;
+  }
+
+  // 3) Honor the current orb/rift/gate decision during its short lock window.
+  // This is the important anti-jitter layer: a far-away stationary Void should not make
+  // Runner bots repeatedly re-score equivalent objectives and step back and forth.
+  const committed = botRunnerResolveTask(game, actor, killer);
+  if (committed && botRunnerDecisionLocked(game, actor) && (committed.kind === "dot" || committed.kind === "gen" || committed.kind === "gate")) {
+    if (botRunnerExecuteTask(game, actor, committed.kind, committed.target, killer)) return;
+  }
+
+  // 4) Heal only when it is close-by and safe. This prevents objective abandonment across the whole map.
+  const healTarget = botRunnerChooseHealTarget(game, actor, killer);
+  if (healTarget) {
+    botRunnerExecuteTask(game, actor, "heal", healTarget, killer);
+    return;
+  }
+
+  // 5) Finish current committed orb/rift objective unless it has become invalid or dangerous.
+  if (committed && (committed.kind === "dot" || committed.kind === "gen" || committed.kind === "gate")) {
+    if (botRunnerExecuteTask(game, actor, committed.kind, committed.target, killer)) return;
+  } else if (actor.bot?.runnerTask || actor.bot?.survivorTask) {
+    botRunnerClearTask(actor, true);
+  }
+
+  // 5) If already in deposit range with orbs, stay there and feed until empty or the rift completes.
+  if ((actor.dots || 0) > 0) {
+    const nearbyDepositGen = nearestDotDepositGenerator(game, actor);
+    if (nearbyDepositGen && !nearbyDepositGen.done) {
+      botRunnerExecuteTask(game, actor, "gen", nearbyDepositGen, killer);
+      return;
     }
+  }
+
+  // 6) Carrying lots of orbs, or carrying enough to meaningfully push a rift, means deposit.
+  const bestRift = botRunnerChooseRift(game, actor, killer);
+  if (bestRift && botRunnerShouldDeposit(game, actor, bestRift)) {
+    botRunnerExecuteTask(game, actor, "gen", bestRift, killer);
     return;
   }
 
-  if (game.escapeOpen && game.map.gates.length) {
-    const gate = [...game.map.gates].sort((a, b) => dist(actor.x, actor.y, a.x, a.y) - dist(actor.x, actor.y, b.x, b.y))[0];
-    followPath(game, actor, gate.x, gate.y, true);
-    if (dist(actor.x, actor.y, gate.x, gate.y) < INTERACT_DISTANCE) actor.input.repair = true;
+  // 7) Otherwise collect orbs until the bot has a useful bundle to deposit.
+  const orb = botRunnerChooseOrb(game, actor, killer);
+  if (orb) {
+    botRunnerExecuteTask(game, actor, "dot", orb, killer);
     return;
   }
 
-
-  const injuredAlly = [...game.actors.values()]
-    .filter((p) => p.id !== actor.id && p.role === "survivor" && !p.dead && !p.escaped && !p.hooked && ((p.downed && p.health <= 0) || (!p.downed && p.health === 1 && p.injured)))
-    .sort((a, b) => dist(actor.x, actor.y, a.x, a.y) - dist(actor.x, actor.y, b.x, b.y))[0];
-  if (injuredAlly && dist(actor.x, actor.y, injuredAlly.x, injuredAlly.y) < 620) {
-    if (dist(actor.x, actor.y, injuredAlly.x, injuredAlly.y) <= HEAL_DISTANCE && segmentClear(game, actor.x, actor.y, injuredAlly.x, injuredAlly.y)) {
-      actor.input.up = actor.input.down = actor.input.left = actor.input.right = false;
-      actor.input.sprint = false;
-      actor.input.angle = Math.atan2(injuredAlly.y - actor.y, injuredAlly.x - actor.x);
-    } else {
-      followPath(game, actor, injuredAlly.x, injuredAlly.y, false);
-    }
+  // 8) No orbs available? Move toward the most valuable unfinished rift so the bot is never idle.
+  if (bestRift) {
+    botRunnerMoveTo(game, actor, bestRift, true, { stopDistance: game.map.tile * 0.8 });
     return;
   }
 
-  // Generators are dot-only now. Bots collect dots first, then stand near a gen to auto-deposit.
-  if ((actor.dots || 0) <= 0 && botMoveToDot(game, actor)) return;
-
-  const gen = chooseBotGeneratorTarget(game, actor);
-
-  if (gen && (actor.dots || 0) > 0) {
-    if (dist(actor.x, actor.y, gen.x, gen.y) <= DOT_DEPOSIT_DISTANCE && segmentClear(game, actor.x, actor.y, gen.x, gen.y)) {
-      botStandAndDepositAtGen(game, actor, gen);
-    } else {
-      followPath(game, actor, gen.x, gen.y, false);
-    }
-    return;
-  }
-
-  // If no live generators are useful but dots exist, keep collecting so the bot is not idle.
-  if (botMoveToDot(game, actor)) return;
+  const fallback = chooseBotFallbackObjectivePoint(game, actor, killer);
+  if (fallback) botRunnerMoveTo(game, actor, fallback, true, { stopDistance: game.map.tile * 0.45 });
 }
 
 function updateBotInputs(game, dt) {
@@ -4025,27 +5814,39 @@ function updateBotInputs(game, dt) {
     actor.bot.actionCooldown = Math.max(0, actor.bot.actionCooldown - dt);
 
     if (actor.role === "killer") {
-      const downedTarget = nearestDownedSurvivorForHook(game, actor);
-      if (downedTarget) {
+      const hookReady = nearestDownedSurvivorForHook(game, actor);
+      if (hookReady) {
         actor.input.repair = true;
-        actor.input.angle = Math.atan2(downedTarget.y - actor.y, downedTarget.x - actor.x);
+        actor.input.angle = Math.atan2(hookReady.y - actor.y, hookReady.x - actor.x);
+        continue;
+      }
+
+      const downedPursuit = chooseDownedSurvivorForHookPursuit(game, actor);
+      if (downedPursuit) {
+        actor.input.angle = Math.atan2(downedPursuit.y - actor.y, downedPursuit.x - actor.x);
+        followPath(game, actor, downedPursuit.x, downedPursuit.y, false, { allowKillerInteract: true, allowKillerWindows: true });
+        if (dist(actor.x, actor.y, downedPursuit.x, downedPursuit.y) <= HOOK_INTERACT_DISTANCE && segmentClear(game, actor.x, actor.y, downedPursuit.x, downedPursuit.y)) {
+          actor.input.repair = true;
+        }
         continue;
       }
 
       const target = chooseKillerTarget(game, actor);
       if (!target) continue;
 
-      if (target.actor && target.actor.downed && !target.actor.hooked) {
-        followPath(game, actor, target.actor.x, target.actor.y, false);
-        if (dist(actor.x, actor.y, target.actor.x, target.actor.y) <= HOOK_INTERACT_DISTANCE) actor.input.repair = true;
-        continue;
-      }
-
       if (target.actor) botFaceTarget(actor, target.actor);
       else actor.input.angle = Math.atan2(target.y - actor.y, target.x - actor.x);
 
       const targetDistance = dist(actor.x, actor.y, target.x, target.y);
       const hasClearAttack = target.actor && attackSegmentClear(game, actor.x, actor.y, target.actor.x, target.actor.y);
+      botKillerMaybeUseAbility(game, actor, target, targetDistance, hasClearAttack);
+
+      if (target.actor && target.actor.downed && !target.actor.hooked) {
+        followPath(game, actor, target.actor.x, target.actor.y, false, { allowKillerInteract: true, allowKillerWindows: true });
+        if (dist(actor.x, actor.y, target.actor.x, target.actor.y) <= HOOK_INTERACT_DISTANCE) actor.input.repair = true;
+        continue;
+      }
+
       const attacking = target.actor && botSetAttackIntent(game, actor, target.actor, targetDistance, hasClearAttack);
 
       const hitBeforeMove = target.actor ? nearestInteractable(game, actor, false) : null;
@@ -4054,7 +5855,14 @@ function updateBotInputs(game, dt) {
       }
 
       if (!attacking) {
-        followPath(game, actor, target.x, target.y, false, { allowKillerInteract: true });
+        const chasePoint = target.actor
+          ? chooseKillerChasePoint(game, actor, target.actor, targetDistance, hasClearAttack)
+          : { x: target.x, y: target.y };
+        followPath(game, actor, chasePoint.x, chasePoint.y, false, {
+          allowKillerInteract: true,
+          allowKillerWindows: !!target.actor,
+          chase: !!target.actor
+        });
       }
 
       const hitAfterMoveIntent = target.actor ? nearestInteractable(game, actor, false) : null;
@@ -4067,18 +5875,47 @@ function updateBotInputs(game, dt) {
     if (actor.role === "survivor") {
       const killerDistance = killer && !killer.dead ? dist(actor.x, actor.y, killer.x, killer.y) : Infinity;
       const killerHasLos = killer && segmentClear(game, actor.x, actor.y, killer.x, killer.y);
-      const threatened = killer && killerDistance < BOT_SURVIVOR_THREAT_RADIUS && (killerHasLos || actor.chaseHold > 0 || killerDistance < BOT_SURVIVOR_PANIC_RADIUS);
+      const panicThreat = killer && killerDistance < BOT_SURVIVOR_PANIC_RADIUS;
+      const loopThreat = killer && killerHasLos && killerDistance < BOT_SURVIVOR_LOOP_RADIUS;
+      const activeChaseThreat = killer && actor.chaseHold > 0 && killerDistance < BOT_SURVIVOR_FAR_OBSERVED_DISTANCE;
+      const threatened = !!(killer && (panicThreat || loopThreat || activeChaseThreat));
+      const observedButSafe = !!(killer && !threatened && killerHasLos && killerDistance < BOT_SURVIVOR_THREAT_RADIUS);
+
+      if (observedButSafe) {
+        // Being watched from far away is not the same as being in chase. Previous logic
+        // treated any far LOS as panic, which made bots drop objectives and oscillate
+        // between flee points while a stationary Void stared at them. Keep their goal.
+        actor.bot.observedByKillerUntil = (game.time || 0) + 0.9;
+        actor.bot.fleeTimer = Math.max(actor.bot.fleeTimer || 0, 0.35);
+      }
+
+      botSurvivorMaybeUseAbility(game, actor, killer, threatened || observedButSafe, killerDistance, killerHasLos);
 
       if (threatened) {
+        actor.bot.runnerTask = null;
+        actor.bot.survivorTask = null;
         actor.bot.fleeTimer = Math.max(0, (actor.bot.fleeTimer || 0) - dt);
-        if (actor.bot.fleeTimer <= 0 || !Number.isFinite(actor.bot.fleeX) || !Number.isFinite(actor.bot.fleeY)) {
+        if (actor.bot.fleeTimer <= 0 || !botFleeTargetStillUseful(game, actor, killer)) {
           const flee = chooseFleePoint(game, actor, killer);
           actor.bot.fleeX = flee.x;
           actor.bot.fleeY = flee.y;
-          actor.bot.fleeTimer = 0.24 + Math.random() * 0.12;
+          actor.bot.fleeTimer = BOT_SURVIVOR_FLEE_COMMIT_SECONDS + Math.random() * 0.32;
+          actor.bot.fleeLockUntil = (game.time || 0) + actor.bot.fleeTimer + 0.35;
         }
-        followPath(game, actor, actor.bot.fleeX, actor.bot.fleeY, true);
-        botUseLoopObject(game, actor, killer);
+
+        const usingLoop = actor.bot.preferredLoopId && (actor.bot.preferredLoopUntil || 0) > (game.time || 0)
+          && Number.isFinite(actor.bot.fleeLoopApproachX) && Number.isFinite(actor.bot.fleeLoopApproachY)
+          && dist(actor.x, actor.y, actor.bot.fleeLoopApproachX, actor.bot.fleeLoopApproachY) > INTERACT_DISTANCE * 0.7;
+        const moveX = usingLoop ? actor.bot.fleeLoopApproachX : actor.bot.fleeX;
+        const moveY = usingLoop ? actor.bot.fleeLoopApproachY : actor.bot.fleeY;
+
+        // If the bot is already at a useful window/pallet, take it now. Waiting until after
+        // movement could pull it away from the interact range and make it ignore the safe play.
+        const usedLoopBeforeMove = botUseLoopObject(game, actor, killer);
+        if (!usedLoopBeforeMove) {
+          followPath(game, actor, moveX, moveY, true);
+          botUseLoopObject(game, actor, killer);
+        }
         continue;
       }
 
@@ -4113,6 +5950,9 @@ function updateGame(lobby, dt) {
   if (game.botThinkAccumulator >= 1 / BOT_THINK_RATE) {
     const botDt = game.botThinkAccumulator;
     game.botThinkAccumulator = 0;
+    const botCount = [...game.actors.values()].filter((actor) => actor.isBot && !actor.dead && !actor.escaped).length;
+    game.botExactRouteBudget = BOT_EXACT_ROUTE_BUDGET_BASE + botCount * BOT_EXACT_ROUTE_BUDGET_PER_BOT;
+    game.botCheapRouteFallbacks = 0;
     updateBotInputs(game, botDt);
   }
   updateTimers(game, dt);
