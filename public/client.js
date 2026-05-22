@@ -65,7 +65,11 @@
       chargeSteps: 16,
       shakeScale: 1,
       remoteActorRate: 14,
+      remoteInterpolationDelayMs: 80,
+      remoteExtrapolateMs: 70,
+      remoteSnapDistance: 230,
       localReconcileRate: 4.8,
+      localMaxCorrectionPerSecond: 260,
       visionConeDirect: 0
     },
     low: {
@@ -99,12 +103,16 @@
       chargeSteps: 4,
       shakeScale: 0.16,
       remoteActorRate: 18,
+      remoteInterpolationDelayMs: 120,
+      remoteExtrapolateMs: 90,
+      remoteSnapDistance: 260,
       localReconcileRate: 7.5,
+      localMaxCorrectionPerSecond: 185,
       visionConeDirect: 1
     },
     ultra: {
       label: "ULTRA LOW",
-      targetFps: 60,
+      targetFps: 45,
       dynamicWorldFps: 1,
       generatorFps: 1.5,
       scratchDrawFps: 1.5,
@@ -133,7 +141,11 @@
       chargeSteps: 3,
       shakeScale: 0,
       remoteActorRate: 22,
+      remoteInterpolationDelayMs: 165,
+      remoteExtrapolateMs: 115,
+      remoteSnapDistance: 300,
       localReconcileRate: 9,
+      localMaxCorrectionPerSecond: 145,
       visionConeDirect: 1
     }
   };
@@ -3902,6 +3914,8 @@
           item.killerHookPosLocked = true;
         }
 
+        this.pushActorNetworkSample(item, data);
+
         // Actors are always position-updated from the server, even when hidden.
         // We only hide the container visually. That prevents the seen-again teleport jump.
         // Killers skip hook-teleport coordinates until they have LOS on the hooked survivor.
@@ -4026,6 +4040,114 @@
         serverVisible: data.id === myId,
         forceFullVision: false
       };
+    }
+
+    pushActorNetworkSample(item, data, now = performance.now()) {
+      if (!item || !data || data.id === myId) return;
+      const x = Number(data.x);
+      const y = Number(data.y);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+
+      const angle = Number.isFinite(data.angle) ? data.angle : (item.target?.angle || 0);
+      const sample = { x, y, angle, t: now };
+      const samples = item.netSamples || (item.netSamples = []);
+      const last = samples[samples.length - 1];
+      const snapDistance = performanceValue("remoteSnapDistance", LOW_POWER_MODE ? 260 : 230);
+      const stateKey = `${data.role || "actor"}:${data.dead ? 1 : 0}:${data.escaped ? 1 : 0}:${data.hooked ? 1 : 0}:${data.vaulting ? 1 : 0}`;
+
+      if (!last) {
+        samples.push(sample);
+        item.lastNetStateKey = stateKey;
+        return;
+      }
+
+      const jump = dist(last.x, last.y, sample.x, sample.y);
+      const stateChangedHard = item.lastNetStateKey && item.lastNetStateKey !== stateKey && (data.vaulting || data.dead || data.escaped || data.hooked);
+      if (jump > snapDistance || stateChangedHard) {
+        samples.length = 0;
+        samples.push(sample);
+        item.current.x = sample.x;
+        item.current.y = sample.y;
+        item.current.angle = sample.angle;
+        item.lastNetStateKey = stateKey;
+        return;
+      }
+
+      // Avoid filling the interpolation buffer with duplicate same-frame samples.
+      if (now - last.t < 8 && jump < 0.25 && Math.abs(angle - last.angle) < 0.002) {
+        item.lastNetStateKey = stateKey;
+        return;
+      }
+
+      samples.push(sample);
+      while (samples.length > 7) samples.shift();
+      item.lastNetStateKey = stateKey;
+    }
+
+    getInterpolatedRemoteState(item) {
+      const samples = item?.netSamples;
+      if (!samples || samples.length < 2) return null;
+
+      const now = performance.now();
+      const delay = Math.max(40, performanceValue("remoteInterpolationDelayMs", LOW_POWER_MODE ? 120 : 80));
+      const renderTime = now - delay;
+
+      while (samples.length > 2 && samples[1].t <= renderTime) samples.shift();
+
+      const first = samples[0];
+      const second = samples[1];
+      if (!first || !second) return first || null;
+
+      if (renderTime <= first.t) return first;
+
+      if (renderTime <= second.t) {
+        const span = Math.max(1, second.t - first.t);
+        const t = clamp((renderTime - first.t) / span, 0, 1);
+        return {
+          x: lerp(first.x, second.x, t),
+          y: lerp(first.y, second.y, t),
+          angle: lerpAngle(first.angle, second.angle, t)
+        };
+      }
+
+      // If the render clock is slightly past the newest snapshot, extrapolate just
+      // enough to cover jitter. This is capped hard so a dropped packet does not
+      // launch actors into the nearest zip code, which is rude even for netcode.
+      const sampleDt = Math.max(0.001, (second.t - first.t) / 1000);
+      const maxExtrapolateMs = Math.max(0, performanceValue("remoteExtrapolateMs", LOW_POWER_MODE ? 90 : 70));
+      const extraSeconds = clamp((renderTime - second.t) / 1000, 0, maxExtrapolateMs / 1000);
+      const vx = (second.x - first.x) / sampleDt;
+      const vy = (second.y - first.y) / sampleDt;
+      const speed = Math.hypot(vx, vy);
+      const maxReasonableSpeed = item.data?.role === "killer" ? 760 : 660;
+
+      if (speed > maxReasonableSpeed) return second;
+
+      return {
+        x: second.x + vx * extraSeconds,
+        y: second.y + vy * extraSeconds,
+        angle: second.angle
+      };
+    }
+
+    reconcileLocalVisual(dt, targetX, targetY) {
+      if (!this.localVisual || !Number.isFinite(targetX) || !Number.isFinite(targetY)) return;
+      const dx = targetX - this.localVisual.x;
+      const dy = targetY - this.localVisual.y;
+      const gap = Math.hypot(dx, dy);
+      if (gap < 0.02) return;
+
+      if (gap > 190) {
+        this.localVisual.x = targetX;
+        this.localVisual.y = targetY;
+        return;
+      }
+
+      const alphaStep = gap * dampAlpha(performanceValue("localReconcileRate", 4.8), dt);
+      const maxStep = Math.max(2, performanceValue("localMaxCorrectionPerSecond", LOW_POWER_MODE ? 185 : 260) * dt);
+      const step = Math.min(gap, Math.min(alphaStep, maxStep));
+      this.localVisual.x += dx / gap * step;
+      this.localVisual.y += dy / gap * step;
     }
 
     getSurvivorDotVisualTarget(item) {
@@ -5028,8 +5150,7 @@
 
       if (this.isMatchIntroLocked()) {
         clearMovementInputOnly();
-        this.localVisual.x += (this.localServerTarget.x - this.localVisual.x) * 0.55;
-        this.localVisual.y += (this.localServerTarget.y - this.localVisual.y) * 0.55;
+        this.reconcileLocalVisual(dt, this.localServerTarget.x, this.localServerTarget.y);
         return;
       }
 
@@ -5046,8 +5167,7 @@
       }
 
       if (data.dead || data.escaped || data.hooked || data.breaking || (data.role === "killer" && data.voidStun > 0)) {
-        this.localVisual.x += (this.localServerTarget.x - this.localVisual.x) * 0.45;
-        this.localVisual.y += (this.localServerTarget.y - this.localVisual.y) * 0.45;
+        this.reconcileLocalVisual(dt, this.localServerTarget.x, this.localServerTarget.y);
         return;
       }
 
@@ -5079,10 +5199,9 @@
       if (!this.localWouldCollide(data.role, nx, this.localVisual.y)) this.localVisual.x = nx;
       if (!this.localWouldCollide(data.role, this.localVisual.x, ny)) this.localVisual.y = ny;
 
-      // Soft reconciliation with server authority. Not syrupy, not teleporty. Finally, a compromise that doesn't smell like despair.
-      const reconcileAlpha = dampAlpha(performanceValue("localReconcileRate", 4.8), dt);
-      this.localVisual.x += (this.localServerTarget.x - this.localVisual.x) * reconcileAlpha;
-      this.localVisual.y += (this.localServerTarget.y - this.localVisual.y) * reconcileAlpha;
+      // Soft reconciliation with server authority. In low/ultra, cap correction speed so
+      // a late server packet does not visibly yank the local player across the floor.
+      this.reconcileLocalVisual(dt, this.localServerTarget.x, this.localServerTarget.y);
     }
 
     localWouldCollide(role, x, y) {
@@ -5369,15 +5488,32 @@
         } else {
           item.vaultPlayback = null;
           if (!this.killerHidesRemoteHookedSurvivor(item.data)) {
-            const dx = item.target.x - item.current.x;
-            const dy = item.target.y - item.current.y;
-            const gap = Math.hypot(dx, dy);
-            let moveAlpha = dampAlpha(performanceValue("remoteActorRate", 14), dt);
-            if (gap > 180) moveAlpha = 1;
-            else if (gap > 82) moveAlpha = Math.max(moveAlpha, 0.52);
-            item.current.x = lerp(item.current.x, item.target.x, moveAlpha);
-            item.current.y = lerp(item.current.y, item.target.y, moveAlpha);
-            item.current.angle = lerpAngle(item.current.angle, item.target.angle, dampAlpha(16, dt));
+            const interpolated = this.getInterpolatedRemoteState(item);
+            if (interpolated) {
+              const gap = dist(item.current.x, item.current.y, interpolated.x, interpolated.y);
+              const snapDistance = performanceValue("remoteSnapDistance", LOW_POWER_MODE ? 260 : 230);
+              if (gap > snapDistance) {
+                item.current.x = interpolated.x;
+                item.current.y = interpolated.y;
+                item.current.angle = interpolated.angle;
+              } else {
+                // The interpolation buffer already smooths between snapshots. Apply it directly
+                // so low-FPS frames don't add a second laggy lerp on top of network smoothing.
+                item.current.x = interpolated.x;
+                item.current.y = interpolated.y;
+                item.current.angle = interpolated.angle;
+              }
+            } else {
+              const dx = item.target.x - item.current.x;
+              const dy = item.target.y - item.current.y;
+              const gap = Math.hypot(dx, dy);
+              let moveAlpha = dampAlpha(performanceValue("remoteActorRate", 14), dt);
+              if (gap > 180) moveAlpha = 1;
+              else if (gap > 82) moveAlpha = Math.max(moveAlpha, 0.52);
+              item.current.x = lerp(item.current.x, item.target.x, moveAlpha);
+              item.current.y = lerp(item.current.y, item.target.y, moveAlpha);
+              item.current.angle = lerpAngle(item.current.angle, item.target.angle, dampAlpha(16, dt));
+            }
           }
         }
         item.container.setPosition(item.current.x, item.current.y);

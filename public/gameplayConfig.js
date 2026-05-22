@@ -45,6 +45,13 @@ const GAMEPLAY_CONFIG = {
     minModeSeconds: 9,
     // Cap high-DPI laptops. Rendering 2x pixels for a browser game is how GPUs go to therapy.
     maxDevicePixelRatio: 1,
+    // Client visual smoothing for networked actors. Server still owns movement;
+    // the client renders remote actors slightly in the past so low FPS/network jitter
+    // does not look like teleporting. Yes, this is the part that keeps bots from moonwalking.
+    remoteInterpolationDelayMs: 165,
+    remoteExtrapolateMs: 115,
+    remoteSnapDistance: 300,
+    localMaxCorrectionPerSecond: 145,
     toastCooldownMs: 12000
   },
 
