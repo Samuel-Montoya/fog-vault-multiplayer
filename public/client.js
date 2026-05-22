@@ -14,10 +14,11 @@
     return cfgNumber(value, fallback);
   }
 
-  const LOW_POWER_MODE = Boolean(
-    (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4)
-    || window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches
-  );
+  const CPU_THREADS = Number(navigator.hardwareConcurrency || 0);
+  const DEVICE_MEMORY_GB = Number(navigator.deviceMemory || 0);
+  const REDUCED_MOTION = Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches);
+  const LOW_POWER_MODE = Boolean((CPU_THREADS && CPU_THREADS <= 4) || REDUCED_MOTION);
+  const HIGH_END_EFFECTS = Boolean(!LOW_POWER_MODE && !REDUCED_MOTION && (CPU_THREADS >= 8 || DEVICE_MEMORY_GB >= 8));
 
   const PERFORMANCE_CONFIG = GAMEPLAY_CONFIG.performance || {};
   const ADAPTIVE_PERFORMANCE_CONFIG = {
@@ -45,26 +46,27 @@
       actorVisionFps: 60,
       particleFps: 60,
       dotFadeFps: 18,
-      maxParticles: 58,
-      maxShockwaves: 6,
-      particleScale: 1,
-      shockwaveScale: 1,
+      maxParticles: HIGH_END_EFFECTS ? 76 : 58,
+      maxShockwaves: HIGH_END_EFFECTS ? 8 : 6,
+      particleScale: HIGH_END_EFFECTS ? 1.18 : 1,
+      shockwaveScale: HIGH_END_EFFECTS ? 1.08 : 1,
       lightingAlphaScale: 1,
-      coneSegments: 12,
+      coneSegments: HIGH_END_EFFECTS ? 14 : 12,
       voidRushGapMs: 72,
-      voidRushCount: 2,
+      voidRushCount: HIGH_END_EFFECTS ? 3 : 2,
       voidRushAlpha: 0.42,
       voidRedrawMs: 95,
       survivorRedrawMs: 0,
       heldOrbMaxDots: 30,
       heldOrbSpinScale: 1,
       heldOrbBobScale: 1,
-      voidBodyOrbCount: 9,
-      voidBodySpikeCount: 3,
-      swipeSteps: 22,
-      chargeSteps: 16,
+      voidBodyOrbCount: HIGH_END_EFFECTS ? 11 : 9,
+      voidBodySpikeCount: HIGH_END_EFFECTS ? 4 : 3,
+      swipeSteps: HIGH_END_EFFECTS ? 26 : 22,
+      chargeSteps: HIGH_END_EFFECTS ? 20 : 16,
       shakeScale: 1,
       remoteActorRate: 14,
+      actorStyleFps: 60,
       remoteInterpolationDelayMs: 80,
       remoteExtrapolateMs: 70,
       voidInterpolationDelayMs: 55,
@@ -111,6 +113,7 @@
       chargeSteps: 4,
       shakeScale: 0.16,
       remoteActorRate: 18,
+      actorStyleFps: 18,
       remoteInterpolationDelayMs: 120,
       remoteExtrapolateMs: 90,
       voidInterpolationDelayMs: 70,
@@ -157,6 +160,7 @@
       chargeSteps: 3,
       shakeScale: 0,
       remoteActorRate: 22,
+      actorStyleFps: 10,
       remoteInterpolationDelayMs: 165,
       remoteExtrapolateMs: 115,
       voidInterpolationDelayMs: 90,
@@ -226,16 +230,19 @@
 
   const initialRenderCap = LOW_POWER_MODE
     ? cfgNumber(PERFORMANCE_CONFIG.lowPowerDevicePixelRatio, 0.72)
-    : cfgNumber(PERFORMANCE_CONFIG.maxDevicePixelRatio, 1);
+    : HIGH_END_EFFECTS
+      ? cfgNumber(PERFORMANCE_CONFIG.highPowerDevicePixelRatio, 1.15)
+      : cfgNumber(PERFORMANCE_CONFIG.maxDevicePixelRatio, 1);
   // Allow sub-1 render resolution on old hardware. Phaser upscales the canvas via CSS,
   // which is a much better trade than dropping inputs when a Void swing spawns effects.
-  const minRenderResolution = LOW_POWER_MODE ? 0.58 : 0.8;
+  const minRenderResolution = LOW_POWER_MODE ? 0.58 : (HIGH_END_EFFECTS ? 0.9 : 0.8);
   const RENDER_RESOLUTION = Math.max(minRenderResolution, Math.min(window.devicePixelRatio || 1, initialRenderCap));
 
   document.documentElement.classList.toggle("low-power", LOW_POWER_MODE);
   document.documentElement.classList.toggle("adaptive-low-power", adaptivePerformance.mode !== "normal");
   document.documentElement.classList.toggle("ultra-low-power", adaptivePerformance.mode === "ultra");
   document.documentElement.dataset.performanceMode = adaptivePerformance.mode;
+  document.documentElement.classList.toggle("high-fidelity", HIGH_END_EFFECTS);
 
   // Minimal vision knobs. The map itself is dark; there is no simulated fog RenderTexture.
   // Instead, gameplay objects fade in when they are inside the local POV cone / near bubble,
@@ -831,7 +838,9 @@
     redChase: 0,
     tunnel: 0,
     blood: 0,
-    lastUpdate: performance.now()
+    lastUpdate: performance.now(),
+    lastDomUpdate: 0,
+    lastDomKey: ""
   };
 
   let survivorHitImpactTimer = null;
@@ -2371,6 +2380,23 @@
     );
 
     const pulseSpeed = `${Math.round(980 - terror * 300 - chase * 170)}ms`;
+    const domInterval = adaptivePerformance.mode === "ultra" ? 90 : adaptivePerformance.mode === "low" ? 50 : HIGH_END_EFFECTS ? 16 : 32;
+    if (now - (fxState.lastDomUpdate || 0) < domInterval) return;
+    fxState.lastDomUpdate = now;
+
+    const domKey = [
+      terror.toFixed(2),
+      chase.toFixed(2),
+      fxState.redChase.toFixed(2),
+      fxState.blood.toFixed(2),
+      (raw.voidStun || 0).toFixed(2),
+      fxState.tunnel.toFixed(2),
+      pulseSpeed,
+      raw.chase > 0 ? 1 : 0,
+      raw.injured ? 1 : 0
+    ].join(":");
+    if (fxState.lastDomKey === domKey) return;
+    fxState.lastDomKey = domKey;
 
     ui.horrorFx.style.setProperty("--terror", terror.toFixed(3));
     ui.horrorFx.style.setProperty("--chase", chase.toFixed(3));
@@ -2463,6 +2489,7 @@
       this.localCollisionCacheEpoch = 0;
       this.localCollisionCellSize = 96;
       this.killerWallVisionStableKey = "";
+      this.hookIndicatorTimer = 0;
     }
 
     isSpectating() {
@@ -3964,10 +3991,17 @@
           && data.id !== myId;
         item.serverVisible = data.visible !== false || data.id === myId || hookedLocalCanSeeVoid || hookedSurvivorGlobalReveal || downedSurvivorGlobalReveal || voidSightGlobalReveal;
         item.forceFullVision = !!hookedLocalCanSeeVoid || !!hookedSurvivorGlobalReveal || !!downedSurvivorGlobalReveal || !!voidSightGlobalReveal;
-        item.nameText.setText(data.name || "");
+        const nextName = data.name || "";
+        if (item.nameText && item.lastNameText !== nextName) {
+          item.nameText.setText(nextName);
+          item.lastNameText = nextName;
+        }
         if (item.chatText) {
           const actorChat = visibleChatTextForActor(data);
-          item.chatText.setText(actorChat);
+          if (item.lastChatText !== actorChat) {
+            item.chatText.setText(actorChat);
+            item.lastChatText = actorChat;
+          }
 
           // Play the speak chirp only when the local player's own chat bubble appears/changes.
           // Other players can talk all they want without hijacking your ears, a radical concept.
@@ -3978,7 +4012,11 @@
             this.lastLocalChatText = actorChat || "";
           }
         }
-        this.styleActor(item, data);
+        const actorVisualSignature = this.actorVisualSignature(data);
+        if (item.lastActorVisualSignature !== actorVisualSignature) {
+          item.lastActorVisualSignature = actorVisualSignature;
+          item.forceStyleRefresh = true;
+        }
 
         if (data.id === myId) {
           this.localServerTarget = { x: data.x, y: data.y, angle: data.angle, data };
@@ -4073,8 +4111,52 @@
         visionAlpha: data.id === myId ? 1 : 0,
         visionTargetAlpha: data.id === myId ? 1 : 0,
         serverVisible: data.id === myId,
-        forceFullVision: false
+        forceFullVision: false,
+        forceStyleRefresh: true,
+        actorStyleTimer: 999,
+        lastActorVisualSignature: "",
+        lastNameText: data.name || "",
+        lastChatText: ""
       };
+    }
+
+    actorVisualSignature(data) {
+      if (!data) return "none";
+      const progress = data.hooked
+        ? (data.unhookProgress || 0)
+        : data.downed
+          ? ((data.healProgress || 0) || (data.hookProgress || 0))
+          : ((data.healProgress || 0) || (data.dotDepositProgress || 0));
+      const dotStep = adaptivePerformance.mode === "ultra" ? 2 : adaptivePerformance.mode === "low" ? 1 : 0.5;
+      const dots = Math.round(clamp(Number(data.dots || 0), 0, SURVIVOR_DOT_MAX) / dotStep) * dotStep;
+      const progressStep = Math.round(clamp(Number(progress || 0), 0, 1) * (adaptivePerformance.mode === "normal" ? 24 : 10));
+      return [
+        data.role || "actor",
+        data.skin || "",
+        data.health || 0,
+        data.injured ? 1 : 0,
+        data.downed ? 1 : 0,
+        data.hooked ? 1 : 0,
+        data.dead ? 1 : 0,
+        data.escaped ? 1 : 0,
+        data.invuln > 0 ? 1 : 0,
+        data.attackState || "",
+        data.attacking ? 1 : 0,
+        data.recovery > 0 ? 1 : 0,
+        data.voidStun > 0 ? 1 : 0,
+        data.voidSpeedBoost > 0 ? 1 : 0,
+        dots,
+        progressStep,
+        data.dotDepositTargetId || ""
+      ].join(":");
+    }
+
+    shouldRefreshActorStyle(item, dt) {
+      if (!item?.data) return false;
+      if (item.forceStyleRefresh) return true;
+      item.actorStyleTimer = (item.actorStyleTimer || 0) + Math.max(0, dt || 0);
+      const fps = Math.max(1, performanceValue("actorStyleFps", adaptivePerformance.mode === "normal" ? 60 : 12));
+      return item.actorStyleTimer >= 1 / fps;
     }
 
     pushActorNetworkSample(item, data, now = performance.now()) {
@@ -5161,7 +5243,7 @@
       this.maybeDrawGeneratorLayer(dt);
       this.maybeUpdateScratchGraphics(dt);
       this.maybeDrawLighting(dt);
-      this.updateHookIndicators();
+      this.updateHookIndicators(dt);
       this.drawChargeIndicators(dt);
       this.drawSwipes(dt);
       this.updateParticles(dt);
@@ -5929,7 +6011,9 @@
       this.updateActorVisionAlpha(dt);
 
       for (const [id, item] of this.actors.entries()) {
-        if (item.data?.role === "killer" || item.data?.role === "survivor") {
+        if ((item.data?.role === "killer" || item.data?.role === "survivor") && this.shouldRefreshActorStyle(item, dt)) {
+          item.actorStyleTimer = 0;
+          item.forceStyleRefresh = false;
           this.styleActor(item, item.data);
         }
         if (item.nameText) {
@@ -6430,7 +6514,12 @@
       this.drawVisionConeGraphic(g, vx, vy, vfacing, vlength, vangle, lightColor, coneAlpha, segments);
     }
 
-    updateHookIndicators() {
+    updateHookIndicators(dt = 0) {
+      this.hookIndicatorTimer = (this.hookIndicatorTimer || 0) + Math.max(0, dt || 0);
+      const interval = adaptivePerformance.mode === "ultra" ? 0.18 : adaptivePerformance.mode === "low" ? 0.10 : 0.045;
+      if (this.hookIndicatorTimer < interval) return;
+      this.hookIndicatorTimer = 0;
+
       if (!currentSnapshot || !this.actors.has(myId) || activeScreenName !== "game") {
         if (this.lastHookIndicatorSignature) {
           this.lastHookIndicatorSignature = "";

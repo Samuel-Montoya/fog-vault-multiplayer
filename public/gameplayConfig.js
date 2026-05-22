@@ -45,6 +45,8 @@ const GAMEPLAY_CONFIG = {
     minModeSeconds: 9,
     // Cap high-DPI laptops. Rendering 2x pixels for a browser game is how GPUs go to therapy.
     maxDevicePixelRatio: 1,
+    // High-end clients get a small fidelity bump without wasting 2x Retina rendering.
+    highPowerDevicePixelRatio: 1.15,
     // Low-power clients render fewer pixels and upscale the canvas. The game stays responsive;
     // only the browser's unnecessary pixel-count vanity project gets sacrificed.
     lowPowerDevicePixelRatio: 0.72,
@@ -263,8 +265,14 @@ const GAMEPLAY_CONFIG = {
     survivorThreatRadius: 640,
     survivorPanicRadius: 285,
     survivorLoopRadius: 430,
+    // Chase bots should chain toward windows/pallets instead of worshipping map corners.
+    survivorLoopChainRadius: 780,
+    survivorLoopCommitSeconds: 2.15,
+    survivorDeadzoneEdgeTiles: 3.15,
+    survivorCornerEdgeTiles: 3.6,
     survivorStuckSeconds: 1.0,
     survivorObjectiveStallSeconds: 1.0,
+    survivorStallRedirectSeconds: 1.0,
     survivorTerrorFleeSeconds: 3.0,
     voidMemorySeconds: 6.0,
     voidScratchMemorySeconds: 2.5,

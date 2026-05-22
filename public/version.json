@@ -1,12 +1,26 @@
 {
   "latest": {
-    "version": "0.1.31",
-    "title": "Low Power Movement Deep Fix",
-    "summary": "Smoother low-performance play and Runner bot unstuck logic",
-    "description": "Reduced low-power render pressure, removed camera smoothing from local controlled movement, throttled local collision overlap checks without giving up server authority, and added Runner bot direction-change recovery so bots abandon corners and stalled objective paths after one second.",
+    "version": "0.1.33",
+    "title": "Performance and AI Polish",
+    "summary": "Adaptive polish for low-end PCs, high-end effects, and sturdier Runner bots",
+    "description": "Added high-fidelity visual scaling for stronger machines, reduced low-power DOM and Graphics churn, throttled redundant actor restyling, lowered UI animation pressure in performance modes, and tightened Runner bot flee behavior so chase targets reject dead zones and recover out of corners toward usable loops or safer center routes.",
     "date": "2026-05-22"
   },
   "history": [
+    {
+      "version": "0.1.33",
+      "title": "Performance and AI Polish",
+      "summary": "Adaptive polish for low-end PCs, high-end effects, and sturdier Runner bots",
+      "description": "Added high-fidelity visual scaling for stronger machines, reduced low-power DOM and Graphics churn, throttled redundant actor restyling, lowered UI animation pressure in performance modes, and tightened Runner bot flee behavior so chase targets reject dead zones and recover out of corners toward usable loops or safer center routes.",
+      "date": "2026-05-22"
+    },
+    {
+      "version": "0.1.32",
+      "title": "Runner Looping AI",
+      "summary": "Runner bots chain windows and pallets instead of corners",
+      "description": "Updated Runner bot chase behavior to prefer Dead by Daylight-style loop resources, chain toward windows and pallets, heavily avoid map edge deadzones and corners, and redirect after one second without movement so stalled bots pick a new chase route instead of standing in place.",
+      "date": "2026-05-22"
+    },
     {
       "version": "0.1.31",
       "title": "Low Power Movement Deep Fix",

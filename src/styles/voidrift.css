@@ -4323,3 +4323,73 @@ body.ultra-low-power.survivor-hit-impact #gameWrap {
 .ability-wheel-overlay.is-runner .ability-wheel-segment.is-active {
   background: linear-gradient(135deg, rgba(8, 47, 73, 0.94), rgba(8, 13, 27, 0.92));
 }
+
+/* v0.1.33 performance polish: quality scales with the machine instead of pretending every PC is the same heroic toaster. */
+.low-power .rift-halo,
+.low-power .rift-sigil,
+.low-power .fog-layer,
+.ultra-low-power .rift-halo,
+.ultra-low-power .rift-sigil,
+.ultra-low-power .fog-layer {
+  animation: none !important;
+}
+
+.low-power .fog-layer,
+.ultra-low-power .fog-layer {
+  filter: none;
+  opacity: 0.18;
+}
+
+.low-power .void-card,
+.low-power .hud-card,
+.low-power .role-hud-card,
+.low-power .version-badge,
+.low-power .point-feed-item,
+.low-power .match-announcement,
+.low-power .ability-wheel-segment,
+.ultra-low-power .void-card,
+.ultra-low-power .hud-card,
+.ultra-low-power .role-hud-card,
+.ultra-low-power .version-badge,
+.ultra-low-power .point-feed-item,
+.ultra-low-power .match-announcement,
+.ultra-low-power .ability-wheel-segment {
+  backdrop-filter: none !important;
+}
+
+.low-power .menu-bg::after,
+.ultra-low-power .menu-bg::after {
+  opacity: 0.35;
+}
+
+.low-power .survivor-status-card.chased,
+.low-power .survivor-status-card.hooked,
+.low-power .match-announcement,
+.low-power .match-rune,
+.ultra-low-power .survivor-status-card.chased,
+.ultra-low-power .survivor-status-card.hooked,
+.ultra-low-power .match-announcement,
+.ultra-low-power .match-rune {
+  animation-duration: 1600ms !important;
+}
+
+.low-power .horror-fx::before,
+.ultra-low-power .horror-fx::before {
+  animation: none !important;
+  opacity: 0.035;
+}
+
+.high-fidelity .rift-halo {
+  filter: saturate(1.12);
+}
+
+.high-fidelity .role-hud-card,
+.high-fidelity .void-orb-counter-corner,
+.high-fidelity .runner-ability-hud {
+  box-shadow: 0 18px 54px rgba(0,0,0,0.42), 0 0 34px rgba(103,232,249,0.11), inset 0 1px 0 rgba(255,255,255,0.08);
+}
+
+.high-fidelity .hud[data-role="killer"] .role-hud-card,
+.high-fidelity .void-orb-counter-corner {
+  box-shadow: 0 20px 62px rgba(0,0,0,0.48), 0 0 38px rgba(124,58,237,0.17), inset 0 1px 0 rgba(255,255,255,0.08);
+}
