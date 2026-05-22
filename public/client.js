@@ -70,6 +70,11 @@
       remoteSnapDistance: 230,
       localReconcileRate: 4.8,
       localMaxCorrectionPerSecond: 260,
+      localCorrectionDeadzoneIdle: 1.5,
+      localCorrectionDeadzoneMoving: 3.5,
+      localCorrectionSnapDistance: 190,
+      localCameraFollowRate: 999,
+      localCameraSnapDistance: 240,
       visionConeDirect: 0
     },
     low: {
@@ -106,8 +111,13 @@
       remoteInterpolationDelayMs: 120,
       remoteExtrapolateMs: 90,
       remoteSnapDistance: 260,
-      localReconcileRate: 7.5,
-      localMaxCorrectionPerSecond: 185,
+      localReconcileRate: 5.2,
+      localMaxCorrectionPerSecond: 150,
+      localCorrectionDeadzoneIdle: 4,
+      localCorrectionDeadzoneMoving: 14,
+      localCorrectionSnapDistance: 230,
+      localCameraFollowRate: 18,
+      localCameraSnapDistance: 300,
       visionConeDirect: 1
     },
     ultra: {
@@ -144,8 +154,13 @@
       remoteInterpolationDelayMs: 165,
       remoteExtrapolateMs: 115,
       remoteSnapDistance: 300,
-      localReconcileRate: 9,
-      localMaxCorrectionPerSecond: 145,
+      localReconcileRate: 4.6,
+      localMaxCorrectionPerSecond: 115,
+      localCorrectionDeadzoneIdle: 6,
+      localCorrectionDeadzoneMoving: 22,
+      localCorrectionSnapDistance: 270,
+      localCameraFollowRate: 14,
+      localCameraSnapDistance: 340,
       visionConeDirect: 1
     }
   };
@@ -2415,6 +2430,8 @@
       this.cameraSwayY = 0;
       this.cameraSwayTargetX = 0;
       this.cameraSwayTargetY = 0;
+      this.cameraFollowX = null;
+      this.cameraFollowY = null;
       this.killerM1Pulse = 0;
       this.spawnInPulse = 0;
       this.spawnInPlayed = false;
@@ -4130,6 +4147,13 @@
       };
     }
 
+    localInputMagnitude() {
+      return Math.hypot(
+        (input.right ? 1 : 0) - (input.left ? 1 : 0),
+        (input.down ? 1 : 0) - (input.up ? 1 : 0)
+      );
+    }
+
     reconcileLocalVisual(dt, targetX, targetY) {
       if (!this.localVisual || !Number.isFinite(targetX) || !Number.isFinite(targetY)) return;
       const dx = targetX - this.localVisual.x;
@@ -4137,15 +4161,31 @@
       const gap = Math.hypot(dx, dy);
       if (gap < 0.02) return;
 
-      if (gap > 190) {
+      const moving = this.localInputMagnitude() > 0.05;
+      const snapDistance = performanceValue("localCorrectionSnapDistance", LOW_POWER_MODE ? 230 : 190);
+      if (gap > snapDistance) {
         this.localVisual.x = targetX;
         this.localVisual.y = targetY;
+        this.cameraFollowX = targetX;
+        this.cameraFollowY = targetY;
         return;
       }
 
-      const alphaStep = gap * dampAlpha(performanceValue("localReconcileRate", 4.8), dt);
-      const maxStep = Math.max(2, performanceValue("localMaxCorrectionPerSecond", LOW_POWER_MODE ? 185 : 260) * dt);
-      const step = Math.min(gap, Math.min(alphaStep, maxStep));
+      // When playing locally, prediction is usually smoother than the newest server
+      // packet. Spectating looks clean because it renders remote actors from an
+      // interpolation buffer. For the local player, ignore tiny correction noise,
+      // then bleed larger errors in gradually. This keeps server authority without
+      // turning every delayed packet into a visible shove on low-end hardware.
+      const deadzone = performanceValue(
+        moving ? "localCorrectionDeadzoneMoving" : "localCorrectionDeadzoneIdle",
+        moving ? (LOW_POWER_MODE ? 14 : 3.5) : (LOW_POWER_MODE ? 4 : 1.5)
+      );
+      if (gap <= deadzone) return;
+
+      const correctionGap = gap - deadzone;
+      const alphaStep = correctionGap * dampAlpha(performanceValue("localReconcileRate", 4.8), dt);
+      const maxStep = Math.max(1, performanceValue("localMaxCorrectionPerSecond", LOW_POWER_MODE ? 150 : 260) * dt);
+      const step = Math.min(correctionGap, Math.min(alphaStep, maxStep));
       this.localVisual.x += dx / gap * step;
       this.localVisual.y += dy / gap * step;
     }
@@ -5072,10 +5112,14 @@
       this.updateFpsCounter(dt);
 
       this.inputTimer += dt;
-      if (this.inputTimer >= 1 / 60) {
-        this.inputTimer = 0;
+      const inputStep = 1 / 60;
+      let inputSends = 0;
+      while (this.inputTimer >= inputStep && inputSends < 3) {
+        this.inputTimer -= inputStep;
         sendInput({}, false);
+        inputSends++;
       }
+      if (this.inputTimer > inputStep * 3) this.inputTimer = inputStep;
     }
 
     updateAimAngle() {
@@ -5137,6 +5181,8 @@
       this.cameraSwayY = 0;
       this.cameraSwayTargetX = 0;
       this.cameraSwayTargetY = 0;
+      this.cameraFollowX = x;
+      this.cameraFollowY = y;
       this.localVisual = { x, y, angle: data.angle || 0, role: data.role, skin: data.skin || "blueSquare" };
       const introZoom = Math.max(0.38, IMMERSION.BASE_ZOOM - IMMERSION.MATCH_START_ZOOM_OUT);
       this.cameras.main.setZoom(introZoom);
@@ -5801,7 +5847,32 @@
       this.cameraSwayX = lerp(this.cameraSwayX || 0, this.cameraSwayTargetX || 0, smooth);
       this.cameraSwayY = lerp(this.cameraSwayY || 0, this.cameraSwayTargetY || 0, smooth);
 
-      cam.centerOn(x + this.cameraSwayX, y + this.cameraSwayY);
+      const targetCameraX = x + this.cameraSwayX;
+      const targetCameraY = y + this.cameraSwayY;
+      const followRate = performanceValue("localCameraFollowRate", LOW_POWER_MODE ? 18 : 999);
+      const followSnapDistance = performanceValue("localCameraSnapDistance", LOW_POWER_MODE ? 300 : 240);
+      const needsCameraSmoothing = !this.isSpectating() && adaptivePerformance.mode !== "normal";
+
+      if (!needsCameraSmoothing || followRate >= 300) {
+        this.cameraFollowX = targetCameraX;
+        this.cameraFollowY = targetCameraY;
+        cam.centerOn(targetCameraX, targetCameraY);
+      } else {
+        if (!Number.isFinite(this.cameraFollowX) || !Number.isFinite(this.cameraFollowY)) {
+          this.cameraFollowX = targetCameraX;
+          this.cameraFollowY = targetCameraY;
+        }
+        const cameraGap = dist(this.cameraFollowX, this.cameraFollowY, targetCameraX, targetCameraY);
+        if (cameraGap > followSnapDistance) {
+          this.cameraFollowX = targetCameraX;
+          this.cameraFollowY = targetCameraY;
+        } else {
+          const cameraAlpha = dampAlpha(followRate, dt);
+          this.cameraFollowX = lerp(this.cameraFollowX, targetCameraX, cameraAlpha);
+          this.cameraFollowY = lerp(this.cameraFollowY, targetCameraY, cameraAlpha);
+        }
+        cam.centerOn(this.cameraFollowX, this.cameraFollowY);
+      }
     }
 
     getDynamicWorldKey() {
@@ -6768,6 +6839,8 @@
         phaserScene.cameraSwayY = 0;
         phaserScene.cameraSwayTargetX = 0;
         phaserScene.cameraSwayTargetY = 0;
+        phaserScene.cameraFollowX = null;
+        phaserScene.cameraFollowY = null;
         phaserScene.lastMoveAngle = null;
         phaserScene.matchStartFreezeRemaining = Math.max(0, lockSeconds);
         phaserScene.matchStartFreezeDuration = Math.max(0.001, lockSeconds);

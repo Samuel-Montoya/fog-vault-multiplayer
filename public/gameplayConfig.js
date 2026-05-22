@@ -51,7 +51,12 @@ const GAMEPLAY_CONFIG = {
     remoteInterpolationDelayMs: 165,
     remoteExtrapolateMs: 115,
     remoteSnapDistance: 300,
-    localMaxCorrectionPerSecond: 145,
+    localMaxCorrectionPerSecond: 115,
+    localCorrectionDeadzoneIdle: 6,
+    localCorrectionDeadzoneMoving: 22,
+    localCorrectionSnapDistance: 270,
+    localCameraFollowRate: 14,
+    localCameraSnapDistance: 340,
     toastCooldownMs: 12000
   },
 
