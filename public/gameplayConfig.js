@@ -61,6 +61,11 @@ const GAMEPLAY_CONFIG = {
     voidInterpolationDelayMs: 90,
     voidExtrapolateMs: 135,
     voidMaxVisualLag: 72,
+    // Survivor Speed Burst uses a light version of the Void rush trail so the
+    // boost reads clearly without turning low-end machines into fondue.
+    survivorSpeedBurstTrailGapMs: 82,
+    survivorSpeedBurstTrailCount: 2,
+    survivorSpeedBurstTrailAlpha: 0.36,
     remoteSnapDistance: 300,
     localMaxCorrectionPerSecond: 115,
     localCorrectionDeadzoneIdle: 6,
@@ -97,7 +102,7 @@ const GAMEPLAY_CONFIG = {
     survivorAbilityZoomOffsets: {
       riftLens: -0.20,
       hourglass: 0,
-      stealthStep: 0
+      speedBurst: 0
     },
     killerAbilityZoomOffsets: {
       voidReveal: -0.20,
@@ -166,6 +171,8 @@ const GAMEPLAY_CONFIG = {
 
   void: {
     speed: 310,
+    // Permanent endgame buff after all rifts are complete. Smaller than Null Rush.
+    endgameSpeedMultiplier: 1.10,
     recoverySpeedMultiplier: 0.28,
     vaultTime: 1.05,
     breakTime: 1.25,
@@ -231,7 +238,10 @@ const GAMEPLAY_CONFIG = {
     riftLensLengthMultiplier: 1.55,
     riftLensAngleMultiplier: 1.38,
     hourglassBackLengthMultiplier: 0.92,
-    hourglassBackAngleMultiplier: 1.0
+    hourglassBackAngleMultiplier: 1.0,
+    // Hourglass now also hides scratch marks, replacing Stealth Step.
+    hourglassHidesScratchMarks: true,
+    speedBurstSpeedMultiplier: 1.14
   },
 
   orbs: {

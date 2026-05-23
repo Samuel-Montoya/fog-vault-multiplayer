@@ -301,6 +301,7 @@ const SURVIVOR_WALK_SPEED = cfgNumber(GAMEPLAY_CONFIG.survivor?.walkSpeed, 170);
 const SURVIVOR_SPRINT_SPEED = cfgNumber(GAMEPLAY_CONFIG.survivor?.sprintSpeed, 285);
 const SURVIVOR_HIT_BURST_SPEED = cfgNumber(GAMEPLAY_CONFIG.survivor?.hitBurstSpeed, 350);
 const KILLER_SPEED = cfgNumber(GAMEPLAY_CONFIG.void?.speed, 310);
+const KILLER_ENDGAME_SPEED_MULT = cfgNumber(GAMEPLAY_CONFIG.void?.endgameSpeedMultiplier, 1.10);
 const KILLER_RECOVERY_SPEED_MULT = cfgNumber(GAMEPLAY_CONFIG.void?.recoverySpeedMultiplier, 0.28);
 const KILLER_QUICK_MISS_RECOVERY = cfgNumber(GAMEPLAY_CONFIG.attack?.quickMissRecoverySeconds, 1.05);
 const KILLER_QUICK_HIT_RECOVERY = cfgNumber(GAMEPLAY_CONFIG.attack?.quickHitRecoverySeconds, 1.55);
@@ -352,10 +353,18 @@ const SURVIVOR_ABILITY_DEFS = RIFTRUNNER_ABILITIES.survivorAbilities || {};
 const SURVIVOR_ABILITY_ORDER = Array.isArray(RIFTRUNNER_ABILITIES.survivorWheelOrder) ? RIFTRUNNER_ABILITIES.survivorWheelOrder : Object.keys(SURVIVOR_ABILITY_DEFS);
 const SURVIVOR_RIFT_LENS_LENGTH_MULT = cfgNumber(GAMEPLAY_CONFIG.survivorAbilities?.riftLensLengthMultiplier, 1.55);
 const SURVIVOR_RIFT_LENS_ANGLE_MULT = cfgNumber(GAMEPLAY_CONFIG.survivorAbilities?.riftLensAngleMultiplier, 1.38);
-const SURVIVOR_WALK_CONE_LENGTH_MULT = Math.max(1, cfgNumber(GAMEPLAY_CONFIG.survivor?.walkingConeLengthMultiplier, 1.22));
-const SURVIVOR_WALK_CONE_ANGLE_MULT = Math.max(1, cfgNumber(GAMEPLAY_CONFIG.survivor?.walkingConeAngleMultiplier, 1.12));
+const SURVIVOR_SAFE_CONE_LENGTH_MULT = Math.max(1, cfgNumber(
+  GAMEPLAY_CONFIG.survivor?.nonSprintingConeLengthMultiplier ?? GAMEPLAY_CONFIG.survivor?.walkingConeLengthMultiplier,
+  1.22
+));
+const SURVIVOR_SAFE_CONE_ANGLE_MULT = Math.max(1, cfgNumber(
+  GAMEPLAY_CONFIG.survivor?.nonSprintingConeAngleMultiplier ?? GAMEPLAY_CONFIG.survivor?.walkingConeAngleMultiplier,
+  1.12
+));
 const SURVIVOR_HOURGLASS_BACK_LENGTH_MULT = cfgNumber(GAMEPLAY_CONFIG.survivorAbilities?.hourglassBackLengthMultiplier, 0.92);
 const SURVIVOR_HOURGLASS_BACK_ANGLE_MULT = cfgNumber(GAMEPLAY_CONFIG.survivorAbilities?.hourglassBackAngleMultiplier, 1.0);
+const SURVIVOR_HOURGLASS_HIDES_SCRATCH = GAMEPLAY_CONFIG.survivorAbilities?.hourglassHidesScratchMarks !== false;
+const SURVIVOR_SPEED_BURST_MULT = cfgNumber(GAMEPLAY_CONFIG.survivorAbilities?.speedBurstSpeedMultiplier, 1.14);
 const VOID_SPEED_BUFF_MULT = cfgNumber(GAMEPLAY_CONFIG.voidAbilities?.speedBuffMultiplier, 1.28);
 const RED_ORB_SLOW_MULT = cfgNumber(GAMEPLAY_CONFIG.voidAbilities?.redOrbSlowMultiplier, 0.55);
 const RED_ORB_SLOW_SECONDS = cfgNumber(GAMEPLAY_CONFIG.voidAbilities?.redOrbSlowSeconds, 0.5);
@@ -690,21 +699,24 @@ function getSurvivorAbilityDef(id) {
   };
 }
 
-function survivorWalkingVisionActive(actor) {
+function survivorCarefulVisionActive(actor) {
   if (!actor || actor.role !== "survivor" || actor.dead || actor.escaped || actor.downed || actor.hooked) return false;
-  return actorHasMoveInput(actor) && !actor.input?.sprint;
+  // Server-side match for the client cone: not holding sprint grants the bigger
+  // awareness cone, whether the Runner is standing still or walking. Holding
+  // Shift immediately falls back to the normal base cone.
+  return !actor.input?.sprint;
 }
 
 function survivorVisionLengthFor(actor) {
   let length = SURVIVOR_CONE_LENGTH;
-  if (survivorWalkingVisionActive(actor)) length *= SURVIVOR_WALK_CONE_LENGTH_MULT;
+  if (survivorCarefulVisionActive(actor)) length *= SURVIVOR_SAFE_CONE_LENGTH_MULT;
   if (actor?.role === "survivor" && (actor.riftLens || 0) > 0) length *= SURVIVOR_RIFT_LENS_LENGTH_MULT;
   return length;
 }
 
 function survivorVisionAngleFor(actor) {
   let angle = SURVIVOR_CONE_ANGLE;
-  if (survivorWalkingVisionActive(actor)) angle *= SURVIVOR_WALK_CONE_ANGLE_MULT;
+  if (survivorCarefulVisionActive(actor)) angle *= SURVIVOR_SAFE_CONE_ANGLE_MULT;
   if (actor?.role === "survivor" && (actor.riftLens || 0) > 0) angle *= SURVIVOR_RIFT_LENS_ANGLE_MULT;
   return Math.min(Math.PI * 1.08, angle);
 }
@@ -781,12 +793,15 @@ function applySurvivorAbility(game, actor, abilityId) {
     return { ok: false, message: `${ability.name} needs ${ability.cost} orbs.` };
   }
 
-  if (ability.id === "stealthStep") {
-    actor.stealthStep = Math.max(actor.stealthStep || 0, ability.duration || 10);
-  } else if (ability.id === "riftLens") {
+  if (ability.id === "riftLens") {
     actor.riftLens = Math.max(actor.riftLens || 0, ability.duration || 15);
   } else if (ability.id === "hourglass") {
     actor.hourglass = Math.max(actor.hourglass || 0, ability.duration || 5);
+    if (SURVIVOR_HOURGLASS_HIDES_SCRATCH && Array.isArray(game.scratchMarks)) {
+      game.scratchMarks = game.scratchMarks.filter((mark) => mark.actorId !== actor.id);
+    }
+  } else if (ability.id === "speedBurst") {
+    actor.speedBurst = Math.max(actor.speedBurst || 0, ability.duration || 5);
   } else {
     return { ok: false, message: "That Runner ability is not ready." };
   }
@@ -803,9 +818,9 @@ function applySurvivorAbility(game, actor, abilityId) {
     cost: ability.cost,
     duration: ability.duration,
     survivorDots: actor.dots,
-    stealthStep: actor.stealthStep || 0,
     riftLens: actor.riftLens || 0,
     hourglass: actor.hourglass || 0,
+    speedBurst: actor.speedBurst || 0,
     cooldown: cooldowns[ability.id] || 0
   });
   return { ok: true };
@@ -1711,6 +1726,7 @@ function makePlayer(socket, role, name, options = {}) {
     stealthStep: 0,
     riftLens: 0,
     hourglass: 0,
+    speedBurst: 0,
     survivorAbilityCooldowns: {},
     orbSlow: 0,
     voidSlow: 0,
@@ -1966,6 +1982,7 @@ function startGame(lobby) {
     pathCacheEpoch: 0,
     requiredGenerators: map.requiredGenerators,
     escapeOpen: false,
+    riftEndgameActive: false,
     time: 0,
     botThinkAccumulator: 0,
     matchStartFreezeSeconds: MATCH_START_FREEZE_SECONDS,
@@ -2085,8 +2102,8 @@ function addEvent(game, type, data = {}) {
 }
 
 function addScratch(game, actor) {
-  if (actor?.role === "survivor" && (actor.stealthStep || 0) > 0) return;
-  game.scratchMarks.push({ id: uid("scratch"), x: actor.x, y: actor.y, angle: actor.angle + (Math.random() - 0.5), ttl: 4.0, createdAt: game.time || 0 });
+  if (actor?.role === "survivor" && ((actor.stealthStep || 0) > 0 || (SURVIVOR_HOURGLASS_HIDES_SCRATCH && (actor.hourglass || 0) > 0))) return;
+  game.scratchMarks.push({ id: uid("scratch"), actorId: actor.id, x: actor.x, y: actor.y, angle: actor.angle + (Math.random() - 0.5), ttl: 4.0, createdAt: game.time || 0 });
   if (game.scratchMarks.length > SCRATCH_MARK_MAX) game.scratchMarks.splice(0, game.scratchMarks.length - SCRATCH_MARK_MAX);
 }
 
@@ -2172,8 +2189,10 @@ function moveActor(game, actor, dt) {
   let speed = actor.role === "killer" ? KILLER_SPEED : (actor.input.sprint ? SURVIVOR_SPRINT_SPEED : SURVIVOR_WALK_SPEED);
   if (actor.role === "survivor" && actor.downed) speed = DOWNED_CRAWL_SPEED;
   else if (actor.role === "survivor" && actor.hitBoost > 0) speed = SURVIVOR_HIT_BURST_SPEED;
+  if (actor.role === "killer" && areRiftsComplete(game)) speed *= KILLER_ENDGAME_SPEED_MULT;
   if (actor.role === "killer" && actor.recovery > 0) speed *= KILLER_RECOVERY_SPEED_MULT;
   if (actor.role === "killer" && (actor.voidSpeedBoost || 0) > 0) speed *= VOID_SPEED_BUFF_MULT;
+  if (actor.role === "survivor" && (actor.speedBurst || 0) > 0 && !actor.downed) speed *= SURVIVOR_SPEED_BURST_MULT;
   if (actor.role === "survivor" && (actor.orbSlow || 0) > 0) speed *= RED_ORB_SLOW_MULT;
   if (actor.role === "survivor" && (actor.voidSlow || 0) > 0) speed *= GRAVITY_WELL_SLOW_MULT;
 
@@ -2800,6 +2819,7 @@ function updateTimers(game, dt) {
     actor.stealthStep = Math.max(0, (actor.stealthStep || 0) - dt);
     actor.riftLens = Math.max(0, (actor.riftLens || 0) - dt);
     actor.hourglass = Math.max(0, (actor.hourglass || 0) - dt);
+    actor.speedBurst = Math.max(0, (actor.speedBurst || 0) - dt);
     if (actor.survivorAbilityCooldowns) {
       for (const [abilityId, remaining] of Object.entries(actor.survivorAbilityCooldowns)) {
         const nextRemaining = Math.max(0, cfgNumber(remaining, 0) - dt);
@@ -3196,14 +3216,19 @@ function updateDotDeposits(game, dt) {
         gen.activeRepairers = [];
         const completedRifts = game.map.generators.filter((g) => g.done).length;
         const allRiftsDone = completedRifts >= game.requiredGenerators;
-        if (allRiftsDone) bumpPathCache(game);
+        if (allRiftsDone) {
+          game.riftEndgameActive = true;
+          bumpPathCache(game);
+        }
         addEvent(game, "genDone", {
           x: gen.x,
           y: gen.y,
           generatorId: gen.id,
           completedRifts,
           requiredRifts: game.requiredGenerators,
-          allRiftsDone
+          allRiftsDone,
+          voidBuffed: allRiftsDone,
+          voidSpeedMultiplier: allRiftsDone ? KILLER_ENDGAME_SPEED_MULT : 1
         });
         break;
       }
@@ -3647,6 +3672,7 @@ function updateGeneratorsAndGates(game, dt) {
   }
   if (riftsDone && !game.escapeOpen) {
     game.escapeOpen = true;
+    game.riftEndgameActive = true;
     for (const gate of game.map.gates) {
       gate.open = true;
       addEvent(game, "voidOpen", { x: gate.x, y: gate.y, gateId: gate.id });
@@ -4493,8 +4519,8 @@ function botKillerMaybeUseAbility(game, killer, targetInfo, targetDistance, hasC
 function botSurvivorMaybeUseAbility(game, survivor, killer, threatened, killerDistance, killerHasLos) {
   if (!survivor || survivor.role !== "survivor" || survivor.dead || survivor.escaped || survivor.hooked || survivor.downed) return false;
 
-  if (threatened && (survivor.stealthStep || 0) <= 0 && (killerHasLos || killerDistance < BOT_SURVIVOR_ABILITY_THREAT_RADIUS || survivor.chaseHold > 0)) {
-    if (botTrySurvivorAbility(game, survivor, "stealthStep")) return true;
+  if (threatened && (survivor.speedBurst || 0) <= 0 && killerDistance < BOT_SURVIVOR_THREAT_RADIUS && killerDistance > BOT_SURVIVOR_PANIC_RADIUS * 0.72) {
+    if (botTrySurvivorAbility(game, survivor, "speedBurst")) return true;
   }
 
   if (threatened && (survivor.hourglass || 0) <= 0 && (killerHasLos || killerDistance < BOT_SURVIVOR_THREAT_RADIUS || survivor.chaseHold > 0)) {
@@ -7587,6 +7613,7 @@ function serializeActor(game, actor, visible = true) {
     stealthStep: actor.role === "survivor" ? actor.stealthStep || 0 : 0,
     riftLens: actor.role === "survivor" ? actor.riftLens || 0 : 0,
     hourglass: actor.role === "survivor" ? actor.hourglass || 0 : 0,
+    speedBurst: actor.role === "survivor" ? actor.speedBurst || 0 : 0,
     survivorAbilityCooldowns: actor.role === "survivor" ? Object.fromEntries(
       Object.entries(actor.survivorAbilityCooldowns || {}).map(([id, remaining]) => [id, Number(Math.max(0, remaining || 0).toFixed(2))])
     ) : {},
@@ -7734,6 +7761,22 @@ function buildSnapshotFor(lobby, socketId) {
       killerVisible,
       visibleHold: chase
     };
+  } else if (musicViewer && musicViewer.role === "killer" && killer) {
+    const chasedSurvivors = [...game.actors.values()].filter((actor) => actor.role === "survivor" && isLivingSurvivor(actor) && (actor.chaseHold || 0) > 0);
+    if (chasedSurvivors.length) {
+      const nearestChaseDistance = Math.min(...chasedSurvivors.map((actor) => dist(killer.x, killer.y, actor.x, actor.y)));
+      music = {
+        layer1: 0,
+        layer2: MUSIC_LAYER_2_CHASE_BED_VOLUME,
+        layer3: MUSIC_LAYER_3_VOLUME,
+        chase: true,
+        terror: 1,
+        musicPressure: 1,
+        distance: nearestChaseDistance,
+        killerVisible: true,
+        visibleHold: true
+      };
+    }
   }
 
   const visibleScratchMarks = pov?.role === "killer"
@@ -7788,7 +7831,9 @@ function buildSnapshotFor(lobby, socketId) {
       spawnedGenerators: map.spawnedGenerators || map.generators.length,
       remainingGenerators: Math.max(0, requiredGenerators - doneGenerators),
       riftsHidden: riftsComplete,
-      escapeOpen: game.escapeOpen
+      escapeOpen: game.escapeOpen,
+      voidBuffed: !!(game.riftEndgameActive || riftsComplete),
+      voidSpeedMultiplier: (game.riftEndgameActive || riftsComplete) ? KILLER_ENDGAME_SPEED_MULT : 1
     },
     collectibleDots: visibleCollectibleDotsForViewer(game, pov).map((d) => ({ id: d.id, x: Math.round(d.x), y: Math.round(d.y), red: (game.redOrbs || 0) > 0 })),
     voidEffects: {

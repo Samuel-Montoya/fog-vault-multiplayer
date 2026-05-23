@@ -51,18 +51,18 @@ const RIFTRUNNER_ABILITIES = {
     }
   },
 
-  survivorWheelOrder: ["stealthStep", "riftLens", "cancel", "hourglass"],
+  survivorWheelOrder: ["speedBurst", "riftLens", "cancel", "hourglass"],
   survivorAbilities: {
-    stealthStep: {
-      id: "stealthStep",
-      name: "Stealth Step",
-      shortName: "Stealth",
+    speedBurst: {
+      id: "speedBurst",
+      name: "Speed Burst",
+      shortName: "Burst",
       cost: 10,
-      duration: 10,
-      cooldown: 30,
-      summary: "Hide scratch marks for 10 seconds.",
-      detail: "Move quietly enough that The Void loses your trail.",
-      accent: "cyan"
+      duration: 5,
+      cooldown: 60,
+      summary: "Small speed boost for 5 seconds.",
+      detail: "A controlled burst of speed. Fast enough to reposition, not fast enough to become a caffeinated mosquito.",
+      accent: "green"
     },
     riftLens: {
       id: "riftLens",
@@ -82,8 +82,8 @@ const RIFTRUNNER_ABILITIES = {
       cost: 10,
       duration: 5,
       cooldown: 30,
-      summary: "See behind you for 5 seconds.",
-      detail: "Adds a second cone behind you, letting you watch your escape route and the danger chasing it.",
+      summary: "See behind you and hide scratch marks for 5 seconds.",
+      detail: "Adds a second cone behind you and hides scratch marks while active, because escaping should involve slightly fewer breadcrumbs.",
       accent: "cyan"
     },
     cancel: {

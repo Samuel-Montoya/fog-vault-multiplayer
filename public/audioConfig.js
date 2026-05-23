@@ -83,7 +83,8 @@ window.GAME_AUDIO_CONFIG = {
       buttonClick: "/sfx/button_click.mp3",
       playerSpeak: "/sfx/player_speak.mp3",
       healing: "/sfx/healing.mp3",
-      unhooking: ["/sfx/unhooking.mp3", "/sfx/unhook.mp3"]
+      unhooking: ["/sfx/unhooking.mp3", "/sfx/unhook.mp3"],
+      speedBoost: "/sfx/speed_boost.mp3"
     },
 
     // Per-sound volume before the global SFX master multiplier is applied.
@@ -104,7 +105,8 @@ window.GAME_AUDIO_CONFIG = {
       buttonClick: 0.13,
       playerSpeak: 0.18,
       healing: 0.22,
-      unhooking: 0.26
+      unhooking: 0.26,
+      speedBoost: 0.40
     },
 
     // Pitch variation lists. Used only when enablePitchVariation is true.
@@ -124,6 +126,7 @@ window.GAME_AUDIO_CONFIG = {
       playerSpeak: [0.88, 0.94, 1.0, 1.07, 1.15, 1.24],
       healing: [1.0],
       unhooking: [0.96, 1.0, 1.04],
+      speedBoost: [0.96, 1.0, 1.04],
 	  gen: [0.92, 0.97, 1.0, 1.05, 1.11, 1.18]
     },
 

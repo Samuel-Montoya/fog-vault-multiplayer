@@ -1,12 +1,26 @@
 {
   "latest": {
-    "version": "0.1.53",
-    "title": "Performance Mode Threshold",
-    "summary": "Low performance mode now only auto-enables below 55 FPS",
-    "description": "Changed adaptive performance so hardware hints no longer force low mode at startup. The game now starts in normal mode and only enables low performance mode after measured FPS drops below the configurable lowFps threshold, now set to 55, while still staying stable once triggered to avoid mode-flapping during gameplay.",
+    "version": "0.1.55",
+    "title": "Chase Audio and Speed Boost Polish",
+    "summary": "Killer chase camera stays stable, chase music plays for The Void, and boosts get trails/audio",
+    "description": "Kept The Void camera at its normal zoom during chase while still giving the killer layer_3 chase music, reset the endgame floor treatment when a match ends, added a survivor Speed Burst trail effect, and added a local-only speed_boost.mp3 cue for Runner Speed Burst and Void Null Rush activations.",
     "date": "2026-05-23"
   },
   "history": [
+    {
+      "version": "0.1.55",
+      "title": "Chase Audio and Speed Boost Polish",
+      "summary": "Killer chase camera stays stable, chase music plays for The Void, and boosts get trails/audio",
+      "description": "Kept The Void camera at its normal zoom during chase while still giving the killer layer_3 chase music, reset the endgame floor treatment when a match ends, added a survivor Speed Burst trail effect, and added a local-only speed_boost.mp3 cue for Runner Speed Burst and Void Null Rush activations.",
+      "date": "2026-05-23"
+    },
+    {
+      "version": "0.1.54",
+      "title": "Hourglass Trails and Endgame Buff",
+      "summary": "Hourglass replaces Stealth Step, Speed Burst is added, and completed rifts empower The Void",
+      "description": "Removed Stealth Step from the Runner wheel and folded its scratch-mark hiding into Hourglass, added the new Speed Burst Runner ability with a small 5-second speed boost, added an endgame floor treatment when all rifts are complete, and gave The Void a permanent smaller speed buff after rifts are finished. All-rifts-complete announcements now stack and follow with a delayed Void-buffed warning.",
+      "date": "2026-05-23"
+    },
     {
       "version": "0.1.53",
       "title": "Performance Mode Threshold",

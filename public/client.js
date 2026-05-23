@@ -342,7 +342,8 @@
         buttonClick: "/sfx/button_click.mp3",
         playerSpeak: "/sfx/player_speak.mp3",
         healing: "/sfx/healing.mp3",
-        unhooking: ["/sfx/unhooking.mp3", "/sfx/unhook.mp3"]
+        unhooking: ["/sfx/unhooking.mp3", "/sfx/unhook.mp3"],
+        speedBoost: "/sfx/speed_boost.mp3"
       },
       volumes: {
         hooked: 0.82,
@@ -361,7 +362,8 @@
         buttonClick: 0.55,
         playerSpeak: 0.62,
         healing: 0.34,
-        unhooking: 0.44
+        unhooking: 0.44,
+        speedBoost: 0.40
       },
       pitchSteps: {
         hooked: [0.84, 0.92, 1.0, 1.09, 1.18, 1.28],
@@ -374,7 +376,8 @@
         buttonClick: [0.92, 0.97, 1.0, 1.05, 1.11, 1.18],
         playerSpeak: [0.88, 0.94, 1.0, 1.07, 1.15, 1.24],
         healing: [1.0],
-        unhooking: [0.96, 1.0, 1.04]
+        unhooking: [0.96, 1.0, 1.04],
+        speedBoost: [0.96, 1.0, 1.04]
       },
       localRange: {
         swing: 315,
@@ -538,9 +541,9 @@
   function cameraSubjectInChase(data) {
     if (!data) return false;
     if (data.role === "survivor") return !!data.chase;
-    if (data.role === "killer") {
-      return !!currentSnapshot?.actors?.some((actor) => actor?.role === "survivor" && actor.chase && !actor.dead && !actor.escaped);
-    }
+    // The Void gets chase music and UI pressure, but never chase camera zoom.
+    // Killer camera zoom should stay stable so M1 aim/cone judgment remains consistent.
+    if (data.role === "killer") return false;
     return false;
   }
 
@@ -766,7 +769,9 @@
     survivorWalk: cfgNumber(GAMEPLAY_CONFIG.survivor?.walkSpeed, 170),
     survivorSprint: cfgNumber(GAMEPLAY_CONFIG.survivor?.sprintSpeed, 285),
     survivorBoost: cfgNumber(GAMEPLAY_CONFIG.survivor?.hitBurstSpeed, 350),
+    survivorSpeedBurstMult: cfgNumber(GAMEPLAY_CONFIG.survivorAbilities?.speedBurstSpeedMultiplier, 1.14),
     killer: cfgNumber(GAMEPLAY_CONFIG.void?.speed, 310),
+    killerEndgameMult: cfgNumber(GAMEPLAY_CONFIG.void?.endgameSpeedMultiplier, 1.10),
     killerRecoveryMult: cfgNumber(GAMEPLAY_CONFIG.void?.recoverySpeedMultiplier, 0.28),
     killerLungeMult: cfgNumber(GAMEPLAY_CONFIG.attack?.lungeSpeedMultiplier, 1.22),
     downedCrawl: cfgNumber(GAMEPLAY_CONFIG.survivor?.downedCrawlSpeed, 62),
@@ -940,20 +945,6 @@
 
   function getSurvivorSkin(id) {
     return SURVIVOR_SKINS[id] || SURVIVOR_SKINS.blueSquare;
-  }
-
-  const SURVIVOR_SKIN_PREVIEW_CLASS = {
-    blueSquare: "skin-square",
-    yellowStar: "skin-star",
-    purplePentagon: "skin-pentagon",
-    nebulaBloom: "skin-nebula",
-    eclipseWisp: "skin-eclipse",
-    riftMoth: "skin-moth",
-    signalDrone: "skin-drone"
-  };
-
-  function getSurvivorSkinPreviewClass(skinId) {
-    return SURVIVOR_SKIN_PREVIEW_CLASS[skinId] || "skin-square";
   }
 
   const ui = {
@@ -1515,7 +1506,6 @@
 
 
   const ANNOUNCEMENT_LIFETIME_MS = 3200;
-  const ANNOUNCEMENT_MAX_VISIBLE = 3;
 
   function getAnnouncementRoot() {
     let root = document.getElementById("matchAnnouncements");
@@ -1542,11 +1532,6 @@
   function pushMatchAnnouncement({ title, detail = "", kind = "rift" }) {
     if (!title || activeScreenName !== "game") return;
     const root = getAnnouncementRoot();
-    const existing = [...root.querySelectorAll(".match-announcement")];
-    for (const old of existing.slice(0, Math.max(0, existing.length - ANNOUNCEMENT_MAX_VISIBLE + 1))) {
-      old.remove();
-    }
-
     const card = document.createElement("div");
     card.className = `match-announcement ${kind ? `is-${kind}` : ""}`;
     card.innerHTML = `
@@ -1593,6 +1578,13 @@
           title: "Escape Voids Open",
           detail: "Stand in an open Void for 4 seconds."
         });
+        window.setTimeout(() => {
+          pushMatchAnnouncement({
+            kind: "void",
+            title: "The Void has been buffed",
+            detail: `Permanent speed boost active${event.voidSpeedMultiplier ? ` (${Number(event.voidSpeedMultiplier).toFixed(2)}x)` : ""}.`
+          });
+        }, 1000);
       } else {
         const completed = Number(event.completedRifts || 0);
         const required = Number(event.requiredRifts || 0);
@@ -1804,9 +1796,9 @@
         (role === "killer" && ability.id === "nullRush" && (actor.voidSpeedBoost || 0) > 0) ||
         (role === "killer" && ability.id === "redshiftOrbs" && (currentSnapshot?.voidEffects?.redOrbs || 0) > 0) ||
         (role === "killer" && ability.id === "voidReveal" && (currentSnapshot?.voidEffects?.runnerReveal || 0) > 0) ||
-        (role === "survivor" && ability.id === "stealthStep" && (actor.stealthStep || 0) > 0) ||
         (role === "survivor" && ability.id === "riftLens" && (actor.riftLens || 0) > 0) ||
-        (role === "survivor" && ability.id === "hourglass" && (actor.hourglass || 0) > 0)
+        (role === "survivor" && ability.id === "hourglass" && (actor.hourglass || 0) > 0) ||
+        (role === "survivor" && ability.id === "speedBurst" && (actor.speedBurst || 0) > 0)
       ));
       return {
         id: ability.id || id,
@@ -1905,9 +1897,9 @@
     }));
 
     const runnerEffects = [];
-    if (isRunner && (me.stealthStep || 0) > 0) runnerEffects.push({ id: "stealthStep", label: "stealth", time: me.stealthStep });
     if (isRunner && (me.riftLens || 0) > 0) runnerEffects.push({ id: "riftLens", label: "lens", time: me.riftLens });
     if (isRunner && (me.hourglass || 0) > 0) runnerEffects.push({ id: "hourglass", label: "hourglass", time: me.hourglass });
+    if (isRunner && (me.speedBurst || 0) > 0) runnerEffects.push({ id: "speedBurst", label: "burst", time: me.speedBurst });
     window.dispatchEvent(new CustomEvent("riftrunner:runner-ability-hud", {
       detail: {
         visible: isRunner,
@@ -2611,6 +2603,12 @@
     }
   }
 
+  function playLocalSpeedBoostAbilitySfx(event) {
+    if (!event || event.actorId !== myId) return;
+    if (event.abilityId !== "nullRush" && event.abilityId !== "speedBurst") return;
+    playSfx("speedBoost", { disablePitchVariation: true });
+  }
+
   function getOrbPickupPitch(event) {
     const pitchConfig = AUDIO_CONFIG.sfx?.orbPickupPitch || {};
     const minPitch = clamp(cfgNumber(pitchConfig.min, 1.0), 0.5, 2.25);
@@ -2874,6 +2872,7 @@
       this.matchStartFreezeDuration = IMMERSION.MATCH_START_LOCK_SECONDS;
       this.matchStartInputLockUntil = 0;
       this.introCameraPrimed = false;
+      this.floorEndgameActive = false;
       this.lastMoveDirX = 0;
       this.lastMoveDirY = 0;
       this.spectateTargetId = null;
@@ -3218,6 +3217,7 @@
       this.spectateTargetId = null;
       this.lastSpectateEmitId = "";
       this.introCameraPrimed = false;
+      this.floorEndgameActive = false;
     }
 
     rebuildOutOfBoundsBackdrop() {
@@ -3275,10 +3275,38 @@
         .setScrollFactor(1, 1);
 
       this.grassLayer = g;
-      g.fillStyle(0x070913, 1);
+      const endgame = !!this.floorEndgameActive;
+      g.fillStyle(endgame ? 0x120611 : 0x070913, 1);
       g.fillRect(0, 0, this.map.width, this.map.height);
-      this.drawStaticArenaGrid(g, 0, 0, this.map.width, this.map.height, this.map.tile || 72, 0x172541, 0.32);
-      this.drawStaticArenaGrid(g, 0, 0, this.map.width, this.map.height, (this.map.tile || 72) * 4, 0x315082, 0.18);
+      if (endgame) {
+        // Endgame floor: darker, warmer, and cracked so completed rifts read instantly
+        // without needing one more giant UI panel yelling at people.
+        this.drawStaticArenaGrid(g, 0, 0, this.map.width, this.map.height, this.map.tile || 72, 0x6d1b47, 0.34);
+        this.drawStaticArenaGrid(g, 0, 0, this.map.width, this.map.height, (this.map.tile || 72) * 3, 0xa855f7, 0.15);
+        g.lineStyle(2, 0xff3b6a, 0.18);
+        const step = Math.max(96, (this.map.tile || 72) * 1.55);
+        for (let y = step * 0.5; y < this.map.height; y += step) {
+          g.beginPath();
+          for (let x = 0; x <= this.map.width; x += step * 0.5) {
+            const wobble = Math.sin((x + y) * 0.015) * 16 + Math.sin(x * 0.037) * 6;
+            if (x === 0) g.moveTo(x, y + wobble);
+            else g.lineTo(x, y + wobble);
+          }
+          g.strokePath();
+        }
+        g.fillStyle(0xff3b6a, 0.035);
+        for (let i = 0; i < 42; i++) {
+          const x = hash2(i * 17, i + 4) * this.map.width;
+          const y = hash2(i + 101, i * 29) * this.map.height;
+          const r = 16 + hash2(i + 44, i + 88) * 42;
+          g.fillCircle(x, y, r);
+        }
+      } else {
+        g.fillStyle(0x070913, 1);
+        g.fillRect(0, 0, this.map.width, this.map.height);
+        this.drawStaticArenaGrid(g, 0, 0, this.map.width, this.map.height, this.map.tile || 72, 0x172541, 0.32);
+        this.drawStaticArenaGrid(g, 0, 0, this.map.width, this.map.height, (this.map.tile || 72) * 4, 0x315082, 0.18);
+      }
     }
 
     rebuildFogTexture() {
@@ -4186,6 +4214,11 @@
       setMusicTargets(snapshot.music);
       if (!this.map && snapshot.map) this.loadMap(snapshot.map);
       if (this.map && snapshot.map) this.map = { ...this.map, ...snapshot.map, walls: this.map.walls, windows: this.map.windows };
+      const nextFloorEndgame = this.riftsAreComplete(snapshot);
+      if (this.map && nextFloorEndgame !== this.floorEndgameActive) {
+        this.floorEndgameActive = nextFloorEndgame;
+        this.rebuildGrassLayer();
+      }
       // Do not force a dynamic redraw on every network snapshot. Generator repair
       // progress arrives constantly, and forcing redraws here bypassed the coarse
       // dynamic-world key below. Let maybeDrawDynamicWorld() redraw only when the
@@ -5150,6 +5183,44 @@
       }
     }
 
+    emitSurvivorSpeedBurstTrail(item, data) {
+      if (!item || !data || data.role !== "survivor" || !(data.speedBurst > 0) || data.dead || data.escaped || data.downed || data.hooked) return;
+      const now = performance.now();
+      const gap = performanceValue("survivorSpeedBurstTrailGapMs", LOW_POWER_MODE ? 145 : 82);
+      const count = Math.max(0, Math.floor(performanceValue("survivorSpeedBurstTrailCount", LOW_POWER_MODE ? 1 : 2)));
+      if (count <= 0) return;
+      if (item.lastSurvivorSpeedBurstTrailAt && now - item.lastSurvivorSpeedBurstTrailAt < gap) return;
+      item.lastSurvivorSpeedBurstTrailAt = now;
+
+      const angle = Number.isFinite(data.angle) ? data.angle : (item.current?.angle || 0);
+      const baseX = item.current?.x ?? data.x ?? 0;
+      const baseY = item.current?.y ?? data.y ?? 0;
+      const skin = getSurvivorSkin(data.skin);
+      const color = data.health <= 1 || data.injured ? COLORS.survivorInjured : (skin?.color || COLORS.survivor);
+      const alpha = performanceValue("survivorSpeedBurstTrailAlpha", LOW_POWER_MODE ? 0.24 : 0.36);
+
+      for (let i = 0; i < count; i += 1) {
+        const side = (Math.random() - 0.5) * 20;
+        const back = 20 + Math.random() * 16 + i * 6;
+        const x = baseX - Math.cos(angle) * back + Math.cos(angle + Math.PI / 2) * side;
+        const y = baseY - Math.sin(angle) * back + Math.sin(angle + Math.PI / 2) * side;
+        const radius = 3 + Math.random() * 4;
+        const bubble = this.add.circle(x, y, radius, color, alpha)
+          .setDepth(9.6)
+          .setBlendMode(Phaser.BlendModes.SCREEN);
+        this.tweens.add({
+          targets: bubble,
+          alpha: 0,
+          scale: 1.55 + Math.random() * 0.45,
+          x: x - Math.cos(angle) * (9 + Math.random() * 9),
+          y: y - Math.sin(angle) * (9 + Math.random() * 9),
+          duration: LOW_POWER_MODE ? 235 : 315,
+          ease: "Quad.easeOut",
+          onComplete: () => bubble.destroy()
+        });
+      }
+    }
+
     styleActor(item, data) {
       const now = performance.now();
       if (data.role === "killer") {
@@ -5315,12 +5386,14 @@
           }
         }
         if (event.type === "voidAbility") {
+          playLocalSpeedBoostAbilitySfx(event);
           const color = event.abilityId === "redshiftOrbs" ? 0xff3048 : event.abilityId === "voidReveal" ? 0xa78bfa : 0xcbd5e1;
           this.burst(event.x, event.y, color, adaptivePerformance.mode === "ultra" ? 0 : LOW_POWER_MODE ? 6 : 34, LOW_POWER_MODE ? 130 : 210);
           if (adaptivePerformance.mode === "normal") this.addShockwave(event.x, event.y, color, 0.55, event.radius || 155);
         }
         if (event.type === "survivorAbility") {
-          const color = event.abilityId === "riftLens" ? 0xfbbf24 : event.abilityId === "hourglass" ? 0x67e8f9 : 0x7dd3fc;
+          playLocalSpeedBoostAbilitySfx(event);
+          const color = event.abilityId === "riftLens" ? 0xfbbf24 : event.abilityId === "hourglass" ? 0x67e8f9 : event.abilityId === "speedBurst" ? 0x86efac : 0x7dd3fc;
           this.burst(event.x, event.y, color, adaptivePerformance.mode === "ultra" ? 0 : LOW_POWER_MODE ? 5 : 28, LOW_POWER_MODE ? 110 : 180);
           if (adaptivePerformance.mode === "normal") this.addShockwave(event.x, event.y, color, 0.42, event.abilityId === "hourglass" ? 176 : 138);
         }
@@ -5811,7 +5884,9 @@
       let speed = data.role === "killer" ? LOCAL_SPEEDS.killer : (input.sprint ? LOCAL_SPEEDS.survivorSprint : LOCAL_SPEEDS.survivorWalk);
       if (data.role === "survivor" && data.downed) speed = LOCAL_SPEEDS.downedCrawl;
       else if (data.role === "survivor" && data.hitBoost > 0) speed = LOCAL_SPEEDS.survivorBoost;
+      if (data.role === "survivor" && (data.speedBurst || 0) > 0 && !data.downed) speed *= LOCAL_SPEEDS.survivorSpeedBurstMult;
       if (data.role === "survivor" && (data.orbSlow || data.voidSlow || 0) > 0) speed *= 0.58;
+      if (data.role === "killer" && currentSnapshot?.objective?.voidBuffed) speed *= LOCAL_SPEEDS.killerEndgameMult;
       if (data.role === "killer" && (data.voidSpeedBoost || 0) > 0) speed *= 1.28;
       if (data.role === "killer" && data.attackState === "lunge") {
         dx = Math.cos(input.angle);
@@ -6447,6 +6522,9 @@
         if (item.data?.role === "killer" && (item.data?.voidSpeedBoost || 0) > 0) {
           this.emitVoidRushTrail(item, item.data);
         }
+        if (item.data?.role === "survivor" && (item.data?.speedBurst || 0) > 0) {
+          this.emitSurvivorSpeedBurstTrail(item, item.data);
+        }
         if (item.spawnScalePulse && item.spawnScalePulse > 0.001) {
           item.spawnScalePulse = Math.max(0, item.spawnScalePulse - dt * (LOW_POWER_MODE ? 3.8 : 4.8));
           const pop = Math.sin((1 - item.spawnScalePulse) * Math.PI);
@@ -6587,7 +6665,7 @@
       const hookKey = (map.hooks || []).map((h) => `${h.id}:${h.active ? 1 : 0}:${h.survivorId || ""}`).join("|");
       const gateKey = (map.gates || []).map((g) => `${g.id}:${g.open ? 1 : 0}:${Math.round((g.escapeProgress || 0) * 20)}`).join("|");
       const dotKey = (currentSnapshot?.collectibleDots || []).map((d) => d.id).join(",");
-      return `${hookKey}#${gateKey}#${dotKey}`;
+      return `${hookKey}#${gateKey}#${dotKey}#rifts:${this.riftsAreComplete() ? 1 : 0}`;
     }
 
     getGeneratorWorldKey() {
@@ -7321,9 +7399,7 @@
       item.className = `player-item ${isKiller ? "is-killer" : "is-survivor"}${player.id === myId ? " is-you" : ""}${player.isBot ? " is-bot" : ""}`;
 
       const emblem = document.createElement("span");
-      emblem.className = isKiller
-        ? "player-role-emblem killer"
-        : `player-role-emblem survivor ${getSurvivorSkinPreviewClass(player.skin)}`;
+      emblem.className = `player-role-emblem ${isKiller ? "killer" : "survivor"}`;
       emblem.setAttribute("aria-hidden", "true");
 
       const summary = document.createElement("div");
@@ -7594,6 +7670,11 @@
       if (phaserScene) {
         phaserScene.spectateTargetId = null;
         phaserScene.lastSpectateEmitId = "";
+        if (phaserScene.floorEndgameActive) {
+          phaserScene.floorEndgameActive = false;
+          phaserScene.rebuildGrassLayer?.();
+          phaserScene.needsDynamicRedraw = true;
+        }
       }
       setMusicTargets({ layer1: 0, layer2: 0, layer3: 0 });
       showFinalMatchScreen({ winner, reason, escapedCount, totalSurvivors, finalActors });

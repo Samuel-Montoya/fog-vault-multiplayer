@@ -691,20 +691,13 @@ p,
   box-shadow: 0 0 18px rgba(103,232,249,0.14), inset 0 -8px 12px rgba(0,0,0,0.22);
 }
 
-.skin-square,
-.player-item .player-role-emblem.skin-square { background: radial-gradient(circle at 35% 30%, #e0f2fe 0 18%, #38bdf8 19% 58%, #6366f1 59% 100%); }
-.skin-star,
-.player-item .player-role-emblem.skin-star { background: radial-gradient(circle at 35% 30%, #fffbeb 0 18%, #facc15 19% 58%, #fb7185 59% 100%); }
-.skin-pentagon,
-.player-item .player-role-emblem.skin-pentagon { background: radial-gradient(circle at 35% 30%, #f5f3ff 0 18%, #a78bfa 19% 58%, #22d3ee 59% 100%); }
-.skin-nebula,
-.player-item .player-role-emblem.skin-nebula { background: radial-gradient(circle at 42% 38%, #fff1f8 0 14%, #ec4899 15% 44%, #38bdf8 45% 68%, #4c1d95 69% 100%); }
-.skin-eclipse,
-.player-item .player-role-emblem.skin-eclipse { background: radial-gradient(circle at 32% 36%, #ccfbf1 0 13%, #14b8a6 14% 48%, #020617 49% 66%, #4c1d95 67% 100%); }
-.skin-moth,
-.player-item .player-role-emblem.skin-moth { background: radial-gradient(circle at 28% 36%, #eff6ff 0 13%, #60a5fa 14% 45%, #c084fc 46% 72%, #111827 73% 100%); }
-.skin-drone,
-.player-item .player-role-emblem.skin-drone { background: radial-gradient(circle at 42% 32%, #ecfdf5 0 13%, #34d399 14% 48%, #fbbf24 49% 68%, #064e3b 69% 100%); }
+.skin-square { background: radial-gradient(circle at 35% 30%, #e0f2fe 0 18%, #38bdf8 19% 58%, #6366f1 59% 100%); }
+.skin-star { background: radial-gradient(circle at 35% 30%, #fffbeb 0 18%, #facc15 19% 58%, #fb7185 59% 100%); }
+.skin-pentagon { background: radial-gradient(circle at 35% 30%, #f5f3ff 0 18%, #a78bfa 19% 58%, #22d3ee 59% 100%); }
+.skin-nebula { background: radial-gradient(circle at 42% 38%, #fff1f8 0 14%, #ec4899 15% 44%, #38bdf8 45% 68%, #4c1d95 69% 100%); }
+.skin-eclipse { background: radial-gradient(circle at 32% 36%, #ccfbf1 0 13%, #14b8a6 14% 48%, #020617 49% 66%, #4c1d95 67% 100%); }
+.skin-moth { background: radial-gradient(circle at 28% 36%, #eff6ff 0 13%, #60a5fa 14% 45%, #c084fc 46% 72%, #111827 73% 100%); }
+.skin-drone { background: radial-gradient(circle at 42% 32%, #ecfdf5 0 13%, #34d399 14% 48%, #fbbf24 49% 68%, #064e3b 69% 100%); }
 
 .option-list { margin-top: 16px; }
 .option-card {
@@ -2555,6 +2548,7 @@ body.ultra-low-power.survivor-hit-impact #gameWrap {
   height: 28px;
   border-radius: 50%;
   border: 1px solid rgba(255,255,255,0.48);
+  background: radial-gradient(circle at 38% 30%, #f8fbff 0 16%, #67e8f9 18% 48%, #2563eb 72%);
   box-shadow: 0 0 18px rgba(103,232,249,0.16);
 }
 
@@ -3842,6 +3836,7 @@ body.ultra-low-power.survivor-hit-impact #gameWrap {
 .ability-wheel-segment.accent-red.selected { border-color: rgba(255, 104, 120, 0.88); box-shadow: 0 16px 42px rgba(0,0,0,0.46), 0 0 28px rgba(255,48,72,0.24); }
 .ability-wheel-segment.accent-purple.selected { border-color: rgba(196,181,253,0.92); }
 .ability-wheel-segment.accent-gold.selected { border-color: rgba(251,191,36,0.88); box-shadow: 0 16px 42px rgba(0,0,0,0.46), 0 0 26px rgba(251,191,36,0.18); }
+.ability-wheel-segment.accent-green.selected { border-color: rgba(134, 239, 172, 0.88); box-shadow: 0 16px 42px rgba(0,0,0,0.46), 0 0 26px rgba(34,197,94,0.20); }
 
 .ability-wheel-top { left: 50%; top: 22px; transform: translateX(-50%); }
 .ability-wheel-top.selected { transform: translateX(-50%) translateY(-8px); }
