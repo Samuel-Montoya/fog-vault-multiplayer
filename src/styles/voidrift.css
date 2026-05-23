@@ -1403,6 +1403,7 @@ body.is-void-stunned .horror-fx .fx-vignette {
 .match-announcement.is-death { --announce-color: #ff3b6a; --announce-soft: rgba(255,59,106,0.2); }
 .match-announcement.is-rift { --announce-color: #67e8f9; --announce-soft: rgba(103,232,249,0.18); }
 .match-announcement.is-void { --announce-color: #a78bfa; --announce-soft: rgba(167,139,250,0.24); }
+.match-announcement.is-void-buffed { --announce-color: #ff2d55; --announce-soft: rgba(255,45,85,0.28); }
 
 .match-announcement-rune {
   position: relative;
@@ -3945,6 +3946,20 @@ body.ultra-low-power.survivor-hit-impact #gameWrap {
   background: linear-gradient(135deg, rgba(8, 145, 178, 0.32), rgba(8, 13, 27, 0.9));
 }
 
+#lobbyScreen .lobby-role-actions .spectator-choice-btn,
+#lobbyScreen #beSpectatorBtn {
+  color: #f8fafc;
+  border-color: rgba(226, 232, 240, 0.34);
+  background: linear-gradient(135deg, rgba(71, 85, 105, 0.38), rgba(9, 12, 24, 0.88));
+}
+
+#lobbyScreen .lobby-role-actions .spectator-choice-btn:hover,
+#lobbyScreen #beSpectatorBtn:hover,
+#lobbyScreen #beSpectatorBtn:focus-visible {
+  border-color: rgba(226, 232, 240, 0.62);
+  background: linear-gradient(135deg, rgba(100, 116, 139, 0.48), rgba(10, 16, 31, 0.92));
+}
+
 #readyBtn.ready-action[data-ready-state="ready"] {
   color: #052e16;
   border-color: rgba(134, 239, 172, 0.72);
@@ -3957,6 +3972,22 @@ body.ultra-low-power.survivor-hit-impact #gameWrap {
   border-color: rgba(253, 224, 71, 0.74);
   background: linear-gradient(135deg, #fde047, #f59e0b);
   box-shadow: 0 16px 34px rgba(245, 158, 11, 0.18);
+}
+
+
+#readyBtn.ready-action[data-ready-state="spectator"] {
+  color: rgba(226, 232, 240, 0.86);
+  border-color: rgba(226, 232, 240, 0.30);
+  background: linear-gradient(135deg, rgba(71, 85, 105, 0.70), rgba(15, 23, 42, 0.92));
+  box-shadow: none;
+  cursor: not-allowed;
+}
+
+#readyBtn.ready-action[data-ready-state="spectator"]:hover,
+#readyBtn.ready-action[data-ready-state="spectator"]:focus-visible {
+  color: rgba(248, 250, 252, 0.92);
+  border-color: rgba(226, 232, 240, 0.34);
+  background: linear-gradient(135deg, rgba(71, 85, 105, 0.74), rgba(15, 23, 42, 0.96));
 }
 
 #readyBtn.ready-action[data-ready-state="ready"]:hover,
@@ -4117,6 +4148,13 @@ body.ultra-low-power.survivor-hit-impact #gameWrap {
   background:
     linear-gradient(135deg, rgba(8, 145, 178, 0.38), rgba(5, 15, 29, 0.94)) !important;
   box-shadow: inset 4px 0 0 rgba(103, 232, 249, 0.76), 0 0 26px rgba(103, 232, 249, 0.12) !important;
+}
+
+#lobbyScreen #beSpectatorBtn.selected {
+  border-color: rgba(226, 232, 240, 0.74) !important;
+  background:
+    linear-gradient(135deg, rgba(100, 116, 139, 0.58), rgba(8, 13, 27, 0.96)) !important;
+  box-shadow: inset 4px 0 0 rgba(226, 232, 240, 0.72), 0 0 24px rgba(148, 163, 184, 0.14) !important;
 }
 
 #lobbyScreen .lobby-bot-actions button:nth-child(1) {
@@ -4458,3 +4496,77 @@ body.ultra-low-power.survivor-hit-impact #gameWrap {
   box-shadow: 0 20px 62px rgba(0,0,0,0.48), 0 0 38px rgba(124,58,237,0.17), inset 0 1px 0 rgba(255,255,255,0.08);
 }
 
+
+/* v0.1.57 spectator lobby/watch polish. */
+.lobby-item-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.lobby-item-actions button {
+  min-width: 86px;
+  white-space: nowrap;
+}
+
+.lobby-item-actions .spectate-lobby-btn {
+  min-width: 142px;
+}
+
+.spectate-lobby-btn {
+  color: rgba(226, 232, 240, 0.92);
+  border-color: rgba(226, 232, 240, 0.28);
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.78), rgba(6, 8, 18, 0.92));
+}
+
+.spectate-lobby-btn:hover,
+.spectate-lobby-btn:focus-visible {
+  color: #f8fafc;
+  border-color: rgba(226, 232, 240, 0.52);
+  background: linear-gradient(135deg, rgba(30, 41, 59, 0.92), rgba(10, 12, 24, 0.96));
+}
+
+.player-item.is-spectator {
+  border-color: rgba(226, 232, 240, 0.16);
+  background: linear-gradient(135deg, rgba(148, 163, 184, 0.08), rgba(8, 10, 18, 0.58));
+}
+
+.player-item .player-role-emblem.spectator {
+  border-radius: 50%;
+  border-color: rgba(226, 232, 240, 0.42);
+  background:
+    radial-gradient(circle at 50% 50%, rgba(248, 250, 252, 0.96) 0 14%, rgba(148, 163, 184, 0.82) 16% 28%, rgba(15, 23, 42, 0.92) 30% 100%);
+  box-shadow: 0 0 18px rgba(226, 232, 240, 0.12), inset 0 0 10px rgba(0, 0, 0, 0.44);
+}
+
+.player-ready.is-spectator-ready {
+  color: rgba(226, 232, 240, 0.78);
+  border-color: rgba(226, 232, 240, 0.20);
+  background: rgba(148, 163, 184, 0.10);
+}
+
+.hud[data-role="spectator"] .role-hud-core {
+  background: radial-gradient(circle at 50% 50%, #f8fafc 0 15%, #94a3b8 17% 36%, #111827 38% 100%);
+}
+
+.hud[data-role="spectator"] .role-hud-icon {
+  border-color: rgba(226, 232, 240, 0.26);
+  box-shadow: inset 0 0 0 1px rgba(226, 232, 240, 0.08), 0 0 20px rgba(148, 163, 184, 0.12);
+}
+
+@media (max-width: 720px) {
+  .lobby-item {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .lobby-item-actions {
+    justify-content: stretch;
+  }
+
+  .lobby-item-actions button {
+    flex: 1 1 0;
+  }
+}

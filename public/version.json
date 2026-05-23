@@ -1,12 +1,54 @@
 {
   "latest": {
-    "version": "0.1.55",
-    "title": "Chase Audio and Speed Boost Polish",
-    "summary": "Killer chase camera stays stable, chase music plays for The Void, and boosts get trails/audio",
-    "description": "Kept The Void camera at its normal zoom during chase while still giving the killer layer_3 chase music, reset the endgame floor treatment when a match ends, added a survivor Speed Burst trail effect, and added a local-only speed_boost.mp3 cue for Runner Speed Burst and Void Null Rush activations.",
+    "version": "0.1.61",
+    "title": "Spectator Camera Follow Fix",
+    "summary": "Dedicated spectators now load into the map and follow selected targets correctly",
+    "description": "Fixed the in-game spectator camera so dedicated spectators use the same spectating path as dead Runners: the map renders normally, the camera follows the currently watched actor, Tab and Shift+Tab cycle through living Runners and The Void, and spectator input stays fully blocked from movement, attack, chat, and ability controls.",
     "date": "2026-05-23"
   },
   "history": [
+    {
+      "version": "0.1.61",
+      "title": "Spectator Camera Follow Fix",
+      "summary": "Dedicated spectators now load into the map and follow selected targets correctly",
+      "description": "Fixed the in-game spectator camera so dedicated spectators use the same spectating path as dead Runners: the map renders normally, the camera follows the currently watched actor, Tab and Shift+Tab cycle through living Runners and The Void, and spectator input stays fully blocked from movement, attack, chat, and ability controls.",
+      "date": "2026-05-23"
+    },
+    {
+      "version": "0.1.60",
+      "title": "Pre-Match Spectator Slot",
+      "summary": "Lobby setup now has a real Join as Spectator role button",
+      "description": "Added Join as Spectator directly beneath Play as The Void and Play as a Runner inside the run lobby setup screen. Players can switch into an auto-ready spectator role before the match begins, remain unable to ready or switch back into a playable role from that lobby, still manage bots and start valid bot/friend lobbies, and load into the run watching instead of controlling a character.",
+      "date": "2026-05-23"
+    },
+    {
+      "version": "0.1.59",
+      "title": "Open Lobby Spectator Button Verification",
+      "summary": "Open lobby rows explicitly show Join as Spectator",
+      "description": "Double-checked the open lobby list renderer and reinforced the Join as Spectator action on every lobby row with a dedicated action marker, clearer Play screen copy, and visible Open Lobbies helper text so players can join waiting or active lobbies as auto-ready spectators without taking a playable slot.",
+      "date": "2026-05-23"
+    },
+    {
+      "version": "0.1.58",
+      "title": "Spectator Lobby Ready Polish",
+      "summary": "Open lobbies now clearly support joining as an auto-ready spectator",
+      "description": "Renamed the open-lobby spectate action to Join as Spectator, clarified that spectators are auto-ready and optional for match start, forced spectator ready state in lobby broadcasts and start checks, and styled the disabled spectator-ready button so viewers cannot accidentally change readiness or block the run.",
+      "date": "2026-05-23"
+    },
+    {
+      "version": "0.1.57",
+      "title": "Lobby Spectator Mode",
+      "summary": "Players can join lobbies as spectators and watch active runs",
+      "description": "Added a Spectate button to open lobbies so players can enter a watch-only role, including runs already in progress. Spectators are listed separately in the lobby, cannot ready, change roles, start the run, move, chat, or use abilities, and can cycle camera targets with Tab/Shift+Tab including The Void. Server snapshots now include dedicated spectator viewer metadata and route visibility through the selected target's point of view.",
+      "date": "2026-05-23"
+    },
+    {
+      "version": "0.1.56",
+      "title": "Bot Personalities and Buff Alert Polish",
+      "summary": "Runner bots now get match-start personalities and the Void buff alert is red",
+      "description": "Added Runner bot personality assignments at match start with Scout, Medic, Banker, Looper, and Generalist behavior profiles. A lone living Runner bot now falls back to Generalist decision-making so one-bot teams still collect, rescue, heal, deposit, and escape instead of staying trapped in one specialty. Personality names are applied when the run starts, objective scoring now weights support, orbs, deposits, and looping by role, and The Void has been buffed notification now uses a red alert style.",
+      "date": "2026-05-23"
+    },
     {
       "version": "0.1.55",
       "title": "Chase Audio and Speed Boost Polish",

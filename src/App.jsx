@@ -237,7 +237,7 @@ function PlayScreen() {
         <ScreenHeader
           eyebrow="join a run"
           title="Choose your side"
-          description="Set your name and role, then join an open lobby or start a fresh run."
+          description="Set your name and role, then join an open lobby, join as a spectator, or start a fresh run."
         />
 
         <div className="form-grid">
@@ -263,7 +263,7 @@ function PlayScreen() {
 
         <div className="section-heading">
           <h2>Open Lobbies</h2>
-          <span>Live runs</span>
+          <span>Join or spectate live runs</span>
         </div>
         <div id="lobbyList" className="lobby-list empty">No open lobbies yet.</div>
       </div>
@@ -363,6 +363,7 @@ function LobbyScreen() {
             <div className="role-row lobby-role-actions">
               <button id="beKillerBtn" className="void-choice-btn" type="button">Play as The Void</button>
               <button id="beSurvivorBtn" className="runner-choice-btn" type="button">Play as a Runner</button>
+              <button id="beSpectatorBtn" className="spectator-choice-btn" type="button">Join as Spectator</button>
             </div>
 
             <div className="lobby-column-heading lobby-subheading">
@@ -891,13 +892,16 @@ function SurvivorStatusHud() {
       const spectateTargetId = detail.spectateTargetId || null
       const spectating = !!detail.spectating
       const actors = snapshot.actors || []
+      const dedicatedSpectator = snapshot.viewer?.id === myId && snapshot.viewer?.role === "spectator"
       const killer = actors.find((actor) => actor.role === "killer" && visibleChatTextForActor(actor))
-      const livingSpectateTargets = actors.filter((actor) => (
-        actor.role === "survivor"
-        && actor.id !== myId
-        && !actor.dead
-        && !actor.escaped
-      ))
+      const livingSpectateTargets = actors.filter((actor) => dedicatedSpectator
+        ? ((actor.role === "killer" && !actor.dead) || (actor.role === "survivor" && !actor.dead && !actor.escaped))
+        : (
+          actor.role === "survivor"
+          && actor.id !== myId
+          && !actor.dead
+          && !actor.escaped
+        ))
       const survivors = actors
         .filter((actor) => actor.role === "survivor")
         .sort((a, b) => {
@@ -940,7 +944,7 @@ function SurvivorStatusHud() {
     <div id="survivorStatusHud" className="survivor-status-list hidden" aria-live="polite">
       {hud.spectating && hud.canCycleSpectate && (
         <div className="spectate-hint-card" role="status">
-          <span>Tab</span> change runner
+          <span>Tab</span> switch view
           <i aria-hidden="true" />
           <span>Esc</span> exit
         </div>

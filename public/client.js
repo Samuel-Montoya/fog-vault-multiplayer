@@ -976,6 +976,7 @@
     playersList: document.getElementById("playersList"),
     beSurvivorBtn: document.getElementById("beSurvivorBtn"),
     beKillerBtn: document.getElementById("beKillerBtn"),
+    beSpectatorBtn: document.getElementById("beSpectatorBtn"),
     readyBtn: document.getElementById("readyBtn"),
     addBotSurvivorBtn: document.getElementById("addBotSurvivorBtn"),
     addBotKillerBtn: document.getElementById("addBotKillerBtn"),
@@ -1075,18 +1076,25 @@
     ui.skinBtns.forEach((b) => b.classList.toggle("selected", b.dataset.skin === selectedSkin));
   }
 
+  function syncLobbyRoleButtons(role = selectedRole) {
+    const lobbyRole = role === "spectator" ? "spectator" : role === "killer" ? "killer" : "survivor";
+    ui.beKillerBtn?.classList.toggle("selected", lobbyRole === "killer");
+    ui.beSurvivorBtn?.classList.toggle("selected", lobbyRole === "survivor");
+    ui.beSpectatorBtn?.classList.toggle("selected", lobbyRole === "spectator");
+    ui.lobbySkinPicker?.classList.toggle("hidden", lobbyRole !== "survivor");
+    ui.lobbySkinPicker?.setAttribute("aria-hidden", lobbyRole !== "survivor" ? "true" : "false");
+    if (ui.lobbyRoleMark) {
+      ui.lobbyRoleMark.classList.toggle("killer", lobbyRole === "killer");
+      ui.lobbyRoleMark.classList.toggle("survivor", lobbyRole === "survivor");
+      ui.lobbyRoleMark.classList.toggle("spectator", lobbyRole === "spectator");
+      ui.lobbyRoleMark.setAttribute("aria-label", lobbyRole === "killer" ? "Playing as The Void" : lobbyRole === "spectator" ? "Joining as Spectator" : "Playing as Runner");
+    }
+  }
+
   function setSelectedRole(role) {
     selectedRole = role === "killer" ? "killer" : "survivor";
     ui.roleBtns.forEach((b) => b.classList.toggle("selected", b.dataset.role === selectedRole));
-    ui.beKillerBtn?.classList.toggle("selected", selectedRole === "killer");
-    ui.beSurvivorBtn?.classList.toggle("selected", selectedRole !== "killer");
-    ui.lobbySkinPicker?.classList.toggle("hidden", selectedRole === "killer");
-    ui.lobbySkinPicker?.setAttribute("aria-hidden", selectedRole === "killer" ? "true" : "false");
-    if (ui.lobbyRoleMark) {
-      ui.lobbyRoleMark.classList.toggle("killer", selectedRole === "killer");
-      ui.lobbyRoleMark.classList.toggle("survivor", selectedRole !== "killer");
-      ui.lobbyRoleMark.setAttribute("aria-label", selectedRole === "killer" ? "Playing as The Void" : "Playing as Runner");
-    }
+    syncLobbyRoleButtons(selectedRole);
   }
 
   const input = {
@@ -1580,7 +1588,7 @@
         });
         window.setTimeout(() => {
           pushMatchAnnouncement({
-            kind: "void",
+            kind: "void-buffed",
             title: "The Void has been buffed",
             detail: `Permanent speed boost active${event.voidSpeedMultiplier ? ` (${Number(event.voidSpeedMultiplier).toFixed(2)}x)` : ""}.`
           });
@@ -1701,8 +1709,13 @@
 
   function getLocalPlayerData() {
     return currentSnapshot?.actors?.find((a) => a.id === myId)
+      || (currentSnapshot?.viewer?.id === myId ? currentSnapshot.viewer : null)
       || phaserScene?.actors?.get(myId)?.data
       || null;
+  }
+
+  function isDedicatedSpectator(snapshot = currentSnapshot) {
+    return snapshot?.viewer?.id === myId && snapshot.viewer.role === "spectator";
   }
 
   let reactChatWheelOpen = false;
@@ -1749,14 +1762,14 @@
       detail: {
         snapshot,
         myId,
-        spectateTargetId: phaserScene?.spectateTargetId || null,
+        spectateTargetId: phaserScene?.resolveSpectateTargetId?.() || phaserScene?.spectateTargetId || null,
         spectating: isLocalSpectating()
       }
     }));
   }
 
   function openReactChatWheel(pointerEvent = null) {
-    if (reactChatWheelOpen) return;
+    if (reactChatWheelOpen || isDedicatedSpectator()) return;
     if (!currentSnapshot || currentSnapshot.phase !== "game" || !getLocalPlayerData()) return;
     reactChatWheelOpen = true;
     dispatchChatWheelEvent("voidrift:chat-wheel-open", getChatWheelDetail(pointerEvent));
@@ -1920,7 +1933,7 @@
 
   function isLocalSpectating() {
     const me = getLocalPlayerData();
-    return me?.role === "survivor" && (!!me.dead || !!me.escaped);
+    return isDedicatedSpectator() || (me?.role === "survivor" && (!!me.dead || !!me.escaped));
   }
 
   function getLivingTeammates(snapshot = currentSnapshot) {
@@ -1930,6 +1943,17 @@
         && !a.dead
         && !a.escaped
     );
+  }
+
+  function getSpectateTargets(snapshot = currentSnapshot) {
+    const actors = snapshot?.actors || [];
+    if (isDedicatedSpectator(snapshot)) {
+      return actors.filter((a) => (
+        (a.role === "killer" && !a.dead)
+        || (a.role === "survivor" && !a.dead && !a.escaped)
+      ));
+    }
+    return getLivingTeammates(snapshot);
   }
 
   function inputSendRateHz() {
@@ -1966,6 +1990,7 @@
   function sendInput(oneShot = {}, force = false) {
     if (!socket || !myId) return;
     const me = getLocalPlayerData();
+    if (me?.role === "spectator") return;
     if (me?.role === "survivor" && me.dead) return;
 
     const now = performance.now();
@@ -2888,19 +2913,24 @@
     }
 
     isSpectating() {
+      if (isDedicatedSpectator(currentSnapshot)) return true;
       const me = this.actors.get(myId)?.data || getLocalPlayerData();
       return me?.role === "survivor" && (!!me.dead || !!me.escaped);
     }
 
     getLivingTeammates() {
-      return getLivingTeammates(currentSnapshot);
+      return getSpectateTargets(currentSnapshot);
     }
 
     resolveSpectateTargetId() {
       if (!this.isSpectating()) return myId;
       const living = this.getLivingTeammates();
-      if (!living.length) return myId;
+      if (!living.length) return isDedicatedSpectator() ? null : myId;
       if (living.some((a) => a.id === this.spectateTargetId)) return this.spectateTargetId;
+      if (currentSnapshot?.viewer?.spectateTargetId && living.some((a) => a.id === currentSnapshot.viewer.spectateTargetId)) {
+        this.spectateTargetId = currentSnapshot.viewer.spectateTargetId;
+        return this.spectateTargetId;
+      }
       return living[0].id;
     }
 
@@ -2919,7 +2949,9 @@
         this.spectateTargetId = null;
         return null;
       }
-      this.spectateTargetId = living[0].id;
+      this.spectateTargetId = currentSnapshot?.viewer?.spectateTargetId && living.some((a) => a.id === currentSnapshot.viewer.spectateTargetId)
+        ? currentSnapshot.viewer.spectateTargetId
+        : living[0].id;
       this.emitSpectateTarget(this.spectateTargetId);
       return this.spectateTargetId;
     }
@@ -2936,7 +2968,8 @@
     }
 
     getCameraSubjectItem() {
-      return this.actors.get(this.isSpectating() ? this.resolveSpectateTargetId() : myId) || null;
+      const targetId = this.isSpectating() ? this.resolveSpectateTargetId() : myId;
+      return targetId ? (this.actors.get(targetId) || null) : null;
     }
 
     getPovSurvivorData() {
@@ -3007,6 +3040,11 @@
       // system below uses vector alpha + object visibility, which is much cheaper.
       this.input.on("pointerdown", (pointer) => {
         ensureAudioStarted();
+        if (isDedicatedSpectator()) {
+          input.attackHeld = false;
+          clearMovementInputOnly();
+          return;
+        }
         if (isIntroInputLocked()) {
           clearMovementInputOnly();
           sendInput({}, true);
@@ -4240,7 +4278,7 @@
     }
 
     updateHud(snapshot) {
-      const me = (snapshot.actors || []).find((a) => a.id === myId);
+      const me = (snapshot.actors || []).find((a) => a.id === myId) || (snapshot.viewer?.id === myId ? snapshot.viewer : null);
       if (!me) return;
 
       const now = performance.now();
@@ -4262,11 +4300,14 @@
       this.lastHudKey = hudKey;
       this.lastHudRenderAt = now;
       renderSurvivorStatusHud(snapshot);
-      ui.hud.dataset.role = me.role === "killer" ? "killer" : "survivor";
-      ui.roleLabel.textContent = me.role === "killer" ? "The Void" : "Runner";
-      ui.controlsLabel.textContent = me.role === "killer"
+      const hudRole = me.role === "killer" ? "killer" : me.role === "spectator" ? "spectator" : "survivor";
+      ui.hud.dataset.role = hudRole;
+      ui.roleLabel.textContent = hudRole === "killer" ? "The Void" : hudRole === "spectator" ? "Spectator" : "Runner";
+      ui.controlsLabel.textContent = hudRole === "killer"
         ? "WASD move • Mouse aim • M1 attack/lunge • Space vault/break • hold E hook/execute/kick Rift • hold Q abilities • hold R chat"
-        : "WASD move • Shift sprint • Mouse flashlight • Space vault/drop • hold Q abilities • collect orbs, stand near active Rifts to deposit • stand still near teammates to heal/rescue • hold R chat";
+        : hudRole === "spectator"
+          ? "Tab / Shift+Tab — switch camera • watching only"
+          : "WASD move • Shift sprint • Mouse flashlight • Space vault/drop • hold Q abilities • collect orbs, stand near active Rifts to deposit • stand still near teammates to heal/rescue • hold R chat";
       const shownDone = Math.min(done, required);
       ui.genText.textContent = `${shownDone} / ${required}${total > required ? ` (${total} on map)` : ""}`;
       if (ui.bigGenText) ui.bigGenText.textContent = `${shownDone} / ${required}`;
@@ -4290,6 +4331,12 @@
           const kickable = (snapshot.map?.generators || []).some((gen) => !gen.done && !gen.kickLocked && (gen.progress || 0) > 0 && Math.hypot((me.x || 0) - gen.x, (me.y || 0) - gen.y) < 92);
           ui.healthText.textContent = kickable ? "Hold E: Kick rift" : "The Void";
         }
+      } else if (me.role === "spectator") {
+        const target = (snapshot.actors || []).find((a) => a.id === this.resolveSpectateTargetId());
+        ui.healthText.textContent = target
+          ? `Spectating: ${target.name || (target.role === "killer" ? "The Void" : "Runner")}`
+          : "Spectating";
+        ui.controlsLabel.textContent = "Tab / Shift+Tab — switch camera • watching only";
       } else if (me.dead) {
         const target = (snapshot.actors || []).find((a) => a.id === this.resolveSpectateTargetId());
         ui.healthText.textContent = target
@@ -7313,6 +7360,7 @@
     ui.createLobbyBtn.addEventListener("click", () => socket.emit("createLobby", { role: selectedRole, playerName: getName(), skin: selectedSkin }));
     ui.beSurvivorBtn.addEventListener("click", () => socket.emit("setRole", { role: "survivor", skin: selectedSkin }));
     ui.beKillerBtn.addEventListener("click", () => socket.emit("setRole", { role: "killer" }));
+    ui.beSpectatorBtn?.addEventListener("click", () => socket.emit("setRole", { role: "spectator" }));
     ui.readyBtn.addEventListener("click", () => {
       const mine = currentLobbyState?.players?.find((p) => p.id === myId);
       socket.emit("setReady", { ready: !mine?.ready });
@@ -7363,13 +7411,29 @@
       item.className = "lobby-item";
       const left = document.createElement("div");
       const voidCount = Number.isFinite(Number(lobby.killerCount)) ? Number(lobby.killerCount) : (lobby.killer ? 1 : 0);
+      const spectatorCount = Math.max(0, Math.floor(Number(lobby.spectators || 0)));
       const voidLabel = `${voidCount} Void player${voidCount === 1 ? "" : "s"}`;
-      left.innerHTML = `<strong>${escapeHtml(lobby.name)}</strong><small>${escapeHtml(lobby.mapName || "Map")} • ${lobby.survivors}/${lobby.maxSurvivors} Runners • ${voidLabel}</small>`;
+      const spectatorLabel = spectatorCount ? ` • ${spectatorCount} Spectator${spectatorCount === 1 ? "" : "s"}` : "";
+      const phaseLabel = lobby.phase === "game" ? "In progress" : "Waiting";
+      left.innerHTML = `<strong>${escapeHtml(lobby.name)}</strong><small>${escapeHtml(lobby.mapName || "Map")} • ${phaseLabel} • ${lobby.survivors}/${lobby.maxSurvivors} Runners • ${voidLabel}${spectatorLabel}</small>`;
+      const actions = document.createElement("div");
+      actions.className = "lobby-item-actions";
       const button = document.createElement("button");
       button.textContent = lobby.phase === "lobby" ? "Join" : "In Run";
       button.disabled = lobby.phase !== "lobby";
-      button.addEventListener("click", () => socket.emit("joinLobby", { lobbyId: lobby.id, role: selectedRole, playerName: getName() }));
-      item.append(left, button);
+      button.addEventListener("click", () => socket.emit("joinLobby", { lobbyId: lobby.id, role: selectedRole, playerName: getName(), skin: selectedSkin }));
+      const spectateButton = document.createElement("button");
+      spectateButton.type = "button";
+      spectateButton.className = "spectate-lobby-btn";
+      spectateButton.dataset.action = "join-spectator";
+      spectateButton.textContent = "Join as Spectator";
+      spectateButton.setAttribute("aria-label", `Join ${lobby.name || "this lobby"} as a spectator`);
+      spectateButton.title = lobby.phase === "game"
+        ? "Join this active run as a watch-only spectator."
+        : "Join this lobby as an auto-ready spectator. Spectators are optional and do not block match start.";
+      spectateButton.addEventListener("click", () => socket.emit("spectateLobby", { lobbyId: lobby.id, playerName: getName() || "Spectator" }));
+      actions.append(button, spectateButton);
+      item.append(left, actions);
       ui.lobbyList.appendChild(item);
     }
   }
@@ -7383,23 +7447,25 @@
     const voidCount = players.filter((player) => player.role === "killer").length;
     const survivorCount = players.filter((player) => player.role === "survivor").length;
     const maxSurvivors = Number.isFinite(Number(state.maxSurvivors)) ? Number(state.maxSurvivors) : 4;
-    const humanPlayers = players.filter((player) => !player.isBot);
-    const allHumansReady = humanPlayers.length > 0 && humanPlayers.every((player) => !!player.ready);
-    const canStartRun = allHumansReady && voidCount === 1 && survivorCount >= 1;
-    const statusLine = `${survivorCount}/${maxSurvivors} Runners • ${voidCount} Void player${voidCount === 1 ? "" : "s"}`;
+    const requiredHumanPlayers = players.filter((player) => !player.isBot && player.role !== "spectator");
+    const allRequiredHumansReady = requiredHumanPlayers.every((player) => !!player.ready);
+    const canStartRun = allRequiredHumansReady && voidCount === 1 && survivorCount >= 1;
+    const spectatorCount = players.filter((player) => player.role === "spectator").length;
+    const statusLine = `${survivorCount}/${maxSurvivors} Runners • ${voidCount} Void player${voidCount === 1 ? "" : "s"}${spectatorCount ? ` • ${spectatorCount} Spectator${spectatorCount === 1 ? "" : "s"}` : ""}`;
     const subtitle = voidCount === 1
-      ? `${statusLine}. Ready up, then start the run.`
-      : `${statusLine}. The run needs exactly 1 Void.`;
+      ? `${statusLine}. Players ready up to start. Spectators are auto-ready and optional.`
+      : `${statusLine}. The run needs exactly 1 Void. Spectators are auto-ready and optional.`;
     const lobbySubtitle = document.getElementById("lobbySubtitle");
     if (lobbySubtitle) lobbySubtitle.textContent = subtitle;
 
     const renderPlayerRow = (player) => {
       const item = document.createElement("div");
       const isKiller = player.role === "killer";
-      item.className = `player-item ${isKiller ? "is-killer" : "is-survivor"}${player.id === myId ? " is-you" : ""}${player.isBot ? " is-bot" : ""}`;
+      const isSpectator = player.role === "spectator";
+      item.className = `player-item ${isKiller ? "is-killer" : isSpectator ? "is-spectator" : "is-survivor"}${player.id === myId ? " is-you" : ""}${player.isBot ? " is-bot" : ""}`;
 
       const emblem = document.createElement("span");
-      emblem.className = `player-role-emblem ${isKiller ? "killer" : "survivor"}`;
+      emblem.className = `player-role-emblem ${isKiller ? "killer" : isSpectator ? "spectator" : "survivor"}`;
       emblem.setAttribute("aria-hidden", "true");
 
       const summary = document.createElement("div");
@@ -7417,14 +7483,14 @@
       const meta = document.createElement("small");
       const roleName = document.createElement("span");
       roleName.className = "player-role-name";
-      roleName.textContent = `${isKiller ? "The Void" : "Runner"}${player.isBot ? " bot" : ""}`;
+      roleName.textContent = `${isKiller ? "The Void" : isSpectator ? "Spectator" : "Runner"}${player.isBot ? " bot" : ""}`;
 
       const dot = document.createElement("span");
       dot.className = "player-dot";
       dot.textContent = "•";
 
       const skin = document.createElement("span");
-      const skinName = isKiller ? "Void Core" : getSurvivorSkin(player.skin).label;
+      const skinName = isKiller ? "Void Core" : isSpectator ? "Watching only" : getSurvivorSkin(player.skin).label;
       skin.className = "player-skin-name";
       skin.title = skinName;
       skin.textContent = skinName;
@@ -7433,9 +7499,9 @@
       summary.append(name, meta);
 
       const ready = document.createElement("small");
-      const isReady = player.isBot || !!player.ready;
-      ready.className = `player-ready ${isReady ? "is-ready" : ""}`;
-      ready.textContent = isReady ? "Ready" : "Not ready";
+      const isReady = player.role === "spectator" || player.isBot || !!player.ready;
+      ready.className = `player-ready ${isReady ? "is-ready" : ""}${isSpectator ? " is-spectator-ready" : ""}`;
+      ready.textContent = isSpectator ? "Auto Ready" : isReady ? "Ready" : "Not ready";
 
       item.append(emblem, summary, ready);
 
@@ -7476,7 +7542,7 @@
       } else {
         const empty = document.createElement("div");
         empty.className = "player-group-empty";
-        empty.textContent = groupClass === "void-group" ? "No Void selected yet." : "No runners selected yet.";
+        empty.textContent = groupClass === "void-group" ? "No Void selected yet." : groupClass === "spectator-group" ? "No spectators yet." : "No runners selected yet.";
         body.appendChild(empty);
       }
 
@@ -7485,19 +7551,37 @@
     };
 
     const voidPlayers = players.filter((player) => player.role === "killer");
-    const survivorPlayers = players.filter((player) => player.role !== "killer");
+    const survivorPlayers = players.filter((player) => player.role === "survivor");
+    const spectatorPlayers = players.filter((player) => player.role === "spectator");
     appendPlayerGroup("Void player", `${voidPlayers.length} selected`, "void-group", voidPlayers);
     appendPlayerGroup("Runners", `${survivorPlayers.length}/${maxSurvivors}`, "survivor-group", survivorPlayers);
+    if (spectatorPlayers.length) appendPlayerGroup("Spectators", `${spectatorPlayers.length} watching`, "spectator-group", spectatorPlayers);
     const mine = players.find((p) => p.id === myId);
-    if (mine?.role) setSelectedRole(mine.role);
+    const iAmSpectator = mine?.role === "spectator";
+    if (mine?.role === "killer" || mine?.role === "survivor") setSelectedRole(mine.role);
+    else if (iAmSpectator) syncLobbyRoleButtons("spectator");
     if (mine?.role === "survivor" && SURVIVOR_SKINS[mine.skin]) {
       setSelectedSkin(mine.skin);
     }
-    ui.readyBtn.textContent = mine?.ready ? "Unready" : "Ready";
-    ui.readyBtn.dataset.readyState = mine?.ready ? "unready" : "ready";
+    ui.readyBtn.textContent = iAmSpectator ? "Spectator Ready" : mine?.ready ? "Unready" : "Ready";
+    ui.readyBtn.dataset.readyState = iAmSpectator ? "spectator" : mine?.ready ? "unready" : "ready";
+    ui.readyBtn.disabled = !!iAmSpectator;
+    ui.readyBtn.title = iAmSpectator ? "Spectators are always ready and do not count toward starting the run." : "Toggle ready status.";
+    ui.beKillerBtn.disabled = !!iAmSpectator;
+    ui.beSurvivorBtn.disabled = !!iAmSpectator;
+    if (ui.beSpectatorBtn) {
+      ui.beSpectatorBtn.disabled = !!iAmSpectator;
+      ui.beSpectatorBtn.title = iAmSpectator
+        ? "You are already joining this lobby as an auto-ready spectator."
+        : "Join this lobby as a spectator. You will load into the run without controlling a character.";
+    }
+    ui.addBotSurvivorBtn.disabled = false;
+    ui.addBotKillerBtn.disabled = false;
+    ui.lobbySkinPicker?.classList.toggle("hidden", iAmSpectator || selectedRole === "killer");
+    ui.lobbySkinPicker?.setAttribute("aria-hidden", (iAmSpectator || selectedRole === "killer") ? "true" : "false");
     if (ui.startBtn) {
       ui.startBtn.disabled = !canStartRun;
-      ui.startBtn.title = canStartRun ? "Start the run" : "Every human Runner and Void player has to ready up, and exactly 1 Void is required.";
+      ui.startBtn.title = canStartRun ? "Start the run. Spectators will load in watching instead of playing." : "Need exactly 1 Void, at least 1 Runner, and every playable human ready. Spectators are optional and do not block the match.";
     }
   }
 
@@ -7553,11 +7637,25 @@
       }
       if (e.code === "Escape" && activeScreenName === "game" && phaserScene?.isSpectating()) {
         e.preventDefault();
+        if (isDedicatedSpectator()) {
+          socket?.emit("leaveLobby");
+          showScreen("play");
+          return;
+        }
         if (showSpectateResultScreen()) return;
       }
       if (e.code === "Tab" && phaserScene?.isSpectating()) {
         e.preventDefault();
         phaserScene.cycleSpectateTarget(e.shiftKey ? -1 : 1);
+        return;
+      }
+      if (isDedicatedSpectator()) {
+        e.preventDefault();
+        input.attackHeld = false;
+        closeReactChatWheel(false);
+        closeReactAbilityWheel(false);
+        clearMovementInputOnly();
+        sendInput({}, true);
         return;
       }
       const was = JSON.stringify(inputPayload());
@@ -7647,11 +7745,14 @@
         phaserScene.cameras?.main?.setZoom(cameraZoomNow);
       }
 
-      runMatchStartTransition(() => {
+      const inProgressSpectate = !!map?.inProgress;
+      const enterGame = () => {
         showScreen("game");
-        beginMatchStartCue();
+        if (!inProgressSpectate) beginMatchStartCue();
         ensureAudioStarted();
-      });
+      };
+      if (inProgressSpectate) enterGame();
+      else runMatchStartTransition(enterGame);
     });
     socket.on("snapshot", (snapshot) => {
       const arrivedAt = performance.now();

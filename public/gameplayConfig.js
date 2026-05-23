@@ -318,6 +318,12 @@ const GAMEPLAY_CONFIG = {
     survivorPalletStunIntentRadius: 92,
     survivorPalletStunForecastSeconds: 0.32,
     survivorPalletWallEmergencyRadius: 190,
+    survivorPersonalities: {
+      enabled: true,
+      // If there is only one living Runner bot, it becomes a Generalist at decision time.
+      // This covers 3-human/1-bot lobbies and late-game "last bot standing" situations.
+      generalistFallbackWhenBotCountAtOrBelow: 1
+    },
     voidMemorySeconds: 6.0,
     voidScratchMemorySeconds: 2.5,
     voidInteractCooldown: 1.25,

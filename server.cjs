@@ -468,6 +468,73 @@ const BOT_SURVIVOR_PALLET_STUN_INTENT_RADIUS = Math.max(VOID_STUN_SWING_RADIUS, 
 const BOT_SURVIVOR_PALLET_STUN_FORECAST_SECONDS = clamp(cfgNumber(GAMEPLAY_CONFIG.bots?.survivorPalletStunForecastSeconds, 0.32), 0.12, 0.55);
 const BOT_SURVIVOR_PALLET_WALL_EMERGENCY_RADIUS = Math.max(150, cfgNumber(GAMEPLAY_CONFIG.bots?.survivorPalletWallEmergencyRadius, 190));
 
+const BOT_SURVIVOR_PERSONALITIES_CONFIG = GAMEPLAY_CONFIG.bots?.survivorPersonalities || {};
+const BOT_SURVIVOR_PERSONALITIES_ENABLED = BOT_SURVIVOR_PERSONALITIES_CONFIG.enabled !== false;
+const BOT_SURVIVOR_GENERALIST_FALLBACK_COUNT = Math.max(1, Math.floor(cfgNumber(BOT_SURVIVOR_PERSONALITIES_CONFIG.generalistFallbackWhenBotCountAtOrBelow, 1)));
+const BOT_SURVIVOR_PERSONALITY_PROFILES = Object.freeze({
+  generalist: {
+    id: "generalist",
+    label: "Generalist",
+    names: ["Runner Ace", "Runner Quinn", "Runner Sol"],
+    depositThreshold: 8,
+    hookUrgencyBias: 1.0,
+    healUrgencyBias: 1.0,
+    orbGreed: 1.0,
+    riftFocus: 1.0,
+    supportCaution: 1.0,
+    loopBias: 1.0
+  },
+  scout: {
+    id: "scout",
+    label: "Scout",
+    names: ["Scout Nova", "Scout Pip", "Scout Juno"],
+    depositThreshold: 10,
+    hookUrgencyBias: 0.72,
+    healUrgencyBias: 0.62,
+    orbGreed: 1.42,
+    riftFocus: 0.82,
+    supportCaution: 1.28,
+    loopBias: 0.94
+  },
+  medic: {
+    id: "medic",
+    label: "Medic",
+    names: ["Medic Iris", "Medic Vale", "Medic Lux"],
+    depositThreshold: 8,
+    hookUrgencyBias: 1.48,
+    healUrgencyBias: 1.58,
+    orbGreed: 0.74,
+    riftFocus: 0.86,
+    supportCaution: 0.78,
+    loopBias: 0.92
+  },
+  banker: {
+    id: "banker",
+    label: "Banker",
+    names: ["Banker Cash", "Banker Gem", "Banker Pax"],
+    depositThreshold: 6,
+    hookUrgencyBias: 0.82,
+    healUrgencyBias: 0.78,
+    orbGreed: 0.96,
+    riftFocus: 1.44,
+    supportCaution: 1.12,
+    loopBias: 0.9
+  },
+  looper: {
+    id: "looper",
+    label: "Looper",
+    names: ["Looper Echo", "Looper Nyx", "Looper Zed"],
+    depositThreshold: 8,
+    hookUrgencyBias: 0.92,
+    healUrgencyBias: 0.82,
+    orbGreed: 0.82,
+    riftFocus: 0.86,
+    supportCaution: 0.95,
+    loopBias: 1.46
+  }
+});
+const BOT_SURVIVOR_PERSONALITY_ORDER = ["medic", "banker", "looper", "scout"];
+
 const CHAT_MESSAGE_DURATION = 3.0;
 const CHAT_WHEEL_MESSAGES = RIFTRUNNER_CHATS.chatWheel || {
   survivor: {
@@ -1583,6 +1650,9 @@ function coneSees(viewer, target, length, angle) {
 }
 
 function createMatchStats(role) {
+  if (role === "spectator") {
+    return {};
+  }
   if (role === "killer") {
     return {
       riftsKicked: 0,
@@ -1660,7 +1730,9 @@ function serializeMatchStats(actor) {
 function getLobbySummary(lobby) {
   const players = [...lobby.players.values()];
   const survivors = players.filter((p) => p.role === "survivor").length;
-  const killer = players.some((p) => p.role === "killer");
+  const killerCount = players.filter((p) => p.role === "killer").length;
+  const spectators = players.filter((p) => p.role === "spectator").length;
+  const killer = killerCount > 0;
   return {
     id: lobby.id,
     name: lobby.name,
@@ -1670,6 +1742,8 @@ function getLobbySummary(lobby) {
     playerCount: players.length,
     survivors,
     killer,
+    killerCount,
+    spectators,
     maxSurvivors: MAX_SURVIVORS,
     createdAt: lobby.createdAt
   };
@@ -1688,13 +1762,13 @@ function makePlayer(socket, role, name, options = {}) {
     name: sanitizePlayerName(name),
     isBot: !!options.isBot,
     role,
-    skin: role === "survivor" ? sanitizeSkin(options.skin) : "killerCircle",
-    ready: false,
+    skin: role === "survivor" ? sanitizeSkin(options.skin) : role === "killer" ? "killerCircle" : "spectatorEye",
+    ready: role === "spectator",
     x: 0,
     y: 0,
     angle: 0,
-    health: role === "survivor" ? 2 : 999,
-    dots: role === "survivor" ? 0 : 0,
+    health: role === "survivor" ? 2 : role === "killer" ? 999 : 1,
+    dots: 0,
     stats: createMatchStats(role),
     currentChaseSeconds: 0,
     dotFullNoticeCooldown: 0,
@@ -1817,10 +1891,96 @@ function createLobby(name, requestedMapId) {
   return lobby;
 }
 
-function joinLobby(socket, lobby, requestedRole, name, skin) {
+function normalizeRequestedRole(requestedRole) {
+  if (requestedRole === "killer") return "killer";
+  if (requestedRole === "spectator") return "spectator";
+  return "survivor";
+}
+
+function isLobbySpectator(socket, lobby) {
+  if (!socket || !lobby) return false;
+  return lobby.players.get(socket.id)?.role === "spectator";
+}
+
+function getSpectatorTargetCandidates(game, viewer = null) {
+  if (!game?.actors) return [];
+  return [...game.actors.values()].filter((actor) => {
+    if (!actor || actor.id === viewer?.id || actor.role === "spectator") return false;
+    if (actor.role === "killer") return !actor.dead;
+    if (actor.role === "survivor") return !actor.dead && !actor.escaped;
+    return false;
+  });
+}
+
+function defaultSpectatorTarget(game, viewer = null) {
+  const targets = getSpectatorTargetCandidates(game, viewer);
+  return targets.find((actor) => actor.role === "killer") || targets.find((actor) => actor.role === "survivor") || null;
+}
+
+function placeSpectatorNearTarget(game, spectator) {
+  const target = defaultSpectatorTarget(game, spectator);
+  if (target) {
+    spectator.x = target.x;
+    spectator.y = target.y;
+    spectator.angle = target.angle || 0;
+    spectator.spectateTargetId = target.id;
+  } else if (game?.map) {
+    spectator.x = game.map.width / 2;
+    spectator.y = game.map.height / 2;
+    spectator.angle = 0;
+    spectator.spectateTargetId = null;
+  }
+  return spectator;
+}
+
+function addSpectatorActorToGame(lobby, player) {
+  if (!lobby?.game || !player || player.role !== "spectator") return null;
+  const existing = lobby.game.actors.get(player.id);
+  if (existing?.role === "spectator") return existing;
+  const spectator = makePlayer({ id: player.id }, "spectator", player.name, { isBot: false });
+  spectator.ready = true;
+  placeSpectatorNearTarget(lobby.game, spectator);
+  lobby.game.actors.set(spectator.id, spectator);
+  return spectator;
+}
+
+function joinSpectatorLobby(socket, lobby, name) {
   leaveCurrentLobby(socket);
 
-  let role = requestedRole === "killer" ? "killer" : "survivor";
+  if (!lobby || (lobby.phase !== "lobby" && lobby.phase !== "game")) {
+    socket.emit("toast", { type: "error", message: "That lobby is not available to spectate." });
+    return false;
+  }
+
+  const player = makePlayer(socket, "spectator", name || "Spectator", { isBot: false });
+  player.ready = true;
+  lobby.players.set(socket.id, player);
+  touchLobby(lobby);
+  socketToLobby.set(socket.id, lobby.id);
+  socket.join(lobby.id);
+  socket.emit("joinedLobby", { lobbyId: lobby.id, playerId: socket.id, spectator: true });
+
+  if (lobby.phase === "game" && lobby.game) {
+    addSpectatorActorToGame(lobby, player);
+    socket.emit("gameStarted", {
+      ...serializeMapForClient(lobby.game.map),
+      spectator: true,
+      inProgress: true
+    });
+    socket.emit("toast", { type: "info", message: "Spectating run — Tab switches views." });
+  }
+
+  broadcastLobbyState(lobby);
+  broadcastLobbyList();
+  return true;
+}
+
+function joinLobby(socket, lobby, requestedRole, name, skin) {
+  const role = normalizeRequestedRole(requestedRole);
+  if (role === "spectator") return joinSpectatorLobby(socket, lobby, name);
+
+  leaveCurrentLobby(socket);
+
   const players = [...lobby.players.values()];
   const survivorCount = players.filter((p) => p.role === "survivor").length;
 
@@ -1863,7 +2023,9 @@ function leaveCurrentLobby(socket) {
     if (lobby.phase === "game" && lobby.game) {
       const actor = lobby.game.actors.get(socket.id);
       if (actor) {
-        if (actor.role === "killer") {
+        if (actor.role === "spectator") {
+          lobby.game.actors.delete(socket.id);
+        } else if (actor.role === "killer") {
           endGame(lobby, "survivors", "The Void disconnected. The Runners slip away.");
         } else {
           actor.dead = true;
@@ -1885,7 +2047,7 @@ function broadcastLobbyState(lobby) {
     mapId: lobby.mapId,
     mapName: lobby.mapName,
     maxSurvivors: MAX_SURVIVORS,
-    players: [...lobby.players.values()].map((p) => ({ id: p.id, name: p.name, role: p.role, skin: p.skin || "blueSquare", ready: p.isBot ? true : p.ready, isBot: !!p.isBot }))
+    players: [...lobby.players.values()].map((p) => ({ id: p.id, name: p.name, role: p.role, skin: p.skin || "blueSquare", ready: (p.role === "spectator" || p.isBot) ? true : !!p.ready, isBot: !!p.isBot }))
   });
 }
 
@@ -1919,6 +2081,7 @@ function removeBotFromLobby(lobby, botId) {
 function canChangeRole(lobby, player, role) {
   if (role === player.role) return true;
   const players = [...lobby.players.values()].filter((p) => p.id !== player.id);
+  if (role === "spectator") return true;
   if (role === "killer") return true;
   if (role === "survivor") return players.filter((p) => p.role === "survivor").length < MAX_SURVIVORS;
   return false;
@@ -1941,10 +2104,10 @@ function startGame(lobby) {
   }
 
   for (const player of players) {
-    if (player.isBot) player.ready = true;
+    if (player.role === "spectator" || player.isBot) player.ready = true;
   }
 
-  const unreadyHumans = players.filter((player) => !player.isBot && !player.ready);
+  const unreadyHumans = players.filter((player) => player.role !== "spectator" && !player.isBot && !player.ready);
   if (unreadyHumans.length > 0) {
     const names = unreadyHumans.slice(0, 3).map((player) => player.name || "Player").join(", ");
     const more = unreadyHumans.length > 3 ? ` +${unreadyHumans.length - 3} more` : "";
@@ -1996,7 +2159,12 @@ function startGame(lobby) {
   seedInitialCollectibleDots(game);
 
   let survivorSpawnIndex = 0;
+  const spectatorPlayers = [];
   for (const player of players) {
+    if (player.role === "spectator") {
+      spectatorPlayers.push(player);
+      continue;
+    }
     const actor = makePlayer({ id: player.id }, player.role, player.name, { isBot: !!player.isBot, skin: player.skin });
     actor.ready = player.ready;
     actor.stats = createMatchStats(actor.role);
@@ -2017,10 +2185,19 @@ function startGame(lobby) {
     game.actors.set(actor.id, actor);
   }
 
+  for (const player of spectatorPlayers) {
+    const spectator = makePlayer({ id: player.id }, "spectator", player.name, { isBot: false });
+    spectator.ready = true;
+    placeSpectatorNearTarget(game, spectator);
+    game.actors.set(spectator.id, spectator);
+  }
+
+  assignRunnerBotPersonalities(game);
+
   lobby.phase = "game";
   lobby.game = game;
   touchLobby(lobby);
-  for (const player of lobby.players.values()) player.ready = false;
+  for (const player of lobby.players.values()) player.ready = player.role === "spectator";
   io.to(lobby.id).emit("gameStarted", serializeMapForClient(map));
   broadcastLobbyState(lobby);
   broadcastLobbyList();
@@ -3833,7 +4010,7 @@ function checkWinConditions(lobby) {
 function endGame(lobby, winner, reason) {
   if (!lobby.game || lobby.game.phase === "ended") return;
   const game = lobby.game;
-  const finalActors = [...game.actors.values()].map((p) => ({
+  const finalActors = [...game.actors.values()].filter((p) => p.role !== "spectator").map((p) => ({
     id: p.id,
     name: p.name,
     role: p.role,
@@ -4446,6 +4623,64 @@ function botDistanceToKiller(game, actor) {
 function botKillerHasLineOfSight(game, actor) {
   const killer = botNearestKiller(game);
   return !!(killer && segmentClear(game, actor.x, actor.y, killer.x, killer.y));
+}
+
+function botSurvivorProfileById(id) {
+  return BOT_SURVIVOR_PERSONALITY_PROFILES[id] || BOT_SURVIVOR_PERSONALITY_PROFILES.generalist;
+}
+
+function botSurvivorAliveBotCount(game) {
+  if (!game?.actors) return 0;
+  return [...game.actors.values()].filter((actor) => actor?.isBot && actor.role === "survivor" && !actor.dead && !actor.escaped).length;
+}
+
+function botSurvivorEffectiveProfile(game, actor) {
+  if (!BOT_SURVIVOR_PERSONALITIES_ENABLED || !actor?.isBot || actor.role !== "survivor") {
+    return BOT_SURVIVOR_PERSONALITY_PROFILES.generalist;
+  }
+  // If one bot is carrying the whole team, personality quirks get parked.
+  // A lone Medic should still collect/deposit, and a lone Scout should still rescue.
+  if (botSurvivorAliveBotCount(game) <= BOT_SURVIVOR_GENERALIST_FALLBACK_COUNT) {
+    return BOT_SURVIVOR_PERSONALITY_PROFILES.generalist;
+  }
+  return botSurvivorProfileById(actor.bot?.personality || "generalist");
+}
+
+function botSurvivorDepositThreshold(game, actor) {
+  const profile = botSurvivorEffectiveProfile(game, actor);
+  const raw = cfgNumber(profile.depositThreshold, BOT_SURVIVOR_DEPOSIT_DOT_THRESHOLD);
+  return clamp(Math.floor(raw), 1, SURVIVOR_DOT_MAX);
+}
+
+function botSurvivorProfileValue(game, actor, key, fallback = 1) {
+  const value = botSurvivorEffectiveProfile(game, actor)?.[key];
+  return Number.isFinite(Number(value)) ? Number(value) : fallback;
+}
+
+function assignRunnerBotPersonalities(game) {
+  if (!game?.actors || !BOT_SURVIVOR_PERSONALITIES_ENABLED) return;
+  const survivorBots = [...game.actors.values()].filter((actor) => actor.isBot && actor.role === "survivor");
+  if (!survivorBots.length) return;
+
+  const forcedGeneralist = survivorBots.length <= BOT_SURVIVOR_GENERALIST_FALLBACK_COUNT;
+  const usedNames = new Set();
+
+  survivorBots.forEach((actor, index) => {
+    const profileId = forcedGeneralist
+      ? "generalist"
+      : BOT_SURVIVOR_PERSONALITY_ORDER[index % BOT_SURVIVOR_PERSONALITY_ORDER.length];
+    const profile = botSurvivorProfileById(profileId);
+    const names = Array.isArray(profile.names) && profile.names.length ? profile.names : [profile.label || "Runner Bot"];
+    let name = names[Math.floor(index / BOT_SURVIVOR_PERSONALITY_ORDER.length) % names.length] || profile.label || "Runner Bot";
+    if (usedNames.has(name)) name = `${name}`.slice(0, 14) + ` ${index + 1}`;
+    usedNames.add(name);
+
+    actor.name = sanitizePlayerName(name);
+    actor.bot = actor.bot || {};
+    actor.bot.personality = profile.id;
+    actor.bot.personalityLabel = profile.label;
+    actor.bot.assignedPersonality = profile.id;
+  });
 }
 
 function botAbilityReady(actor, abilityId, role) {
@@ -5417,6 +5652,7 @@ function botFindBestLoopEscape(game, survivor, killer, options = {}) {
 
   const tile = game.map.tile || 64;
   const currentKillerDistance = dist(survivor.x, survivor.y, killer.x, killer.y);
+  const loopBias = botSurvivorProfileValue(game, survivor, "loopBias", 1);
   const force = !!options.force;
   const currentEdgePenalty = botRunnerDeadzonePenalty(game, survivor.x, survivor.y, 0.42);
   const maxApproach = Math.max(
@@ -5496,16 +5732,16 @@ function botFindBestLoopEscape(game, survivor, killer, options = {}) {
       const baseValue = botRunnerLoopValue(object, type);
       const deadzoneEscapeBonus = Math.min(900, currentEdgePenalty * 0.8);
 
-      const score = baseValue
-        + landing.score * 0.82
+      const score = baseValue * loopBias
+        + landing.score * (0.82 + (loopBias - 1) * 0.18)
         + landingGain * 2.15
         + Math.max(-120, approachGain * 1.1)
         + approachAwayAlignment * 185
         + sideSafety
         + lineSafety
-        + (loopBetweenThem ? 260 : 0)
-        + (killerNearLoop ? 120 : 0)
-        + (immediate ? 290 : 0)
+        + (loopBetweenThem ? 260 * loopBias : 0)
+        + (killerNearLoop ? 120 * loopBias : 0)
+        + (immediate ? 290 * loopBias : 0)
         + deadzoneEscapeBonus
         + approachEscape.score * 0.26
         + landingEscape.score * 0.46
@@ -5870,7 +6106,7 @@ function botRunnerObjectiveTemporarilyAvoided(game, actor, kind, targetOrTask) {
 
   // A Runner holding a real bundle should not blacklist every rift just because The Void
   // hummed nearby earlier. Depositing eight orbs beats loitering with pockets full of snacks.
-  if (kind === "gen" && (actor.dots || 0) >= BOT_SURVIVOR_DEPOSIT_DOT_THRESHOLD) return false;
+  if (kind === "gen" && (actor.dots || 0) >= botSurvivorDepositThreshold(game, actor)) return false;
 
   if ((bot.runnerDangerAvoidUntil || 0) <= (game.time || 0)) return false;
   const key = botRunnerDangerObjectiveKey(kind, targetOrTask);
@@ -6238,7 +6474,7 @@ function botUseLoopObject(game, survivor, killer) {
 }
 
 function chooseBotDotTarget(game, actor) {
-  if ((actor.dots || 0) >= BOT_SURVIVOR_DEPOSIT_DOT_THRESHOLD) return null;
+  if ((actor.dots || 0) >= botSurvivorDepositThreshold(game, actor)) return null;
   const bot = actor.bot || (actor.bot = {});
   const existing = bot.objectiveDotId ? (game.collectibleDots || []).find((d) => d.id === bot.objectiveDotId) : null;
   if (existing && game.time < (bot.objectiveDotUntil || 0)) return existing;
@@ -6580,7 +6816,7 @@ function botRunnerResolveTask(game, actor, killer = null) {
   if (!target) return null;
 
   if (botRunnerObjectiveTemporarilyAvoided(game, actor, task.kind, target)) return null;
-  if (task.kind === "dot" && (actor.dots || 0) >= BOT_SURVIVOR_DEPOSIT_DOT_THRESHOLD) return null;
+  if (task.kind === "dot" && (actor.dots || 0) >= botSurvivorDepositThreshold(game, actor)) return null;
   if (task.kind === "dot" && (actor.dots || 0) >= SURVIVOR_DOT_MAX) return null;
   if (task.kind === "gen" && ((actor.dots || 0) <= 0 || target.done)) return null;
   if (task.kind === "hook") {
@@ -6684,7 +6920,7 @@ function botRunnerCanBraveObjective(game, actor, kind, target, killer, facts = {
 
   if (kind === "gen") {
     const progress = clamp(Number(target.progress || 0), 0, 1);
-    const urgentDeposit = carried >= BOT_SURVIVOR_DEPOSIT_DOT_THRESHOLD;
+    const urgentDeposit = carried >= botSurvivorDepositThreshold(game, actor);
     const nearlyDone = progress >= 0.62;
     return (urgentDeposit || nearlyDone)
       && currentDistance >= BOT_SURVIVOR_BRAVE_OBJECTIVE_DISTANCE
@@ -6692,7 +6928,7 @@ function botRunnerCanBraveObjective(game, actor, kind, target, killer, facts = {
   }
 
   if (kind === "dot") {
-    if (carried >= BOT_SURVIVOR_DEPOSIT_DOT_THRESHOLD) return false;
+    if (carried >= botSurvivorDepositThreshold(game, actor)) return false;
     return notActuallyChased
       && directToObjective <= game.map.tile * 8.5
       && targetDistance >= BOT_SURVIVOR_HARD_TERROR_RADIUS
@@ -6946,16 +7182,24 @@ function botRunnerChooseGate(game, actor) {
 }
 
 function botRunnerChooseHookSave(game, actor, killer) {
+  const urgencyBias = botSurvivorProfileValue(game, actor, "hookUrgencyBias", 1);
+  const caution = botSurvivorProfileValue(game, actor, "supportCaution", 1);
   let best = null;
   let bestScore = Infinity;
   for (const ally of game.actors.values()) {
     if (ally.id === actor.id || ally.role !== "survivor" || !ally.hooked || ally.dead || ally.escaped) continue;
     if (botRunnerTaskReservedByOther(game, actor, "hook", ally)) continue;
     if (!botSafeToRescueOrHeal(game, actor, ally, killer, true)) continue;
+    const direct = dist(actor.x, actor.y, ally.x, ally.y);
     const route = botCheapRouteDistance(game, actor, ally.x, ally.y, { role: "survivor", exact: false });
-    const routeDistance = Number.isFinite(route) ? route : dist(actor.x, actor.y, ally.x, ally.y) + game.map.tile * 6;
-    const hookUrgency = (ally.unhookProgress || 0) * 380 + (ally.hookCount || 0) * 260;
-    const score = routeDistance - hookUrgency;
+    const routeDistance = Number.isFinite(route) ? route : direct + game.map.tile * 6;
+    const hookUrgency = ((ally.unhookProgress || 0) * 380 + (ally.hookCount || 0) * 260 + (ally.hookProgress || 0) * 180) * urgencyBias;
+    const danger = killer && !killer.dead
+      ? Math.max(0, BOT_SURVIVOR_SAFE_KILLER_DISTANCE - dist(killer.x, killer.y, ally.x, ally.y)) * 0.42 * caution
+      : 0;
+    const score = routeDistance + danger - hookUrgency;
+    // Low-support personalities still save, but only if the save is not a cross-map vanity trip.
+    if (urgencyBias < 0.9 && direct > BOT_SURVIVOR_RESCUE_RADIUS * 0.72 && hookUrgency < 300) continue;
     if (score < bestScore) {
       bestScore = score;
       best = ally;
@@ -6965,6 +7209,8 @@ function botRunnerChooseHookSave(game, actor, killer) {
 }
 
 function botRunnerChooseHealTarget(game, actor, killer) {
+  const healBias = botSurvivorProfileValue(game, actor, "healUrgencyBias", 1);
+  const caution = botSurvivorProfileValue(game, actor, "supportCaution", 1);
   let best = null;
   let bestScore = Infinity;
   for (const ally of game.actors.values()) {
@@ -6973,11 +7219,17 @@ function botRunnerChooseHealTarget(game, actor, killer) {
     const direct = dist(actor.x, actor.y, ally.x, ally.y);
     // Healing is a close-by opportunistic support action. Long-map rescue/heal trips are what made
     // bots abandon objectives and shuffle around like confused little Roombas.
-    if (direct > Math.min(BOT_SURVIVOR_HEAL_RADIUS, 360)) continue;
+    const maxDirect = Math.min(BOT_SURVIVOR_HEAL_RADIUS, healBias >= 1.2 ? 440 : 360);
+    if (direct > maxDirect) continue;
     if (!botSafeToRescueOrHeal(game, actor, ally, killer, ally.downed)) continue;
     const route = botCheapRouteDistance(game, actor, ally.x, ally.y, { role: "survivor", exact: false });
     const routeDistance = Number.isFinite(route) ? route : direct + game.map.tile * 4;
-    const score = routeDistance - (ally.downed ? 260 : 80);
+    const urgency = (ally.downed ? 300 : 90) * healBias;
+    const danger = killer && !killer.dead
+      ? Math.max(0, BOT_SURVIVOR_SAFE_KILLER_DISTANCE - dist(killer.x, killer.y, ally.x, ally.y)) * 0.28 * caution
+      : 0;
+    const score = routeDistance + danger - urgency;
+    if (healBias < 0.85 && !ally.downed && direct > 180) continue;
     if (score < bestScore) {
       bestScore = score;
       best = ally;
@@ -6988,6 +7240,7 @@ function botRunnerChooseHealTarget(game, actor, killer) {
 
 function botRunnerChooseRift(game, actor, killer) {
   if ((actor.dots || 0) <= 0) return null;
+  const riftFocus = botSurvivorProfileValue(game, actor, "riftFocus", 1);
   let best = null;
   let bestScore = Infinity;
   const carried = Math.max(0, actor.dots || 0);
@@ -7002,10 +7255,10 @@ function botRunnerChooseRift(game, actor, killer) {
       ? Math.max(0, BOT_SURVIVOR_SAFE_KILLER_DISTANCE - dist(killer.x, killer.y, gen.x, gen.y)) * (segmentClear(game, killer.x, killer.y, gen.x, gen.y) ? 1.1 : 0.45)
       : 0;
     const progressBonus = progress * 1250 + (progress >= 0.65 ? 420 : 0) + (progress >= 0.85 ? 420 : 0);
-    const carryBonus = Math.min(carried, SURVIVOR_DOT_MAX) * 34;
-    const finishBonus = canFinish ? 760 : 0;
-    const activeTeamBonus = (gen.dotDepositing || gen.repairing ? 130 : 0);
-    const score = routeDistance + killerDanger - progressBonus - carryBonus - finishBonus - activeTeamBonus;
+    const carryBonus = Math.min(carried, SURVIVOR_DOT_MAX) * 34 * riftFocus;
+    const finishBonus = canFinish ? 760 * riftFocus : 0;
+    const activeTeamBonus = (gen.dotDepositing || gen.repairing ? 130 * riftFocus : 0);
+    const score = routeDistance + killerDanger - progressBonus * riftFocus - carryBonus - finishBonus - activeTeamBonus;
     if (score < bestScore) {
       bestScore = score;
       best = gen;
@@ -7045,10 +7298,11 @@ function botRunnerChooseClosestDepositRift(game, actor, killer = null) {
 }
 
 function botRunnerChooseOrb(game, actor, killer) {
-  if ((actor.dots || 0) >= BOT_SURVIVOR_DEPOSIT_DOT_THRESHOLD) return null;
+  if ((actor.dots || 0) >= botSurvivorDepositThreshold(game, actor)) return null;
   if ((actor.dots || 0) >= SURVIVOR_DOT_MAX) return null;
   const dots = (game.collectibleDots || []).filter(Boolean);
   if (!dots.length) return null;
+  const orbGreed = botSurvivorProfileValue(game, actor, "orbGreed", 1);
   const carried = actor.dots || 0;
   const shortlist = dots
     .map((dot) => ({ dot, direct: dist(actor.x, actor.y, dot.x, dot.y) }))
@@ -7074,7 +7328,7 @@ function botRunnerChooseOrb(game, actor, killer) {
       ? Math.max(0, BOT_SURVIVOR_SAFE_KILLER_DISTANCE - dist(killer.x, killer.y, dot.x, dot.y)) * 0.9
       : 0;
     const carryPenalty = carried >= SURVIVOR_DOT_MAX * 0.72 ? carried * 42 : carried * 5;
-    const score = routeDistance + killerDanger + carryPenalty - riftBonus;
+    const score = routeDistance + killerDanger + carryPenalty - riftBonus - orbGreed * 125;
     if (score < bestScore) {
       bestScore = score;
       best = dot;
@@ -7088,7 +7342,7 @@ function botRunnerShouldDeposit(game, actor, rift) {
   const carried = actor.dots || 0;
   const progress = clamp(Number(rift.progress || 0), 0, 1);
   const missingDeposits = Math.ceil(Math.max(0, 1 - progress) / Math.max(0.0001, DOT_REPAIR_PROGRESS));
-  return carried >= BOT_SURVIVOR_DEPOSIT_DOT_THRESHOLD
+  return carried >= botSurvivorDepositThreshold(game, actor)
     || carried >= SURVIVOR_DOT_MAX
     || carried >= 18
     || (carried >= 10 && progress >= 0.25)
@@ -7185,7 +7439,7 @@ function botMoveToObjective(game, actor) {
 
   // 4) At eight carried orbs, stop hoarding and route to the closest unfinished rift.
   // This deliberately overrides dot collection and short objective locks.
-  if ((actor.dots || 0) >= BOT_SURVIVOR_DEPOSIT_DOT_THRESHOLD) {
+  if ((actor.dots || 0) >= botSurvivorDepositThreshold(game, actor)) {
     const depositRift = botRunnerChooseClosestDepositRift(game, actor, killer) || botRunnerChooseRift(game, actor, killer);
     if (depositRift) {
       const task = actor.bot?.runnerTask || actor.bot?.survivorTask;
@@ -7446,6 +7700,7 @@ function updateGame(lobby, dt) {
   if (game.time < (game.matchStartFreezeSeconds || MATCH_START_FREEZE_SECONDS)) {
     game.botThinkAccumulator = 0;
     for (const actor of game.actors.values()) {
+      if (actor.role === "spectator") continue;
       resetInput(actor.input);
       actor.vault = null;
       actor.breakTarget = null;
@@ -7470,11 +7725,13 @@ function updateGame(lobby, dt) {
   updateHookInteractions(game, dt);
   updateGeneratorKicks(game, dt);
   const killer = [...game.actors.values()].find((p) => p.role === "killer");
-  for (const actor of game.actors.values()) moveActor(game, actor, dt);
+  for (const actor of game.actors.values()) {
+    if (actor.role !== "spectator") moveActor(game, actor, dt);
+  }
   updateCollectibleDots(game, dt);
   updateKillerAttack(game, killer, dt);
   for (const actor of game.actors.values()) {
-    if (actor.input.action) handleAction(game, actor);
+    if (actor.role !== "spectator" && actor.input.action) handleAction(game, actor);
   }
   updateHealing(game, dt);
   updateDotDeposits(game, dt);
@@ -7494,14 +7751,33 @@ function isLivingSurvivor(actor) {
   return !!actor && actor.role === "survivor" && !actor.dead && !actor.escaped;
 }
 
+function isSpectatableActorForViewer(viewer, target) {
+  if (!viewer || !target || target.id === viewer.id || target.role === "spectator") return false;
+  if (viewer.role === "spectator") {
+    if (target.role === "killer") return !target.dead;
+    if (target.role === "survivor") return !target.dead && !target.escaped;
+    return false;
+  }
+  if (viewer.role === "survivor" && (viewer.dead || viewer.escaped)) {
+    return isLivingSurvivor(target);
+  }
+  return false;
+}
+
 function getSpectateTarget(game, viewer) {
-  if (!viewer || viewer.role !== "survivor" || (!viewer.dead && !viewer.escaped)) return null;
+  if (!viewer || !game?.actors) return null;
+  if (viewer.role !== "spectator" && !(viewer.role === "survivor" && (viewer.dead || viewer.escaped))) return null;
+
   const preferred = viewer.spectateTargetId ? game.actors.get(viewer.spectateTargetId) : null;
-  if (isLivingSurvivor(preferred)) return preferred;
+  if (isSpectatableActorForViewer(viewer, preferred)) return preferred;
+
+  const spectatorDefault = viewer.role === "spectator" ? defaultSpectatorTarget(game, viewer) : null;
+  if (spectatorDefault) return spectatorDefault;
+
   let nearest = null;
   let nearestDist = Infinity;
   for (const actor of game.actors.values()) {
-    if (!isLivingSurvivor(actor) || actor.id === viewer.id) continue;
+    if (!isSpectatableActorForViewer(viewer, actor)) continue;
     const d = dist(viewer.x, viewer.y, actor.x, actor.y);
     if (d < nearestDist) {
       nearestDist = d;
@@ -7511,10 +7787,10 @@ function getSpectateTarget(game, viewer) {
   return nearest;
 }
 
-/** Dead/escaped survivors spectate through a living teammate's fog and LOS rules. */
+/** Spectators and out-of-run survivors view through their selected target's fog and LOS rules. */
 function getViewerForVisibility(game, viewer) {
   if (!viewer) return viewer;
-  if (viewer.role === "survivor" && (viewer.dead || viewer.escaped)) {
+  if (viewer.role === "spectator" || (viewer.role === "survivor" && (viewer.dead || viewer.escaped))) {
     return getSpectateTarget(game, viewer) || viewer;
   }
   return viewer;
@@ -7710,6 +7986,7 @@ function buildSnapshotFor(lobby, socketId) {
   const map = game.map;
   const actors = [];
   for (const actor of game.actors.values()) {
+    if (actor.role === "spectator") continue;
     actors.push(serializeActor(game, actor, isActorVisibleToViewer(game, pov, actor)));
   }
 
@@ -7725,7 +8002,9 @@ function buildSnapshotFor(lobby, socketId) {
     visibleHold: false
   };
 
-  const musicViewer = (viewer?.role === "survivor" && (viewer.dead || viewer.escaped)) ? pov : viewer;
+  const musicViewer = viewer?.role === "spectator"
+    ? pov
+    : (viewer?.role === "survivor" && (viewer.dead || viewer.escaped)) ? pov : viewer;
   if (musicViewer && musicViewer.role === "survivor" && killer && isLivingSurvivor(musicViewer)) {
     const d = dist(musicViewer.x, musicViewer.y, killer.x, killer.y);
     const terror = clamp(1 - d / TERROR_RADIUS, 0, 1);
@@ -7820,6 +8099,13 @@ function buildSnapshotFor(lobby, socketId) {
     winner: game.winner,
     endReason: game.endReason,
     viewerId: socketId,
+    viewer: viewer ? {
+      id: socketId,
+      role: viewer.role,
+      spectating: viewer.role === "spectator" || (viewer.role === "survivor" && (!!viewer.dead || !!viewer.escaped)),
+      spectateTargetId: getSpectateTarget(game, viewer)?.id || null,
+      canPlay: viewer.role !== "spectator" && !viewer.dead && !viewer.escaped
+    } : { id: socketId, role: null, spectating: false, spectateTargetId: null, canPlay: false },
     actors,
     events: game.events.slice(),
     scratchMarks: visibleScratchMarks.map((s) => ({ id: s.id, x: s.x, y: s.y, angle: s.angle, ttl: s.ttl })),
@@ -7931,6 +8217,16 @@ io.on("connection", (socket) => {
     joinLobby(socket, lobby, role, playerName, skin);
   });
 
+  socket.on("spectateLobby", ({ lobbyId, playerName } = {}) => {
+    if (!allowSocketEvent(socket, "lobby")) return;
+    const lobby = lobbies.get(String(lobbyId || ""));
+    if (!lobby) {
+      socket.emit("toast", { type: "error", message: "Lobby not found." });
+      return;
+    }
+    joinSpectatorLobby(socket, lobby, playerName);
+  });
+
   socket.on("quickJoin", ({ role, playerName, skin, mapId } = {}) => {
     if (!allowSocketEvent(socket, "lobby")) return;
     try {
@@ -7959,16 +8255,27 @@ io.on("connection", (socket) => {
     if (!lobby || lobby.phase !== "lobby") return;
     const player = lobby.players.get(socket.id);
     if (!player) return;
-    const nextRole = role === "killer" ? "killer" : "survivor";
-    if (!canChangeRole(lobby, player, nextRole)) {
-      socket.emit("toast", { type: "error", message: nextRole === "killer" ? "Could not select The Void." : "Runner slots are full." });
+
+    const nextRole = role === "spectator" ? "spectator" : role === "killer" ? "killer" : "survivor";
+
+    if (player.role === "spectator" && nextRole !== "spectator") {
+      socket.emit("toast", { type: "info", message: "Spectators cannot switch into a playable role from this lobby." });
       return;
     }
+
+    if (!canChangeRole(lobby, player, nextRole)) {
+      socket.emit("toast", { type: "error", message: nextRole === "killer" ? "Could not select The Void." : nextRole === "spectator" ? "Could not join as spectator." : "Runner slots are full." });
+      return;
+    }
+
     player.role = nextRole;
     // If the player picked a survivor skin before switching back from killer,
     // preserve that choice instead of silently resetting them to blue square.
-    player.skin = nextRole === "survivor" ? sanitizeSkin(skin || player.skin) : "killerCircle";
-    player.ready = false;
+    player.skin = nextRole === "survivor" ? sanitizeSkin(skin || player.skin) : nextRole === "killer" ? "killerCircle" : "spectatorEye";
+    player.ready = nextRole === "spectator";
+    if (nextRole === "spectator") {
+      socket.emit("toast", { type: "info", message: "Joined as Spectator. You will load into the run watching only." });
+    }
     touchLobby(lobby);
     broadcastLobbyState(lobby);
     broadcastLobbyList();
@@ -7992,6 +8299,12 @@ io.on("connection", (socket) => {
     if (!lobby || lobby.phase !== "lobby") return;
     const player = lobby.players.get(socket.id);
     if (!player) return;
+    if (player.role === "spectator") {
+      player.ready = true;
+      socket.emit("toast", { type: "info", message: "Spectators are always ready and do not affect match start." });
+      broadcastLobbyState(lobby);
+      return;
+    }
     player.ready = !!ready;
     touchLobby(lobby);
     broadcastLobbyState(lobby);
@@ -8035,11 +8348,14 @@ io.on("connection", (socket) => {
     const lobby = lobbies.get(socketToLobby.get(socket.id));
     if (!lobby || !lobby.game || lobby.game.phase !== "game") return;
     const viewer = lobby.game.actors.get(socket.id);
-    if (!viewer || viewer.role !== "survivor" || (!viewer.dead && !viewer.escaped)) return;
+    if (!viewer || (viewer.role !== "spectator" && !(viewer.role === "survivor" && (viewer.dead || viewer.escaped)))) return;
     const targetId = String(payload.targetId || "");
     const target = lobby.game.actors.get(targetId);
-    if (!isLivingSurvivor(target)) return;
+    if (!isSpectatableActorForViewer(viewer, target)) return;
     viewer.spectateTargetId = targetId;
+    viewer.x = target.x;
+    viewer.y = target.y;
+    viewer.angle = target.angle || 0;
   });
 
   socket.on("input", (input = {}) => {
@@ -8048,7 +8364,7 @@ io.on("connection", (socket) => {
     const lobby = lobbies.get(socketToLobby.get(socket.id));
     if (!lobby || !lobby.game) return;
     const actor = lobby.game.actors.get(socket.id);
-    if (!actor) return;
+    if (!actor || actor.role === "spectator") return;
     if (actor.role === "survivor" && actor.dead) return;
     if ((lobby.game.time || 0) < (lobby.game.matchStartFreezeSeconds || MATCH_START_FREEZE_SECONDS)) {
       resetInput(actor.input);
@@ -8119,7 +8435,7 @@ io.on("connection", (socket) => {
       lobby.phase = "lobby";
       lobby.game = null;
       touchLobby(lobby);
-      for (const p of lobby.players.values()) p.ready = false;
+      for (const p of lobby.players.values()) p.ready = p.role === "spectator" || p.isBot;
       broadcastLobbyState(lobby);
       broadcastLobbyList();
     }
