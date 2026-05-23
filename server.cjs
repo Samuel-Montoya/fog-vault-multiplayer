@@ -1332,8 +1332,8 @@ function areRiftsComplete(game) {
   return completedRiftCount(game) >= required;
 }
 
-function visibleGeneratorsForSnapshot(game) {
-  if (areRiftsComplete(game)) return [];
+function visibleGeneratorsForSnapshot(game, forceVisible = false) {
+  if (areRiftsComplete(game) && !forceVisible) return [];
   return game?.map?.generators || [];
 }
 
@@ -1891,6 +1891,12 @@ function createLobby(name, requestedMapId) {
   return lobby;
 }
 
+const SPECTATE_OVERVIEW_ID = "__overview__";
+
+function isSpectateOverviewId(id) {
+  return id === SPECTATE_OVERVIEW_ID;
+}
+
 function normalizeRequestedRole(requestedRole) {
   if (requestedRole === "killer") return "killer";
   if (requestedRole === "spectator") return "spectator";
@@ -1915,6 +1921,10 @@ function getSpectatorTargetCandidates(game, viewer = null) {
 function defaultSpectatorTarget(game, viewer = null) {
   const targets = getSpectatorTargetCandidates(game, viewer);
   return targets.find((actor) => actor.role === "killer") || targets.find((actor) => actor.role === "survivor") || null;
+}
+
+function isSpectatorOverviewViewer(viewer) {
+  return !!(viewer && viewer.role === "spectator" && isSpectateOverviewId(viewer.spectateTargetId));
 }
 
 function placeSpectatorNearTarget(game, spectator) {
@@ -7766,6 +7776,7 @@ function isSpectatableActorForViewer(viewer, target) {
 
 function getSpectateTarget(game, viewer) {
   if (!viewer || !game?.actors) return null;
+  if (isSpectatorOverviewViewer(viewer)) return null;
   if (viewer.role !== "spectator" && !(viewer.role === "survivor" && (viewer.dead || viewer.escaped))) return null;
 
   const preferred = viewer.spectateTargetId ? game.actors.get(viewer.spectateTargetId) : null;
@@ -7790,6 +7801,15 @@ function getSpectateTarget(game, viewer) {
 /** Spectators and out-of-run survivors view through their selected target's fog and LOS rules. */
 function getViewerForVisibility(game, viewer) {
   if (!viewer) return viewer;
+  if (isSpectatorOverviewViewer(viewer)) {
+    return {
+      id: viewer.id,
+      role: "spectatorOverview",
+      x: game?.map?.width ? game.map.width / 2 : viewer.x,
+      y: game?.map?.height ? game.map.height / 2 : viewer.y,
+      angle: 0
+    };
+  }
   if (viewer.role === "spectator" || (viewer.role === "survivor" && (viewer.dead || viewer.escaped))) {
     return getSpectateTarget(game, viewer) || viewer;
   }
@@ -7799,6 +7819,7 @@ function getViewerForVisibility(game, viewer) {
 function isActorVisibleToViewer(game, viewer, actor) {
   if (!viewer || !actor) return false;
   if (viewer.id === actor.id) return true;
+  if (viewer.role === "spectatorOverview") return !actor.dead && !actor.escaped;
   if (actor.dead || actor.escaped) return false;
 
   const d = dist(viewer.x, viewer.y, actor.x, actor.y);
@@ -7943,6 +7964,7 @@ function canViewerSeeGeneratorDetails(game, viewer, gen) {
 
 function canViewerSeeCollectibleDot(game, viewer, dot) {
   if (!viewer || !dot || viewer.dead || viewer.escaped || viewer.hooked) return false;
+  if (viewer.role === "spectatorOverview") return true;
   if (viewer.role === "survivor") return survivorCanSeePoint(game, viewer, dot.x, dot.y, { allowCloseReveal: false });
   const length = KILLER_CONE_LENGTH;
   const angle = KILLER_CONE_ANGLE;
@@ -7982,6 +8004,7 @@ function serializeGeneratorForViewer(game, viewer, gen) {
 function buildSnapshotFor(lobby, socketId) {
   const game = lobby.game;
   const viewer = game.actors.get(socketId);
+  const spectatorOverview = isSpectatorOverviewViewer(viewer);
   const pov = getViewerForVisibility(game, viewer);
   const map = game.map;
   const actors = [];
@@ -8058,15 +8081,17 @@ function buildSnapshotFor(lobby, socketId) {
     }
   }
 
-  const visibleScratchMarks = pov?.role === "killer"
-    ? game.scratchMarks.filter((s) => {
-        if (!pov) return false;
-        const d = dist(pov.x, pov.y, s.x, s.y);
-        if (d > KILLER_SCRATCH_MARK_VISIBILITY_RANGE) return false;
-        const target = { x: s.x, y: s.y };
-        return coneSees(pov, target, KILLER_SCRATCH_MARK_VISIBILITY_RANGE, KILLER_CONE_ANGLE) && segmentClear(game, pov.x, pov.y, s.x, s.y);
-      })
-    : game.scratchMarks.filter((s) => dist(pov?.x || 0, pov?.y || 0, s.x, s.y) < 180);
+  const visibleScratchMarks = spectatorOverview
+    ? game.scratchMarks
+    : pov?.role === "killer"
+      ? game.scratchMarks.filter((s) => {
+          if (!pov) return false;
+          const d = dist(pov.x, pov.y, s.x, s.y);
+          if (d > KILLER_SCRATCH_MARK_VISIBILITY_RANGE) return false;
+          const target = { x: s.x, y: s.y };
+          return coneSees(pov, target, KILLER_SCRATCH_MARK_VISIBILITY_RANGE, KILLER_CONE_ANGLE) && segmentClear(game, pov.x, pov.y, s.x, s.y);
+        })
+      : game.scratchMarks.filter((s) => dist(pov?.x || 0, pov?.y || 0, s.x, s.y) < 180);
 
   const doneGenerators = map.generators.reduce((count, g) => count + (g.done ? 1 : 0), 0);
   const requiredGenerators = game.requiredGenerators;
@@ -8082,7 +8107,7 @@ function buildSnapshotFor(lobby, socketId) {
       height: map.height,
       tile: map.tile,
       pallets: map.pallets.map((p) => ({ id: p.id, x: p.x, y: p.y, w: p.w, h: p.h, orientation: p.orientation, state: p.state, broken: p.broken })),
-      generators: visibleGeneratorsForSnapshot(game).map((g) => serializeGeneratorForViewer(game, pov, g)),
+      generators: visibleGeneratorsForSnapshot(game, spectatorOverview).map((g) => serializeGeneratorForViewer(game, pov, g)),
       riftsHidden: riftsComplete,
       gates: map.gates.map((g) => ({
         id: g.id,
@@ -8103,7 +8128,7 @@ function buildSnapshotFor(lobby, socketId) {
       id: socketId,
       role: viewer.role,
       spectating: viewer.role === "spectator" || (viewer.role === "survivor" && (!!viewer.dead || !!viewer.escaped)),
-      spectateTargetId: getSpectateTarget(game, viewer)?.id || null,
+      spectateTargetId: spectatorOverview ? SPECTATE_OVERVIEW_ID : (getSpectateTarget(game, viewer)?.id || null),
       canPlay: viewer.role !== "spectator" && !viewer.dead && !viewer.escaped
     } : { id: socketId, role: null, spectating: false, spectateTargetId: null, canPlay: false },
     actors,
@@ -8350,6 +8375,13 @@ io.on("connection", (socket) => {
     const viewer = lobby.game.actors.get(socket.id);
     if (!viewer || (viewer.role !== "spectator" && !(viewer.role === "survivor" && (viewer.dead || viewer.escaped)))) return;
     const targetId = String(payload.targetId || "");
+    if (viewer.role === "spectator" && isSpectateOverviewId(targetId)) {
+      viewer.spectateTargetId = SPECTATE_OVERVIEW_ID;
+      viewer.x = lobby.game.map?.width ? lobby.game.map.width / 2 : viewer.x;
+      viewer.y = lobby.game.map?.height ? lobby.game.map.height / 2 : viewer.y;
+      viewer.angle = 0;
+      return;
+    }
     const target = lobby.game.actors.get(targetId);
     if (!isSpectatableActorForViewer(viewer, target)) return;
     viewer.spectateTargetId = targetId;

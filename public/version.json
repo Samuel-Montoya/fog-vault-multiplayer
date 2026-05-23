@@ -1,12 +1,26 @@
 {
   "latest": {
-    "version": "0.1.61",
-    "title": "Spectator Camera Follow Fix",
-    "summary": "Dedicated spectators now load into the map and follow selected targets correctly",
-    "description": "Fixed the in-game spectator camera so dedicated spectators use the same spectating path as dead Runners: the map renders normally, the camera follows the currently watched actor, Tab and Shift+Tab cycle through living Runners and The Void, and spectator input stays fully blocked from movement, attack, chat, and ability controls.",
+    "version": "0.1.63",
+    "title": "Spectator Overview Objective Reveal Fix",
+    "summary": "Full-map spectator overview now shows rifts and exits correctly",
+    "description": "Fixed spectator Overview mode so rift/generator visuals force full visibility, completed rifts are still sent to overview snapshots, and sealed or open exit portals render in the full-map director view. Switching into or out of Overview now forces dynamic and rift layers to redraw so objects do not remain hidden from the previous POV.",
     "date": "2026-05-23"
   },
   "history": [
+    {
+      "version": "0.1.63",
+      "title": "Spectator Overview Objective Reveal Fix",
+      "summary": "Full-map spectator overview now shows rifts and exits correctly",
+      "description": "Fixed spectator Overview mode so rift/generator visuals force full visibility, completed rifts are still sent to overview snapshots, and sealed or open exit portals render in the full-map director view. Switching into or out of Overview now forces dynamic and rift layers to redraw so objects do not remain hidden from the previous POV.",
+      "date": "2026-05-23"
+    },
+    {
+      "version": "0.1.62",
+      "title": "Spectator Overview Camera",
+      "summary": "Spectators can Tab into a full-map overview with everything revealed",
+      "description": "Added a dedicated spectator Overview target after cycling through all live players with Tab. Overview mode centers the camera on the full map, computes a fit-to-screen zoom with configurable padding, reveals all actors, walls, hooks, rifts, dots, and scratch marks, and keeps normal player-target spectating unchanged for Runners and The Void.",
+      "date": "2026-05-23"
+    },
     {
       "version": "0.1.61",
       "title": "Spectator Camera Follow Fix",

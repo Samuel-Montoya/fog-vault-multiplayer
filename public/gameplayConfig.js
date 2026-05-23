@@ -114,6 +114,11 @@ const GAMEPLAY_CONFIG = {
     zoomLerpRate: 4.4,
     lowPowerZoomLerpRate: 5.2,
     zoomSnapEpsilon: 0.0008,
+    // Dedicated spectators get this after cycling past all player targets with Tab.
+    // It fits the full map, disables fog/LOS limits, and centers the camera perfectly.
+    spectatorOverviewPadding: 72,
+    spectatorOverviewMinZoom: 0.08,
+    spectatorOverviewMaxZoom: 0.95,
     applyWalkZoomOnlyWhileMoving: true
   },
 

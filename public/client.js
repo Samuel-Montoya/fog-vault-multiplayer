@@ -469,7 +469,10 @@
     ZOOM_SNAP_EPSILON: Math.max(0.0001, cfgNumber(CAMERA_CONFIG.zoomSnapEpsilon, 0.002)),
     WALK_ONLY_WHILE_MOVING: CAMERA_CONFIG.applyWalkZoomOnlyWhileMoving !== false,
     SURVIVOR_ABILITY_OFFSETS: CAMERA_CONFIG.survivorAbilityZoomOffsets || {},
-    KILLER_ABILITY_OFFSETS: CAMERA_CONFIG.killerAbilityZoomOffsets || {}
+    KILLER_ABILITY_OFFSETS: CAMERA_CONFIG.killerAbilityZoomOffsets || {},
+    OVERVIEW_PADDING: Math.max(24, cfgNumber(CAMERA_CONFIG.spectatorOverviewPadding, 72)),
+    OVERVIEW_MIN_ZOOM: Math.max(0.04, cfgNumber(CAMERA_CONFIG.spectatorOverviewMinZoom, 0.08)),
+    OVERVIEW_MAX_ZOOM: Math.max(0.05, cfgNumber(CAMERA_CONFIG.spectatorOverviewMaxZoom, 0.95))
   };
   CAMERA.MIN_ZOOM = Math.max(0.1, CAMERA.BASE_ZOOM - CAMERA.MAX_OUT_OFFSET);
   CAMERA.MAX_ZOOM = Math.max(CAMERA.MIN_ZOOM + 0.01, CAMERA.BASE_ZOOM + CAMERA.MAX_IN_OFFSET);
@@ -1718,6 +1721,13 @@
     return snapshot?.viewer?.id === myId && snapshot.viewer.role === "spectator";
   }
 
+  const SPECTATE_OVERVIEW_ID = "__overview__";
+  const SPECTATE_OVERVIEW_LABEL = "Overview";
+
+  function isSpectateOverviewId(id) {
+    return id === SPECTATE_OVERVIEW_ID;
+  }
+
   let reactChatWheelOpen = false;
 
   function getSurvivorChatState(actor) {
@@ -1954,6 +1964,20 @@
       ));
     }
     return getLivingTeammates(snapshot);
+  }
+
+  function getSpectateOptions(snapshot = currentSnapshot) {
+    const targets = getSpectateTargets(snapshot);
+    if (!isDedicatedSpectator(snapshot)) return targets;
+    return [
+      ...targets,
+      {
+        id: SPECTATE_OVERVIEW_ID,
+        name: SPECTATE_OVERVIEW_LABEL,
+        role: "overview",
+        overview: true
+      }
+    ];
   }
 
   function inputSendRateHz() {
@@ -2903,6 +2927,7 @@
       this.spectateTargetId = null;
       this.lastSpectateEmitId = "";
       this.lastSpectateEmitAt = 0;
+      this.lastSpectatorOverviewMode = false;
       this.localEscapeScreenShown = false;
       this.lastLocalChatText = "";
       this.localCollisionCache = new Map();
@@ -2922,16 +2947,41 @@
       return getSpectateTargets(currentSnapshot);
     }
 
+    getSpectateOptions() {
+      return getSpectateOptions(currentSnapshot);
+    }
+
+    isSpectatorOverviewMode() {
+      return this.isSpectating() && isDedicatedSpectator() && isSpectateOverviewId(this.spectateTargetId || currentSnapshot?.viewer?.spectateTargetId);
+    }
+
     resolveSpectateTargetId() {
       if (!this.isSpectating()) return myId;
-      const living = this.getLivingTeammates();
-      if (!living.length) return isDedicatedSpectator() ? null : myId;
-      if (living.some((a) => a.id === this.spectateTargetId)) return this.spectateTargetId;
-      if (currentSnapshot?.viewer?.spectateTargetId && living.some((a) => a.id === currentSnapshot.viewer.spectateTargetId)) {
-        this.spectateTargetId = currentSnapshot.viewer.spectateTargetId;
+      const options = this.getSpectateOptions();
+      const actorTargets = options.filter((a) => !a.overview);
+      const viewerTargetId = currentSnapshot?.viewer?.spectateTargetId || null;
+
+      if (isDedicatedSpectator() && isSpectateOverviewId(this.spectateTargetId)) return SPECTATE_OVERVIEW_ID;
+      if (isDedicatedSpectator() && isSpectateOverviewId(viewerTargetId)) {
+        this.spectateTargetId = SPECTATE_OVERVIEW_ID;
+        return SPECTATE_OVERVIEW_ID;
+      }
+
+      if (!actorTargets.length) {
+        if (isDedicatedSpectator()) {
+          this.spectateTargetId = SPECTATE_OVERVIEW_ID;
+          return SPECTATE_OVERVIEW_ID;
+        }
+        return myId;
+      }
+
+      if (actorTargets.some((a) => a.id === this.spectateTargetId)) return this.spectateTargetId;
+      if (viewerTargetId && actorTargets.some((a) => a.id === viewerTargetId)) {
+        this.spectateTargetId = viewerTargetId;
         return this.spectateTargetId;
       }
-      return living[0].id;
+      this.spectateTargetId = actorTargets[0].id;
+      return this.spectateTargetId;
     }
 
     emitSpectateTarget(targetId) {
@@ -2944,31 +2994,47 @@
     }
 
     pickDefaultSpectateTarget() {
-      const living = this.getLivingTeammates();
-      if (!living.length) {
-        this.spectateTargetId = null;
-        return null;
+      const options = this.getSpectateOptions();
+      const actorTargets = options.filter((a) => !a.overview);
+      const viewerTargetId = currentSnapshot?.viewer?.spectateTargetId || null;
+
+      if (isDedicatedSpectator() && isSpectateOverviewId(viewerTargetId)) {
+        this.spectateTargetId = SPECTATE_OVERVIEW_ID;
+        this.emitSpectateTarget(this.spectateTargetId);
+        return this.spectateTargetId;
       }
-      this.spectateTargetId = currentSnapshot?.viewer?.spectateTargetId && living.some((a) => a.id === currentSnapshot.viewer.spectateTargetId)
-        ? currentSnapshot.viewer.spectateTargetId
-        : living[0].id;
+      if (!actorTargets.length) {
+        this.spectateTargetId = isDedicatedSpectator() ? SPECTATE_OVERVIEW_ID : null;
+        if (this.spectateTargetId) this.emitSpectateTarget(this.spectateTargetId);
+        return this.spectateTargetId;
+      }
+      this.spectateTargetId = viewerTargetId && actorTargets.some((a) => a.id === viewerTargetId)
+        ? viewerTargetId
+        : actorTargets[0].id;
       this.emitSpectateTarget(this.spectateTargetId);
       return this.spectateTargetId;
     }
 
     cycleSpectateTarget(step = 1) {
       if (!this.isSpectating()) return;
-      const living = this.getLivingTeammates();
-      if (living.length <= 1) return;
-      let idx = living.findIndex((a) => a.id === this.resolveSpectateTargetId());
+      const options = this.getSpectateOptions();
+      if (options.length <= 1) return;
+      let idx = options.findIndex((a) => a.id === this.resolveSpectateTargetId());
       if (idx < 0) idx = 0;
-      idx = (idx + step + living.length) % living.length;
-      this.spectateTargetId = living[idx].id;
+      idx = (idx + step + options.length) % options.length;
+      this.spectateTargetId = options[idx].id;
       this.emitSpectateTarget(this.spectateTargetId);
+      if (this.spectateTargetId === SPECTATE_OVERVIEW_ID) {
+        toast("Spectating full map overview", 1600);
+      } else {
+        const target = options[idx];
+        toast(`Spectating ${target?.name || (target?.role === "killer" ? "The Void" : "Runner")}`, 1400);
+      }
     }
 
     getCameraSubjectItem() {
       const targetId = this.isSpectating() ? this.resolveSpectateTargetId() : myId;
+      if (isSpectateOverviewId(targetId)) return null;
       return targetId ? (this.actors.get(targetId) || null) : null;
     }
 
@@ -3621,8 +3687,12 @@
     }
 
     visibleGenerators(snapshot = currentSnapshot) {
+      const generators = snapshot?.map?.generators || this.map?.generators || [];
+      // Full-map spectator overview should reveal rift locations even when the normal
+      // player HUD hides completed rifts for the endgame floor treatment.
+      if (this.isSpectatorOverviewMode()) return generators;
       if (this.riftsAreComplete(snapshot)) return [];
-      return snapshot?.map?.generators || this.map?.generators || [];
+      return generators;
     }
 
     drawDynamicWorld() {
@@ -3637,7 +3707,8 @@
       // Generator sprites/bars live on their own layer now. Redrawing every gate,
       // hook, and dot because a progress bar moved was the lag monster wearing a nametag.
       this.syncGeneratorSprites(this.visibleGenerators());
-      for (const gate of currentSnapshot.map?.gates || this.map.gates || []) this.drawGate(g, gate);
+      const forceOverviewObjects = this.isSpectatorOverviewMode();
+      for (const gate of currentSnapshot.map?.gates || this.map.gates || []) this.drawGate(g, gate, { forceVisible: forceOverviewObjects });
       const hookSubject = this.getCameraSubjectItem();
       const hookPov = this.getPovSurvivorData();
       for (const hook of currentSnapshot.map?.hooks || this.map.hooks || []) {
@@ -3748,6 +3819,33 @@
       if (!this.generatorVisionVisual) this.generatorVisionVisual = new Map();
       const generators = this.visibleGenerators();
       const seen = new Set();
+
+      if (this.isSpectatorOverviewMode()) {
+        let animating = false;
+        for (const gen of generators) {
+          if (!gen?.id) continue;
+          seen.add(gen.id);
+          let state = this.generatorVisionVisual.get(gen.id);
+          if (!state) {
+            state = { alpha: 1, targetAlpha: 1 };
+            this.generatorVisionVisual.set(gen.id, state);
+            animating = true;
+          }
+          if (state.alpha !== 1 || state.targetAlpha !== 1) {
+            state.alpha = 1;
+            state.targetAlpha = 1;
+            animating = true;
+          }
+        }
+        for (const id of [...this.generatorVisionVisual.keys()]) {
+          if (!seen.has(id)) {
+            this.generatorVisionVisual.delete(id);
+            animating = true;
+          }
+        }
+        return animating;
+      }
+
       const subject = this.getCameraSubjectItem();
       const hasSubject = !!subject?.container;
       const role = subject?.data?.role || "survivor";
@@ -4182,8 +4280,9 @@
       }
     }
 
-    drawGate(g, gate) {
-      if (!gate || !gate.open) return;
+    drawGate(g, gate, options = {}) {
+      const forceVisible = !!options.forceVisible;
+      if (!gate || (!gate.open && !forceVisible)) return;
       const now = performance.now();
       const open = !!gate.open;
       const pulse = 0.5 + Math.sin(now / 360 + hash2(Math.floor(gate.x), Math.floor(gate.y)) * Math.PI * 2) * 0.5;
@@ -4293,7 +4392,8 @@
         survivors: (snapshot.actors || []).filter((a) => a.role === "survivor").map((a) => [a.id, a.health, a.dots, a.injured, a.downed, a.hooked, a.dead, a.escaped, a.escapeProgress, a.escapeGateId, a.chase, a.hookProgress, a.healProgress, a.hookCount, a.chatText]),
         killerChat: (snapshot.actors || []).find((a) => a.role === "killer")?.chatText || null,
         dots: (snapshot.collectibleDots || []).map((d) => d.id).join(","),
-        redOrbs: snapshot.voidEffects?.redOrbs || 0
+        redOrbs: snapshot.voidEffects?.redOrbs || 0,
+        spectateTargetId: snapshot.viewer?.spectateTargetId || this.spectateTargetId || null
       });
       dispatchAbilityHuds(snapshot);
       if (hudKey === this.lastHudKey && now - this.lastHudRenderAt < 180) return;
@@ -4306,7 +4406,7 @@
       ui.controlsLabel.textContent = hudRole === "killer"
         ? "WASD move • Mouse aim • M1 attack/lunge • Space vault/break • hold E hook/execute/kick Rift • hold Q abilities • hold R chat"
         : hudRole === "spectator"
-          ? "Tab / Shift+Tab — switch camera • watching only"
+          ? "Tab / Shift+Tab — switch camera • overview after players"
           : "WASD move • Shift sprint • Mouse flashlight • Space vault/drop • hold Q abilities • collect orbs, stand near active Rifts to deposit • stand still near teammates to heal/rescue • hold R chat";
       const shownDone = Math.min(done, required);
       ui.genText.textContent = `${shownDone} / ${required}${total > required ? ` (${total} on map)` : ""}`;
@@ -4332,11 +4432,14 @@
           ui.healthText.textContent = kickable ? "Hold E: Kick rift" : "The Void";
         }
       } else if (me.role === "spectator") {
-        const target = (snapshot.actors || []).find((a) => a.id === this.resolveSpectateTargetId());
-        ui.healthText.textContent = target
-          ? `Spectating: ${target.name || (target.role === "killer" ? "The Void" : "Runner")}`
-          : "Spectating";
-        ui.controlsLabel.textContent = "Tab / Shift+Tab — switch camera • watching only";
+        const targetId = this.resolveSpectateTargetId();
+        const target = (snapshot.actors || []).find((a) => a.id === targetId);
+        ui.healthText.textContent = targetId === SPECTATE_OVERVIEW_ID
+          ? "Spectating: Full Map Overview"
+          : target
+            ? `Spectating: ${target.name || (target.role === "killer" ? "The Void" : "Runner")}`
+            : "Spectating";
+        ui.controlsLabel.textContent = "Tab / Shift+Tab — switch camera • overview after players";
       } else if (me.dead) {
         const target = (snapshot.actors || []).find((a) => a.id === this.resolveSpectateTargetId());
         ui.healthText.textContent = target
@@ -5798,6 +5901,17 @@
       this.updateActorDisplays(dt);
       this.updateImmersion(dt);
       this.updateCamera(dt);
+      const overviewNow = this.isSpectatorOverviewMode();
+      if (overviewNow !== this.lastSpectatorOverviewMode) {
+        this.lastSpectatorOverviewMode = overviewNow;
+        this.needsDynamicRedraw = true;
+        this.needsGeneratorRedraw = true;
+        this.lastDynamicKey = "";
+        this.lastGeneratorKey = "";
+        this.killerWallVisionStableKey = "";
+        this.wallVisionTimer = 999;
+        this.generatorVisionTimer = 999;
+      }
       this.updateWallVision(dt);
       this.updateCollectibleDotVisuals(dt);
       this.maybeDrawDynamicWorld(dt);
@@ -6358,11 +6472,15 @@
       const shouldRecomputeVision = this.actorVisionTimer >= actorVisionInterval;
       if (shouldRecomputeVision) this.actorVisionTimer = 0;
 
+      const overviewVision = this.isSpectatorOverviewMode();
+
       for (const [id, item] of this.actors.entries()) {
         const data = item.data || {};
         let target = item.visionTargetAlpha ?? 0;
 
-        if (id === myId) {
+        if (overviewVision) {
+          target = 1;
+        } else if (id === myId) {
           target = this.isSpectating() ? 0.32 : 1;
         } else if (item.forceFullVision) {
           target = 1;
@@ -6436,7 +6554,7 @@
 
     applyKillerFullWallVisionIfStable() {
       if (!this.wallVisuals?.length) return;
-      const key = `${this.wallVisuals.length}:${this.getPalletVisionKey()}:${this.activePerformanceMode}`;
+      const key = `${this.isSpectatorOverviewMode() ? "overview" : "killer"}:${this.wallVisuals.length}:${this.getPalletVisionKey()}:${this.activePerformanceMode}`;
       if (this.killerWallVisionStableKey === key) return;
       this.killerWallVisionStableKey = key;
       for (const item of this.wallVisuals) {
@@ -6450,6 +6568,11 @@
     updateWallVision(dt) {
       if (!this.wallVisuals?.length) return;
       this.syncPalletVisionVisuals();
+
+      if (this.isSpectatorOverviewMode()) {
+        this.applyKillerFullWallVisionIfStable();
+        return;
+      }
 
       const subject = this.getCameraSubjectItem();
       const hasSubject = !!subject?.container;
@@ -6668,7 +6791,58 @@
       updateHorrorFx(currentSnapshot, currentMe, { terror: this.terrorBlend, chase: this.chaseBlend });
     }
 
+    getSpectatorOverviewZoom() {
+      const cam = this.cameras.main;
+      const map = currentSnapshot?.map || this.map;
+      const mapW = Math.max(1, Number(map?.width || this.map?.width || 1));
+      const mapH = Math.max(1, Number(map?.height || this.map?.height || 1));
+      const padding = Math.max(0, CAMERA.OVERVIEW_PADDING);
+      const viewW = Math.max(1, Number(cam.width || window.innerWidth || 1));
+      const viewH = Math.max(1, Number(cam.height || window.innerHeight || 1));
+      const fitW = Math.max(1, viewW - padding * 2) / mapW;
+      const fitH = Math.max(1, viewH - padding * 2) / mapH;
+      return clamp(Math.min(fitW, fitH), CAMERA.OVERVIEW_MIN_ZOOM, CAMERA.OVERVIEW_MAX_ZOOM);
+    }
+
+    updateSpectatorOverviewCamera() {
+      const cam = this.cameras.main;
+      const map = currentSnapshot?.map || this.map;
+      const mapW = Math.max(1, Number(map?.width || this.map?.width || 1));
+      const mapH = Math.max(1, Number(map?.height || this.map?.height || 1));
+      const x = mapW / 2;
+      const y = mapH / 2;
+      const zoom = this.getSpectatorOverviewZoom();
+
+      this.cameraZoomPlan = {
+        base: CAMERA.BASE_ZOOM,
+        rawOffset: zoom - CAMERA.BASE_ZOOM,
+        clampedOffset: zoom - CAMERA.BASE_ZOOM,
+        zoom,
+        modifiers: [{ id: "spectatorOverview", value: zoom - CAMERA.BASE_ZOOM, absoluteZoom: zoom }]
+      };
+      this.targetCameraZoom = zoom;
+      this.currentCameraZoom = zoom;
+      cameraZoomNow = zoom;
+      window.__RIFTRUNNER_CAMERA_ZOOM__ = zoom;
+      window.__RIFTRUNNER_CAMERA_TARGET_ZOOM__ = zoom;
+      window.__RIFTRUNNER_CAMERA_ZOOM_PLAN__ = this.cameraZoomPlan;
+
+      if (Math.abs((cam.zoom || 1) - zoom) > 0.0001) cam.setZoom(zoom);
+      this.cameraSwayX = 0;
+      this.cameraSwayY = 0;
+      this.cameraSwayTargetX = 0;
+      this.cameraSwayTargetY = 0;
+      this.cameraFollowX = x;
+      this.cameraFollowY = y;
+      cam.centerOn(x, y);
+    }
+
     updateCamera(dt = 0) {
+      if (this.isSpectatorOverviewMode()) {
+        this.updateSpectatorOverviewCamera();
+        return;
+      }
+
       const item = this.getCameraSubjectItem();
       if (!item) return;
 
@@ -6718,7 +6892,7 @@
     getGeneratorWorldKey() {
       const map = currentSnapshot?.map || this.map;
       if (!map) return "";
-      if (this.riftsAreComplete()) return "rifts-hidden";
+      if (this.riftsAreComplete() && !this.isSpectatorOverviewMode()) return "rifts-hidden";
       return this.visibleGenerators().map((g) => {
         const showProgress = g.showProgress !== false ? 1 : 0;
         const repairOn = (g.showRepairFx !== false && (g.repairing || (Array.isArray(g.activeRepairers) && g.activeRepairers.length > 0))) ? 1 : 0;
@@ -6875,6 +7049,11 @@
       const g = this.flashlightGlowGraphics;
       if (!g) return;
       g.clear();
+
+      if (this.isSpectatorOverviewMode()) {
+        this.visionConeVisual = null;
+        return;
+      }
 
       const me = this.getCameraSubjectItem();
       if (!me?.container) {
