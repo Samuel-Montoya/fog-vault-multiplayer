@@ -211,6 +211,14 @@ const GAMEPLAY_CONFIG = {
     quickStartupSeconds: 0.045,
     lungeStartupSeconds: 0.075,
     lungeSpeedMultiplier: 1.42,
+    // Bot-only M1 discipline. These make The Void AI commit to a good charge/lunge
+    // instead of cancelling because the target clipped behind a corner for one tick.
+    botCommitSeconds: 0.55,
+    botLosGraceSeconds: 0.24,
+    botQuickCommitRangeMultiplier: 0.96,
+    botLungeMinRangeMultiplier: 0.74,
+    botLungeMaxRangeMultiplier: 1.18,
+    botLungeKeepRangeMultiplier: 1.42,
     quickMissRecoverySeconds: 1.05,
     quickHitRecoverySeconds: 1.55,
     lungeMissRecoverySeconds: 1.35,
@@ -268,7 +276,16 @@ const GAMEPLAY_CONFIG = {
     channelTime: 1.35,
     executeTime: 2.15,
     hooksBeforeExecution: 2,
-    interactDistance: 128
+    interactDistance: 128,
+    // Hook spawns now favor rescueable locations near an active teammate, then pick
+    // the safest available point away from The Void inside that rescue bubble.
+    teammateSearchRadius: 760,
+    teammateIdealDistance: 360,
+    teammateMinDistance: 150,
+    // Keep hooks off/away from pallets and windows so rescue interactions do not
+    // stack on top of loop resources like a tiny geometry crime scene.
+    interactableAvoidDistance: 92,
+    edgePaddingTiles: 1.35
   },
 
   chase: {
@@ -320,6 +337,11 @@ const GAMEPLAY_CONFIG = {
     survivorEscapeScanSteps: 2,
     survivorEscapeMinSafeExits: 2,
     survivorOrbDangerRadius: 430,
+    // Bot Runners should spend Speed Burst during real chases if they have enough orbs,
+    // instead of dying with a full wallet like tiny capitalist tragedies.
+    survivorSpeedBurstChaseRadius: 700,
+    survivorSpeedBurstMinChaseHoldSeconds: 0.22,
+    survivorSpeedBurstEmergencyRadius: 240,
     survivorPalletStunIntentRadius: 92,
     survivorPalletStunForecastSeconds: 0.32,
     survivorPalletWallEmergencyRadius: 190,

@@ -1,12 +1,33 @@
 {
   "latest": {
-    "version": "0.1.63",
-    "title": "Spectator Overview Objective Reveal Fix",
-    "summary": "Full-map spectator overview now shows rifts and exits correctly",
-    "description": "Fixed spectator Overview mode so rift/generator visuals force full visibility, completed rifts are still sent to overview snapshots, and sealed or open exit portals render in the full-map director view. Switching into or out of Overview now forces dynamic and rift layers to redraw so objects do not remain hidden from the previous POV.",
+    "version": "0.1.66",
+    "title": "Teammate-Aware Hook Spawns",
+    "summary": "Hook spawns now favor rescueable spots near active teammates while staying far from The Void",
+    "description": "Reworked hook placement so newly hooked Runners are placed on valid floor tiles near an active teammate who can rescue, while the scorer still chooses the safest available candidate far from The Void. Hook candidates now reject pallets, windows, objectives, existing hooks, collision spots, and cramped edge/corner locations, with fallback behavior for lone survivors or dead/downed teams.",
     "date": "2026-05-23"
   },
   "history": [
+    {
+      "version": "0.1.66",
+      "title": "Teammate-Aware Hook Spawns",
+      "summary": "Hook spawns now favor rescueable spots near active teammates while staying far from The Void",
+      "description": "Reworked hook placement so newly hooked Runners are placed on valid floor tiles near an active teammate who can rescue, while the scorer still chooses the safest available candidate far from The Void. Hook candidates now reject pallets, windows, objectives, existing hooks, collision spots, and cramped edge/corner locations, with fallback behavior for lone survivors or dead/downed teams.",
+      "date": "2026-05-23"
+    },
+    {
+      "version": "0.1.65",
+      "title": "Void Bot M1 and Endgame Reset Polish",
+      "summary": "Void bots commit to charged M1s better, endgame floor resets cleanly, and rifts-complete audio is quieter",
+      "description": "Improved The Void bot M1 decision logic so charging does not cancel from a one-tick line-of-sight flicker, and lunge/quick decisions use the same body-overlap attack profiles as server hit detection. Reset the completed-rifts floor state before rebuilding a new map so rematches no longer inherit the endgame floor treatment, and lowered the rifts_complete sound volume in audio config and client fallback defaults.",
+      "date": "2026-05-23"
+    },
+    {
+      "version": "0.1.64",
+      "title": "Bot Speed Burst Chase Logic",
+      "summary": "Runner bots now use Speed Burst during real chases when they have enough orbs",
+      "description": "Added configurable chase-aware Speed Burst usage for Runner bots. Bots now spend Speed Burst when chaseHold confirms an active chase, The Void is within the configured chase radius, or The Void is dangerously close, then clear stale tasks and repath so the boost is used to escape toward loops instead of hoarded while dying.",
+      "date": "2026-05-23"
+    },
     {
       "version": "0.1.63",
       "title": "Spectator Overview Objective Reveal Fix",

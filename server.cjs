@@ -297,6 +297,15 @@ const LUNGE_ATTACK_ACTIVE = cfgNumber(GAMEPLAY_CONFIG.attack?.lungeActiveSeconds
 const QUICK_ATTACK_STARTUP = cfgNumber(GAMEPLAY_CONFIG.attack?.quickStartupSeconds, 0.045);
 const LUNGE_ATTACK_STARTUP = cfgNumber(GAMEPLAY_CONFIG.attack?.lungeStartupSeconds, 0.075);
 const LUNGE_SPEED_MULT = cfgNumber(GAMEPLAY_CONFIG.attack?.lungeSpeedMultiplier, 1.42);
+// Bot-only M1 discipline. Human input still uses the normal attack system; these knobs only
+// decide when The Void AI starts/continues a charge so it does not cancel a good lunge because
+// line-of-sight flickered for one server tick. Tiny mercy for the robot murderer.
+const BOT_KILLER_ATTACK_COMMIT_SECONDS = cfgNumber(GAMEPLAY_CONFIG.attack?.botCommitSeconds, 0.55);
+const BOT_KILLER_ATTACK_LOS_GRACE_SECONDS = cfgNumber(GAMEPLAY_CONFIG.attack?.botLosGraceSeconds, 0.24);
+const BOT_KILLER_QUICK_COMMIT_RANGE_MULT = cfgNumber(GAMEPLAY_CONFIG.attack?.botQuickCommitRangeMultiplier, 0.96);
+const BOT_KILLER_LUNGE_MIN_RANGE_MULT = cfgNumber(GAMEPLAY_CONFIG.attack?.botLungeMinRangeMultiplier, 0.74);
+const BOT_KILLER_LUNGE_MAX_RANGE_MULT = cfgNumber(GAMEPLAY_CONFIG.attack?.botLungeMaxRangeMultiplier, 1.18);
+const BOT_KILLER_LUNGE_KEEP_RANGE_MULT = cfgNumber(GAMEPLAY_CONFIG.attack?.botLungeKeepRangeMultiplier, 1.42);
 const SURVIVOR_WALK_SPEED = cfgNumber(GAMEPLAY_CONFIG.survivor?.walkSpeed, 170);
 const SURVIVOR_SPRINT_SPEED = cfgNumber(GAMEPLAY_CONFIG.survivor?.sprintSpeed, 285);
 const SURVIVOR_HIT_BURST_SPEED = cfgNumber(GAMEPLAY_CONFIG.survivor?.hitBurstSpeed, 350);
@@ -339,6 +348,11 @@ const HOOKS_BEFORE_EXECUTION = cfgNumber(GAMEPLAY_CONFIG.hook?.hooksBeforeExecut
 const HOOK_INTERACT_DISTANCE = cfgNumber(GAMEPLAY_CONFIG.hook?.interactDistance, 128);
 const HOOK_RESCUE_DISTANCE = cfgNumber(GAMEPLAY_CONFIG.survivor?.hookRescueDistance, 108);
 const HOOK_MIN_KILLER_DISTANCE = cfgNumber(GAMEPLAY_CONFIG.void?.hookMinDistance, 430);
+const HOOK_TEAMMATE_SEARCH_RADIUS = cfgNumber(GAMEPLAY_CONFIG.hook?.teammateSearchRadius, 760);
+const HOOK_TEAMMATE_IDEAL_DISTANCE = cfgNumber(GAMEPLAY_CONFIG.hook?.teammateIdealDistance, 360);
+const HOOK_TEAMMATE_MIN_DISTANCE = cfgNumber(GAMEPLAY_CONFIG.hook?.teammateMinDistance, 150);
+const HOOK_INTERACTABLE_AVOID_DISTANCE = cfgNumber(GAMEPLAY_CONFIG.hook?.interactableAvoidDistance, 92);
+const HOOK_EDGE_PADDING_TILES = cfgNumber(GAMEPLAY_CONFIG.hook?.edgePaddingTiles, 1.35);
 const SURVIVOR_DOT_MAX = cfgNumber(GAMEPLAY_CONFIG.orbs?.survivorMax, 30);
 const KILLER_DOT_MAX = cfgNumber(GAMEPLAY_CONFIG.orbs?.voidMax, 999);
 // Dot economy: survivors complete rifts by collecting orbs and standing near a rift.
@@ -461,6 +475,19 @@ const BOT_SURVIVOR_STALL_REDIRECT_SECONDS = Math.max(0.8, cfgNumber(GAMEPLAY_CON
 // Runner bots get map-aware pressure, not fake human tunnel vision.
 // They always know where The Void is, but only abandon objectives when that knowledge matters.
 const BOT_SURVIVOR_MAP_AWARE_RADIUS = Math.max(TERROR_RADIUS, cfgNumber(GAMEPLAY_CONFIG.bots?.survivorMapAwareRadius, 1080));
+const BOT_SURVIVOR_SPEED_BURST_CHASE_RADIUS = Math.max(BOT_SURVIVOR_THREAT_RADIUS, cfgNumber(
+  GAMEPLAY_CONFIG.bots?.survivorSpeedBurstChaseRadius,
+  Math.min(BOT_SURVIVOR_MAP_AWARE_RADIUS, TERROR_RADIUS * 0.92)
+));
+const BOT_SURVIVOR_SPEED_BURST_MIN_CHASE_HOLD = clamp(
+  cfgNumber(GAMEPLAY_CONFIG.bots?.survivorSpeedBurstMinChaseHoldSeconds, 0.22),
+  0,
+  CHASE_HOLD_SECONDS
+);
+const BOT_SURVIVOR_SPEED_BURST_EMERGENCY_RADIUS = Math.max(
+  BOT_SURVIVOR_CONTACT_RADIUS,
+  cfgNumber(GAMEPLAY_CONFIG.bots?.survivorSpeedBurstEmergencyRadius, BOT_SURVIVOR_PANIC_RADIUS * 0.84)
+);
 const BOT_SURVIVOR_ESCAPE_PLAN_SECONDS = Math.max(1.6, cfgNumber(GAMEPLAY_CONFIG.bots?.survivorEscapePlanSeconds, 2.65));
 const BOT_SURVIVOR_ESCAPE_SCAN_STEPS = Math.max(2, Math.floor(cfgNumber(GAMEPLAY_CONFIG.bots?.survivorEscapeScanSteps, 2)));
 const BOT_SURVIVOR_ESCAPE_MIN_SAFE_EXITS = Math.max(1, Math.floor(cfgNumber(GAMEPLAY_CONFIG.bots?.survivorEscapeMinSafeExits, 2)));
@@ -3423,29 +3450,139 @@ function updateDotDeposits(game, dt) {
   }
 }
 
-function randomFloorHookSpot(game, killer = null) {
+function activeRescueTeammatesForHook(game, survivor) {
+  if (!game || !survivor) return [];
+  return [...game.actors.values()]
+    .filter((actor) => actor.id !== survivor.id)
+    .filter((actor) => actor.role === "survivor" && !actor.dead && !actor.escaped)
+    // Prefer teammates who can actually rescue. Hooking near another hooked/downed Runner is
+    // technically "near a teammate" and also technically terrible, the way humans use Excel.
+    .filter((actor) => !actor.hooked && !actor.downed);
+}
+
+function hookSpotNearInteractable(game, x, y) {
+  const avoid = Math.max(HOOK_INTERACTABLE_AVOID_DISTANCE, game.map.tile * 0.92);
+  const bodySize = Math.max(PLAYER_SIZE, game.map.tile * 0.74);
+  const body = { x: x - bodySize / 2, y: y - bodySize / 2, w: bodySize, h: bodySize };
+  const interactables = [
+    ...(game.map.windows || []),
+    ...(game.map.pallets || []).filter((p) => !p.broken)
+  ];
+
+  for (const obj of interactables) {
+    if (rectsOverlap(body, obj)) return true;
+    const c = centerOf(obj);
+    if (dist(x, y, c.x, c.y) < avoid) return true;
+  }
+  return false;
+}
+
+function hookSpotEdgePenalty(game, x, y) {
+  const pad = Math.max(0, HOOK_EDGE_PADDING_TILES) * game.map.tile;
+  if (pad <= 0) return 0;
+  const left = x;
+  const right = game.map.width - x;
+  const top = y;
+  const bottom = game.map.height - y;
+  const nearest = Math.min(left, right, top, bottom);
+  return nearest >= pad ? 0 : (pad - nearest) / pad;
+}
+
+function isValidHookFloorSpot(game, survivor, p) {
+  if (!game || !p) return false;
   const tile = game.map.tile;
-  const baseCandidates = [];
+  const t = tileAt(game, p.x, p.y);
+  if (game.map.rawRows[t.y]?.[t.x] !== ".") return false;
+
+  // Never put a fresh hook on top of an existing hook, objective, window, or pallet.
+  const tooCloseToExisting = (game.map.hooks || []).some((h) => h.active && dist(h.x, h.y, p.x, p.y) < tile * 3);
+  if (tooCloseToExisting) return false;
+
+  const nearObjective = [...(game.map.generators || []), ...(game.map.gates || [])]
+    .some((o) => dist(o.x, o.y, p.x, p.y) < tile * 1.45);
+  if (nearObjective) return false;
+  if (hookSpotNearInteractable(game, p.x, p.y)) return false;
+
+  // Use the actual movement collision check too. Raw floor tiles can still be ugly because
+  // a generator collision rect or dropped pallet may overlap the body area.
+  if (survivor && wouldCollide(game, survivor, p.x, p.y)) return false;
+  return true;
+}
+
+function scoreHookSpot(game, survivor, killer, p, teammates, teammateRequired) {
+  const tile = game.map.tile;
+  const killerDistance = killer ? dist(killer.x, killer.y, p.x, p.y) : game.map.width + game.map.height;
+  const nearestTeammateDistance = teammates.length
+    ? Math.min(...teammates.map((mate) => dist(mate.x, mate.y, p.x, p.y)))
+    : Infinity;
+
+  if (teammateRequired && nearestTeammateDistance > HOOK_TEAMMATE_SEARCH_RADIUS) return -Infinity;
+
+  const ideal = Math.max(HOOK_TEAMMATE_MIN_DISTANCE + tile * 0.4, HOOK_TEAMMATE_IDEAL_DISTANCE);
+  const teammateCloseness = Number.isFinite(nearestTeammateDistance)
+    ? Math.max(0, 1 - Math.abs(nearestTeammateDistance - ideal) / Math.max(ideal, 1))
+    : 0;
+  const rescueTooClosePenalty = nearestTeammateDistance < HOOK_TEAMMATE_MIN_DISTANCE
+    ? (HOOK_TEAMMATE_MIN_DISTANCE - nearestTeammateDistance) * 2.25
+    : 0;
+  const killerSafety = killer ? killerDistance : game.map.width;
+  const killerCampingPenalty = killer && killerDistance < HOOK_MIN_KILLER_DISTANCE
+    ? (HOOK_MIN_KILLER_DISTANCE - killerDistance) * 4.5
+    : 0;
+  const edgePenalty = hookSpotEdgePenalty(game, p.x, p.y) * tile * 2.25;
+
+  // If we have real rescue teammates, favor a reachable-ish rescue bubble first, then push the
+  // hook to the safest point from The Void inside that bubble. No teammate? Fall back to pure safety.
+  const teammateScore = teammates.length ? teammateCloseness * 900 - Math.max(0, nearestTeammateDistance - HOOK_TEAMMATE_SEARCH_RADIUS) * 5 : 0;
+  return killerSafety * 2.2 + teammateScore - rescueTooClosePenalty - killerCampingPenalty - edgePenalty + Math.random() * 0.01;
+}
+
+function randomFloorHookSpot(game, killer = null, survivor = null) {
+  const tile = game.map.tile;
+  const candidates = [];
+  const teammateCandidates = [];
   const farCandidates = [];
   const minKillerDistance = Math.max(HOOK_MIN_KILLER_DISTANCE, tile * 5.5);
+  const teammates = activeRescueTeammatesForHook(game, survivor);
 
   for (let y = 1; y < game.map.rows - 1; y++) {
     for (let x = 1; x < game.map.cols - 1; x++) {
-      if (game.map.rawRows[y]?.[x] !== ".") continue;
       const p = tileCenter(game, x, y);
-      const tooCloseToExisting = (game.map.hooks || []).some((h) => h.active && dist(h.x, h.y, p.x, p.y) < tile * 3);
-      if (tooCloseToExisting) continue;
-      const nearObjective = [...game.map.generators, ...game.map.gates].some((o) => dist(o.x, o.y, p.x, p.y) < tile * 1.4);
-      if (nearObjective) continue;
-      baseCandidates.push(p);
-      if (!killer || dist(killer.x, killer.y, p.x, p.y) >= minKillerDistance) farCandidates.push(p);
+      if (!isValidHookFloorSpot(game, survivor, p)) continue;
+
+      const nearestTeammateDistance = teammates.length
+        ? Math.min(...teammates.map((mate) => dist(mate.x, mate.y, p.x, p.y)))
+        : Infinity;
+      const candidate = {
+        ...p,
+        score: scoreHookSpot(game, survivor, killer, p, teammates, false),
+        teammateScore: scoreHookSpot(game, survivor, killer, p, teammates, true),
+        killerDistance: killer ? dist(killer.x, killer.y, p.x, p.y) : Infinity,
+        nearestTeammateDistance
+      };
+      candidates.push(candidate);
+      if (candidate.killerDistance >= minKillerDistance) farCandidates.push(candidate);
+      if (teammates.length && Number.isFinite(nearestTeammateDistance) && nearestTeammateDistance <= HOOK_TEAMMATE_SEARCH_RADIUS) {
+        teammateCandidates.push(candidate);
+      }
     }
   }
 
-  // Prefer hooks far from the killer so the pickup does not become an instant camp.
-  // If the map is cramped, fall back to any valid floor tile instead of failing the hook.
-  const list = farCandidates.length ? farCandidates : baseCandidates.length ? baseCandidates : [{ x: game.map.width / 2, y: game.map.height / 2 }];
-  return list[Math.floor(Math.random() * list.length)];
+  const sortByScore = (a, b) => b.score - a.score;
+  const sortByTeammateScore = (a, b) => b.teammateScore - a.teammateScore;
+
+  // Primary rule: hook near a teammate who can rescue, while choosing the safest point from The Void
+  // inside that rescue neighborhood. This prevents lonely corner hooks without turning hooks into
+  // instant free rescues. Civilization limps forward.
+  if (teammateCandidates.length) {
+    const safeTeammateCandidates = teammateCandidates.filter((c) => !killer || c.killerDistance >= minKillerDistance * 0.72);
+    return (safeTeammateCandidates.length ? safeTeammateCandidates : teammateCandidates).sort(sortByTeammateScore)[0];
+  }
+
+  // Secondary rule: if every active teammate is too far or dead-ish, go as far from The Void as possible.
+  if (farCandidates.length) return farCandidates.sort(sortByScore)[0];
+  if (candidates.length) return candidates.sort(sortByScore)[0];
+  return { x: game.map.width / 2, y: game.map.height / 2 };
 }
 
 function releasePositionNearHook(game, hook, survivor) {
@@ -3502,7 +3639,7 @@ function nearestHookedSurvivorForRescue(game, healer) {
 
 function sendSurvivorToHook(game, survivor) {
   const killer = [...game.actors.values()].find((p) => p.role === "killer" && !p.dead) || null;
-  const spot = randomFloorHookSpot(game, killer);
+  const spot = randomFloorHookSpot(game, killer, survivor);
   const hook = {
     id: uid("hook"),
     x: spot.x,
@@ -4764,8 +4901,34 @@ function botKillerMaybeUseAbility(game, killer, targetInfo, targetDistance, hasC
 function botSurvivorMaybeUseAbility(game, survivor, killer, threatened, killerDistance, killerHasLos) {
   if (!survivor || survivor.role !== "survivor" || survivor.dead || survivor.escaped || survivor.hooked || survivor.downed) return false;
 
-  if (threatened && (survivor.speedBurst || 0) <= 0 && killerDistance < BOT_SURVIVOR_THREAT_RADIUS && killerDistance > BOT_SURVIVOR_PANIC_RADIUS * 0.72) {
-    if (botTrySurvivorAbility(game, survivor, "speedBurst")) return true;
+  const chaseHold = Math.max(0, cfgNumber(survivor.chaseHold, 0));
+  const speedBurstInactive = (survivor.speedBurst || 0) <= 0;
+  const hasKiller = !!(killer && !killer.dead && Number.isFinite(killerDistance));
+  const activeChase = hasKiller
+    && chaseHold >= BOT_SURVIVOR_SPEED_BURST_MIN_CHASE_HOLD
+    && killerDistance <= BOT_SURVIVOR_SPEED_BURST_CHASE_RADIUS
+    && (killerHasLos || threatened || killerDistance <= BOT_SURVIVOR_THREAT_RADIUS);
+  const emergencyChase = hasKiller
+    && chaseHold > 0
+    && killerDistance <= BOT_SURVIVOR_SPEED_BURST_EMERGENCY_RADIUS;
+  const pressuredButNotChase = threatened
+    && hasKiller
+    && killerDistance <= BOT_SURVIVOR_THREAT_RADIUS
+    && killerDistance > BOT_SURVIVOR_PANIC_RADIUS * 0.55;
+
+  if (speedBurstInactive && (activeChase || emergencyChase || pressuredButNotChase)) {
+    // Speed Burst is the bot's chase escape button. If they have the 10 orbs and the
+    // cooldown is ready, spend it early enough to reach a window/pallet instead of
+    // hoarding currency while The Void turns them into a lesson.
+    if (botTrySurvivorAbility(game, survivor, "speedBurst")) {
+      survivor.bot = survivor.bot || {};
+      survivor.bot.speedBurstEscapeUntil = Math.max(survivor.bot.speedBurstEscapeUntil || 0, (game.time || 0) + 1.35);
+      survivor.bot.runnerTask = null;
+      survivor.bot.survivorTask = null;
+      survivor.bot.path = [];
+      survivor.bot.repath = 0;
+      return true;
+    }
   }
 
   if (threatened && (survivor.hourglass || 0) <= 0 && (killerHasLos || killerDistance < BOT_SURVIVOR_THREAT_RADIUS || survivor.chaseHold > 0)) {
@@ -5404,43 +5567,143 @@ function botKillerCanStartAttack(killer) {
   return !killer.attackState;
 }
 
-function botSetAttackIntent(game, killer, target, targetDistance, hasClearAttack) {
-  if (!target || !hasClearAttack) return false;
+function botKillerAttackProfileHit(game, killer, target, profile, angle = killer?.angle || 0) {
+  if (!game || !killer || !target || !profile) return null;
+  const hit = pointInAttackSwipe(killer.x, killer.y, angle, target, profile);
+  if (!hit) return null;
+  if (!attackSegmentClearToSurvivor(game, hit.originX, hit.originY, target, hit)) return null;
+  return hit;
+}
 
-  // Finish an existing charge/lunge instead of releasing and re-pressing every bot tick.
-  // Holding lets updateKillerAttack promote the charge into a real lunge at the exact server tick.
-  if (killer.attackState === "charging") {
-    botFaceTarget(killer, target);
-    killer.input.attackHeld = true;
+function botKillerHasAttackWindow(game, killer, target) {
+  if (!target) return false;
+  const quick = botKillerAttackProfileHit(game, killer, target, attackProfile("quick"));
+  if (quick) return true;
+  return !!botKillerAttackProfileHit(game, killer, target, attackProfile("lunge"));
+}
+
+function botKillerTargetMovedIntoLunge(game, killer, target) {
+  if (!target) return false;
+  const dx = target.x - killer.x;
+  const dy = target.y - killer.y;
+  const distance = Math.hypot(dx, dy);
+  if (distance > LUNGE_ATTACK_RANGE * BOT_KILLER_LUNGE_KEEP_RANGE_MULT) return false;
+  const towardTarget = distance > 0.001 ? { x: dx / distance, y: dy / distance } : { x: Math.cos(killer.angle || 0), y: Math.sin(killer.angle || 0) };
+  const move = botTargetMovementVector(target);
+  const targetRunningAway = move.x * towardTarget.x + move.y * towardTarget.y > -0.15;
+  return targetRunningAway || distance <= LUNGE_ATTACK_RANGE * BOT_KILLER_LUNGE_MAX_RANGE_MULT;
+}
+
+function botHoldKillerCharge(game, killer, target, hasClearAttack) {
+  const now = game.time || 0;
+  const bot = killer.bot || (killer.bot = {});
+  const committedTarget = target || (bot.attackCommitTargetId ? game.actors.get(bot.attackCommitTargetId) : null);
+
+  if (!committedTarget || committedTarget.dead || committedTarget.escaped || committedTarget.hooked || committedTarget.downed) {
+    killer.input.attackHeld = false;
+    killer.input.attackReleased = false;
+    return false;
+  }
+
+  botFaceTarget(killer, committedTarget);
+
+  const targetDistance = dist(killer.x, killer.y, committedTarget.x, committedTarget.y);
+  const lungeProfile = attackProfile("lunge");
+  const quickProfile = attackProfile("quick");
+  const quickHit = botKillerAttackProfileHit(game, killer, committedTarget, quickProfile);
+  const lungeHit = botKillerAttackProfileHit(game, killer, committedTarget, lungeProfile);
+  const sawRecently = now <= (bot.attackLosGraceUntil || 0);
+  const keepRange = targetDistance <= LUNGE_ATTACK_RANGE * BOT_KILLER_LUNGE_KEEP_RANGE_MULT;
+  const stillCommitWorthy = !!(lungeHit || quickHit || hasClearAttack || sawRecently || botKillerTargetMovedIntoLunge(game, killer, committedTarget));
+
+  if (hasClearAttack || lungeHit || quickHit) {
+    bot.attackLosGraceUntil = now + BOT_KILLER_ATTACK_LOS_GRACE_SECONDS;
+  }
+
+  // If the Runner steps into the quick cone during the wind-up, release into the short swing
+  // instead of over-charging past them. Otherwise keep holding and let updateKillerAttack fire
+  // the lunge on the exact charge frame.
+  if (quickHit && targetDistance <= QUICK_ATTACK_RANGE * BOT_KILLER_QUICK_COMMIT_RANGE_MULT * 0.82) {
+    killer.input.attackHeld = false;
+    killer.input.attackReleased = true;
+    bot.attackCommitUntil = now + BOT_KILLER_ATTACK_COMMIT_SECONDS * 0.5;
+    bot.attackCommitTargetId = committedTarget.id;
     return true;
   }
 
+  if (keepRange && stillCommitWorthy && now <= (bot.attackCommitUntil || 0) + BOT_KILLER_ATTACK_LOS_GRACE_SECONDS) {
+    killer.input.attackHeld = true;
+    killer.input.attackReleased = false;
+    bot.attackCommitTargetId = committedTarget.id;
+    bot.attackCommitUntil = Math.max(bot.attackCommitUntil || 0, now + BOT_KILLER_ATTACK_COMMIT_SECONDS * 0.35);
+    return true;
+  }
+
+  killer.input.attackHeld = false;
+  killer.input.attackReleased = false;
+  return false;
+}
+
+function botSetAttackIntent(game, killer, target, targetDistance, hasClearAttack) {
+  // Finish an existing charge/lunge instead of cancelling because one line-of-sight check flickered.
+  // That was the bot's main "hold M1, then barely miss" ritual. We are done worshipping it.
+  if (killer.attackState === "charging") {
+    return botHoldKillerCharge(game, killer, target, hasClearAttack);
+  }
+
+  if (!target) return false;
+
+  const profileClear = botKillerHasAttackWindow(game, killer, target);
+  if (!hasClearAttack && !profileClear) return false;
   if (!botKillerCanStartAttack(killer)) return false;
 
   botFaceTarget(killer, target);
 
   const quickProfile = attackProfile("quick");
   const lungeProfile = attackProfile("lunge");
-  const targetInQuickCone = Boolean(pointInAttackSwipe(killer.x, killer.y, killer.angle || 0, target, quickProfile));
-  const targetInLungeCone = Boolean(pointInAttackSwipe(killer.x, killer.y, killer.angle || 0, target, lungeProfile));
+  const quickHit = botKillerAttackProfileHit(game, killer, target, quickProfile);
+  const lungeHit = botKillerAttackProfileHit(game, killer, target, lungeProfile);
 
-  // The old bot AI checked a hidden close-AOE value, but the cone-based hit system removed that
-  // invisible fallback. Use the real swipe profiles here so bot decisions match what the server can hit.
-  if (!targetInQuickCone && !targetInLungeCone) return false;
+  // The bot now uses the real body-overlap attack profiles for decisions, not just a center-line
+  // approximation. If the visible swipe can touch the Runner's body, the bot is allowed to commit.
+  if (!quickHit && !lungeHit) return false;
 
-  // Quick swing only when the survivor is actually inside the quick cone.
-  // Use lunge for the medium gap so the bot commits instead of tiny-whiffing forever.
-  const quickRange = QUICK_ATTACK_RANGE * 0.72;
-  const lungeMin = QUICK_ATTACK_RANGE * 0.62;
-  const lungeMax = LUNGE_ATTACK_RANGE * 1.06;
+  const now = game.time || 0;
+  const bot = killer.bot || (killer.bot = {});
+  const quickRange = QUICK_ATTACK_RANGE * BOT_KILLER_QUICK_COMMIT_RANGE_MULT;
+  const lungeMin = QUICK_ATTACK_RANGE * BOT_KILLER_LUNGE_MIN_RANGE_MULT;
+  const lungeMax = LUNGE_ATTACK_RANGE * BOT_KILLER_LUNGE_MAX_RANGE_MULT;
 
-  if (targetInQuickCone && targetDistance <= quickRange) {
+  if (quickHit && targetDistance <= quickRange) {
     killer.input.attackReleased = true;
+    bot.attackCommitTargetId = target.id;
+    bot.attackCommitUntil = now + BOT_KILLER_ATTACK_COMMIT_SECONDS * 0.55;
+    bot.attackLosGraceUntil = now + BOT_KILLER_ATTACK_LOS_GRACE_SECONDS;
     return true;
   }
 
-  if (targetInLungeCone && targetDistance >= lungeMin && targetDistance <= lungeMax) {
+  if (lungeHit && targetDistance >= lungeMin && targetDistance <= lungeMax) {
     killer.input.attackHeld = true;
+    killer.input.attackReleased = false;
+    bot.attackCommitTargetId = target.id;
+    bot.attackCommitUntil = now + BOT_KILLER_ATTACK_COMMIT_SECONDS;
+    bot.attackLosGraceUntil = now + BOT_KILLER_ATTACK_LOS_GRACE_SECONDS;
+    killer.bot.path = [];
+    killer.bot.repath = 0;
+    return true;
+  }
+
+  // If the Runner is barely outside the current lunge body check but the route is clear and close,
+  // start charging anyway. The lunge movement covers the last step, which is the entire point of
+  // holding M1 instead of politely tapping air next to someone's elbow.
+  if (targetDistance <= lungeMax && hasClearAttack) {
+    killer.input.attackHeld = true;
+    killer.input.attackReleased = false;
+    bot.attackCommitTargetId = target.id;
+    bot.attackCommitUntil = now + BOT_KILLER_ATTACK_COMMIT_SECONDS * 0.85;
+    bot.attackLosGraceUntil = now + BOT_KILLER_ATTACK_LOS_GRACE_SECONDS;
+    killer.bot.path = [];
+    killer.bot.repath = 0;
     return true;
   }
 
@@ -7540,7 +7803,7 @@ function updateBotInputs(game, dt) {
       else actor.input.angle = Math.atan2(target.y - actor.y, target.x - actor.x);
 
       const targetDistance = dist(actor.x, actor.y, target.x, target.y);
-      const hasClearAttack = target.actor && attackSegmentClear(game, actor.x, actor.y, target.actor.x, target.actor.y);
+      const hasClearAttack = target.actor && botKillerHasAttackWindow(game, actor, target.actor);
       botKillerMaybeUseAbility(game, actor, target, targetDistance, hasClearAttack);
 
       if (target.actor && target.actor.downed && !target.actor.hooked) {
