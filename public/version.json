@@ -1,12 +1,19 @@
 {
   "latest": {
-    "version": "0.1.34",
-    "title": "Omniscient Runner Escape AI",
-    "summary": "Runner bots always account for The Void and choose real escape routes",
-    "description": "Updated Runner bot chase behavior so server-controlled bots always know The Void's position, abandon objectives under map-aware pressure, route toward windows and pallets, reject dead-end and corner escape tiles, score follow-up escape lanes after vaults, and keep moving along routes with safe exits instead of drifting into map edges.",
+    "version": "0.1.35",
+    "title": "Mouse and Keyboard Gate",
+    "summary": "Mobile devices now see a simple desktop-only message",
+    "description": "Added a source-level mobile and tablet gate that prevents the game client from loading on touch/mobile devices and shows a simple RiftRunner page saying the game is just for mouse and keyboard.",
     "date": "2026-05-22"
   },
   "history": [
+    {
+      "version": "0.1.35",
+      "title": "Mouse and Keyboard Gate",
+      "summary": "Mobile devices now see a simple desktop-only message",
+      "description": "Added a source-level mobile and tablet gate that prevents the game client from loading on touch/mobile devices and shows a simple RiftRunner page saying the game is just for mouse and keyboard.",
+      "date": "2026-05-22"
+    },
     {
       "version": "0.1.34",
       "title": "Omniscient Runner Escape AI",
