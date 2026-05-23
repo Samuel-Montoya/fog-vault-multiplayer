@@ -78,65 +78,47 @@ const GAMEPLAY_CONFIG = {
     snapshotJitterDelayMaxMs: 42
   },
 
-  // Client camera / immersion knobs. These only affect how the camera feels, not server hitboxes.
+  // Additive camera zoom stack. Final zoom = baseZoom + active modifiers, then clamped.
+  // Positive values zoom in. Negative values zoom out. Tiny mercy: all numbers live here.
   camera: {
-    baseZoom: 1,
-    // Minimum allowed camera zoom. Negative zoom offsets, like injuredZoom: -0.5,
-    // cannot zoom farther out than this floor.
-    minZoom: 0.34,
-    lowPowerMinZoom: 0.42,
+    baseZoom: 0.90,
+    lowPowerBaseZoom: 0.88,
+    chaseZoomOffset: 0.50,
+    // Walking stays at base zoom. Holding Shift to sprint is the only movement zoom.
+    walkZoomOffset: 0,
+    sprintZoomOffset: 0.20,
+    actionZoomOffset: 0.20,
+    // Absolute zoom while you are hooked and nobody is actively rescuing you.
+    // Keep it just above base zoom so the hook view feels focused without becoming
+    // the world's saddest satellite camera.
+    hookedUnrescuedZoom: 1.05,
+    hookedRescueProgressEpsilon: 0.001,
+    survivorAbilityZoomOffsets: {
+      riftLens: -0.20,
+      hourglass: 0,
+      stealthStep: 0
+    },
+    killerAbilityZoomOffsets: {
+      voidReveal: -0.20,
+      nullRush: 0,
+      redshiftOrbs: 0
+    },
+    maxZoomInOffset: 0.50,
+    maxZoomOutOffset: 0.30,
+    zoomLerpRate: 4.4,
+    lowPowerZoomLerpRate: 5.2,
+    zoomSnapEpsilon: 0.0008,
+    applyWalkZoomOnlyWhileMoving: true
+  },
 
-    terrorZoom: 0.04,
-    lowPowerTerrorZoom: 0.012,
-    chaseZoom: 0.45,
-    lowPowerChaseZoom: 0.18,
-    // Sprinting narrows the Runner camera slightly. Walking gives the default wider read.
-    sprintZoom: 0.095,
-    lowPowerSprintZoom: 0.055,
-    sprintZoomSmoothing: 8.5,
-    lowPowerSprintZoomSmoothing: 7.0,
-
-    voidM1HoldZoom: 0.085,
-    lowPowerVoidM1HoldZoom: 0.018,
-    voidM1PulseZoom: 0.065,
-    lowPowerVoidM1PulseZoom: 0.012,
-
-    riftDepositZoom: 0.12,
-    lowPowerRiftDepositZoom: 0.055,
-    riftKickZoom: 0.075,
-    lowPowerRiftKickZoom: 0.04,
-    healZoom: 0.045,
-    lowPowerHealZoom: 0.025,
-    unhookZoom: 0.12,
-    lowPowerUnhookZoom: 0.06,
-    hookedZoom: -0.3,
-    lowPowerHookedZoom: 0.055,
-    injuredZoom: 0.035,
-    lowPowerInjuredZoom: 0.018,
-    downedZoom: 0.55,
-    lowPowerDownedZoom: 0.075,
-    escapeZoom: 0.12,
-    lowPowerEscapeZoom: 0.06,
-
-    spawnPopZoom: 0.18,
-    lowPowerSpawnPopZoom: 0.10,
-    spawnPopZoomDecay: 5.6,
-    lowPowerSpawnPopZoomDecay: 4.2,
-    matchStartZoomOut: 0.36,
-    lowPowerMatchStartZoomOut: 0.22,
-    matchStartZoomSmoothing: 3.0,
-    lowPowerMatchStartZoomSmoothing: 2.2,
-
-    zoomSmoothing: 6.4,
-    lowPowerZoomSmoothing: 4.4,
+  // Client-only chase feedback. These drive overlays/shake/sway, not camera zoom.
+  immersion: {
     chaseInLerp: 0.055,
     lowPowerChaseInLerp: 0.045,
     chaseOutLerp: 0.04,
     lowPowerChaseOutLerp: 0.035,
     terrorLerp: 0.07,
     lowPowerTerrorLerp: 0.055,
-    zoomUpdateThreshold: 0.0035,
-    lowPowerZoomUpdateThreshold: 0.0065,
     breathSway: 4,
     lowPowerBreathSway: 2.5,
     chaseSway: 5,
@@ -169,6 +151,10 @@ const GAMEPLAY_CONFIG = {
     hookRescueDistance: 108,
     coneLength: 620,
     coneAngle: Math.PI / 2.6,
+    // Walking gets a wider/longer cone than sprinting. Sprinting keeps the base cone,
+    // so holding Shift still trades awareness for speed. Server and client both read these.
+    walkingConeLengthMultiplier: 1.22,
+    walkingConeAngleMultiplier: 1.12,
     clientConeLength: 880,
     clientConeAngle: Math.PI / 2.05
   },
@@ -238,7 +224,9 @@ const GAMEPLAY_CONFIG = {
 
   survivorAbilities: {
     riftLensLengthMultiplier: 1.55,
-    riftLensAngleMultiplier: 1.38
+    riftLensAngleMultiplier: 1.38,
+    hourglassBackLengthMultiplier: 0.92,
+    hourglassBackAngleMultiplier: 1.0
   },
 
   orbs: {
@@ -275,10 +263,10 @@ const GAMEPLAY_CONFIG = {
     // Inside this distance layer_2 reaches full strength. Between radius and full radius
     // it uses a smoothstep ramp so it fades in instead of clicking on.
     musicLayer2FullRadius: 430,
-    musicLayer2MinVolume: 0.035,
-    musicLayer2MaxVolume: 0.48,
+    musicLayer2MinVolume: 0.02,
+    musicLayer2MaxVolume: 0.34,
     // Keep a faint layer_2 bed under layer_3 so the transition into chase feels blended.
-    musicLayer2ChaseBedVolume: 0.075,
+    musicLayer2ChaseBedVolume: 0.045,
     musicLayer2Curve: 1.08,
     musicLayer3Volume: 0.30
   },
@@ -297,13 +285,21 @@ const GAMEPLAY_CONFIG = {
     survivorStuckSeconds: 1.0,
     survivorObjectiveStallSeconds: 1.0,
     survivorStallRedirectSeconds: 1.0,
-    survivorTerrorFleeSeconds: 3.0,
+    // Audible terror radius is now caution, not instant full panic. Hard panic still wins
+    // when The Void has line-of-sight, chase pressure, or gets truly close.
+    survivorTerrorFleeSeconds: 2.65,
+    survivorTerrorObjectiveAvoidSeconds: 3.35,
+    survivorHardTerrorRadius: 360,
+    survivorBraveObjectiveDistance: 455,
+    // At this many carried orbs, Runner bots stop collecting and route to the closest rift.
+    survivorDepositAtDots: 8,
     // Runner bots use server omniscience for escape planning. They should not pretend
     // The Void vanished because a wall blocked line-of-sight for half a second.
     survivorMapAwareRadius: 1080,
     survivorEscapePlanSeconds: 2.65,
     survivorEscapeScanSteps: 2,
     survivorEscapeMinSafeExits: 2,
+    survivorOrbDangerRadius: 430,
     survivorPalletStunIntentRadius: 92,
     survivorPalletStunForecastSeconds: 0.32,
     survivorPalletWallEmergencyRadius: 190,

@@ -463,7 +463,7 @@ const RUNNER_ABILITY_WHEEL_FALLBACK = [
   { id: "stealthStep", name: "Stealth Step", shortName: "Stealth", cost: 10, summary: "Hide scratch marks.", accent: "cyan", cooldown: 30 },
   { id: "riftLens", name: "Rift Lens", shortName: "Lens", cost: 10, summary: "Widen your vision cone.", accent: "gold", cooldown: 30 },
   { id: "cancel", name: "Cancel", shortName: "Cancel", cost: 0, summary: "Close the wheel.", accent: "muted", cancel: true },
-  { id: "moreSoon", name: "More Soon", shortName: "Soon", cost: 0, summary: "More abilities later.", accent: "muted", cancel: true, disabled: true }
+  { id: "hourglass", name: "Hourglass", shortName: "Hourglass", cost: 10, summary: "See behind you.", accent: "cyan", cooldown: 30 }
 ]
 
 function abilityFallbackForRole(role) {

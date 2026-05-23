@@ -12,11 +12,12 @@ window.GAME_AUDIO_CONFIG = {
     // Use these to adjust chase music without changing the whole soundtrack.
     // layer3 is the main chase layer.
     layerVolumes: {
-      layer1: 1.15,
-      // Layer 2 is the warning/tension bed. Give it extra presence because
-      // layer_3 is intentionally the sharper full-chase hit.
-      layer2: 0.9,
-      layer3: 0.8
+      layer1: 1.0,
+      // Start intro is separate from layer_1 so you can tune start.mp3 without touching the match bed.
+      start: 0.26,
+      // Layer 2 is the warning/tension bed. Keep it present, but not louder than the actual chase hit.
+      layer2: 0.82,
+      layer3: 0.6
     },
 
     // Main menu music volume multiplier.
@@ -28,6 +29,15 @@ window.GAME_AUDIO_CONFIG = {
 
     // Menu music file. Put this in public/sfx.
     menu: "/sfx/menu.mp3",
+
+    // Plays once when a run starts. Put start.mp3 in public/sfx.
+    // layer_1 fades in immediately under it, then the intro fades out.
+    start: "/sfx/start.mp3",
+    // Main start.mp3 volume knob. Effective volume also uses music.master.
+    startVolume: 0.26,
+    startFallbackSeconds: 2.8,
+    startFadeOutSeconds: 1.15,
+    startLayer1FadeInSeconds: 1.35,
 
     // Layered match music. Put these in public/sfx. layer_3 restarts from the beginning when chase starts.
     layers: [

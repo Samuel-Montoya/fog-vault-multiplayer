@@ -352,6 +352,10 @@ const SURVIVOR_ABILITY_DEFS = RIFTRUNNER_ABILITIES.survivorAbilities || {};
 const SURVIVOR_ABILITY_ORDER = Array.isArray(RIFTRUNNER_ABILITIES.survivorWheelOrder) ? RIFTRUNNER_ABILITIES.survivorWheelOrder : Object.keys(SURVIVOR_ABILITY_DEFS);
 const SURVIVOR_RIFT_LENS_LENGTH_MULT = cfgNumber(GAMEPLAY_CONFIG.survivorAbilities?.riftLensLengthMultiplier, 1.55);
 const SURVIVOR_RIFT_LENS_ANGLE_MULT = cfgNumber(GAMEPLAY_CONFIG.survivorAbilities?.riftLensAngleMultiplier, 1.38);
+const SURVIVOR_WALK_CONE_LENGTH_MULT = Math.max(1, cfgNumber(GAMEPLAY_CONFIG.survivor?.walkingConeLengthMultiplier, 1.22));
+const SURVIVOR_WALK_CONE_ANGLE_MULT = Math.max(1, cfgNumber(GAMEPLAY_CONFIG.survivor?.walkingConeAngleMultiplier, 1.12));
+const SURVIVOR_HOURGLASS_BACK_LENGTH_MULT = cfgNumber(GAMEPLAY_CONFIG.survivorAbilities?.hourglassBackLengthMultiplier, 0.92);
+const SURVIVOR_HOURGLASS_BACK_ANGLE_MULT = cfgNumber(GAMEPLAY_CONFIG.survivorAbilities?.hourglassBackAngleMultiplier, 1.0);
 const VOID_SPEED_BUFF_MULT = cfgNumber(GAMEPLAY_CONFIG.voidAbilities?.speedBuffMultiplier, 1.28);
 const RED_ORB_SLOW_MULT = cfgNumber(GAMEPLAY_CONFIG.voidAbilities?.redOrbSlowMultiplier, 0.55);
 const RED_ORB_SLOW_SECONDS = cfgNumber(GAMEPLAY_CONFIG.voidAbilities?.redOrbSlowSeconds, 0.5);
@@ -431,11 +435,14 @@ const BOT_SURVIVOR_RISK_RUN_SECONDS = cfgNumber(GAMEPLAY_CONFIG.bots?.survivorRi
 // If a Runner bot hears The Void, objectives stop mattering for a moment.
 // Otherwise they happily jog back to a shiny orb parked beside the killer, because apparently
 // survival was not on the product roadmap.
-const BOT_SURVIVOR_TERROR_FLEE_SECONDS = Math.max(3, cfgNumber(GAMEPLAY_CONFIG.bots?.survivorTerrorFleeSeconds, 3));
-const BOT_SURVIVOR_TERROR_OBJECTIVE_AVOID_SECONDS = Math.max(4.5, cfgNumber(GAMEPLAY_CONFIG.bots?.survivorTerrorObjectiveAvoidSeconds, 6.5));
+const BOT_SURVIVOR_TERROR_FLEE_SECONDS = Math.max(2.2, cfgNumber(GAMEPLAY_CONFIG.bots?.survivorTerrorFleeSeconds, 2.65));
+const BOT_SURVIVOR_TERROR_OBJECTIVE_AVOID_SECONDS = Math.max(2.6, cfgNumber(GAMEPLAY_CONFIG.bots?.survivorTerrorObjectiveAvoidSeconds, 3.35));
+const BOT_SURVIVOR_HARD_TERROR_RADIUS = Math.max(BOT_SURVIVOR_PANIC_RADIUS * 1.12, cfgNumber(GAMEPLAY_CONFIG.bots?.survivorHardTerrorRadius, 360));
+const BOT_SURVIVOR_BRAVE_OBJECTIVE_DISTANCE = Math.max(BOT_SURVIVOR_HARD_TERROR_RADIUS + 55, cfgNumber(GAMEPLAY_CONFIG.bots?.survivorBraveObjectiveDistance, 455));
+const BOT_SURVIVOR_DEPOSIT_DOT_THRESHOLD = clamp(Math.floor(cfgNumber(GAMEPLAY_CONFIG.bots?.survivorDepositAtDots, 8)), 1, SURVIVOR_DOT_MAX);
 const BOT_SURVIVOR_ORB_DANGER_RADIUS = Math.max(BOT_SURVIVOR_LOOP_RADIUS, cfgNumber(
   GAMEPLAY_CONFIG.bots?.survivorOrbDangerRadius,
-  Math.min(TERROR_RADIUS * 0.72, BOT_SURVIVOR_SAFE_KILLER_DISTANCE)
+  Math.min(TERROR_RADIUS * 0.56, BOT_SURVIVOR_SAFE_KILLER_DISTANCE * 0.82)
 ));
 const BOT_SURVIVOR_LOOP_CHAIN_RADIUS = Math.max(BOT_SURVIVOR_LOOP_RADIUS * 1.55, cfgNumber(GAMEPLAY_CONFIG.bots?.survivorLoopChainRadius, 760));
 const BOT_SURVIVOR_LOOP_COMMIT_SECONDS = Math.max(1.6, cfgNumber(GAMEPLAY_CONFIG.bots?.survivorLoopCommitSeconds, 2.15));
@@ -683,18 +690,70 @@ function getSurvivorAbilityDef(id) {
   };
 }
 
+function survivorWalkingVisionActive(actor) {
+  if (!actor || actor.role !== "survivor" || actor.dead || actor.escaped || actor.downed || actor.hooked) return false;
+  return actorHasMoveInput(actor) && !actor.input?.sprint;
+}
+
 function survivorVisionLengthFor(actor) {
-  const base = SURVIVOR_CONE_LENGTH;
-  return actor?.role === "survivor" && (actor.riftLens || 0) > 0
-    ? base * SURVIVOR_RIFT_LENS_LENGTH_MULT
-    : base;
+  let length = SURVIVOR_CONE_LENGTH;
+  if (survivorWalkingVisionActive(actor)) length *= SURVIVOR_WALK_CONE_LENGTH_MULT;
+  if (actor?.role === "survivor" && (actor.riftLens || 0) > 0) length *= SURVIVOR_RIFT_LENS_LENGTH_MULT;
+  return length;
 }
 
 function survivorVisionAngleFor(actor) {
-  const base = SURVIVOR_CONE_ANGLE;
-  return actor?.role === "survivor" && (actor.riftLens || 0) > 0
-    ? Math.min(Math.PI * 1.08, base * SURVIVOR_RIFT_LENS_ANGLE_MULT)
-    : base;
+  let angle = SURVIVOR_CONE_ANGLE;
+  if (survivorWalkingVisionActive(actor)) angle *= SURVIVOR_WALK_CONE_ANGLE_MULT;
+  if (actor?.role === "survivor" && (actor.riftLens || 0) > 0) angle *= SURVIVOR_RIFT_LENS_ANGLE_MULT;
+  return Math.min(Math.PI * 1.08, angle);
+}
+
+function survivorBackVisionLengthFor(actor) {
+  return survivorVisionLengthFor(actor) * SURVIVOR_HOURGLASS_BACK_LENGTH_MULT;
+}
+
+function survivorBackVisionAngleFor(actor) {
+  return Math.min(Math.PI * 1.08, survivorVisionAngleFor(actor) * SURVIVOR_HOURGLASS_BACK_ANGLE_MULT);
+}
+
+function survivorVisionSamplesForActor(actor) {
+  if (!actor) return [];
+  const radius = actor.role === "killer" ? KILLER_SIZE * 0.48 : PLAYER_SIZE * 0.48;
+  return [
+    { x: actor.x, y: actor.y },
+    { x: actor.x + radius, y: actor.y },
+    { x: actor.x - radius, y: actor.y },
+    { x: actor.x, y: actor.y + radius },
+    { x: actor.x, y: actor.y - radius }
+  ];
+}
+
+function survivorConeSeesPoint(viewer, target, length = survivorVisionLengthFor(viewer), angle = survivorVisionAngleFor(viewer)) {
+  if (!viewer || !target) return false;
+  if (coneSees(viewer, target, length, angle)) return true;
+  if ((viewer.hourglass || 0) <= 0) return false;
+  return coneSees({ ...viewer, angle: (viewer.angle || 0) + Math.PI }, target, survivorBackVisionLengthFor(viewer), survivorBackVisionAngleFor(viewer));
+}
+
+function survivorCanSeePoint(game, viewer, x, y, { allowCloseReveal = false } = {}) {
+  if (!viewer || viewer.role !== "survivor" || !Number.isFinite(x) || !Number.isFinite(y)) return false;
+  const d = dist(viewer.x, viewer.y, x, y);
+  if (allowCloseReveal && d <= CLOSE_REVEAL_RADIUS) return segmentClear(game, viewer.x, viewer.y, x, y);
+  const maxLength = Math.max(survivorVisionLengthFor(viewer), (viewer.hourglass || 0) > 0 ? survivorBackVisionLengthFor(viewer) : 0);
+  if (d > maxLength) return false;
+  if (!survivorConeSeesPoint(viewer, { x, y })) return false;
+  return segmentClear(game, viewer.x, viewer.y, x, y);
+}
+
+function survivorCanSeeActor(game, viewer, actor, { allowCloseReveal = true } = {}) {
+  if (!viewer || !actor) return false;
+  const d = dist(viewer.x, viewer.y, actor.x, actor.y);
+  if (allowCloseReveal && d <= CLOSE_REVEAL_RADIUS) return segmentClear(game, viewer.x, viewer.y, actor.x, actor.y);
+  for (const sample of survivorVisionSamplesForActor(actor)) {
+    if (survivorCanSeePoint(game, viewer, sample.x, sample.y, { allowCloseReveal: false })) return true;
+  }
+  return false;
 }
 
 function applySurvivorAbility(game, actor, abilityId) {
@@ -726,6 +785,8 @@ function applySurvivorAbility(game, actor, abilityId) {
     actor.stealthStep = Math.max(actor.stealthStep || 0, ability.duration || 10);
   } else if (ability.id === "riftLens") {
     actor.riftLens = Math.max(actor.riftLens || 0, ability.duration || 15);
+  } else if (ability.id === "hourglass") {
+    actor.hourglass = Math.max(actor.hourglass || 0, ability.duration || 5);
   } else {
     return { ok: false, message: "That Runner ability is not ready." };
   }
@@ -744,6 +805,7 @@ function applySurvivorAbility(game, actor, abilityId) {
     survivorDots: actor.dots,
     stealthStep: actor.stealthStep || 0,
     riftLens: actor.riftLens || 0,
+    hourglass: actor.hourglass || 0,
     cooldown: cooldowns[ability.id] || 0
   });
   return { ok: true };
@@ -1648,6 +1710,7 @@ function makePlayer(socket, role, name, options = {}) {
     voidAbilityCooldowns: {},
     stealthStep: 0,
     riftLens: 0,
+    hourglass: 0,
     survivorAbilityCooldowns: {},
     orbSlow: 0,
     voidSlow: 0,
@@ -2736,6 +2799,7 @@ function updateTimers(game, dt) {
     }
     actor.stealthStep = Math.max(0, (actor.stealthStep || 0) - dt);
     actor.riftLens = Math.max(0, (actor.riftLens || 0) - dt);
+    actor.hourglass = Math.max(0, (actor.hourglass || 0) - dt);
     if (actor.survivorAbilityCooldowns) {
       for (const [abilityId, remaining] of Object.entries(actor.survivorAbilityCooldowns)) {
         const nextRemaining = Math.max(0, cfgNumber(remaining, 0) - dt);
@@ -3015,7 +3079,8 @@ function updateCollectibleDots(game, dt) {
       dotsBefore,
       dotsAfter: actor.dots,
       carriedDots: actor.dots,
-      carryMax: maxDots
+      carryMax: maxDots,
+      red: (game.redOrbs || 0) > 0
     });
   }
 }
@@ -4432,6 +4497,10 @@ function botSurvivorMaybeUseAbility(game, survivor, killer, threatened, killerDi
     if (botTrySurvivorAbility(game, survivor, "stealthStep")) return true;
   }
 
+  if (threatened && (survivor.hourglass || 0) <= 0 && (killerHasLos || killerDistance < BOT_SURVIVOR_THREAT_RADIUS || survivor.chaseHold > 0)) {
+    if (botTrySurvivorAbility(game, survivor, "hourglass")) return true;
+  }
+
   const lowInformation = (survivor.riftLens || 0) <= 0 && (survivor.dots || 0) >= 10;
   const objectivePressure = !threatened && ((survivor.dots || 0) >= 18 || game.escapeOpen || (game.collectibleDots?.length || 0) < 10);
   const chaseSetup = threatened && killerDistance > BOT_SURVIVOR_PANIC_RADIUS && killerDistance < BOT_SURVIVOR_THREAT_RADIUS;
@@ -5772,6 +5841,11 @@ function botRunnerDangerObjectiveKey(kind, targetOrTask) {
 function botRunnerObjectiveTemporarilyAvoided(game, actor, kind, targetOrTask) {
   const bot = actor?.bot;
   if (!bot || !kind || !targetOrTask) return false;
+
+  // A Runner holding a real bundle should not blacklist every rift just because The Void
+  // hummed nearby earlier. Depositing eight orbs beats loitering with pockets full of snacks.
+  if (kind === "gen" && (actor.dots || 0) >= BOT_SURVIVOR_DEPOSIT_DOT_THRESHOLD) return false;
+
   if ((bot.runnerDangerAvoidUntil || 0) <= (game.time || 0)) return false;
   const key = botRunnerDangerObjectiveKey(kind, targetOrTask);
   return !!key && bot.runnerDangerAvoidKey === key;
@@ -6138,6 +6212,7 @@ function botUseLoopObject(game, survivor, killer) {
 }
 
 function chooseBotDotTarget(game, actor) {
+  if ((actor.dots || 0) >= BOT_SURVIVOR_DEPOSIT_DOT_THRESHOLD) return null;
   const bot = actor.bot || (actor.bot = {});
   const existing = bot.objectiveDotId ? (game.collectibleDots || []).find((d) => d.id === bot.objectiveDotId) : null;
   if (existing && game.time < (bot.objectiveDotUntil || 0)) return existing;
@@ -6479,6 +6554,7 @@ function botRunnerResolveTask(game, actor, killer = null) {
   if (!target) return null;
 
   if (botRunnerObjectiveTemporarilyAvoided(game, actor, task.kind, target)) return null;
+  if (task.kind === "dot" && (actor.dots || 0) >= BOT_SURVIVOR_DEPOSIT_DOT_THRESHOLD) return null;
   if (task.kind === "dot" && (actor.dots || 0) >= SURVIVOR_DOT_MAX) return null;
   if (task.kind === "gen" && ((actor.dots || 0) <= 0 || target.done)) return null;
   if (task.kind === "hook") {
@@ -6558,6 +6634,57 @@ function botRunnerObjectiveRiskScore(game, actor, kind, target) {
 function botRunnerPressureTargetId(kind, target) {
   if (!target) return "none";
   return `${kind || "move"}:${target.id || Math.round(target.x || 0) + ":" + Math.round(target.y || 0)}`;
+}
+
+function botRunnerCanBraveObjective(game, actor, kind, target, killer, facts = {}) {
+  if (!game || !actor || !target || !killer || killer.dead) return false;
+
+  const currentDistance = Number.isFinite(facts.currentDistance) ? facts.currentDistance : dist(actor.x, actor.y, killer.x, killer.y);
+  const targetDistance = Number.isFinite(facts.targetDistance) ? facts.targetDistance : dist(target.x, target.y, killer.x, killer.y);
+  const corridorDistance = Number.isFinite(facts.corridorDistance)
+    ? facts.corridorDistance
+    : pointSegmentDistance(killer.x, killer.y, actor.x, actor.y, target.x, target.y);
+  const actorSeen = facts.actorSeen ?? segmentClear(game, actor.x, actor.y, killer.x, killer.y);
+  const targetSeen = facts.targetSeen ?? segmentClear(game, target.x, target.y, killer.x, killer.y);
+
+  if (currentDistance < BOT_SURVIVOR_HARD_TERROR_RADIUS) return false;
+  if (actorSeen && currentDistance < BOT_SURVIVOR_LOOP_RADIUS * 0.95) return false;
+  if (targetSeen && targetDistance < BOT_SURVIVOR_HARD_TERROR_RADIUS * 0.92) return false;
+  if (corridorDistance < BOT_SURVIVOR_PANIC_RADIUS * 0.66 && currentDistance < BOT_SURVIVOR_SAFE_KILLER_DISTANCE) return false;
+
+  const carried = actor.dots || 0;
+  const directToObjective = dist(actor.x, actor.y, target.x, target.y);
+  const notActuallyChased = !actorSeen && (actor.chaseHold || 0) <= 0;
+
+  if (kind === "gen") {
+    const progress = clamp(Number(target.progress || 0), 0, 1);
+    const urgentDeposit = carried >= BOT_SURVIVOR_DEPOSIT_DOT_THRESHOLD;
+    const nearlyDone = progress >= 0.62;
+    return (urgentDeposit || nearlyDone)
+      && currentDistance >= BOT_SURVIVOR_BRAVE_OBJECTIVE_DISTANCE
+      && targetDistance >= BOT_SURVIVOR_HARD_TERROR_RADIUS * 0.88;
+  }
+
+  if (kind === "dot") {
+    if (carried >= BOT_SURVIVOR_DEPOSIT_DOT_THRESHOLD) return false;
+    return notActuallyChased
+      && directToObjective <= game.map.tile * 8.5
+      && targetDistance >= BOT_SURVIVOR_HARD_TERROR_RADIUS
+      && currentDistance >= BOT_SURVIVOR_BRAVE_OBJECTIVE_DISTANCE;
+  }
+
+  if (kind === "hook") {
+    return currentDistance >= BOT_SURVIVOR_BRAVE_OBJECTIVE_DISTANCE * 0.92
+      && targetDistance >= BOT_SURVIVOR_HARD_TERROR_RADIUS * 0.86;
+  }
+
+  if (kind === "heal") {
+    return directToObjective <= Math.min(BOT_SURVIVOR_HEAL_RADIUS, 360)
+      && currentDistance >= BOT_SURVIVOR_BRAVE_OBJECTIVE_DISTANCE * 0.88
+      && targetDistance >= BOT_SURVIVOR_HARD_TERROR_RADIUS * 0.82;
+  }
+
+  return false;
 }
 
 function botRunnerFindKillerAvoidPoint(game, actor, killer, target, kind = "move") {
@@ -6691,6 +6818,20 @@ function botRunnerKillerPressurePlan(game, actor, target, options = {}) {
 
   const pressureId = botRunnerPressureTargetId(kind, target);
   if ((bot.runnerRiskUntil || 0) > now && bot.runnerRiskTargetId === pressureId) {
+    return { type: "risk" };
+  }
+
+  const braveObjective = botRunnerCanBraveObjective(game, actor, kind, target, killer, {
+    currentDistance,
+    targetDistance,
+    corridorDistance,
+    actorSeen,
+    targetSeen
+  });
+  if (braveObjective) {
+    bot.runnerRiskUntil = now + BOT_SURVIVOR_RISK_RUN_SECONDS + Math.random() * 0.28;
+    bot.runnerRiskTargetId = pressureId;
+    bot.runnerAvoidUntil = 0;
     return { type: "risk" };
   }
 
@@ -6847,7 +6988,38 @@ function botRunnerChooseRift(game, actor, killer) {
   return best;
 }
 
+function botRunnerChooseClosestDepositRift(game, actor, killer = null) {
+  if (!game || !actor || (actor.dots || 0) <= 0) return null;
+  let best = null;
+  let bestScore = Infinity;
+
+  for (const gen of game.map.generators || []) {
+    if (gen.done) continue;
+    const direct = dist(actor.x, actor.y, gen.x, gen.y);
+    const route = botCheapRouteDistance(game, actor, gen.x, gen.y, { role: "survivor", exact: false });
+    const routeDistance = Number.isFinite(route) ? route : direct + game.map.tile * 4;
+    const killerDistance = killer && !killer.dead ? dist(killer.x, killer.y, gen.x, gen.y) : Infinity;
+    const killerLane = killer && !killer.dead && segmentClear(game, killer.x, killer.y, gen.x, gen.y);
+
+    // User-facing rule: at eight orbs, head to the closest rift. Still avoid literal face-tanking
+    // if The Void is standing on it with line of sight, because bots should be brave, not paste.
+    const hardCampPenalty = killerDistance < BOT_SURVIVOR_HARD_TERROR_RADIUS && killerLane ? 900 : 0;
+    const bodyCampPenalty = killerDistance < BOT_SURVIVOR_PANIC_RADIUS * 0.82 ? 650 : 0;
+    const progressTiebreaker = clamp(Number(gen.progress || 0), 0, 1) * -90;
+    const teamTiebreaker = (gen.dotDepositing || gen.repairing) ? -45 : 0;
+    const score = routeDistance + hardCampPenalty + bodyCampPenalty + progressTiebreaker + teamTiebreaker;
+
+    if (score < bestScore) {
+      bestScore = score;
+      best = gen;
+    }
+  }
+
+  return best;
+}
+
 function botRunnerChooseOrb(game, actor, killer) {
+  if ((actor.dots || 0) >= BOT_SURVIVOR_DEPOSIT_DOT_THRESHOLD) return null;
   if ((actor.dots || 0) >= SURVIVOR_DOT_MAX) return null;
   const dots = (game.collectibleDots || []).filter(Boolean);
   if (!dots.length) return null;
@@ -6890,7 +7062,8 @@ function botRunnerShouldDeposit(game, actor, rift) {
   const carried = actor.dots || 0;
   const progress = clamp(Number(rift.progress || 0), 0, 1);
   const missingDeposits = Math.ceil(Math.max(0, 1 - progress) / Math.max(0.0001, DOT_REPAIR_PROGRESS));
-  return carried >= SURVIVOR_DOT_MAX
+  return carried >= BOT_SURVIVOR_DEPOSIT_DOT_THRESHOLD
+    || carried >= SURVIVOR_DOT_MAX
     || carried >= 18
     || (carried >= 10 && progress >= 0.25)
     || (carried >= 6 && progress >= 0.55)
@@ -6976,7 +7149,27 @@ function botMoveToObjective(game, actor) {
     return;
   }
 
-  // 3) Honor the current orb/rift/gate decision during its short lock window.
+  // 3) Heal nearby teammates before greedily cashing out. Bots should be a little altruistic,
+  // not four Roombas with glowing pockets and no soul.
+  const healTarget = botRunnerChooseHealTarget(game, actor, killer);
+  if (healTarget) {
+    botRunnerExecuteTask(game, actor, "heal", healTarget, killer);
+    return;
+  }
+
+  // 4) At eight carried orbs, stop hoarding and route to the closest unfinished rift.
+  // This deliberately overrides dot collection and short objective locks.
+  if ((actor.dots || 0) >= BOT_SURVIVOR_DEPOSIT_DOT_THRESHOLD) {
+    const depositRift = botRunnerChooseClosestDepositRift(game, actor, killer) || botRunnerChooseRift(game, actor, killer);
+    if (depositRift) {
+      const task = actor.bot?.runnerTask || actor.bot?.survivorTask;
+      if (task?.kind === "dot") botRunnerClearTask(actor, true);
+      botRunnerExecuteTask(game, actor, "gen", depositRift, killer);
+      return;
+    }
+  }
+
+  // 5) Honor the current orb/rift/gate decision during its short lock window.
   // This is the important anti-jitter layer: a far-away stationary Void should not make
   // Runner bots repeatedly re-score equivalent objectives and step back and forth.
   const committed = botRunnerResolveTask(game, actor, killer);
@@ -6984,14 +7177,7 @@ function botMoveToObjective(game, actor) {
     if (botRunnerExecuteTask(game, actor, committed.kind, committed.target, killer)) return;
   }
 
-  // 4) Heal only when it is close-by and safe. This prevents objective abandonment across the whole map.
-  const healTarget = botRunnerChooseHealTarget(game, actor, killer);
-  if (healTarget) {
-    botRunnerExecuteTask(game, actor, "heal", healTarget, killer);
-    return;
-  }
-
-  // 5) Finish current committed orb/rift objective unless it has become invalid or dangerous.
+  // 6) Finish current committed orb/rift objective unless it has become invalid or dangerous.
   if (committed && (committed.kind === "dot" || committed.kind === "gen" || committed.kind === "gate")) {
     if (botRunnerExecuteTask(game, actor, committed.kind, committed.target, killer)) return;
   } else if (actor.bot?.runnerTask || actor.bot?.survivorTask) {
@@ -7103,9 +7289,20 @@ function updateBotInputs(game, dt) {
       const killerDistance = killer && !killer.dead ? dist(actor.x, actor.y, killer.x, killer.y) : Infinity;
       const killerHasLos = killer && segmentClear(game, actor.x, actor.y, killer.x, killer.y);
       const inTerrorRadius = !!(killer && !killer.dead && killerDistance <= TERROR_RADIUS);
+      const hardTerrorPressure = !!(
+        killer
+        && !killer.dead
+        && inTerrorRadius
+        && (killerDistance <= BOT_SURVIVOR_HARD_TERROR_RADIUS || killerHasLos || (actor.chaseHold || 0) > 0)
+      );
 
-      if (inTerrorRadius) {
+      if (hardTerrorPressure) {
         botRunnerStartTerrorFlee(game, actor, killer, killerDistance);
+      } else if ((actor.bot.runnerTerrorFleeUntil || 0) > now && killerDistance > BOT_SURVIVOR_BRAVE_OBJECTIVE_DISTANCE && !killerHasLos) {
+        // Drop the old panic timer quickly once The Void is only "audible" and no longer an actual
+        // chase. This keeps bots from camping outside terror radius because their last thought was fear.
+        actor.bot.runnerTerrorFleeUntil = Math.min(actor.bot.runnerTerrorFleeUntil || 0, now + 0.18);
+        actor.bot.emergencyFleeUntil = Math.min(actor.bot.emergencyFleeUntil || 0, now + 0.18);
       }
 
       const terrorFleeActive = !!(killer && !killer.dead && (actor.bot.runnerTerrorFleeUntil || 0) > now);
@@ -7119,13 +7316,13 @@ function updateBotInputs(game, dt) {
       const panicThreat = killer && killerDistance < BOT_SURVIVOR_PANIC_RADIUS;
       const loopThreat = killer && !riskRunActive && killerHasLos && killerDistance < BOT_SURVIVOR_LOOP_RADIUS;
       const activeChaseThreat = killer && !riskRunActive && actor.chaseHold > 0 && killerDistance < BOT_SURVIVOR_FAR_OBSERVED_DISTANCE;
-      const mapAwareThreat = killer && !riskRunActive && killerDistance < BOT_SURVIVOR_MAP_AWARE_RADIUS;
-      const threatened = !!(killer && (terrorFleeActive || contactThreat || panicThreat || loopThreat || activeChaseThreat || mapAwareThreat));
-      const observedButSafe = false;
+      const mapAwarePressure = killer && !riskRunActive && killerDistance < BOT_SURVIVOR_MAP_AWARE_RADIUS;
+      const threatened = !!(killer && (terrorFleeActive || contactThreat || panicThreat || loopThreat || activeChaseThreat));
+      const observedButSafe = !!(mapAwarePressure && !threatened);
 
-      if (mapAwareThreat) {
-        // Runner bots are server-controlled, so pretending they have human fog-of-war only
-        // makes them look dumber. They know where The Void is and plan away from it.
+      if (mapAwarePressure) {
+        // Bots always know where The Void is, but knowledge alone no longer equals full panic.
+        // Objective routing handles the caution layer; this branch just keeps ability logic aware.
         actor.bot.observedByKillerUntil = now + 0.9;
       }
 
@@ -7306,8 +7503,7 @@ function isActorVisibleToViewer(game, viewer, actor) {
   const los = segmentClear(game, viewer.x, viewer.y, actor.x, actor.y);
 
   if (viewer.role === "survivor" && actor.role === "killer") {
-    if (d <= CLOSE_REVEAL_RADIUS && los) return true;
-    return los && coneSees(viewer, actor, survivorVisionLengthFor(viewer), survivorVisionAngleFor(viewer));
+    return survivorCanSeeActor(game, viewer, actor, { allowCloseReveal: true });
   }
 
   if (viewer.role === "killer" && actor.role === "survivor") {
@@ -7320,12 +7516,10 @@ function isActorVisibleToViewer(game, viewer, actor) {
   }
 
   if (viewer.role === "survivor" && actor.role === "survivor") {
-    // Hooked teammates are global survivor information. They should be visible on
+    // Hooked/downed teammates are global survivor information. They should be visible on
     // the map even outside cone/LOS so rescue pathing is readable and not a fog lottery.
     if (actor.hooked || actor.downed) return true;
-    if (!los) return false;
-    if (d <= CLOSE_REVEAL_RADIUS) return true;
-    return coneSees(viewer, actor, survivorVisionLengthFor(viewer), survivorVisionAngleFor(viewer));
+    return survivorCanSeeActor(game, viewer, actor, { allowCloseReveal: true });
   }
 
   return true;
@@ -7360,6 +7554,8 @@ function serializeActor(game, actor, visible = true) {
     x: Number(actor.x.toFixed(2)),
     y: Number(actor.y.toFixed(2)),
     angle: actor.angle,
+    moving: !!(actor.vault || actorHasMoveInput(actor)),
+    sprinting: actor.role === "survivor" && !!actor.input?.sprint && !!actorHasMoveInput(actor),
     health: actor.health,
     dots: actor.role === "killer" ? clamp(actor.dots || 0, 0, KILLER_DOT_MAX) : actor.role === "survivor" ? clamp(actor.dots || 0, 0, SURVIVOR_DOT_MAX) : 0,
     stats: serializeMatchStats(actor),
@@ -7390,6 +7586,7 @@ function serializeActor(game, actor, visible = true) {
     ) : {},
     stealthStep: actor.role === "survivor" ? actor.stealthStep || 0 : 0,
     riftLens: actor.role === "survivor" ? actor.riftLens || 0 : 0,
+    hourglass: actor.role === "survivor" ? actor.hourglass || 0 : 0,
     survivorAbilityCooldowns: actor.role === "survivor" ? Object.fromEntries(
       Object.entries(actor.survivorAbilityCooldowns || {}).map(([id, remaining]) => [id, Number(Math.max(0, remaining || 0).toFixed(2))])
     ) : {},
@@ -7443,8 +7640,9 @@ function canViewerSeeGeneratorDetails(game, viewer, gen) {
 
 function canViewerSeeCollectibleDot(game, viewer, dot) {
   if (!viewer || !dot || viewer.dead || viewer.escaped || viewer.hooked) return false;
-  const length = viewer.role === "killer" ? KILLER_CONE_LENGTH : survivorVisionLengthFor(viewer);
-  const angle = viewer.role === "killer" ? KILLER_CONE_ANGLE : survivorVisionAngleFor(viewer);
+  if (viewer.role === "survivor") return survivorCanSeePoint(game, viewer, dot.x, dot.y, { allowCloseReveal: false });
+  const length = KILLER_CONE_LENGTH;
+  const angle = KILLER_CONE_ANGLE;
   const target = { x: dot.x, y: dot.y };
   if (dist(viewer.x, viewer.y, dot.x, dot.y) > length) return false;
   return coneSees(viewer, target, length, angle) && segmentClear(game, viewer.x, viewer.y, dot.x, dot.y);

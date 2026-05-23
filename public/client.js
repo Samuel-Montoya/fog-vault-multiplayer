@@ -8,9 +8,8 @@
     return Number.isFinite(n) ? n : fallback;
   }
 
-  function cameraNumber(key, lowPowerKey, fallback) {
-    const cameraCfg = GAMEPLAY_CONFIG.camera || {};
-    const value = LOW_POWER_MODE && lowPowerKey ? cameraCfg[lowPowerKey] : cameraCfg[key];
+  function scopedNumber(scope, key, lowPowerKey, fallback) {
+    const value = LOW_POWER_MODE && lowPowerKey ? scope?.[lowPowerKey] : scope?.[key];
     return cfgNumber(value, fallback);
   }
 
@@ -253,8 +252,12 @@
     // The old clientCone values were wider/longer, which made the guide show more than the player could actually see.
     SURVIVOR_LENGTH: cfgNumber(GAMEPLAY_CONFIG.survivor?.coneLength, cfgNumber(GAMEPLAY_CONFIG.survivor?.clientConeLength, 620)),
     SURVIVOR_ANGLE: cfgNumber(GAMEPLAY_CONFIG.survivor?.coneAngle, cfgNumber(GAMEPLAY_CONFIG.survivor?.clientConeAngle, Math.PI / 2.6)),
+    SURVIVOR_WALK_LENGTH_MULT: Math.max(1, cfgNumber(GAMEPLAY_CONFIG.survivor?.walkingConeLengthMultiplier, 1.22)),
+    SURVIVOR_WALK_ANGLE_MULT: Math.max(1, cfgNumber(GAMEPLAY_CONFIG.survivor?.walkingConeAngleMultiplier, 1.12)),
     SURVIVOR_RIFT_LENS_LENGTH_MULT: cfgNumber(GAMEPLAY_CONFIG.survivorAbilities?.riftLensLengthMultiplier, 1.55),
     SURVIVOR_RIFT_LENS_ANGLE_MULT: cfgNumber(GAMEPLAY_CONFIG.survivorAbilities?.riftLensAngleMultiplier, 1.38),
+    SURVIVOR_HOURGLASS_BACK_LENGTH_MULT: cfgNumber(GAMEPLAY_CONFIG.survivorAbilities?.hourglassBackLengthMultiplier, 0.92),
+    SURVIVOR_HOURGLASS_BACK_ANGLE_MULT: cfgNumber(GAMEPLAY_CONFIG.survivorAbilities?.hourglassBackAngleMultiplier, 1.0),
     KILLER_LENGTH: cfgNumber(GAMEPLAY_CONFIG.void?.coneLength, cfgNumber(GAMEPLAY_CONFIG.void?.clientConeLength, 920)),
     KILLER_ANGLE: cfgNumber(GAMEPLAY_CONFIG.void?.coneAngle, cfgNumber(GAMEPLAY_CONFIG.void?.clientConeAngle, Math.PI / 1.75)),
     CONE_TEXTURE_WIDTH: LOW_POWER_MODE ? 512 : 768,
@@ -272,7 +275,7 @@
     FLICKER_SPEED: LOW_POWER_MODE ? 5.0 : 7.5,
     FOG_DEPTH: 900,
     // World-space padding around the current camera view. The fog layer is
-    // bigger than the viewport so zooming in/out does not require resizing it
+    // bigger than the viewport so camera-size changes do not require resizing it
     // every frame, which was causing the flashlight to drift and the client to hitch.
     FOG_VIEW_PADDING: 240,
     // Smooth the visible guide cone so mouse/network jitter does not make it twitch.
@@ -287,10 +290,16 @@
       master: 0.55,
       // Per-layer match music volume multipliers.
       // layer2 is the warning/tension bed; layer3 is the main chase layer.
-      layerVolumes: { layer1: 1.0, layer2: 1.22, layer3: 1.0 },
+      layerVolumes: { layer1: 1.0, start: 0.26, layer2: 0.82, layer3: 1.0 },
       menuMaster: 0.14,
       fade: 0.052,
       menu: "/sfx/menu.mp3",
+      // Plays once when a run starts while layer_1 fades in underneath it.
+      start: "/sfx/start.mp3",
+      startVolume: 0.26,
+      startFallbackSeconds: 2.8,
+      startFadeOutSeconds: 1.15,
+      startLayer1FadeInSeconds: 1.35,
       layers: ["/sfx/layer_1.mp3", "/sfx/layer_2.mp3", "/sfx/layer_3.mp3"],
       // Layer 3 stays normal unless the local survivor is injured.
       // Deposit pitch is separate and always ramps upward.
@@ -395,6 +404,14 @@
     MENU_MASTER: AUDIO_CONFIG.music.menuMaster,
     FADE: AUDIO_CONFIG.music.fade,
     MENU: AUDIO_CONFIG.music.menu,
+    START: AUDIO_CONFIG.music.start || "/sfx/start.mp3",
+    START_VOLUME: cfgNumber(
+      AUDIO_CONFIG.music.startVolume ?? AUDIO_CONFIG.music.layerVolumes?.start,
+      0.26
+    ),
+    START_FALLBACK_SECONDS: cfgNumber(AUDIO_CONFIG.music.startFallbackSeconds, 2.8),
+    START_FADE_OUT_SECONDS: cfgNumber(AUDIO_CONFIG.music.startFadeOutSeconds, 1.15),
+    START_LAYER_1_FADE_IN_SECONDS: cfgNumber(AUDIO_CONFIG.music.startLayer1FadeInSeconds, 1.35),
     LAYERS: AUDIO_CONFIG.music.layers,
     LAYER_VOLUMES: AUDIO_CONFIG.music.layerVolumes || {},
     LAYER_3_NORMAL_PLAYBACK_RATE: AUDIO_CONFIG.music.layer3NormalPlaybackRate ?? 1,
@@ -410,47 +427,180 @@
   const SFX_PITCH_STEPS = AUDIO_CONFIG.sfx.pitchSteps || {};
   const ENABLE_SFX_PITCH_VARIATION = AUDIO_CONFIG.sfx.enablePitchVariation !== false;
 
+  const CAMERA_CONFIG = GAMEPLAY_CONFIG.camera || {};
+  const IMMERSION_CONFIG = GAMEPLAY_CONFIG.immersion || GAMEPLAY_CONFIG.camera || {};
+
+  const CAMERA = {
+    BASE_ZOOM: Math.max(0.12, cfgNumber(
+      LOW_POWER_MODE
+        ? (CAMERA_CONFIG.lowPowerBaseZoom ?? CAMERA_CONFIG.lowPowerDefaultZoom ?? CAMERA_CONFIG.baseZoom ?? CAMERA_CONFIG.defaultZoom)
+        : (CAMERA_CONFIG.baseZoom ?? CAMERA_CONFIG.defaultZoom),
+      0.9
+    )),
+    CHASE_OFFSET: cfgNumber(CAMERA_CONFIG.chaseZoomOffset, 0.5),
+    WALK_OFFSET: cfgNumber(CAMERA_CONFIG.walkZoomOffset, 0),
+    SPRINT_OFFSET: cfgNumber(CAMERA_CONFIG.sprintZoomOffset ?? CAMERA_CONFIG.runningZoomOffset, 0.2),
+    ACTION_OFFSET: cfgNumber(CAMERA_CONFIG.actionZoomOffset, 0.2),
+    HOOKED_UNRESCUED_ZOOM: Math.max(0.1, cfgNumber(CAMERA_CONFIG.hookedUnrescuedZoom, 0.3)),
+    HOOKED_RESCUE_PROGRESS_EPSILON: Math.max(0, cfgNumber(CAMERA_CONFIG.hookedRescueProgressEpsilon, 0.001)),
+    MAX_IN_OFFSET: Math.max(0, cfgNumber(CAMERA_CONFIG.maxZoomInOffset, 0.5)),
+    MAX_OUT_OFFSET: Math.max(0, cfgNumber(CAMERA_CONFIG.maxZoomOutOffset, 0.3)),
+    ZOOM_LERP_RATE: Math.max(0.01, cfgNumber(
+      LOW_POWER_MODE
+        ? (CAMERA_CONFIG.lowPowerZoomLerpRate ?? CAMERA_CONFIG.zoomLerpRate)
+        : CAMERA_CONFIG.zoomLerpRate,
+      LOW_POWER_MODE ? 10.5 : 8.5
+    )),
+    ZOOM_SNAP_EPSILON: Math.max(0.0001, cfgNumber(CAMERA_CONFIG.zoomSnapEpsilon, 0.002)),
+    WALK_ONLY_WHILE_MOVING: CAMERA_CONFIG.applyWalkZoomOnlyWhileMoving !== false,
+    SURVIVOR_ABILITY_OFFSETS: CAMERA_CONFIG.survivorAbilityZoomOffsets || {},
+    KILLER_ABILITY_OFFSETS: CAMERA_CONFIG.killerAbilityZoomOffsets || {}
+  };
+  CAMERA.MIN_ZOOM = Math.max(0.1, CAMERA.BASE_ZOOM - CAMERA.MAX_OUT_OFFSET);
+  CAMERA.MAX_ZOOM = Math.max(CAMERA.MIN_ZOOM + 0.01, CAMERA.BASE_ZOOM + CAMERA.MAX_IN_OFFSET);
+  CAMERA.BASE_ZOOM = Math.min(CAMERA.MAX_ZOOM, Math.max(CAMERA.MIN_ZOOM, CAMERA.BASE_ZOOM));
+
+  let cameraZoomNow = Math.min(CAMERA.MAX_ZOOM, Math.max(CAMERA.MIN_ZOOM, cfgNumber(window.__RIFTRUNNER_CAMERA_ZOOM__, CAMERA.BASE_ZOOM)));
+  window.__RIFTRUNNER_CAMERA_ZOOM__ = cameraZoomNow;
+  window.__RIFTRUNNER_CAMERA_BASE_ZOOM__ = CAMERA.BASE_ZOOM;
+
+  function isCameraSubjectLocal(data) {
+    return !!(data && myId && data.id === myId);
+  }
+
+  function cameraSubjectIsMoving(data) {
+    if (!data) return false;
+    if (isCameraSubjectLocal(data)) {
+      return !!(input.up || input.down || input.left || input.right || data.vaulting);
+    }
+    return !!(data.moving || data.vaulting);
+  }
+
+  function cameraSubjectIsSprinting(data) {
+    if (!data || data.role !== "survivor") return false;
+    if (isCameraSubjectLocal(data)) return !!input.sprint && cameraSubjectIsMoving(data);
+    return !!data.sprinting && cameraSubjectIsMoving(data);
+  }
+
+  function survivorVisionIsWalking(data) {
+    if (!data || data.role !== "survivor" || data.dead || data.escaped || data.downed || data.hooked) return false;
+    return cameraSubjectIsMoving(data) && !cameraSubjectIsSprinting(data);
+  }
+
+  function survivorVisionLengthForData(data) {
+    let length = LIGHTING.SURVIVOR_LENGTH;
+    if (survivorVisionIsWalking(data)) length *= LIGHTING.SURVIVOR_WALK_LENGTH_MULT;
+    if ((data?.riftLens || 0) > 0) length *= LIGHTING.SURVIVOR_RIFT_LENS_LENGTH_MULT;
+    return length;
+  }
+
+  function survivorVisionAngleForData(data) {
+    let angle = LIGHTING.SURVIVOR_ANGLE;
+    if (survivorVisionIsWalking(data)) angle *= LIGHTING.SURVIVOR_WALK_ANGLE_MULT;
+    if ((data?.riftLens || 0) > 0) angle *= LIGHTING.SURVIVOR_RIFT_LENS_ANGLE_MULT;
+    return Math.min(Math.PI * 1.08, angle);
+  }
+
+  function cameraSubjectIsDoingAction(data) {
+    if (!data || data.role !== "survivor") return false;
+    return !!(
+      data.dotDepositTargetId
+      || data.healingTargetId
+      || data.unhookTargetId
+      || (data.dotDepositProgress || 0) > 0.001
+      || (data.healProgress || 0) > 0.001
+      || (data.unhookProgress || 0) > 0.001
+      || (Array.isArray(data.activeHealers) && data.activeHealers.length > 0)
+    );
+  }
+
+  function cameraSubjectInChase(data) {
+    if (!data) return false;
+    if (data.role === "survivor") return !!data.chase;
+    if (data.role === "killer") {
+      return !!currentSnapshot?.actors?.some((actor) => actor?.role === "survivor" && actor.chase && !actor.dead && !actor.escaped);
+    }
+    return false;
+  }
+
+  function abilityZoomOffsetForSubject(data) {
+    if (!data) return 0;
+    let offset = 0;
+    if (data.role === "survivor") {
+      for (const [id, value] of Object.entries(CAMERA.SURVIVOR_ABILITY_OFFSETS || {})) {
+        if ((data[id] || 0) > 0) offset += cfgNumber(value, 0);
+      }
+    } else if (data.role === "killer") {
+      const effects = currentSnapshot?.voidEffects || {};
+      for (const [id, value] of Object.entries(CAMERA.KILLER_ABILITY_OFFSETS || {})) {
+        const active = id === "voidReveal"
+          ? (effects.runnerReveal || 0) > 0
+          : id === "redshiftOrbs"
+            ? (effects.redOrbs || 0) > 0
+            : id === "nullRush"
+              ? (data.voidSpeedBoost || 0) > 0
+              : (data[id] || 0) > 0;
+        if (active) offset += cfgNumber(value, 0);
+      }
+    }
+    return offset;
+  }
+
+  function cameraSubjectHookedWithoutRescue(data) {
+    if (!data || data.role !== "survivor") return false;
+    if (!data.hooked || data.dead || data.escaped) return false;
+    return (data.unhookProgress || 0) <= CAMERA.HOOKED_RESCUE_PROGRESS_EPSILON;
+  }
+
+  function getCameraZoomPlan(data) {
+    const modifiers = [];
+
+    if (cameraSubjectHookedWithoutRescue(data)) {
+      const zoom = clamp(CAMERA.HOOKED_UNRESCUED_ZOOM, 0.1, CAMERA.MAX_ZOOM);
+      return {
+        base: CAMERA.BASE_ZOOM,
+        rawOffset: zoom - CAMERA.BASE_ZOOM,
+        clampedOffset: zoom - CAMERA.BASE_ZOOM,
+        zoom,
+        modifiers: [{ id: "hookedUnrescued", value: zoom - CAMERA.BASE_ZOOM, absoluteZoom: zoom }]
+      };
+    }
+
+    if (cameraSubjectInChase(data)) modifiers.push({ id: "chase", value: CAMERA.CHASE_OFFSET });
+
+    if (data?.role === "survivor" && !data.dead && !data.escaped && !data.downed && !data.hooked) {
+      const moving = cameraSubjectIsMoving(data);
+      const sprinting = cameraSubjectIsSprinting(data);
+      // Movement zoom is intentionally sprint-only. Walking should keep the
+      // neutral base zoom so players only trade camera awareness when they
+      // actively hold Shift to sprint.
+      if (sprinting) {
+        modifiers.push({ id: "sprint", value: CAMERA.SPRINT_OFFSET });
+      }
+      if (cameraSubjectIsDoingAction(data)) modifiers.push({ id: "action", value: CAMERA.ACTION_OFFSET });
+      const abilityOffset = abilityZoomOffsetForSubject(data);
+      if (Math.abs(abilityOffset) > 0.0001) modifiers.push({ id: "ability", value: abilityOffset });
+    } else if (data?.role === "killer") {
+      const abilityOffset = abilityZoomOffsetForSubject(data);
+      if (Math.abs(abilityOffset) > 0.0001) modifiers.push({ id: "ability", value: abilityOffset });
+    }
+
+    const rawOffset = modifiers.reduce((sum, entry) => sum + cfgNumber(entry.value, 0), 0);
+    const clampedOffset = clamp(rawOffset, -CAMERA.MAX_OUT_OFFSET, CAMERA.MAX_IN_OFFSET);
+    const zoom = clamp(CAMERA.BASE_ZOOM + clampedOffset, CAMERA.MIN_ZOOM, CAMERA.MAX_ZOOM);
+    return { base: CAMERA.BASE_ZOOM, rawOffset, clampedOffset, zoom, modifiers };
+  }
+
   // Client-only fear tuning. This does not change hitboxes or movement on the server.
-  // It just makes the camera and overlay behave like the chase is pulling you inward.
   const IMMERSION = {
-    BASE_ZOOM: cameraNumber("baseZoom", "lowPowerBaseZoom", 1),
-    // Camera zoom offsets are added to BASE_ZOOM after a single winner is chosen.
-    // Negative values are supported now, so injuredZoom: -0.5 can zoom the camera out.
-    TERROR_ZOOM: cameraNumber("terrorZoom", "lowPowerTerrorZoom", LOW_POWER_MODE ? 0.025 : 0.04),
-    CHASE_ZOOM: cameraNumber("chaseZoom", "lowPowerChaseZoom", LOW_POWER_MODE ? 0.42 : 0.66),
-    SPRINT_ZOOM: cameraNumber("sprintZoom", "lowPowerSprintZoom", LOW_POWER_MODE ? 0.055 : 0.095),
-    SPRINT_ZOOM_SMOOTHING: cameraNumber("sprintZoomSmoothing", "lowPowerSprintZoomSmoothing", LOW_POWER_MODE ? 7.0 : 8.5),
-
-    KILLER_M1_HOLD_ZOOM: cameraNumber("voidM1HoldZoom", "lowPowerVoidM1HoldZoom", LOW_POWER_MODE ? 0.045 : 0.085),
-    KILLER_M1_PULSE_ZOOM: cameraNumber("voidM1PulseZoom", "lowPowerVoidM1PulseZoom", LOW_POWER_MODE ? 0.035 : 0.065),
-    DEPOSIT_ZOOM: cameraNumber("riftDepositZoom", "lowPowerRiftDepositZoom", LOW_POWER_MODE ? 0.055 : 0.12),
-    RIFT_KICK_ZOOM: cameraNumber("riftKickZoom", "lowPowerRiftKickZoom", LOW_POWER_MODE ? 0.04 : 0.075),
-    HEAL_ZOOM: cameraNumber("healZoom", "lowPowerHealZoom", LOW_POWER_MODE ? 0.025 : 0.045),
-    UNHOOK_ZOOM: cameraNumber("unhookZoom", "lowPowerUnhookZoom", LOW_POWER_MODE ? 0.06 : 0.12),
-    HOOKED_ZOOM: cameraNumber("hookedZoom", "lowPowerHookedZoom", LOW_POWER_MODE ? 0.055 : 0.10),
-    INJURED_ZOOM: cameraNumber("injuredZoom", "lowPowerInjuredZoom", LOW_POWER_MODE ? 0.018 : 0.035),
-    DOWNED_ZOOM: cameraNumber("downedZoom", "lowPowerDownedZoom", LOW_POWER_MODE ? 0.075 : 0.14),
-    ESCAPE_ZOOM: cameraNumber("escapeZoom", "lowPowerEscapeZoom", LOW_POWER_MODE ? 0.06 : 0.12),
-    VOID_REVEAL_ZOOM: cameraNumber("voidRevealZoom", "lowPowerVoidRevealZoom", LOW_POWER_MODE ? -0.26 : -0.38),
-
-    SPAWN_ZOOM: cameraNumber("spawnPopZoom", "lowPowerSpawnPopZoom", LOW_POWER_MODE ? 0.10 : 0.18),
-    SPAWN_ZOOM_DECAY: cameraNumber("spawnPopZoomDecay", "lowPowerSpawnPopZoomDecay", LOW_POWER_MODE ? 4.2 : 5.6),
     MATCH_START_LOCK_SECONDS: cfgNumber(GAMEPLAY_CONFIG.match?.startFreezeSeconds, 1.5),
-    MATCH_START_ZOOM_OUT: cameraNumber("matchStartZoomOut", "lowPowerMatchStartZoomOut", LOW_POWER_MODE ? 0.22 : 0.36),
-    MATCH_START_ZOOM_SMOOTHING: cameraNumber("matchStartZoomSmoothing", "lowPowerMatchStartZoomSmoothing", LOW_POWER_MODE ? 2.2 : 3.0),
-    MIN_ZOOM: cameraNumber("minZoom", "lowPowerMinZoom", LOW_POWER_MODE ? 0.42 : 0.34),
-
-    ZOOM_SMOOTHING: cameraNumber("zoomSmoothing", "lowPowerZoomSmoothing", LOW_POWER_MODE ? 4.4 : 6.4),
-    CHASE_IN_LERP: cameraNumber("chaseInLerp", "lowPowerChaseInLerp", LOW_POWER_MODE ? 0.045 : 0.055),
-    CHASE_OUT_LERP: cameraNumber("chaseOutLerp", "lowPowerChaseOutLerp", LOW_POWER_MODE ? 0.035 : 0.04),
-    TERROR_LERP: cameraNumber("terrorLerp", "lowPowerTerrorLerp", LOW_POWER_MODE ? 0.055 : 0.07),
-    BREATH_SWAY: cameraNumber("breathSway", "lowPowerBreathSway", LOW_POWER_MODE ? 2.5 : 4),
-    CHASE_SWAY: cameraNumber("chaseSway", "lowPowerChaseSway", LOW_POWER_MODE ? 3 : 5),
+    CHASE_IN_LERP: scopedNumber(IMMERSION_CONFIG, "chaseInLerp", "lowPowerChaseInLerp", LOW_POWER_MODE ? 0.045 : 0.055),
+    CHASE_OUT_LERP: scopedNumber(IMMERSION_CONFIG, "chaseOutLerp", "lowPowerChaseOutLerp", LOW_POWER_MODE ? 0.035 : 0.04),
+    TERROR_LERP: scopedNumber(IMMERSION_CONFIG, "terrorLerp", "lowPowerTerrorLerp", LOW_POWER_MODE ? 0.055 : 0.07),
+    BREATH_SWAY: scopedNumber(IMMERSION_CONFIG, "breathSway", "lowPowerBreathSway", LOW_POWER_MODE ? 2.5 : 4),
+    CHASE_SWAY: scopedNumber(IMMERSION_CONFIG, "chaseSway", "lowPowerChaseSway", LOW_POWER_MODE ? 3 : 5),
     // Direction-change camera sway. No constant running bob. The camera only leans
     // when the player changes movement direction, then smoothly settles back.
-    // Smooth direction-change camera sway. The old impulse added pixels instantly,
-    // which made normal WASD movement feel jumpy. These values feed a soft spring:
-    // direction changes create a tiny target offset, then the camera eases into/out of it.
     DIRECTION_SWAY_IMPULSE: 7,
     DIRECTION_SWAY_MAX: 8,
     DIRECTION_CHANGE_THRESHOLD: 0.45,
@@ -928,9 +1078,9 @@
 
   function introLockSecondsRemaining() {
     if (activeScreenName !== "game" || !phaserScene) return 0;
-    const localZoom = Math.max(0, ((phaserScene.matchStartZoomUntil || 0) - performance.now()) / 1000);
+    const localLock = Math.max(0, ((phaserScene.matchStartInputLockUntil || 0) - performance.now()) / 1000);
     const serverLock = Math.max(0, Number(phaserScene.matchStartFreezeRemaining || 0));
-    return Math.max(localZoom, serverLock);
+    return Math.max(localLock, serverLock);
   }
 
   function isIntroInputLocked() {
@@ -962,6 +1112,13 @@
     lastTryAt: 0,
     layers: [],
     menu: null,
+    startCue: null,
+    startCueActive: false,
+    startCueToken: 0,
+    startCueStartedAt: 0,
+    startCuePlayed: false,
+    startCueSourcePending: false,
+    startCueMissing: false,
     menuActive: false,
     sfx: {},
     targets: [0, 0, 0],
@@ -1109,6 +1266,7 @@
       audio.volumes = [0, 0, 0];
       audio.layer3ChaseActive = false;
       audio.layer3InjuredPitchActive = false;
+      endMatchStartCue(true);
       applyMusicPlaybackRate(audio.layers?.[2], MUSIC.LAYER_3_NORMAL_PLAYBACK_RATE);
       for (const layer of audio.layers || []) {
         layer.volume = 0;
@@ -1454,7 +1612,23 @@
   }
 
   function smoothstep(edge0, edge1, value) {
-    const t = clamp((value - edge0) / (edge1 - edge0), 0, 1);
+    // Supports both smoothstep(t) and smoothstep(edge0, edge1, value).
+    // The one-argument form is useful for fade gates and prevents media volume
+    // math from turning into NaN when Firefox is already in a mood.
+    let start = Number(edge0);
+    let end = Number(edge1);
+    let v = Number(value);
+    if (arguments.length === 1) {
+      v = start;
+      start = 0;
+      end = 1;
+    }
+    if (!Number.isFinite(start)) start = 0;
+    if (!Number.isFinite(end)) end = 1;
+    if (!Number.isFinite(v)) v = start;
+    const span = end - start;
+    const rawT = Math.abs(span) < 0.000001 ? (v >= end ? 1 : 0) : (v - start) / span;
+    const t = clamp(Number.isFinite(rawT) ? rawT : 0, 0, 1);
     return t * t * (3 - 2 * t);
   }
 
@@ -1596,7 +1770,8 @@
         (role === "killer" && ability.id === "redshiftOrbs" && (currentSnapshot?.voidEffects?.redOrbs || 0) > 0) ||
         (role === "killer" && ability.id === "voidReveal" && (currentSnapshot?.voidEffects?.runnerReveal || 0) > 0) ||
         (role === "survivor" && ability.id === "stealthStep" && (actor.stealthStep || 0) > 0) ||
-        (role === "survivor" && ability.id === "riftLens" && (actor.riftLens || 0) > 0)
+        (role === "survivor" && ability.id === "riftLens" && (actor.riftLens || 0) > 0) ||
+        (role === "survivor" && ability.id === "hourglass" && (actor.hourglass || 0) > 0)
       ));
       return {
         id: ability.id || id,
@@ -1697,6 +1872,7 @@
     const runnerEffects = [];
     if (isRunner && (me.stealthStep || 0) > 0) runnerEffects.push({ id: "stealthStep", label: "stealth", time: me.stealthStep });
     if (isRunner && (me.riftLens || 0) > 0) runnerEffects.push({ id: "riftLens", label: "lens", time: me.riftLens });
+    if (isRunner && (me.hourglass || 0) > 0) runnerEffects.push({ id: "hourglass", label: "hourglass", time: me.hourglass });
     window.dispatchEvent(new CustomEvent("riftrunner:runner-ability-hud", {
       detail: {
         visible: isRunner,
@@ -1869,6 +2045,16 @@
     syncMenuMusicVolumeUi();
     applyMenuMusicVolume();
 
+    audio.startCue = createManagedAudio("match start cue", MUSIC.START, {
+      loop: false,
+      preload: "auto",
+      volume: 0,
+      onReady: (cue) => {
+        cue.volume = 0;
+        if (audio.startCueActive && !audio.startCuePlayed) playMatchStartCue();
+      }
+    });
+
     audio.layers = MUSIC.LAYERS.map((src, index) => createManagedAudio(`music layer ${index + 1}`, src, {
       loop: true,
       preload: "auto",
@@ -1896,6 +2082,7 @@
       for (const a of audio.layers) {
         if (hasManagedAudioSource(a) && a.paused) a.play().catch(() => null);
       }
+      if (audio.startCueActive && !audio.startCuePlayed) playMatchStartCue();
       return;
     }
 
@@ -1908,10 +2095,122 @@
       if (a.paused && a.currentTime === 0) a.currentTime = 0;
       return a.play().catch(() => null);
     });
+    if (audio.startCueActive && !audio.startCuePlayed) {
+      const startPlay = playMatchStartCue();
+      if (startPlay) plays.push(startPlay);
+    }
     Promise.allSettled(plays).then(() => {
-      audio.ready = audio.layers.some((a) => hasManagedAudioSource(a) && !a.paused);
+      audio.ready = audio.layers.some((a) => hasManagedAudioSource(a) && !a.paused)
+        || (audio.startCueActive && hasManagedAudioSource(audio.startCue) && !audio.startCue.paused);
       if (ui.audioText) ui.audioText.textContent = audio.ready ? "On" : "Blocked";
     });
+  }
+
+
+  function safeMediaDurationMs(el, fallbackSeconds) {
+    const duration = Number(el?.duration);
+    if (Number.isFinite(duration) && duration > 0.25 && duration < 120) return duration * 1000;
+    const fallback = Number(fallbackSeconds);
+    return Math.max(350, (Number.isFinite(fallback) && fallback > 0 ? fallback : 2.8) * 1000);
+  }
+
+  function safeMediaVolume(value, fallback = 0) {
+    const next = Number(value);
+    const safe = Number.isFinite(next) ? next : fallback;
+    return clamp(safe, 0, 1);
+  }
+
+  function getMatchStartCueTiming(now = performance.now()) {
+    const durationMs = safeMediaDurationMs(audio.startCue, MUSIC.START_FALLBACK_SECONDS);
+    const fadeOutMs = clamp(Number(MUSIC.START_FADE_OUT_SECONDS || 1.15) * 1000, 180, Math.max(220, durationMs * 0.9));
+    const layerFadeMs = clamp(Number(MUSIC.START_LAYER_1_FADE_IN_SECONDS || 1.35) * 1000, 220, 5000);
+    const fadeStartMs = Math.max(120, durationMs - fadeOutMs);
+    const elapsedMs = Math.max(0, now - (audio.startCueStartedAt || now));
+    return { durationMs, fadeOutMs, layerFadeMs, fadeStartMs, elapsedMs };
+  }
+
+  function getMatchStartLayer1Gate(now = performance.now()) {
+    if (!audio.startCueActive) return 1;
+    const { layerFadeMs, elapsedMs } = getMatchStartCueTiming(now);
+    // Fade layer_1 in as soon as start.mp3 begins. The intro still fades out near
+    // the end, but the bed should already be alive underneath it.
+    return smoothstep(0, 1, clamp(elapsedMs / Math.max(1, layerFadeMs), 0, 1));
+  }
+
+  function endMatchStartCue(force = false) {
+    if (!audio.startCueActive && !force) return;
+    audio.startCueActive = false;
+    audio.startCuePlayed = false;
+    audio.startCueSourcePending = false;
+    audio.startCueMissing = false;
+    const cue = audio.startCue;
+    if (cue) {
+      cue.volume = 0;
+      if (!cue.paused) cue.pause();
+      try { cue.currentTime = 0; } catch (_) { /* Media seeking can fail if the source never loaded. */ }
+    }
+  }
+
+  function playMatchStartCue() {
+    const cue = audio.startCue;
+    if (!audio.gameActive || !audio.startCueActive || !hasManagedAudioSource(cue)) return null;
+    audio.startCuePlayed = true;
+    audio.startCueMissing = false;
+    try { cue.currentTime = 0; } catch (_) { /* ignore */ }
+    cue.volume = safeMediaVolume(Number(MUSIC.START_VOLUME ?? 0.26) * MUSIC.MASTER);
+    const playPromise = cue.play().catch(() => {
+      // If autoplay blocks it, unlockAudio/ensureAudioStarted will retry after the next user gesture.
+    });
+    return playPromise;
+  }
+
+  function beginMatchStartCue() {
+    const now = performance.now();
+    audio.startCueToken = (audio.startCueToken || 0) + 1;
+    const token = audio.startCueToken;
+    audio.startCueActive = true;
+    audio.startCueStartedAt = now;
+    audio.startCuePlayed = false;
+    audio.startCueMissing = false;
+    audio.startCueSourcePending = !!audio.startCue?._voidriftPending && !hasManagedAudioSource(audio.startCue);
+    // Start layer_1 from silence, but keep the snapshot target intact so it can
+    // fade in immediately under the start cue instead of waiting for the intro fade-out.
+    audio.volumes[0] = 0;
+
+    const played = playMatchStartCue();
+    if (played) return;
+
+    if (audio.startCueSourcePending) {
+      audio.startCue._voidriftPending.finally(() => {
+        if (token !== audio.startCueToken || !audio.startCueActive) return;
+        audio.startCueSourcePending = false;
+        if (!playMatchStartCue()) {
+          // Missing start.mp3 should never hold the whole soundtrack hostage.
+          endMatchStartCue(true);
+        }
+      });
+      return;
+    }
+
+    // Missing asset fallback: release layer_1 immediately instead of serving silence.
+    endMatchStartCue(true);
+  }
+
+  function updateMatchStartCue(now = performance.now()) {
+    if (!audio.startCueActive) return;
+    const { durationMs, fadeOutMs, fadeStartMs, elapsedMs } = getMatchStartCueTiming(now);
+    const cue = audio.startCue;
+
+    if (hasManagedAudioSource(cue) && audio.startCuePlayed) {
+      const fadeT = clamp((elapsedMs - fadeStartMs) / Math.max(1, fadeOutMs), 0, 1);
+      const volumeGate = 1 - smoothstep(0, 1, fadeT);
+      cue.volume = safeMediaVolume(Number(MUSIC.START_VOLUME ?? 0.26) * MUSIC.MASTER * volumeGate);
+    }
+
+    const cueEnded = !!cue?.ended;
+    if (cueEnded || elapsedMs > durationMs + fadeOutMs + 400) {
+      endMatchStartCue(false);
+    }
   }
 
   function isLocalSurvivorInjuredForLayer3() {
@@ -1980,6 +2279,8 @@
   }
 
   function updateMusic() {
+    const now = performance.now();
+    updateMatchStartCue(now);
     if (!audio.layers.length) return;
     if (!audio.gameActive) {
       for (let i = 0; i < audio.layers.length; i++) {
@@ -1997,8 +2298,10 @@
       }
     }
 
+    const layer1Gate = getMatchStartLayer1Gate(now);
     for (let i = 0; i < audio.layers.length; i++) {
-      audio.volumes[i] += (audio.targets[i] - audio.volumes[i]) * MUSIC.FADE;
+      const target = i === 0 ? audio.targets[i] * layer1Gate : audio.targets[i];
+      audio.volumes[i] += (target - audio.volumes[i]) * MUSIC.FADE;
       if (Number.isFinite(audio.volumes[i])) audio.layers[i].volume = clamp(audio.volumes[i], 0, 1);
     }
   }
@@ -2516,7 +2819,6 @@
       this.activePerformanceMode = adaptivePerformance.mode;
       this.chaseBlend = 0;
       this.terrorBlend = 0;
-      this.sprintZoomBlend = 0;
       this.heartbeatTimer = 0;
       this.heartbeatPulse = 0;
       this.breathPhase = 0;
@@ -2528,13 +2830,14 @@
       this.cameraSwayTargetY = 0;
       this.cameraFollowX = null;
       this.cameraFollowY = null;
-      this.killerM1Pulse = 0;
-      this.spawnInPulse = 0;
+      this.currentCameraZoom = cameraZoomNow;
+      this.targetCameraZoom = CAMERA.BASE_ZOOM;
+      this.cameraZoomPlan = getCameraZoomPlan(null);
       this.spawnInPlayed = false;
       this.spawnInAt = 0;
       this.matchStartFreezeRemaining = 0;
       this.matchStartFreezeDuration = IMMERSION.MATCH_START_LOCK_SECONDS;
-      this.matchStartZoomUntil = 0;
+      this.matchStartInputLockUntil = 0;
       this.introCameraPrimed = false;
       this.lastMoveDirX = 0;
       this.lastMoveDirY = 0;
@@ -2640,6 +2943,10 @@
     create() {
       phaserScene = this;
       this.cameras.main.setBackgroundColor("#03040a");
+      cameraZoomNow = CAMERA.BASE_ZOOM;
+      this.currentCameraZoom = cameraZoomNow;
+      this.targetCameraZoom = cameraZoomNow;
+      this.cameras.main.setZoom(cameraZoomNow);
       // No fog RenderTexture anymore. Resize no longer allocates/rebuilds a GPU texture.
       this.grassLayer = null;
       this.worldGraphics = this.add.graphics().setDepth(1);
@@ -3343,14 +3650,16 @@
       const subject = this.getCameraSubjectItem();
       const hasSubject = !!subject?.container;
       const role = subject?.data?.role || "survivor";
-      const riftLensActive = role === "survivor" && (subject?.data?.riftLens || 0) > 0;
+      const hourglassActive = role === "survivor" && (subject?.data?.hourglass || 0) > 0;
       const worldX = subject?.container?.x ?? 0;
       const worldY = subject?.container?.y ?? 0;
       const facing = subject?.container?.rotation || 0;
-      const baseLength = role === "killer" ? LIGHTING.KILLER_LENGTH : LIGHTING.SURVIVOR_LENGTH * (riftLensActive ? LIGHTING.SURVIVOR_RIFT_LENS_LENGTH_MULT : 1);
-      const baseAngle = role === "killer" ? LIGHTING.KILLER_ANGLE : Math.min(Math.PI * 1.08, LIGHTING.SURVIVOR_ANGLE * (riftLensActive ? LIGHTING.SURVIVOR_RIFT_LENS_ANGLE_MULT : 1));
+      const baseLength = role === "killer" ? LIGHTING.KILLER_LENGTH : survivorVisionLengthForData(subject?.data);
+      const baseAngle = role === "killer" ? LIGHTING.KILLER_ANGLE : survivorVisionAngleForData(subject?.data);
       const length = baseLength + WALL_VISION.CONE_EXTRA_LENGTH;
       const coneAngle = baseAngle + WALL_VISION.CONE_EXTRA_ANGLE;
+      const backLength = length * LIGHTING.SURVIVOR_HOURGLASS_BACK_LENGTH_MULT;
+      const backConeAngle = Math.min(Math.PI * 1.08, coneAngle * LIGHTING.SURVIVOR_HOURGLASS_BACK_ANGLE_MULT);
       const nearRadius = role === "killer" ? WALL_VISION.KILLER_NEAR_RADIUS : WALL_VISION.SURVIVOR_NEAR_RADIUS;
       let animating = false;
 
@@ -3368,9 +3677,15 @@
           animating = true;
         }
         if (shouldRecompute) {
-          state.targetAlpha = role === "killer" || !hasSubject
-            ? (role === "killer" ? 1 : 0)
-            : this.computeGeneratorVisionAlpha(gen, worldX, worldY, facing, length, coneAngle, nearRadius);
+          if (role === "killer" || !hasSubject) {
+            state.targetAlpha = role === "killer" ? 1 : 0;
+          } else {
+            const forwardAlpha = this.computeGeneratorVisionAlpha(gen, worldX, worldY, facing, length, coneAngle, nearRadius);
+            const backAlpha = hourglassActive
+              ? this.computeGeneratorVisionAlpha(gen, worldX, worldY, facing + Math.PI, backLength, backConeAngle, nearRadius)
+              : 0;
+            state.targetAlpha = Math.max(forwardAlpha, backAlpha);
+          }
         }
         const rate = state.targetAlpha > state.alpha ? WALL_VISION.FADE_IN_PER_SECOND : WALL_VISION.FADE_OUT_PER_SECOND;
         const next = lerp(state.alpha, state.targetAlpha, dampAlpha(rate, dt));
@@ -4873,7 +5188,6 @@
           playLocalizedSwing(event);
           const localActor = this.actors.get(myId);
           if (event.actorId === myId && localActor?.data?.role === "killer") {
-            this.killerM1Pulse = 1;
             this.cameras.main.shake(LOW_POWER_MODE ? 48 : 64, (LOW_POWER_MODE ? 0.00012 : 0.00020) * performanceValue("shakeScale", 1));
           }
         }
@@ -4971,9 +5285,9 @@
           if (adaptivePerformance.mode === "normal") this.addShockwave(event.x, event.y, color, 0.55, event.radius || 155);
         }
         if (event.type === "survivorAbility") {
-          const color = event.abilityId === "riftLens" ? 0xfbbf24 : 0x67e8f9;
+          const color = event.abilityId === "riftLens" ? 0xfbbf24 : event.abilityId === "hourglass" ? 0x67e8f9 : 0x7dd3fc;
           this.burst(event.x, event.y, color, adaptivePerformance.mode === "ultra" ? 0 : LOW_POWER_MODE ? 5 : 28, LOW_POWER_MODE ? 110 : 180);
-          if (adaptivePerformance.mode === "normal") this.addShockwave(event.x, event.y, color, 0.42, 138);
+          if (adaptivePerformance.mode === "normal") this.addShockwave(event.x, event.y, color, 0.42, event.abilityId === "hourglass" ? 176 : 138);
         }
         if (event.type === "redOrbSlow" && adaptivePerformance.mode !== "ultra") {
           this.burst(event.x, event.y, 0xff3048, LOW_POWER_MODE ? 4 : 18, 95);
@@ -4995,7 +5309,8 @@
         }
         if (event.type === "healDone" && adaptivePerformance.mode !== "ultra") this.burst(event.x, event.y, 0x8dff9a, LOW_POWER_MODE ? 7 : 24, 120);
         if (event.type === "dotPickup") {
-          if (adaptivePerformance.mode === "normal") this.burst(event.x, event.y, COLORS.collectibleDot, 10, 95);
+          const pickupColor = event.red ? 0xff3048 : COLORS.collectibleDot;
+          if (adaptivePerformance.mode === "normal") this.burst(event.x, event.y, pickupColor, 10, 95);
           playOrbPickupSfx(event);
         }
         if (event.type === "dotDeposit") {
@@ -5174,7 +5489,6 @@
 
       this.spawnInPlayed = true;
       this.spawnInAt = performance.now();
-      this.spawnInPulse = 1;
       item.spawnScalePulse = 1;
       item.container?.setScale(LOW_POWER_MODE ? 0.78 : 0.66);
 
@@ -5395,9 +5709,9 @@
 
     isMatchIntroLocked() {
       if (activeScreenName !== "game") return false;
-      const localZoom = Math.max(0, ((this.matchStartZoomUntil || 0) - performance.now()) / 1000);
+      const localLock = Math.max(0, ((this.matchStartInputLockUntil || 0) - performance.now()) / 1000);
       const serverLock = Math.max(0, Number(this.matchStartFreezeRemaining || 0));
-      return Math.max(localZoom, serverLock) > 0.035;
+      return Math.max(localLock, serverLock) > 0.035;
     }
 
     primeIntroCameraForLocalActor(data) {
@@ -5413,8 +5727,10 @@
       this.cameraFollowX = x;
       this.cameraFollowY = y;
       this.localVisual = { x, y, angle: data.angle || 0, role: data.role, skin: data.skin || "blueSquare" };
-      const introZoom = Math.max(0.38, IMMERSION.BASE_ZOOM - IMMERSION.MATCH_START_ZOOM_OUT);
-      this.cameras.main.setZoom(introZoom);
+      cameraZoomNow = CAMERA.BASE_ZOOM;
+      this.currentCameraZoom = cameraZoomNow;
+      this.targetCameraZoom = cameraZoomNow;
+      this.cameras.main.setZoom(cameraZoomNow);
       this.cameras.main.centerOn(x, y);
     }
 
@@ -5817,31 +6133,58 @@
       ];
     }
 
-    computeActorPointVisionAlpha(worldX, worldY, subject) {
+    actorVisionSamplePoints(worldX, worldY, radius = ACTOR_VISION.POINT_RADIUS) {
+      return [
+        { x: worldX, y: worldY },
+        { x: worldX + radius, y: worldY },
+        { x: worldX - radius, y: worldY },
+        { x: worldX, y: worldY + radius },
+        { x: worldX, y: worldY - radius }
+      ];
+    }
+
+    computeSinglePointVisionAlpha(worldX, worldY, subject) {
       if (!subject) return 0;
       const role = subject.data?.role || "survivor";
       const sourceX = subject.current?.x ?? subject.container?.x ?? 0;
       const sourceY = subject.current?.y ?? subject.container?.y ?? 0;
       const facing = subject.current?.angle ?? subject.container?.rotation ?? 0;
-      const length = (role === "killer" ? LIGHTING.KILLER_LENGTH : LIGHTING.SURVIVOR_LENGTH) + WALL_VISION.CONE_EXTRA_LENGTH;
-      const coneAngle = (role === "killer" ? LIGHTING.KILLER_ANGLE : LIGHTING.SURVIVOR_ANGLE) + WALL_VISION.CONE_EXTRA_ANGLE;
+      const hourglassActive = role === "survivor" && (subject?.data?.hourglass || 0) > 0;
+      const length = (role === "killer" ? LIGHTING.KILLER_LENGTH : survivorVisionLengthForData(subject?.data)) + WALL_VISION.CONE_EXTRA_LENGTH;
+      const coneAngle = (role === "killer" ? LIGHTING.KILLER_ANGLE : survivorVisionAngleForData(subject?.data)) + WALL_VISION.CONE_EXTRA_ANGLE;
       const nearRadius = role === "killer" ? WALL_VISION.KILLER_NEAR_RADIUS : WALL_VISION.SURVIVOR_NEAR_RADIUS;
-      const r = ACTOR_VISION.POINT_RADIUS;
+      const r = 1;
       const pointItem = {
         rect: { x: worldX - r, y: worldY - r, w: r * 2, h: r * 2 },
         radius: r,
         samples: [{ x: worldX, y: worldY }]
       };
-      return this.computeWallVisionAlpha(pointItem, sourceX, sourceY, facing, length, coneAngle, nearRadius);
+      const forwardAlpha = this.computeWallVisionAlpha(pointItem, sourceX, sourceY, facing, length, coneAngle, nearRadius);
+      if (!hourglassActive) return forwardAlpha;
+      const backLength = length * LIGHTING.SURVIVOR_HOURGLASS_BACK_LENGTH_MULT;
+      const backAngle = Math.min(Math.PI * 1.08, coneAngle * LIGHTING.SURVIVOR_HOURGLASS_BACK_ANGLE_MULT);
+      const backAlpha = this.computeWallVisionAlpha(pointItem, sourceX, sourceY, facing + Math.PI, backLength, backAngle, nearRadius);
+      return Math.max(forwardAlpha, backAlpha);
+    }
+
+    computeActorPointVisionAlpha(worldX, worldY, subject) {
+      let best = 0;
+      for (const sample of this.actorVisionSamplePoints(worldX, worldY, ACTOR_VISION.POINT_RADIUS)) {
+        best = Math.max(best, this.computeSinglePointVisionAlpha(sample.x, sample.y, subject));
+      }
+      return best;
     }
 
     computePointVisionAlpha(worldX, worldY, subject) {
-      const coneAlpha = this.computeActorPointVisionAlpha(worldX, worldY, subject);
-      if (coneAlpha <= WALL_VISION.MIN_VISIBLE_ALPHA) return 0;
+      if (!subject) return 0;
       const sourceX = subject?.current?.x ?? subject?.container?.x ?? 0;
       const sourceY = subject?.current?.y ?? subject?.container?.y ?? 0;
-      if (!this.hasClearWallLineOfSight(sourceX, sourceY, worldX, worldY)) return 0;
-      return coneAlpha;
+      let best = 0;
+      for (const sample of this.actorVisionSamplePoints(worldX, worldY, ACTOR_VISION.POINT_RADIUS)) {
+        if (!this.hasClearWallLineOfSight(sourceX, sourceY, sample.x, sample.y)) continue;
+        best = Math.max(best, this.computeSinglePointVisionAlpha(sample.x, sample.y, subject));
+      }
+      return best <= WALL_VISION.MIN_VISIBLE_ALPHA ? 0 : best;
     }
 
     updateActorVisionAlpha(dt) {
@@ -5953,14 +6296,16 @@
       const subject = this.getCameraSubjectItem();
       const hasSubject = !!subject?.container;
       const role = subject?.data?.role || "survivor";
-      const riftLensActive = role === "survivor" && (subject?.data?.riftLens || 0) > 0;
+      const hourglassActive = role === "survivor" && (subject?.data?.hourglass || 0) > 0;
       const worldX = subject?.container?.x ?? 0;
       const worldY = subject?.container?.y ?? 0;
       const facing = subject?.container?.rotation || 0;
-      const baseLength = role === "killer" ? LIGHTING.KILLER_LENGTH : LIGHTING.SURVIVOR_LENGTH * (riftLensActive ? LIGHTING.SURVIVOR_RIFT_LENS_LENGTH_MULT : 1);
-      const baseAngle = role === "killer" ? LIGHTING.KILLER_ANGLE : Math.min(Math.PI * 1.08, LIGHTING.SURVIVOR_ANGLE * (riftLensActive ? LIGHTING.SURVIVOR_RIFT_LENS_ANGLE_MULT : 1));
+      const baseLength = role === "killer" ? LIGHTING.KILLER_LENGTH : survivorVisionLengthForData(subject?.data);
+      const baseAngle = role === "killer" ? LIGHTING.KILLER_ANGLE : survivorVisionAngleForData(subject?.data);
       const length = baseLength + WALL_VISION.CONE_EXTRA_LENGTH;
       const coneAngle = baseAngle + WALL_VISION.CONE_EXTRA_ANGLE;
+      const backLength = length * LIGHTING.SURVIVOR_HOURGLASS_BACK_LENGTH_MULT;
+      const backConeAngle = Math.min(Math.PI * 1.08, coneAngle * LIGHTING.SURVIVOR_HOURGLASS_BACK_ANGLE_MULT);
       const nearRadius = role === "killer" ? WALL_VISION.KILLER_NEAR_RADIUS : WALL_VISION.SURVIVOR_NEAR_RADIUS;
 
       if (role !== "killer") this.killerWallVisionStableKey = "";
@@ -5989,7 +6334,11 @@
             // Outer boundary walls stay visible for everyone so the map edge never becomes invisible collision nonsense.
             item.targetAlpha = 1;
           } else {
-            item.targetAlpha = this.computeWallVisionAlpha(item, worldX, worldY, facing, length, coneAngle, nearRadius);
+            const forwardAlpha = this.computeWallVisionAlpha(item, worldX, worldY, facing, length, coneAngle, nearRadius);
+            const backAlpha = hourglassActive
+              ? this.computeWallVisionAlpha(item, worldX, worldY, facing + Math.PI, backLength, backConeAngle, nearRadius)
+              : 0;
+            item.targetAlpha = Math.max(forwardAlpha, backAlpha);
           }
         }
 
@@ -6137,8 +6486,6 @@
       this.breathPhase += dt * (1.25 + this.terrorBlend * 2.1 + this.chaseBlend * 2.5);
       this.lightFlickerPhase += dt * LIGHTING.FLICKER_SPEED;
       this.heartbeatPulse = Math.max(0, this.heartbeatPulse - dt * 3.8);
-      this.killerM1Pulse = Math.max(0, (this.killerM1Pulse || 0) - dt * 5.5);
-      this.spawnInPulse = Math.max(0, (this.spawnInPulse || 0) - dt * IMMERSION.SPAWN_ZOOM_DECAY);
 
       const interval = lerp(IMMERSION.HEARTBEAT_MAX_INTERVAL, IMMERSION.HEARTBEAT_MIN_INTERVAL, clamp(this.terrorBlend + this.chaseBlend * 0.45, 0, 1));
       this.heartbeatTimer += dt;
@@ -6163,238 +6510,39 @@
     updateCamera(dt = 0) {
       const item = this.getCameraSubjectItem();
       if (!item) return;
+
       const cam = this.cameras.main;
       const x = item.container.x;
       const y = item.container.y;
       if (!Number.isFinite(x) || !Number.isFinite(y)) return;
 
-      const localData = this.isSpectating()
-        ? (this.actors.get(myId)?.data || item.data)
-        : (item.data || item.current || item.target || null);
-      const subjectData = item.data || item.current || item.target || localData || null;
-      const killerCharging = localData?.role === "killer" && localData.attackState === "charging";
-      const killerM1Hold = localData?.role === "killer" && (input.attackHeld || killerCharging) ? 1 : 0;
-      const povData = this.getPovSurvivorData();
+      const plan = getCameraZoomPlan(item.data);
+      const current = Number.isFinite(this.currentCameraZoom) ? this.currentCameraZoom : (cam.zoom || CAMERA.BASE_ZOOM);
+      const alpha = dampAlpha(CAMERA.ZOOM_LERP_RATE, dt);
+      let nextZoom = lerp(current, plan.zoom, alpha);
+      if (Math.abs(nextZoom - plan.zoom) <= CAMERA.ZOOM_SNAP_EPSILON) nextZoom = plan.zoom;
+      const planMinZoom = Math.min(CAMERA.MIN_ZOOM, cfgNumber(current, CAMERA.BASE_ZOOM), cfgNumber(plan.zoom, CAMERA.BASE_ZOOM));
+      nextZoom = clamp(nextZoom, planMinZoom, CAMERA.MAX_ZOOM);
 
-      const isDepositing = !this.isSpectating()
-        && povData?.role === "survivor"
-        && (!!povData.dotDepositTargetId || (povData.dotDepositProgress || 0) > 0.001);
-      const isKickingRift = !this.isSpectating()
-        && localData?.role === "killer"
-        && (!!localData.generatorKickTargetId || (localData.generatorKickProgress || 0) > 0.001);
-      const isHealingSomeone = !this.isSpectating()
-        && localData?.role === "survivor"
-        && !!localData.healingTargetId;
-      const isBeingHealed = subjectData?.role === "survivor"
-        && !subjectData?.hooked
-        && (subjectData?.healProgress || 0) > 0.001;
-      const isUnhookingSomeone = !this.isSpectating()
-        && localData?.role === "survivor"
-        && !!localData.unhookTargetId;
-      const isBeingUnhooked = subjectData?.role === "survivor"
-        && !!subjectData?.hooked
-        && (subjectData?.unhookProgress || 0) > 0.001;
-      const isHookingSomeone = !this.isSpectating()
-        && localData?.role === "killer"
-        && !!localData.hookActionTargetId;
-      const isHooked = subjectData?.role === "survivor" && !!subjectData?.hooked;
-      const isDowned = subjectData?.role === "survivor" && !!subjectData?.downed && !subjectData?.escaped && !subjectData?.dead;
-      const isInjured = subjectData?.role === "survivor"
-        && (!!subjectData?.injured || (subjectData?.health || 2) <= 1)
-        && !isDowned
-        && !isHooked
-        && !subjectData?.escaped
-        && !subjectData?.dead;
-      const isEscaping = subjectData?.role === "survivor"
-        && (!!subjectData?.escapeGateId || (subjectData?.escapeProgress || 0) > 0.001);
-      const localMove = input?.move || { x: 0, y: 0 };
-      const localMoveAmount = Math.hypot(
-        Number.isFinite(localMove.x) ? localMove.x : 0,
-        Number.isFinite(localMove.y) ? localMove.y : 0
-      );
-      const sprintingForVisionPenalty = !this.isSpectating()
-        && localData?.role === "survivor"
-        && !isDowned
-        && !isHooked
-        && !localData?.dead
-        && !localData?.escaped
-        && !!input.sprint
-        && localMoveAmount > 0.18;
-      this.sprintZoomBlend = lerp(
-        this.sprintZoomBlend || 0,
-        sprintingForVisionPenalty ? 1 : 0,
-        dampAlpha(IMMERSION.SPRINT_ZOOM_SMOOTHING, dt)
-      );
+      this.cameraZoomPlan = plan;
+      this.targetCameraZoom = plan.zoom;
+      this.currentCameraZoom = nextZoom;
+      cameraZoomNow = nextZoom;
+      window.__RIFTRUNNER_CAMERA_ZOOM__ = nextZoom;
+      window.__RIFTRUNNER_CAMERA_TARGET_ZOOM__ = plan.zoom;
+      window.__RIFTRUNNER_CAMERA_ZOOM_PLAN__ = plan;
 
-      const hardSurvivorStateZoom = isHooked
-        ? IMMERSION.HOOKED_ZOOM
-        : isDowned
-          ? IMMERSION.DOWNED_ZOOM
-          : null;
-
-      const zoomCandidates = hardSurvivorStateZoom !== null
-        ? [hardSurvivorStateZoom]
-        : [
-          this.terrorBlend > 0.001 ? this.terrorBlend * IMMERSION.TERROR_ZOOM : null,
-          this.chaseBlend > 0.001 ? this.chaseBlend * IMMERSION.CHASE_ZOOM : null,
-          localData?.role === "killer" && (currentSnapshot?.voidEffects?.runnerReveal || 0) > 0 ? IMMERSION.VOID_REVEAL_ZOOM : null,
-          killerM1Hold ? IMMERSION.KILLER_M1_HOLD_ZOOM : null,
-          (this.killerM1Pulse || 0) > 0.001 ? (this.killerM1Pulse || 0) * IMMERSION.KILLER_M1_PULSE_ZOOM : null,
-          isDepositing ? IMMERSION.DEPOSIT_ZOOM : null,
-          isKickingRift ? IMMERSION.RIFT_KICK_ZOOM : null,
-          (isHealingSomeone || isBeingHealed) ? IMMERSION.HEAL_ZOOM : null,
-          (isUnhookingSomeone || isBeingUnhooked) ? IMMERSION.UNHOOK_ZOOM : null,
-          isHookingSomeone ? IMMERSION.HOOKED_ZOOM : null,
-          isInjured ? IMMERSION.INJURED_ZOOM : null,
-          isEscaping ? IMMERSION.ESCAPE_ZOOM : null,
-          (this.spawnInPulse || 0) > 0.001 ? (this.spawnInPulse || 0) * IMMERSION.SPAWN_ZOOM : null
-        ].filter((value) => Number.isFinite(value));
-
-      // Camera zoom states do not stack. Most of the time, choose the strongest
-      // absolute offset so negative values work too. Hard survivor states like
-      // hooked/downed override chase/terror completely, otherwise chase can keep
-      // winning and a configured hookedZoom: -0.5 never gets to breathe. Rude.
-      const strongestZoom = zoomCandidates.length
-        ? zoomCandidates.reduce((best, value) => (Math.abs(value) > Math.abs(best) ? value : best), zoomCandidates[0])
-        : 0;
-
-      const localStartRemaining = Math.max(0, (this.matchStartZoomUntil || 0) - performance.now()) / 1000;
-      const startLockRemaining = Math.max(localStartRemaining, this.matchStartFreezeRemaining || 0);
-      const startLockDuration = Math.max(0.001, this.matchStartFreezeDuration || IMMERSION.MATCH_START_LOCK_SECONDS || 1.5);
-      const startLockT = clamp(startLockRemaining / startLockDuration, 0, 1);
-      const startLockEase = startLockT * startLockT * (3 - 2 * startLockT);
-      const startLockZoom = startLockT > 0 ? -IMMERSION.MATCH_START_ZOOM_OUT * startLockEase : 0;
-
-      const positiveCeiling = Math.max(
-        0,
-        IMMERSION.TERROR_ZOOM,
-        IMMERSION.CHASE_ZOOM,
-        IMMERSION.SPRINT_ZOOM,
-        IMMERSION.KILLER_M1_HOLD_ZOOM,
-        IMMERSION.KILLER_M1_PULSE_ZOOM,
-        IMMERSION.DEPOSIT_ZOOM,
-        IMMERSION.RIFT_KICK_ZOOM,
-        IMMERSION.HEAL_ZOOM,
-        IMMERSION.UNHOOK_ZOOM,
-        IMMERSION.HOOKED_ZOOM,
-        IMMERSION.INJURED_ZOOM,
-        IMMERSION.DOWNED_ZOOM,
-        IMMERSION.ESCAPE_ZOOM,
-        IMMERSION.VOID_REVEAL_ZOOM,
-        IMMERSION.SPAWN_ZOOM
-      );
-      const negativeFloor = Math.min(
-        0,
-        IMMERSION.TERROR_ZOOM,
-        IMMERSION.CHASE_ZOOM,
-        IMMERSION.SPRINT_ZOOM,
-        IMMERSION.KILLER_M1_HOLD_ZOOM,
-        IMMERSION.KILLER_M1_PULSE_ZOOM,
-        IMMERSION.DEPOSIT_ZOOM,
-        IMMERSION.RIFT_KICK_ZOOM,
-        IMMERSION.HEAL_ZOOM,
-        IMMERSION.UNHOOK_ZOOM,
-        IMMERSION.HOOKED_ZOOM,
-        IMMERSION.INJURED_ZOOM,
-        IMMERSION.DOWNED_ZOOM,
-        IMMERSION.ESCAPE_ZOOM,
-        IMMERSION.VOID_REVEAL_ZOOM,
-        IMMERSION.SPAWN_ZOOM,
-        -IMMERSION.MATCH_START_ZOOM_OUT
-      );
-
-      const minZoom = Math.max(0.12, Math.min(IMMERSION.MIN_ZOOM, IMMERSION.BASE_ZOOM + negativeFloor - 0.04));
-      const maxZoom = Math.max(
-        IMMERSION.BASE_ZOOM + 0.05,
-        IMMERSION.BASE_ZOOM + positiveCeiling + Math.max(0, IMMERSION.SPRINT_ZOOM) + 0.04
-      );
-      // During the opening lockout, ignore gameplay zoom candidates so the startup zoom has one target.
-      // This prevents spawn/chase/downed zoom offsets from fighting the intro camera move.
-      const sprintVisionZoom = startLockT > 0 ? 0 : (this.sprintZoomBlend || 0) * IMMERSION.SPRINT_ZOOM;
-      const cameraEffectZoom = startLockT > 0 ? 0 : strongestZoom;
-      const targetZoom = clamp(
-        IMMERSION.BASE_ZOOM + cameraEffectZoom + sprintVisionZoom + startLockZoom,
-        minZoom,
-        maxZoom
-      );
-      const zoomSmooth = startLockT > 0 ? IMMERSION.MATCH_START_ZOOM_SMOOTHING : IMMERSION.ZOOM_SMOOTHING;
-      const zoomAlpha = dampAlpha(zoomSmooth, dt);
-      const nextZoom = startLockT > 0
-        ? targetZoom
-        : lerp(cam.zoom || IMMERSION.BASE_ZOOM, targetZoom, zoomAlpha);
-      const zoomDelta = Math.abs((cam.zoom || IMMERSION.BASE_ZOOM) - nextZoom);
-      const zoomThreshold = cameraNumber("zoomUpdateThreshold", "lowPowerZoomUpdateThreshold", LOW_POWER_MODE ? 0.0065 : 0.0035);
-      if (zoomDelta > zoomThreshold) {
+      if (Math.abs((cam.zoom || 1) - nextZoom) > 0.0001) {
         cam.setZoom(nextZoom);
-      } else if (zoomDelta > 0.0001 && Math.abs((cam.zoom || IMMERSION.BASE_ZOOM) - targetZoom) < zoomThreshold * 1.35) {
-        cam.setZoom(targetZoom);
       }
 
-      // DBD-like soft camera pressure. No constant sprint bob, just subtle lean
-      // when movement direction changes and a bit of chase breathing.
-      const now = performance.now();
-      const moveInput = input?.move || { x: 0, y: 0 };
-      const moveX = Number.isFinite(moveInput.x) ? moveInput.x : 0;
-      const moveY = Number.isFinite(moveInput.y) ? moveInput.y : 0;
-      const moving = startLockT > 0 ? false : Math.hypot(moveX, moveY) > 0.2;
-      const moveAngle = moving ? Math.atan2(moveY, moveX) : this.lastMoveAngle;
-      if (moving && Number.isFinite(moveAngle)) {
-        if (Number.isFinite(this.lastMoveAngle)) {
-          const diff = angleDiff(moveAngle, this.lastMoveAngle);
-          if (diff > IMMERSION.DIRECTION_CHANGE_THRESHOLD) {
-            const impulse = IMMERSION.DIRECTION_SWAY_IMPULSE * clamp(diff / Math.PI, 0, 1);
-            this.cameraSwayTargetX += Math.cos(moveAngle) * impulse;
-            this.cameraSwayTargetY += Math.sin(moveAngle) * impulse;
-            const mag = Math.hypot(this.cameraSwayTargetX || 0, this.cameraSwayTargetY || 0);
-            if (mag > IMMERSION.DIRECTION_SWAY_MAX) {
-              this.cameraSwayTargetX = (this.cameraSwayTargetX / mag) * IMMERSION.DIRECTION_SWAY_MAX;
-              this.cameraSwayTargetY = (this.cameraSwayTargetY / mag) * IMMERSION.DIRECTION_SWAY_MAX;
-            }
-          }
-        }
-        this.lastMoveAngle = moveAngle;
-      }
-
-      const cheapRenderer = adaptivePerformance.mode !== "normal" || LOW_POWER_MODE;
-      const breath = cheapRenderer ? 0 : Math.sin(now * 0.0042) * (IMMERSION.BREATH_SWAY * this.terrorBlend + IMMERSION.CHASE_SWAY * this.chaseBlend);
-      const desiredX = Math.cos((localData?.angle ?? item.container.rotation) || 0) * breath;
-      const desiredY = Math.sin((localData?.angle ?? item.container.rotation) || 0) * breath;
-      const dtClamped = clamp(dt || 0, 0, 0.05);
-      const targetDecay = 1 - Math.exp(-IMMERSION.DIRECTION_SWAY_TARGET_DECAY * dtClamped);
-      this.cameraSwayTargetX = lerp(this.cameraSwayTargetX || 0, desiredX, targetDecay);
-      this.cameraSwayTargetY = lerp(this.cameraSwayTargetY || 0, desiredY, targetDecay);
-      const swayRate = moving ? IMMERSION.DIRECTION_SWAY_SMOOTHING : IMMERSION.DIRECTION_SWAY_IDLE_SMOOTHING;
-      const smooth = 1 - Math.exp(-swayRate * dtClamped);
-      this.cameraSwayX = lerp(this.cameraSwayX || 0, this.cameraSwayTargetX || 0, smooth);
-      this.cameraSwayY = lerp(this.cameraSwayY || 0, this.cameraSwayTargetY || 0, smooth);
-
-      const targetCameraX = x + this.cameraSwayX;
-      const targetCameraY = y + this.cameraSwayY;
-      const followRate = performanceValue("localCameraFollowRate", LOW_POWER_MODE ? 999 : 999);
-      const followSnapDistance = performanceValue("localCameraSnapDistance", LOW_POWER_MODE ? 300 : 240);
-      const localPlayerControlled = !this.isSpectating() && item?.data?.id === myId;
-      const needsCameraSmoothing = !localPlayerControlled && adaptivePerformance.mode !== "normal" && followRate < 300;
-
-      if (!needsCameraSmoothing || followRate >= 300) {
-        this.cameraFollowX = targetCameraX;
-        this.cameraFollowY = targetCameraY;
-        cam.centerOn(targetCameraX, targetCameraY);
-      } else {
-        if (!Number.isFinite(this.cameraFollowX) || !Number.isFinite(this.cameraFollowY)) {
-          this.cameraFollowX = targetCameraX;
-          this.cameraFollowY = targetCameraY;
-        }
-        const cameraGap = dist(this.cameraFollowX, this.cameraFollowY, targetCameraX, targetCameraY);
-        if (cameraGap > followSnapDistance) {
-          this.cameraFollowX = targetCameraX;
-          this.cameraFollowY = targetCameraY;
-        } else {
-          const cameraAlpha = dampAlpha(followRate, dt);
-          this.cameraFollowX = lerp(this.cameraFollowX, targetCameraX, cameraAlpha);
-          this.cameraFollowY = lerp(this.cameraFollowY, targetCameraY, cameraAlpha);
-        }
-        cam.centerOn(this.cameraFollowX, this.cameraFollowY);
-      }
+      this.cameraSwayX = 0;
+      this.cameraSwayY = 0;
+      this.cameraSwayTargetX = 0;
+      this.cameraSwayTargetY = 0;
+      this.cameraFollowX = x;
+      this.cameraFollowY = y;
+      cam.centerOn(x, y);
     }
 
     getDynamicWorldKey() {
@@ -6574,9 +6722,9 @@
       }
 
       const role = me.data?.role || "survivor";
-      const riftLensActive = role === "survivor" && (me.data?.riftLens || 0) > 0;
-      const length = role === "killer" ? LIGHTING.KILLER_LENGTH : LIGHTING.SURVIVOR_LENGTH * (riftLensActive ? LIGHTING.SURVIVOR_RIFT_LENS_LENGTH_MULT : 1);
-      const angle = role === "killer" ? LIGHTING.KILLER_ANGLE : Math.min(Math.PI * 1.08, LIGHTING.SURVIVOR_ANGLE * (riftLensActive ? LIGHTING.SURVIVOR_RIFT_LENS_ANGLE_MULT : 1));
+      const hourglassActive = role === "survivor" && (me.data?.hourglass || 0) > 0;
+      const length = role === "killer" ? LIGHTING.KILLER_LENGTH : survivorVisionLengthForData(me.data);
+      const angle = role === "killer" ? LIGHTING.KILLER_ANGLE : survivorVisionAngleForData(me.data);
       const targetX = me.container.x;
       const targetY = me.container.y;
       const targetFacing = me.container.rotation || 0;
@@ -6623,10 +6771,14 @@
       g.fillStyle(coreColor, nearAlpha);
       g.fillCircle(vx, vy, nearRadius * 0.82);
 
-      // One cone only. The previous feather pass looked smoother, but doubled the Graphics work
-      // during movement/zoom and caused noticeable hitches on weaker browsers.
+      // One forward cone by default. Hourglass adds a second rear cone, but only while paid for.
       const segments = Math.max(4, Math.floor(performanceValue("coneSegments", LIGHTING.CONE_SEGMENTS)));
       this.drawVisionConeGraphic(g, vx, vy, vfacing, vlength, vangle, lightColor, coneAlpha, segments);
+      if (hourglassActive) {
+        const backLength = vlength * LIGHTING.SURVIVOR_HOURGLASS_BACK_LENGTH_MULT;
+        const backAngle = Math.min(Math.PI * 1.08, vangle * LIGHTING.SURVIVOR_HOURGLASS_BACK_ANGLE_MULT);
+        this.drawVisionConeGraphic(g, vx, vy, vfacing + Math.PI, backLength, backAngle, 0x67e8f9, coneAlpha * 0.82, segments);
+      }
     }
 
     updateHookIndicators(dt = 0) {
@@ -7358,12 +7510,10 @@
       if (!Number.isFinite(lockSeconds) || lockSeconds < 0) lockSeconds = IMMERSION.MATCH_START_LOCK_SECONDS || 1.5;
       if (phaserScene) {
         phaserScene.spawnInPlayed = false;
-        phaserScene.spawnInPulse = 0;
         phaserScene.spawnInAt = 0;
         phaserScene.localEscapeScreenShown = false;
         phaserScene.chaseBlend = 0;
         phaserScene.terrorBlend = 0;
-        phaserScene.sprintZoomBlend = 0;
         phaserScene.cameraSwayX = 0;
         phaserScene.cameraSwayY = 0;
         phaserScene.cameraSwayTargetX = 0;
@@ -7373,16 +7523,19 @@
         phaserScene.lastMoveAngle = null;
         phaserScene.matchStartFreezeRemaining = Math.max(0, lockSeconds);
         phaserScene.matchStartFreezeDuration = Math.max(0.001, lockSeconds);
-        phaserScene.matchStartZoomUntil = performance.now() + Math.max(0, lockSeconds) * 1000;
+        phaserScene.matchStartInputLockUntil = performance.now() + Math.max(0, lockSeconds) * 1000;
         phaserScene.introCameraPrimed = false;
         clearMovementInputOnly();
         phaserScene.loadMap(map);
-        const introZoom = Math.max(0.34, IMMERSION.BASE_ZOOM - IMMERSION.MATCH_START_ZOOM_OUT);
-        phaserScene.cameras?.main?.setZoom(introZoom);
+        cameraZoomNow = CAMERA.BASE_ZOOM;
+        phaserScene.currentCameraZoom = cameraZoomNow;
+        phaserScene.targetCameraZoom = cameraZoomNow;
+        phaserScene.cameras?.main?.setZoom(cameraZoomNow);
       }
 
       runMatchStartTransition(() => {
         showScreen("game");
+        beginMatchStartCue();
         ensureAudioStarted();
       });
     });

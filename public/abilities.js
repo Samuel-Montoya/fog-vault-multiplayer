@@ -51,7 +51,7 @@ const RIFTRUNNER_ABILITIES = {
     }
   },
 
-  survivorWheelOrder: ["stealthStep", "riftLens", "cancel", "moreSoon"],
+  survivorWheelOrder: ["stealthStep", "riftLens", "cancel", "hourglass"],
   survivorAbilities: {
     stealthStep: {
       id: "stealthStep",
@@ -74,6 +74,17 @@ const RIFTRUNNER_ABILITIES = {
       summary: "Widen your vision cone for 15 seconds.",
       detail: "Your cone expands and reveals more of the world: orbs, players, The Void, walls, and objectives.",
       accent: "gold"
+    },
+    hourglass: {
+      id: "hourglass",
+      name: "Hourglass",
+      shortName: "Hourglass",
+      cost: 10,
+      duration: 5,
+      cooldown: 30,
+      summary: "See behind you for 5 seconds.",
+      detail: "Adds a second cone behind you, letting you watch your escape route and the danger chasing it.",
+      accent: "cyan"
     },
     cancel: {
       id: "cancel",

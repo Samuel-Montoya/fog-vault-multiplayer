@@ -1,12 +1,96 @@
 {
   "latest": {
-    "version": "0.1.39",
-    "title": "Layer 2 Music Presence",
-    "summary": "Layer 2 warning music now plays farther out with smoother fades",
-    "description": "Restored and strengthened the layer_2 warning music by giving it a wider server-side trigger radius, a smooth distance ramp, a faint chase bed under layer_3, stronger layer volume, and a slightly slower client fade so threat music breathes in and out cleanly instead of barely appearing.",
-    "date": "2026-05-22"
+    "version": "0.1.51",
+    "title": "Ability Wheel and Camera Smoothing",
+    "summary": "Hourglass moved left, Cancel moved bottom, and camera zoom blends slower",
+    "description": "Reordered the Runner ability wheel so Hourglass sits on the left segment and Cancel sits on the bottom segment, then slowed the camera zoom interpolation and tightened the snap threshold so chase, sprint, action, hook, and ability zoom changes feel smoother instead of jarring.",
+    "date": "2026-05-23"
   },
   "history": [
+    {
+      "version": "0.1.51",
+      "title": "Ability Wheel and Camera Smoothing",
+      "summary": "Hourglass moved left, Cancel moved bottom, and camera zoom blends slower",
+      "description": "Reordered the Runner ability wheel so Hourglass sits on the left segment and Cancel sits on the bottom segment, then slowed the camera zoom interpolation and tightened the snap threshold so chase, sprint, action, hook, and ability zoom changes feel smoother instead of jarring.",
+      "date": "2026-05-23"
+    },
+    {
+      "version": "0.1.50",
+      "title": "Hook Camera and Walking Vision Tuning",
+      "summary": "Hooked camera is closer and walking gives Runners a wider cone",
+      "description": "Raised the hooked-unrescued camera zoom from the extreme 0.3 view to a slightly-above-default focused view, added configurable walking-only Runner vision cone multipliers, and mirrored the walking vision math on both client visuals and server visibility so sprinting keeps the base cone while walking grants more awareness.",
+      "date": "2026-05-23"
+    },
+    {
+      "version": "0.1.49",
+      "title": "Start Cue Layer 1 Blend",
+      "summary": "layer_1 now fades in immediately while start.mp3 plays",
+      "description": "Changed the match-start music blend so layer_1 begins fading in at the same time start.mp3 starts playing instead of waiting for the intro cue to reach its fade-out window. Lowered the start cue volume again through the audio config and fallback defaults.",
+      "date": "2026-05-23"
+    },
+    {
+      "version": "0.1.48",
+      "title": "Start Cue and Layer 2 Volume Tuning",
+      "summary": "start.mp3 is easier to tune and warning music is toned down",
+      "description": "Added an explicit start intro volume entry to the music layer volume config, lowered the match-start cue volume, reduced the layer_2 warning bed multiplier, and toned down the layer_2 gameplay target volumes while keeping its smooth fade behavior intact.",
+      "date": "2026-05-23"
+    },
+    {
+      "version": "0.1.47",
+      "title": "Hooked Camera Zoom Out",
+      "summary": "Hooked Runners zoom out to 0.3 when no rescue is active",
+      "description": "Added a dedicated hooked camera state. When the camera subject is a hooked Runner and unhook progress has not started, the camera uses the configured absolute hookedUnrescuedZoom value of 0.3. Once a rescue begins, normal additive camera rules resume so action and chase modifiers can behave predictably.",
+      "date": "2026-05-23"
+    },
+    {
+      "version": "0.1.46",
+      "title": "Sprint Only Camera Zoom",
+      "summary": "Movement zoom now only applies while holding sprint",
+      "description": "Corrected the additive camera rules so walking stays at the neutral base zoom and the movement zoom offset only applies while a Runner is actively holding Shift to sprint. Chase, action, and ability offsets still stack from the base zoom and clamp against the configured max in/out offsets.",
+      "date": "2026-05-23"
+    },
+    {
+      "version": "0.1.45",
+      "title": "Additive Camera Zoom System",
+      "summary": "Camera zoom is now base plus clamped gameplay modifiers",
+      "description": "Rebuilt the camera zoom system around a config-driven additive stack: base zoom plus chase, walking, sprinting, action, and ability modifiers. Zoom is smoothly blended, clamped to configurable max in/out offsets, Rift Lens can zoom out while chase still zooms in, and server snapshots now include movement/sprinting state so spectating and bot cameras use the same rules.",
+      "date": "2026-05-23"
+    },
+    {
+      "version": "0.1.44",
+      "title": "Start Music Fade Fix",
+      "summary": "start.mp3 fade math now uses finite safe volume values",
+      "description": "Fixed the match-start music crossfade so the start.mp3 volume setter never receives NaN or Infinity, corrected the smoothstep fade helper to support one-argument fade gates safely, and hardened fallback duration math so layer_1 can fade in cleanly even if the cue duration is not loaded yet.",
+      "date": "2026-05-23"
+    },
+    {
+      "version": "0.1.43",
+      "title": "Manual Camera Zoom Reset",
+      "summary": "Camera zoom is now controlled by small dev buttons instead of gameplay effects",
+      "description": "Removed the automatic gameplay camera zoom system and replaced it with a clean manual zoom test setup. Small top-center dev controls now set the camera to the default zoom, default plus 0.5x, or default minus 0.5x so the next camera pass can be tuned from a stable baseline.",
+      "date": "2026-05-23"
+    },
+    {
+      "version": "0.1.42",
+      "title": "Match Start Music Intro",
+      "summary": "start.mp3 now plays at run start and crossfades into layer_1",
+      "description": "Added a match-start music cue that plays public/sfx/start.mp3 when the run begins, holds layer_1 silent during the cue, fades start.mp3 out, and smoothly fades layer_1 in afterward. The cue gracefully falls back to normal layer_1 music if start.mp3 is missing or unavailable.",
+      "date": "2026-05-23"
+    },
+    {
+      "version": "0.1.41",
+      "title": "Hourglass Vision Polish",
+      "summary": "Rift Lens reveal fix, farther camera, red pickup FX, and Hourglass Runner ability",
+      "description": "Fixed Runner vision reveal math so Rift Lens reveals The Void and actors inside the widened cone, zoomed the default camera out more while keeping sprint zoom as a tradeoff, made red orb pickups burst red, and added the Hourglass Runner ability: 10 orbs, 5 second duration, 30 second cooldown, with a second rear vision cone.",
+      "date": "2026-05-23"
+    },
+    {
+      "version": "0.1.40",
+      "title": "Runner Deposit and Brave AI",
+      "summary": "Runner bots deposit at 8 orbs and stop over-panicking at terror radius",
+      "description": "Runner bots now cash out at the closest unfinished rift once they carry eight or more orbs, stop committing to dot collection while loaded, treat audible terror radius as caution instead of automatic flee, and use braver objective routing for safe-ish orbs, rifts, heals, and rescues unless The Void has line-of-sight or close chase pressure.",
+      "date": "2026-05-23"
+    },
     {
       "version": "0.1.39",
       "title": "Layer 2 Music Presence",
