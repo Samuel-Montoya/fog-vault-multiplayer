@@ -16,13 +16,19 @@
   const CPU_THREADS = Number(navigator.hardwareConcurrency || 0);
   const DEVICE_MEMORY_GB = Number(navigator.deviceMemory || 0);
   const REDUCED_MOTION = Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches);
-  const LOW_POWER_MODE = Boolean((CPU_THREADS && CPU_THREADS <= 4) || REDUCED_MOTION);
+  const PERFORMANCE_CONFIG = GAMEPLAY_CONFIG.performance || {};
+  const HARDWARE_LOW_POWER_HINT = Boolean((CPU_THREADS && CPU_THREADS <= 4) || REDUCED_MOTION);
+  // Low-performance mode should be earned by measured FPS, not guessed from hardware.
+  // Old laptops get a fair shot first; if they dip below the configured threshold,
+  // the cheap renderer turns on and stays stable instead of mode-flapping mid-chase.
+  const FPS_TRIGGER_ONLY_LOW_POWER = PERFORMANCE_CONFIG.fpsTriggerOnly !== false;
+  const LOW_POWER_MODE = Boolean(!FPS_TRIGGER_ONLY_LOW_POWER && HARDWARE_LOW_POWER_HINT);
   const HIGH_END_EFFECTS = Boolean(!LOW_POWER_MODE && !REDUCED_MOTION && (CPU_THREADS >= 8 || DEVICE_MEMORY_GB >= 8));
 
-  const PERFORMANCE_CONFIG = GAMEPLAY_CONFIG.performance || {};
   const ADAPTIVE_PERFORMANCE_CONFIG = {
-    // Be aggressive. Older laptops need the cheap renderer before they hit slideshow territory.
-    lowFps: cfgNumber(PERFORMANCE_CONFIG.lowFps, 60),
+    // Only auto-enable low performance after measured FPS drops below this value.
+    // Hardware hints no longer force low mode on page load.
+    lowFps: cfgNumber(PERFORMANCE_CONFIG.lowFps, 55),
     ultraFps: cfgNumber(PERFORMANCE_CONFIG.ultraFps, 45),
     recoverFps: cfgNumber(PERFORMANCE_CONFIG.recoverFps, 62),
     ultraRecoverFps: cfgNumber(PERFORMANCE_CONFIG.ultraRecoverFps, 47),
@@ -252,8 +258,14 @@
     // The old clientCone values were wider/longer, which made the guide show more than the player could actually see.
     SURVIVOR_LENGTH: cfgNumber(GAMEPLAY_CONFIG.survivor?.coneLength, cfgNumber(GAMEPLAY_CONFIG.survivor?.clientConeLength, 620)),
     SURVIVOR_ANGLE: cfgNumber(GAMEPLAY_CONFIG.survivor?.coneAngle, cfgNumber(GAMEPLAY_CONFIG.survivor?.clientConeAngle, Math.PI / 2.6)),
-    SURVIVOR_WALK_LENGTH_MULT: Math.max(1, cfgNumber(GAMEPLAY_CONFIG.survivor?.walkingConeLengthMultiplier, 1.22)),
-    SURVIVOR_WALK_ANGLE_MULT: Math.max(1, cfgNumber(GAMEPLAY_CONFIG.survivor?.walkingConeAngleMultiplier, 1.12)),
+    SURVIVOR_SAFE_LENGTH_MULT: Math.max(1, cfgNumber(
+      GAMEPLAY_CONFIG.survivor?.nonSprintingConeLengthMultiplier ?? GAMEPLAY_CONFIG.survivor?.walkingConeLengthMultiplier,
+      1.22
+    )),
+    SURVIVOR_SAFE_ANGLE_MULT: Math.max(1, cfgNumber(
+      GAMEPLAY_CONFIG.survivor?.nonSprintingConeAngleMultiplier ?? GAMEPLAY_CONFIG.survivor?.walkingConeAngleMultiplier,
+      1.12
+    )),
     SURVIVOR_RIFT_LENS_LENGTH_MULT: cfgNumber(GAMEPLAY_CONFIG.survivorAbilities?.riftLensLengthMultiplier, 1.55),
     SURVIVOR_RIFT_LENS_ANGLE_MULT: cfgNumber(GAMEPLAY_CONFIG.survivorAbilities?.riftLensAngleMultiplier, 1.38),
     SURVIVOR_HOURGLASS_BACK_LENGTH_MULT: cfgNumber(GAMEPLAY_CONFIG.survivorAbilities?.hourglassBackLengthMultiplier, 0.92),
@@ -482,21 +494,30 @@
     return !!data.sprinting && cameraSubjectIsMoving(data);
   }
 
-  function survivorVisionIsWalking(data) {
+  function survivorVisionHasSprintHeld(data) {
+    if (!data || data.role !== "survivor") return false;
+    if (isCameraSubjectLocal(data)) return !!input.sprint;
+    return !!data.sprinting;
+  }
+
+  function survivorVisionIsCareful(data) {
     if (!data || data.role !== "survivor" || data.dead || data.escaped || data.downed || data.hooked) return false;
-    return cameraSubjectIsMoving(data) && !cameraSubjectIsSprinting(data);
+    // Bigger cone is the awareness reward for not holding sprint. It applies while
+    // standing or walking, not just while movement input is active. Holding Shift
+    // immediately falls back to the normal cone, matching server visibility.
+    return !survivorVisionHasSprintHeld(data);
   }
 
   function survivorVisionLengthForData(data) {
     let length = LIGHTING.SURVIVOR_LENGTH;
-    if (survivorVisionIsWalking(data)) length *= LIGHTING.SURVIVOR_WALK_LENGTH_MULT;
+    if (survivorVisionIsCareful(data)) length *= LIGHTING.SURVIVOR_SAFE_LENGTH_MULT;
     if ((data?.riftLens || 0) > 0) length *= LIGHTING.SURVIVOR_RIFT_LENS_LENGTH_MULT;
     return length;
   }
 
   function survivorVisionAngleForData(data) {
     let angle = LIGHTING.SURVIVOR_ANGLE;
-    if (survivorVisionIsWalking(data)) angle *= LIGHTING.SURVIVOR_WALK_ANGLE_MULT;
+    if (survivorVisionIsCareful(data)) angle *= LIGHTING.SURVIVOR_SAFE_ANGLE_MULT;
     if ((data?.riftLens || 0) > 0) angle *= LIGHTING.SURVIVOR_RIFT_LENS_ANGLE_MULT;
     return Math.min(Math.PI * 1.08, angle);
   }
@@ -5609,8 +5630,9 @@
         return;
       }
 
-      // Do not recover back to NORMAL automatically. A client that dipped under 60 once
-      // should stay on the stable low-cost path instead of bouncing modes mid-chase.
+      // Do not recover back to NORMAL automatically. A client that dipped under the
+      // configured low-FPS threshold should stay on the stable low-cost path instead
+      // of bouncing modes mid-chase.
     }
 
     applyAdaptivePerformanceMode(mode) {

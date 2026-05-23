@@ -32,10 +32,11 @@ const GAMEPLAY_CONFIG = {
   // Client-only adaptive performance mode. If the browser drops under lowFps for a few samples,
   // Phaser automatically reduces particles, redraw rates, cone effects, shockwaves, and heavy Void FX.
   performance: {
-    // Adaptive renderer thresholds. If the browser cannot hold a clean 60 FPS,
-    // drop into the cheap renderer and stay there for the match. Bouncing back
-    // to normal mid-chase is how frame pacing becomes a flipbook with feelings.
-    lowFps: 60,
+    // Only enable low performance mode after measured FPS drops below this threshold.
+    // Hardware hints no longer force low mode at startup, because guessing performance
+    // from CPU threads is how decent PCs get punished for crimes they did not commit.
+    fpsTriggerOnly: true,
+    lowFps: 55,
     ultraFps: 45,
     recoverFps: 62,
     ultraRecoverFps: 48,
@@ -151,8 +152,12 @@ const GAMEPLAY_CONFIG = {
     hookRescueDistance: 108,
     coneLength: 620,
     coneAngle: Math.PI / 2.6,
-    // Walking gets a wider/longer cone than sprinting. Sprinting keeps the base cone,
-    // so holding Shift still trades awareness for speed. Server and client both read these.
+    // Not holding sprint gets a wider/longer cone than sprinting. This applies while
+    // standing still or walking. Holding Shift immediately returns to the base cone,
+    // so speed still trades away awareness. Server and client both read these.
+    nonSprintingConeLengthMultiplier: 1.22,
+    nonSprintingConeAngleMultiplier: 1.12,
+    // Backward-compatible aliases for older code/config edits.
     walkingConeLengthMultiplier: 1.22,
     walkingConeAngleMultiplier: 1.12,
     clientConeLength: 880,

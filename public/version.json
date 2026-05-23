@@ -1,12 +1,26 @@
 {
   "latest": {
-    "version": "0.1.51",
-    "title": "Ability Wheel and Camera Smoothing",
-    "summary": "Hourglass moved left, Cancel moved bottom, and camera zoom blends slower",
-    "description": "Reordered the Runner ability wheel so Hourglass sits on the left segment and Cancel sits on the bottom segment, then slowed the camera zoom interpolation and tightened the snap threshold so chase, sprint, action, hook, and ability zoom changes feel smoother instead of jarring.",
+    "version": "0.1.53",
+    "title": "Performance Mode Threshold",
+    "summary": "Low performance mode now only auto-enables below 55 FPS",
+    "description": "Changed adaptive performance so hardware hints no longer force low mode at startup. The game now starts in normal mode and only enables low performance mode after measured FPS drops below the configurable lowFps threshold, now set to 55, while still staying stable once triggered to avoid mode-flapping during gameplay.",
     "date": "2026-05-23"
   },
   "history": [
+    {
+      "version": "0.1.53",
+      "title": "Performance Mode Threshold",
+      "summary": "Low performance mode now only auto-enables below 55 FPS",
+      "description": "Changed adaptive performance so hardware hints no longer force low mode at startup. The game now starts in normal mode and only enables low performance mode after measured FPS drops below the configurable lowFps threshold, now set to 55, while still staying stable once triggered to avoid mode-flapping during gameplay.",
+      "date": "2026-05-23"
+    },
+    {
+      "version": "0.1.52",
+      "title": "Non-Sprint Vision Cone",
+      "summary": "Runner cone is bigger whenever sprint is not held",
+      "description": "Changed Runner vision so the wider cone applies any time Shift/sprint is not being held, including standing still and normal walking. Holding sprint immediately returns the cone to its normal base size. The same non-sprinting cone multipliers are now read by both the client visuals and server visibility checks, with configurable values in gameplayConfig.",
+      "date": "2026-05-23"
+    },
     {
       "version": "0.1.51",
       "title": "Ability Wheel and Camera Smoothing",
