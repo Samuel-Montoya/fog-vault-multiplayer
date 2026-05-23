@@ -96,6 +96,10 @@ function socketCorsOrigin(origin, callback) {
 const io = new Server(server, {
   cors: { origin: socketCorsOrigin },
   allowRequest: (req, callback) => callback(null, isOriginAllowed(req.headers.origin)),
+  // RiftRunner is a desktop-only realtime game now, so skip long-polling.
+  // WebSocket-only transport avoids polling overhead and old packet backlogs.
+  transports: ["websocket"],
+  allowUpgrades: false,
   maxHttpBufferSize: 32 * 1024,
   pingInterval: 25000,
   pingTimeout: 20000,
@@ -240,6 +244,7 @@ const serverMetrics = {
   tickSamples: 0,
   snapshotsSent: 0,
   snapshotsSkipped: 0,
+  inputsReceived: 0,
   pathCacheHits: 0,
   pathCacheMisses: 0
 };
@@ -259,7 +264,7 @@ function logServerMetrics() {
   const maxLoopMs = eventLoopDelay ? eventLoopDelay.max / 1e6 : 0;
   const activeLobbies = [...lobbies.values()].filter((lobby) => lobby.game?.phase === "game").length;
   const activePlayers = [...lobbies.values()].reduce((sum, lobby) => sum + lobby.players.size, 0);
-  console.log(`[perf] profile=${PERF.profile} tickRate=${TICK_RATE} snapshotRate=${SNAPSHOT_RATE} botThinkRate=${BOT_THINK_RATE} lobbies=${activeLobbies} players=${activePlayers} tickMaxMs=${serverMetrics.tickMaxMs.toFixed(2)} loopMeanMs=${meanLoopMs.toFixed(2)} loopMaxMs=${maxLoopMs.toFixed(2)} snapshotsSent=${serverMetrics.snapshotsSent} snapshotsSkipped=${serverMetrics.snapshotsSkipped} pathCache=${serverMetrics.pathCacheHits}/${serverMetrics.pathCacheMisses}`);
+  console.log(`[perf] profile=${PERF.profile} tickRate=${TICK_RATE} snapshotRate=${SNAPSHOT_RATE} botThinkRate=${BOT_THINK_RATE} lobbies=${activeLobbies} players=${activePlayers} tickMaxMs=${serverMetrics.tickMaxMs.toFixed(2)} loopMeanMs=${meanLoopMs.toFixed(2)} loopMaxMs=${maxLoopMs.toFixed(2)} inputs=${serverMetrics.inputsReceived} snapshotsSent=${serverMetrics.snapshotsSent} snapshotsSkipped=${serverMetrics.snapshotsSkipped} pathCache=${serverMetrics.pathCacheHits}/${serverMetrics.pathCacheMisses}`);
   serverMetrics.tickMaxMs = 0;
   serverMetrics.tickSamples = 0;
   serverMetrics.snapshotsSent = 0;
@@ -284,6 +289,7 @@ const LUNGE_ATTACK_RANGE = cfgNumber(GAMEPLAY_CONFIG.attack?.lungeRange, 118);
 const ATTACK_ARC = cfgNumber(GAMEPLAY_CONFIG.attack?.arcRadians, Math.PI * 0.50);
 // Small visual/server grace so edge-of-cone hits feel fair without tagging runners who are clearly outside.
 const ATTACK_EDGE_GRACE_RADIUS = cfgNumber(GAMEPLAY_CONFIG.attack?.edgeGraceRadius, 9);
+const ATTACK_TARGET_BODY_RADIUS = cfgNumber(GAMEPLAY_CONFIG.attack?.targetBodyRadius, PLAYER_SIZE * 0.5);
 const ATTACK_TAP_MAX = cfgNumber(GAMEPLAY_CONFIG.attack?.tapMaxSeconds, 0.18);
 const LUNGE_CHARGE_TIME = cfgNumber(GAMEPLAY_CONFIG.attack?.lungeChargeSeconds, 0.32);
 const QUICK_ATTACK_ACTIVE = cfgNumber(GAMEPLAY_CONFIG.attack?.quickActiveSeconds, 0.24);
@@ -1437,6 +1443,48 @@ function attackSegmentClear(game, ax, ay, bx, by) {
   return attackSegmentClearThroughWindow(game, ax, ay, bx, by);
 }
 
+function attackSegmentClearToSurvivor(game, ax, ay, survivor, hit) {
+  if (!survivor) return false;
+
+  const candidates = [];
+  const pushCandidate = (x, y) => {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    const duplicate = candidates.some((p) => dist(p.x, p.y, x, y) < 1.5);
+    if (!duplicate) candidates.push({ x, y });
+  };
+
+  // Center first for the normal clean case. The extra body-edge samples make the
+  // server agree with what the player sees when the visible Runner shape is clipped
+  // by the edge of the M1 cone. Yes, hitboxes are geometry drama with keyboards.
+  pushCandidate(survivor.x, survivor.y);
+
+  const hitX = Number(hit?.hitX);
+  const hitY = Number(hit?.hitY);
+  pushCandidate(hitX, hitY);
+
+  const dx = survivor.x - ax;
+  const dy = survivor.y - ay;
+  const len = Math.hypot(dx, dy);
+  const radius = Math.max(0, Number(hit?.targetRadius) || ATTACK_TARGET_BODY_RADIUS);
+
+  if (len > 0.001 && radius > 0.001) {
+    const ux = dx / len;
+    const uy = dy / len;
+    const px = -uy;
+    const py = ux;
+    const edge = Math.min(radius * 0.82, Math.max(4, radius - 2));
+    const front = Math.max(0, len - radius);
+
+    pushCandidate(ax + ux * front, ay + uy * front);
+    pushCandidate(survivor.x + px * edge, survivor.y + py * edge);
+    pushCandidate(survivor.x - px * edge, survivor.y - py * edge);
+    pushCandidate(ax + ux * Math.max(0, front) + px * edge * 0.55, ay + uy * Math.max(0, front) + py * edge * 0.55);
+    pushCandidate(ax + ux * Math.max(0, front) - px * edge * 0.55, ay + uy * Math.max(0, front) - py * edge * 0.55);
+  }
+
+  return candidates.some((p) => attackSegmentClear(game, ax, ay, p.x, p.y));
+}
+
 function coneSees(viewer, target, length, angle) {
   const d = dist(viewer.x, viewer.y, target.x, target.y);
   if (d > length) return false;
@@ -1951,7 +1999,12 @@ function chooseActiveExitGates(map, count = 2) {
 }
 
 function addEvent(game, type, data = {}) {
-  game.events.push({ id: uid("evt"), type, ...data });
+  game.events.push({
+    id: uid("evt"),
+    type,
+    createdAt: Number((game.time || 0).toFixed(3)),
+    ...data
+  });
   if (game.events.length > 40) game.events.splice(0, game.events.length - 40);
 }
 
@@ -2475,6 +2528,7 @@ function attackProfile(type) {
     // Hit testing now uses this same cone shape instead of a hidden skinny capsule. Humanity survives one more geometry bug.
     arc: lunge ? ATTACK_ARC * 1.12 : ATTACK_ARC,
     edgeGrace: lunge ? ATTACK_EDGE_GRACE_RADIUS * 1.25 : ATTACK_EDGE_GRACE_RADIUS,
+    targetRadius: ATTACK_TARGET_BODY_RADIUS,
     duration: lunge ? LUNGE_ATTACK_ACTIVE : QUICK_ATTACK_ACTIVE,
     startup: lunge ? LUNGE_ATTACK_STARTUP : QUICK_ATTACK_STARTUP,
     hitRecovery: lunge ? KILLER_LUNGE_HIT_RECOVERY : KILLER_QUICK_HIT_RECOVERY,
@@ -2506,7 +2560,8 @@ function startKillerAttack(game, killer, type) {
     range: visualRange,
     arc: visualArc,
     duration: profile.duration,
-    startup: profile.startup
+    startup: profile.startup,
+    activeDuration: profile.duration
   });
 }
 
@@ -2531,22 +2586,32 @@ function pointInAttackSwipe(originX, originY, angle, survivor, profile) {
   const facingY = Math.sin(angle || 0);
   const forward = dx * facingX + dy * facingY;
   const edgeGrace = Math.max(0, profile.edgeGrace || 0);
+  const targetRadius = Math.max(0, profile.targetRadius || ATTACK_TARGET_BODY_RADIUS);
+  const bodyGrace = edgeGrace + targetRadius;
 
-  // Strict front-cone test with a tiny grace band. The old check also required a narrow
-  // invisible capsule, which made the drawn cone lie to the player. Society has enough lies.
-  if (distance > profile.range + edgeGrace) return null;
-  if (forward < -edgeGrace || forward > profile.range + edgeGrace) return null;
+  // Test the Runner body as a circle, not just the center point. The drawn actor has
+  // size, so the hit check must accept body-edge overlaps with the visible M1 cone.
+  if (distance > profile.range + bodyGrace) return null;
+  if (forward < -bodyGrace || forward > profile.range + bodyGrace) return null;
 
   const targetAngle = Math.atan2(dy, dx);
-  const angleGrace = distance > 1 ? Math.atan2(edgeGrace, distance) : Math.PI / 2;
+  const angleGrace = distance > 1
+    ? Math.asin(clamp(bodyGrace / distance, 0, 1))
+    : Math.PI / 2;
   const angleDelta = angleDiff(targetAngle, angle || 0);
   if (angleDelta > profile.arc / 2 + angleGrace) return null;
+
+  const hitDistance = Math.max(0, distance - targetRadius);
+  const invDistance = distance > 0.001 ? 1 / distance : 0;
 
   return {
     originX,
     originY,
     distance,
-    angleDelta
+    angleDelta,
+    targetRadius,
+    hitX: originX + dx * invDistance * hitDistance,
+    hitY: originY + dy * invDistance * hitDistance
   };
 }
 
@@ -2578,7 +2643,7 @@ function resolveKillerAttackHit(game, killer) {
   for (const survivor of survivors) {
     const hit = survivorInAttackSwipe(killer, survivor, profile);
     if (!hit) continue;
-    if (!attackSegmentClear(game, hit.originX, hit.originY, survivor.x, survivor.y)) continue;
+    if (!attackSegmentClearToSurvivor(game, hit.originX, hit.originY, survivor, hit)) continue;
     if (damageSurvivor(game, killer, survivor)) {
       // End the active hit window once the swing connects, then enter slowdown.
       finishKillerAttack(killer);
@@ -7378,6 +7443,7 @@ function buildSnapshotFor(lobby, socketId) {
   return {
     lobbyId: lobby.id,
     seq: game.snapshotSeq || 0,
+    serverTime: Number((game.time || 0).toFixed(3)),
     matchStartFreezeRemaining: Math.max(0, (game.matchStartFreezeSeconds || MATCH_START_FREEZE_SECONDS) - (game.time || 0)),
     map: {
       width: map.width,
@@ -7443,13 +7509,39 @@ function sendSnapshots() {
   }
 }
 
-setInterval(() => {
-  const started = performance.now();
-  const dt = 1 / TICK_RATE;
-  for (const lobby of lobbies.values()) updateGame(lobby, dt);
-  recordTickDuration(performance.now() - started);
-}, 1000 / TICK_RATE);
+const GAME_TICK_DT = 1 / TICK_RATE;
+const GAME_TICK_MS = 1000 / TICK_RATE;
+let lastGameTickAt = performance.now();
+let gameTickAccumulator = 0;
 
+function runGameTickFrame() {
+  const frameStarted = performance.now();
+  const now = frameStarted;
+  let elapsed = (now - lastGameTickAt) / 1000;
+  lastGameTickAt = now;
+
+  // If the process was paused by deploy/sleep/debugger, do not simulate a whole
+  // vacation in one frame. If it merely hiccuped, catch up a few fixed ticks so
+  // movement does not slow down for everyone.
+  elapsed = clamp(elapsed, 0, 0.12);
+  gameTickAccumulator += elapsed;
+
+  let steps = 0;
+  const maxSteps = 4;
+  while (gameTickAccumulator >= GAME_TICK_DT && steps < maxSteps) {
+    for (const lobby of lobbies.values()) updateGame(lobby, GAME_TICK_DT);
+    gameTickAccumulator -= GAME_TICK_DT;
+    steps++;
+  }
+
+  if (steps >= maxSteps && gameTickAccumulator > GAME_TICK_DT * 2) {
+    gameTickAccumulator = GAME_TICK_DT;
+  }
+
+  recordTickDuration(performance.now() - frameStarted);
+}
+
+setInterval(runGameTickFrame, GAME_TICK_MS);
 setInterval(sendSnapshots, 1000 / SNAPSHOT_RATE);
 
 io.on("connection", (socket) => {
@@ -7597,6 +7689,7 @@ io.on("connection", (socket) => {
 
   socket.on("input", (input = {}) => {
     if (!allowSocketEvent(socket, "input")) return;
+    serverMetrics.inputsReceived += 1;
     const lobby = lobbies.get(socketToLobby.get(socket.id));
     if (!lobby || !lobby.game) return;
     const actor = lobby.game.actors.get(socket.id);

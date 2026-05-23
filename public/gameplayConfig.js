@@ -7,10 +7,10 @@ const GAMEPLAY_CONFIG = {
   server: {
     hostProfileDefault: "boosted",
     tickRate: 60,
-    snapshotRateBoosted: 20,
-    snapshotRateStandard: 16,
-    botThinkRateBoosted: 12,
-    botThinkRateStandard: 8,
+    snapshotRateBoosted: 30,
+    snapshotRateStandard: 20,
+    botThinkRateBoosted: 15,
+    botThinkRateStandard: 10,
     pathfindLoopLimitBoosted: 1600,
     pathfindLoopLimitStandard: 950,
     pathCacheMaxBoosted: 900,
@@ -67,7 +67,15 @@ const GAMEPLAY_CONFIG = {
     localCorrectionSnapDistance: 270,
     localCameraFollowRate: 999,
     localCameraSnapDistance: 340,
-    toastCooldownMs: 12000
+    toastCooldownMs: 12000,
+    // Send human input at a steady, sane cadence. Reliable input events keep the
+    // server current while snapshots stay volatile so old frames can be dropped.
+    inputRateNormal: 30,
+    inputRateLowPower: 24,
+    inputRateUltra: 18,
+    inputHeartbeatMs: 140,
+    inputAngleEpsilon: 0.012,
+    snapshotJitterDelayMaxMs: 42
   },
 
   // Client camera / immersion knobs. These only affect how the camera feels, not server hitboxes.
@@ -186,6 +194,8 @@ const GAMEPLAY_CONFIG = {
     sideRadius: 24,
     closeAoeRadius: 26,
     edgeGraceRadius: 9,
+    // M1 hit detection uses Runner body overlap, not just center-point math.
+    targetBodyRadius: 15,
     tapMaxSeconds: 0.18,
     lungeChargeSeconds: 0.32,
     quickActiveSeconds: 0.24,

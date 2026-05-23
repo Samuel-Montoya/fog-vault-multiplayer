@@ -601,6 +601,19 @@
     killerSize: cfgNumber(GAMEPLAY_CONFIG.actor?.voidSize, 38)
   };
 
+  const ATTACK_VISUAL = {
+    quickRange: cfgNumber(GAMEPLAY_CONFIG.attack?.quickRange, 82),
+    lungeRange: cfgNumber(GAMEPLAY_CONFIG.attack?.lungeRange, 118),
+    arc: cfgNumber(GAMEPLAY_CONFIG.attack?.arcRadians, Math.PI * 0.50),
+    edgeGrace: cfgNumber(GAMEPLAY_CONFIG.attack?.edgeGraceRadius, 9),
+    targetBodyRadius: cfgNumber(GAMEPLAY_CONFIG.attack?.targetBodyRadius, LOCAL_SPEEDS.survivorSize * 0.5),
+    quickActive: cfgNumber(GAMEPLAY_CONFIG.attack?.quickActiveSeconds, 0.24),
+    lungeActive: cfgNumber(GAMEPLAY_CONFIG.attack?.lungeActiveSeconds, 0.42),
+    quickStartup: cfgNumber(GAMEPLAY_CONFIG.attack?.quickStartupSeconds, 0.045),
+    lungeStartup: cfgNumber(GAMEPLAY_CONFIG.attack?.lungeStartupSeconds, 0.075),
+    lungeCharge: cfgNumber(GAMEPLAY_CONFIG.attack?.lungeChargeSeconds, 0.32)
+  };
+
   const COLORS = {
     floorA: 0x090a10,
     floorB: 0x05060a,
@@ -870,8 +883,12 @@
   let selectedSkin = "blueSquare";
   let currentLobbyState = null;
   let currentSnapshot = null;
+  const networkTiming = { lastSnapshotAt: 0, avgGapMs: 50, jitterMs: 0 };
   let phaserScene = null;
   let lastInputPayload = "";
+  let lastInputSentAt = 0;
+  const INPUT_ANGLE_EPSILON = Math.max(0.002, cfgNumber(PERFORMANCE_CONFIG.inputAngleEpsilon, 0.012));
+  const INPUT_HEARTBEAT_MS = Math.max(50, cfgNumber(PERFORMANCE_CONFIG.inputHeartbeatMs, 140));
   let toastTimer = null;
   let activeScreenName = "menu";
 
@@ -1710,27 +1727,65 @@
     );
   }
 
+  function inputSendRateHz() {
+    if (adaptivePerformance.mode === "ultra") return Math.max(12, cfgNumber(PERFORMANCE_CONFIG.inputRateUltra, 18));
+    if (adaptivePerformance.mode === "low" || LOW_POWER_MODE) return Math.max(16, cfgNumber(PERFORMANCE_CONFIG.inputRateLowPower, 24));
+    return Math.max(20, cfgNumber(PERFORMANCE_CONFIG.inputRateNormal, 30));
+  }
+
+  function inputSignature(payload) {
+    const angle = Math.round((Number(payload.angle) || 0) / INPUT_ANGLE_EPSILON);
+    return [
+      payload.up ? 1 : 0,
+      payload.down ? 1 : 0,
+      payload.left ? 1 : 0,
+      payload.right ? 1 : 0,
+      payload.sprint ? 1 : 0,
+      payload.repair ? 1 : 0,
+      payload.attackHeld ? 1 : 0,
+      payload.actionDir || "",
+      angle
+    ].join(":");
+  }
+
+  function hasContinuousInput(payload) {
+    return !!(payload.up || payload.down || payload.left || payload.right || payload.sprint || payload.repair || payload.attackHeld);
+  }
+
+  function emitInputPayload(payload, signature, now) {
+    socket.emit("input", payload);
+    lastInputPayload = signature;
+    lastInputSentAt = now;
+  }
+
   function sendInput(oneShot = {}, force = false) {
     if (!socket || !myId) return;
     const me = getLocalPlayerData();
     if (me?.role === "survivor" && me.dead) return;
 
+    const now = performance.now();
+
     if (isIntroInputLocked()) {
       clearMovementInputOnly();
       const payload = inputPayload();
-      const signature = JSON.stringify(payload);
-      if (force || signature !== lastInputPayload) {
-        socket.emit("input", payload);
-        lastInputPayload = signature;
-      }
+      const signature = inputSignature(payload);
+      if (force || signature !== lastInputPayload) emitInputPayload(payload, signature, now);
       return;
     }
 
     const payload = inputPayload(oneShot);
-    const signature = JSON.stringify(payload);
-    if (force || signature !== lastInputPayload || oneShot.action || oneShot.attack || oneShot.attackReleased) {
-      socket.emit("input", payload);
-      lastInputPayload = signature;
+    const signature = inputSignature(payload);
+    const isOneShot = !!(oneShot.action || oneShot.attack || oneShot.attackReleased);
+    const minInterval = 1000 / inputSendRateHz();
+    const elapsed = now - lastInputSentAt;
+    const changed = signature !== lastInputPayload;
+    const active = hasContinuousInput(payload);
+
+    // Continuous movement gets a steady input stream so the server never coasts
+    // on stale intent. Aiming-only changes are still rate-limited, because sending
+    // 60 tiny mouse-angle packets per second is how sockets become a leaf blower.
+    if (force || isOneShot || (changed && elapsed >= minInterval) || (active && elapsed >= minInterval) || (changed && elapsed >= INPUT_HEARTBEAT_MS)) {
+      emitInputPayload(payload, signature, now);
     }
   }
 
@@ -4212,9 +4267,13 @@
 
       const now = performance.now();
       const isVoid = item.data?.role === "killer";
-      const delay = Math.max(35, isVoid
+      const jitterPad = Math.min(
+        cfgNumber(PERFORMANCE_CONFIG.snapshotJitterDelayMaxMs, 42),
+        Math.max(0, networkTiming.jitterMs * 1.35)
+      );
+      const delay = Math.max(35, (isVoid
         ? performanceValue("voidInterpolationDelayMs", LOW_POWER_MODE ? 70 : 55)
-        : performanceValue("remoteInterpolationDelayMs", LOW_POWER_MODE ? 120 : 80));
+        : performanceValue("remoteInterpolationDelayMs", LOW_POWER_MODE ? 120 : 80)) + jitterPad);
       const renderTime = now - delay;
 
       while (samples.length > 2 && samples[1].t <= renderTime) samples.shift();
@@ -4965,10 +5024,11 @@
         const isVisible = item.container.alpha > 0.05 || id === myId;
         if (!isVisible) continue;
 
-        const charge = clamp(data.attackCharge || 0, 0, 0.32);
-        const t = clamp(charge / 0.32, 0, 1);
-        const range = 58 + 40 * t;
-        const arc = Math.PI * 0.42;
+        const chargeLimit = Math.max(0.001, ATTACK_VISUAL.lungeCharge);
+        const charge = clamp(data.attackCharge || 0, 0, chargeLimit);
+        const t = clamp(charge / chargeLimit, 0, 1);
+        const range = lerp(ATTACK_VISUAL.quickRange, ATTACK_VISUAL.lungeRange, t) + ATTACK_VISUAL.edgeGrace;
+        const arc = lerp(ATTACK_VISUAL.arc * 0.72, ATTACK_VISUAL.arc * 1.12, t);
         const angle = item.current.angle || item.target.angle || 0;
         const x = item.current.x;
         const y = item.current.y;
@@ -4998,18 +5058,35 @@
       const actorVisible = !actorItem || actorItem.container.alpha > 0.05 || actorId === myId;
       if (!actorVisible) return;
 
-      const ttlScale = adaptivePerformance.mode === "ultra" ? 0.62 : adaptivePerformance.mode === "low" ? 0.78 : 1;
+      const type = event.attackType || event.type || "quick";
+      const activeDuration = Math.max(0.08, cfgNumber(
+        event.activeDuration ?? event.duration,
+        type === "lunge" ? ATTACK_VISUAL.lungeActive : ATTACK_VISUAL.quickActive
+      ));
+      const trailDuration = adaptivePerformance.mode === "ultra" ? 0.035 : adaptivePerformance.mode === "low" ? 0.05 : 0.075;
+      const ttl = activeDuration + trailDuration;
+      const createdAt = Number(event.createdAt);
+      const serverTime = Number(currentSnapshot?.serverTime);
+      const initialLife = Number.isFinite(createdAt) && Number.isFinite(serverTime)
+        ? clamp(serverTime - createdAt, 0, ttl)
+        : 0;
+
+      // Age the visual by server time so a delayed snapshot does not show an already-expired
+      // hit cone as if it were still dangerous. Netcode, the art of lying less badly.
+      if (initialLife >= ttl) return;
+
       this.swipes.push({
         actorId,
         x: event.x,
         y: event.y,
         angle: event.angle || 0,
-        range: event.range || 82,
-        arc: event.arc || Math.PI * 0.58,
-        ttl: Math.max(0.12, ((event.duration || 0.24) + 0.08) * ttlScale),
-        startup: event.startup || 0,
-        life: 0,
-        type: event.attackType || event.type || "quick"
+        range: event.range || (type === "lunge" ? ATTACK_VISUAL.lungeRange : ATTACK_VISUAL.quickRange),
+        arc: event.arc || (type === "lunge" ? ATTACK_VISUAL.arc * 1.12 : ATTACK_VISUAL.arc),
+        ttl,
+        activeDuration,
+        startup: clamp(event.startup || 0, 0, activeDuration * 0.82),
+        life: initialLife,
+        type
       });
     }
 
@@ -5028,10 +5105,19 @@
         const x = actor ? actor.current.x : s.x;
         const y = actor ? actor.current.y : s.y;
         const angle = actor ? actor.current.angle : s.angle;
+        const activeDuration = Math.max(0.001, s.activeDuration || s.ttl);
         const windup = s.life < s.startup;
-        const rawT = s.startup > 0 ? clamp((s.life - s.startup) / Math.max(0.001, s.ttl - s.startup), 0, 1) : clamp(s.life / s.ttl, 0, 1);
-        const sweepT = windup ? clamp(s.life / Math.max(0.001, s.startup), 0, 1) : rawT;
-        const fade = windup ? 0.26 + 0.28 * sweepT : Math.pow(1 - rawT, 1.35);
+        const postActive = s.life > activeDuration;
+        const activeT = s.startup > 0
+          ? clamp((Math.min(s.life, activeDuration) - s.startup) / Math.max(0.001, activeDuration - s.startup), 0, 1)
+          : clamp(Math.min(s.life, activeDuration) / activeDuration, 0, 1);
+        const trailT = postActive ? clamp((s.life - activeDuration) / Math.max(0.001, s.ttl - activeDuration), 0, 1) : 0;
+        const sweepT = windup ? clamp(s.life / Math.max(0.001, s.startup), 0, 1) : activeT;
+        const fade = windup
+          ? 0.26 + 0.28 * sweepT
+          : postActive
+            ? 0.34 * Math.pow(1 - trailT, 1.65)
+            : 0.55 + 0.30 * Math.pow(1 - activeT, 0.9);
         const range = s.range * (windup ? 0.84 + 0.16 * sweepT : 1);
         const arc = s.arc * (windup ? 0.55 + 0.45 * sweepT : 1);
         const steps = Math.max(4, Math.floor(performanceValue("swipeSteps", 22)));
@@ -5047,8 +5133,9 @@
         }
 
         const cheapSwipe = adaptivePerformance.mode !== "normal";
-        if (!cheapSwipe) {
-          // Soft warning/windup fill, then a brighter moving slash edge.
+        if (!cheapSwipe && !postActive) {
+          // Filled cone only exists during the real server-active hit window. The trailing
+          // slash below is just afterimage, not a promise that the hitbox still exists.
           g.fillStyle(windup ? 0xa3421f : 0xffd5bd, windup ? 0.08 + 0.10 * sweepT : 0.12 * fade);
           g.fillPoints(points, true, true);
         }
@@ -5056,7 +5143,8 @@
         const slashA = angle - arc / 2 + arc * clamp(windup ? sweepT * 0.35 : sweepT, 0, 1);
         const slashLen = range * (windup ? 0.72 : 1);
         const inner = windup ? 22 : 18;
-        g.lineStyle(cheapSwipe ? 3 : (windup ? 3 : 6), windup ? 0xff995c : 0xffeee0, cheapSwipe ? 0.42 * fade : (windup ? 0.32 + 0.30 * sweepT : 0.72 * fade));
+        const slashAlpha = postActive ? 0.22 * fade : (cheapSwipe ? 0.42 * fade : (windup ? 0.32 + 0.30 * sweepT : 0.72 * fade));
+        g.lineStyle(cheapSwipe ? 3 : (windup ? 3 : postActive ? 3 : 6), windup ? 0xff995c : postActive ? 0xff9b74 : 0xffeee0, slashAlpha);
         g.beginPath();
         g.moveTo(x + Math.cos(slashA) * inner, y + Math.sin(slashA) * inner);
         g.lineTo(x + Math.cos(slashA) * slashLen, y + Math.sin(slashA) * slashLen);
@@ -7215,7 +7303,8 @@
 
   function setupSockets() {
     const socketOptions = {
-      transports: ["websocket", "polling"],
+      transports: ["websocket"],
+      upgrade: false,
       reconnection: true,
       reconnectionAttempts: Infinity,
       reconnectionDelay: 650,
@@ -7270,7 +7359,15 @@
       });
     });
     socket.on("snapshot", (snapshot) => {
+      const arrivedAt = performance.now();
       if (snapshot?.seq && currentSnapshot?.seq && snapshot.seq <= currentSnapshot.seq) return;
+      if (networkTiming.lastSnapshotAt > 0) {
+        const gap = clamp(arrivedAt - networkTiming.lastSnapshotAt, 5, 250);
+        networkTiming.avgGapMs = networkTiming.avgGapMs * 0.88 + gap * 0.12;
+        networkTiming.jitterMs = networkTiming.jitterMs * 0.86 + Math.abs(gap - networkTiming.avgGapMs) * 0.14;
+      }
+      networkTiming.lastSnapshotAt = arrivedAt;
+      snapshot.clientArrivedAt = arrivedAt;
       currentSnapshot = snapshot;
       if (phaserScene) phaserScene.applySnapshot(snapshot);
     });

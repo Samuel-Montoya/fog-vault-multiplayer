@@ -1,12 +1,26 @@
 {
   "latest": {
-    "version": "0.1.35",
-    "title": "Mouse and Keyboard Gate",
-    "summary": "Mobile devices now see a simple desktop-only message",
-    "description": "Added a source-level mobile and tablet gate that prevents the game client from loading on touch/mobile devices and shows a simple RiftRunner page saying the game is just for mouse and keyboard.",
+    "version": "0.1.37",
+    "title": "Void M1 Hitbox Polish",
+    "summary": "M1 visuals now match server hit timing and Runner body overlap",
+    "description": "Aligned The Void M1 attack visuals with server-authoritative active timing, aged swipe visuals by server time so delayed snapshots cannot show stale hit cones, updated charge previews to use the real quick/lunge ranges and arcs, and changed hit testing to use Runner body overlap instead of center-point-only checks so visible cone clips connect consistently.",
     "date": "2026-05-22"
   },
   "history": [
+    {
+      "version": "0.1.37",
+      "title": "Void M1 Hitbox Polish",
+      "summary": "M1 visuals now match server hit timing and Runner body overlap",
+      "description": "Aligned The Void M1 attack visuals with server-authoritative active timing, aged swipe visuals by server time so delayed snapshots cannot show stale hit cones, updated charge previews to use the real quick/lunge ranges and arcs, and changed hit testing to use Runner body overlap instead of center-point-only checks so visible cone clips connect consistently.",
+      "date": "2026-05-22"
+    },
+    {
+      "version": "0.1.36",
+      "title": "Boosted Netcode Polish",
+      "summary": "Smoother boosted-host networking and input cadence",
+      "description": "Raised boosted snapshot cadence, switched the game socket path to WebSocket-only transport, added fixed-tick server catch-up for short event-loop hiccups, added steady rate-limited human input heartbeats, and added client-side snapshot jitter padding so movement stays smoother without piling up stale packets.",
+      "date": "2026-05-22"
+    },
     {
       "version": "0.1.35",
       "title": "Mouse and Keyboard Gate",
