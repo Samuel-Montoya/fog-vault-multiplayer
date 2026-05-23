@@ -942,6 +942,20 @@
     return SURVIVOR_SKINS[id] || SURVIVOR_SKINS.blueSquare;
   }
 
+  const SURVIVOR_SKIN_PREVIEW_CLASS = {
+    blueSquare: "skin-square",
+    yellowStar: "skin-star",
+    purplePentagon: "skin-pentagon",
+    nebulaBloom: "skin-nebula",
+    eclipseWisp: "skin-eclipse",
+    riftMoth: "skin-moth",
+    signalDrone: "skin-drone"
+  };
+
+  function getSurvivorSkinPreviewClass(skinId) {
+    return SURVIVOR_SKIN_PREVIEW_CLASS[skinId] || "skin-square";
+  }
+
   const ui = {
     menu: document.getElementById("menu"),
     playScreen: document.getElementById("playScreen"),
@@ -7307,7 +7321,9 @@
       item.className = `player-item ${isKiller ? "is-killer" : "is-survivor"}${player.id === myId ? " is-you" : ""}${player.isBot ? " is-bot" : ""}`;
 
       const emblem = document.createElement("span");
-      emblem.className = `player-role-emblem ${isKiller ? "killer" : "survivor"}`;
+      emblem.className = isKiller
+        ? "player-role-emblem killer"
+        : `player-role-emblem survivor ${getSurvivorSkinPreviewClass(player.skin)}`;
       emblem.setAttribute("aria-hidden", "true");
 
       const summary = document.createElement("div");
