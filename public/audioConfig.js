@@ -12,11 +12,11 @@ window.GAME_AUDIO_CONFIG = {
     // Use these to adjust chase music without changing the whole soundtrack.
     // layer3 is the main chase layer.
     layerVolumes: {
-      layer1: 1.0,
+      layer1: 1.15,
       // Layer 2 is the warning/tension bed. Give it extra presence because
       // layer_3 is intentionally the sharper full-chase hit.
-      layer2: 1.22,
-      layer3: 0.6
+      layer2: 0.9,
+      layer3: 0.8
     },
 
     // Main menu music volume multiplier.
