@@ -13,15 +13,18 @@ window.GAME_AUDIO_CONFIG = {
     // layer3 is the main chase layer.
     layerVolumes: {
       layer1: 1.0,
-      layer2: 1.0,
-      layer3: 0.8
+      // Layer 2 is the warning/tension bed. Give it extra presence because
+      // layer_3 is intentionally the sharper full-chase hit.
+      layer2: 1.22,
+      layer3: 0.6
     },
 
     // Main menu music volume multiplier.
     menuMaster: 0.14,
 
     // How quickly music layers fade toward their target volume. Higher = faster fades.
-    fade: 0.065,
+    // Slightly slower than the default so layer_2 breathes in/out instead of popping.
+    fade: 0.052,
 
     // Menu music file. Put this in public/sfx.
     menu: "/sfx/menu.mp3",

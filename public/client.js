@@ -286,10 +286,10 @@
     music: {
       master: 0.55,
       // Per-layer match music volume multipliers.
-      // layer3 is the main chase layer.
-      layerVolumes: { layer1: 1.0, layer2: 1.0, layer3: 1.0 },
+      // layer2 is the warning/tension bed; layer3 is the main chase layer.
+      layerVolumes: { layer1: 1.0, layer2: 1.22, layer3: 1.0 },
       menuMaster: 0.14,
-      fade: 0.065,
+      fade: 0.052,
       menu: "/sfx/menu.mp3",
       layers: ["/sfx/layer_1.mp3", "/sfx/layer_2.mp3", "/sfx/layer_3.mp3"],
       // Layer 3 stays normal unless the local survivor is injured.
@@ -418,6 +418,8 @@
     // Negative values are supported now, so injuredZoom: -0.5 can zoom the camera out.
     TERROR_ZOOM: cameraNumber("terrorZoom", "lowPowerTerrorZoom", LOW_POWER_MODE ? 0.025 : 0.04),
     CHASE_ZOOM: cameraNumber("chaseZoom", "lowPowerChaseZoom", LOW_POWER_MODE ? 0.42 : 0.66),
+    SPRINT_ZOOM: cameraNumber("sprintZoom", "lowPowerSprintZoom", LOW_POWER_MODE ? 0.055 : 0.095),
+    SPRINT_ZOOM_SMOOTHING: cameraNumber("sprintZoomSmoothing", "lowPowerSprintZoomSmoothing", LOW_POWER_MODE ? 7.0 : 8.5),
 
     KILLER_M1_HOLD_ZOOM: cameraNumber("voidM1HoldZoom", "lowPowerVoidM1HoldZoom", LOW_POWER_MODE ? 0.045 : 0.085),
     KILLER_M1_PULSE_ZOOM: cameraNumber("voidM1PulseZoom", "lowPowerVoidM1PulseZoom", LOW_POWER_MODE ? 0.035 : 0.065),
@@ -1947,7 +1949,7 @@
     const layerVolumes = MUSIC.LAYER_VOLUMES || {};
     const nextTargets = [
       clamp((m.layer1 || 0) * (layerVolumes.layer1 ?? 1) * MUSIC.MASTER, 0, 0.34),
-      clamp((m.layer2 || 0) * (layerVolumes.layer2 ?? 1) * MUSIC.MASTER, 0, 0.34),
+      clamp((m.layer2 || 0) * (layerVolumes.layer2 ?? 1) * MUSIC.MASTER, 0, 0.40),
       clamp((m.layer3 || 0) * (layerVolumes.layer3 ?? 1) * MUSIC.MASTER, 0, 0.34)
     ];
 
@@ -2514,6 +2516,7 @@
       this.activePerformanceMode = adaptivePerformance.mode;
       this.chaseBlend = 0;
       this.terrorBlend = 0;
+      this.sprintZoomBlend = 0;
       this.heartbeatTimer = 0;
       this.heartbeatPulse = 0;
       this.breathPhase = 0;
@@ -6204,6 +6207,24 @@
         && !subjectData?.dead;
       const isEscaping = subjectData?.role === "survivor"
         && (!!subjectData?.escapeGateId || (subjectData?.escapeProgress || 0) > 0.001);
+      const localMove = input?.move || { x: 0, y: 0 };
+      const localMoveAmount = Math.hypot(
+        Number.isFinite(localMove.x) ? localMove.x : 0,
+        Number.isFinite(localMove.y) ? localMove.y : 0
+      );
+      const sprintingForVisionPenalty = !this.isSpectating()
+        && localData?.role === "survivor"
+        && !isDowned
+        && !isHooked
+        && !localData?.dead
+        && !localData?.escaped
+        && !!input.sprint
+        && localMoveAmount > 0.18;
+      this.sprintZoomBlend = lerp(
+        this.sprintZoomBlend || 0,
+        sprintingForVisionPenalty ? 1 : 0,
+        dampAlpha(IMMERSION.SPRINT_ZOOM_SMOOTHING, dt)
+      );
 
       const hardSurvivorStateZoom = isHooked
         ? IMMERSION.HOOKED_ZOOM
@@ -6248,6 +6269,7 @@
         0,
         IMMERSION.TERROR_ZOOM,
         IMMERSION.CHASE_ZOOM,
+        IMMERSION.SPRINT_ZOOM,
         IMMERSION.KILLER_M1_HOLD_ZOOM,
         IMMERSION.KILLER_M1_PULSE_ZOOM,
         IMMERSION.DEPOSIT_ZOOM,
@@ -6265,6 +6287,7 @@
         0,
         IMMERSION.TERROR_ZOOM,
         IMMERSION.CHASE_ZOOM,
+        IMMERSION.SPRINT_ZOOM,
         IMMERSION.KILLER_M1_HOLD_ZOOM,
         IMMERSION.KILLER_M1_PULSE_ZOOM,
         IMMERSION.DEPOSIT_ZOOM,
@@ -6281,12 +6304,16 @@
       );
 
       const minZoom = Math.max(0.12, Math.min(IMMERSION.MIN_ZOOM, IMMERSION.BASE_ZOOM + negativeFloor - 0.04));
-      const maxZoom = Math.max(IMMERSION.BASE_ZOOM + 0.05, IMMERSION.BASE_ZOOM + positiveCeiling + 0.04);
+      const maxZoom = Math.max(
+        IMMERSION.BASE_ZOOM + 0.05,
+        IMMERSION.BASE_ZOOM + positiveCeiling + Math.max(0, IMMERSION.SPRINT_ZOOM) + 0.04
+      );
       // During the opening lockout, ignore gameplay zoom candidates so the startup zoom has one target.
       // This prevents spawn/chase/downed zoom offsets from fighting the intro camera move.
+      const sprintVisionZoom = startLockT > 0 ? 0 : (this.sprintZoomBlend || 0) * IMMERSION.SPRINT_ZOOM;
       const cameraEffectZoom = startLockT > 0 ? 0 : strongestZoom;
       const targetZoom = clamp(
-        IMMERSION.BASE_ZOOM + cameraEffectZoom + startLockZoom,
+        IMMERSION.BASE_ZOOM + cameraEffectZoom + sprintVisionZoom + startLockZoom,
         minZoom,
         maxZoom
       );
@@ -7336,6 +7363,7 @@
         phaserScene.localEscapeScreenShown = false;
         phaserScene.chaseBlend = 0;
         phaserScene.terrorBlend = 0;
+        phaserScene.sprintZoomBlend = 0;
         phaserScene.cameraSwayX = 0;
         phaserScene.cameraSwayY = 0;
         phaserScene.cameraSwayTargetX = 0;

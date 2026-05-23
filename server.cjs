@@ -378,7 +378,12 @@ const KILLER_CONE_LENGTH = cfgNumber(GAMEPLAY_CONFIG.void?.coneLength, 920);
 const KILLER_CONE_ANGLE = cfgNumber(GAMEPLAY_CONFIG.void?.coneAngle, Math.PI / 1.75);
 const KILLER_SCRATCH_MARK_VISIBILITY_RANGE = cfgNumber(GAMEPLAY_CONFIG.void?.scratchMarkVisibilityRange, 520);
 const MUSIC_LAYER_1_VOLUME = cfgNumber(GAMEPLAY_CONFIG.chase?.musicLayer1Volume, 0.12);
-const MUSIC_LAYER_2_MAX_VOLUME = cfgNumber(GAMEPLAY_CONFIG.chase?.musicLayer2MaxVolume, 0.30);
+const MUSIC_LAYER_2_RADIUS = cfgNumber(GAMEPLAY_CONFIG.chase?.musicLayer2Radius, TERROR_RADIUS * 1.45);
+const MUSIC_LAYER_2_FULL_RADIUS = cfgNumber(GAMEPLAY_CONFIG.chase?.musicLayer2FullRadius, CHASE_START_RADIUS * 0.82);
+const MUSIC_LAYER_2_MIN_VOLUME = cfgNumber(GAMEPLAY_CONFIG.chase?.musicLayer2MinVolume, 0.035);
+const MUSIC_LAYER_2_MAX_VOLUME = cfgNumber(GAMEPLAY_CONFIG.chase?.musicLayer2MaxVolume, 0.42);
+const MUSIC_LAYER_2_CHASE_BED_VOLUME = cfgNumber(GAMEPLAY_CONFIG.chase?.musicLayer2ChaseBedVolume, 0.07);
+const MUSIC_LAYER_2_CURVE = cfgNumber(GAMEPLAY_CONFIG.chase?.musicLayer2Curve, 1.08);
 const MUSIC_LAYER_3_VOLUME = cfgNumber(GAMEPLAY_CONFIG.chase?.musicLayer3Volume, 0.30);
 const BOT_REPATH_MIN = cfgNumber(GAMEPLAY_CONFIG.bots?.repathMin, 0.32);
 const BOT_REPATH_MAX = cfgNumber(GAMEPLAY_CONFIG.bots?.repathMax, 0.68);
@@ -443,6 +448,9 @@ const BOT_SURVIVOR_MAP_AWARE_RADIUS = Math.max(TERROR_RADIUS, cfgNumber(GAMEPLAY
 const BOT_SURVIVOR_ESCAPE_PLAN_SECONDS = Math.max(1.6, cfgNumber(GAMEPLAY_CONFIG.bots?.survivorEscapePlanSeconds, 2.65));
 const BOT_SURVIVOR_ESCAPE_SCAN_STEPS = Math.max(2, Math.floor(cfgNumber(GAMEPLAY_CONFIG.bots?.survivorEscapeScanSteps, 2)));
 const BOT_SURVIVOR_ESCAPE_MIN_SAFE_EXITS = Math.max(1, Math.floor(cfgNumber(GAMEPLAY_CONFIG.bots?.survivorEscapeMinSafeExits, 2)));
+const BOT_SURVIVOR_PALLET_STUN_INTENT_RADIUS = Math.max(VOID_STUN_SWING_RADIUS, cfgNumber(GAMEPLAY_CONFIG.bots?.survivorPalletStunIntentRadius, 92));
+const BOT_SURVIVOR_PALLET_STUN_FORECAST_SECONDS = clamp(cfgNumber(GAMEPLAY_CONFIG.bots?.survivorPalletStunForecastSeconds, 0.32), 0.12, 0.55);
+const BOT_SURVIVOR_PALLET_WALL_EMERGENCY_RADIUS = Math.max(150, cfgNumber(GAMEPLAY_CONFIG.bots?.survivorPalletWallEmergencyRadius, 190));
 
 const CHAT_MESSAGE_DURATION = 3.0;
 const CHAT_WHEEL_MESSAGES = RIFTRUNNER_CHATS.chatWheel || {
@@ -846,6 +854,11 @@ function nowMs() {
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
+}
+
+function smoothstep(value) {
+  const t = clamp(value, 0, 1);
+  return t * t * (3 - 2 * t);
 }
 
 function dist(ax, ay, bx, by) {
@@ -5928,25 +5941,112 @@ function chooseFleePoint(game, survivor, killer) {
   return best;
 }
 
-function botShouldDropPallet(game, survivor, killer, hit) {
-  if (!hit || hit.type !== "palletDrop") return false;
+function botKillerProjectedPoint(killer, seconds) {
+  if (!killer || !killer.input) return killer ? { x: killer.x, y: killer.y } : null;
+  const move = movementDirection(killer.input);
+  let dx = move.dx;
+  let dy = move.dy;
+  const len = Math.hypot(dx, dy);
+  if (len > 0.001) {
+    dx /= len;
+    dy /= len;
+  } else {
+    dx = Math.cos(killer.angle || 0);
+    dy = Math.sin(killer.angle || 0);
+  }
+
+  let speed = KILLER_SPEED;
+  if ((killer.recovery || 0) > 0) speed *= KILLER_RECOVERY_SPEED_MULT;
+  if ((killer.voidSpeedBoost || 0) > 0) speed *= VOID_SPEED_BUFF_MULT;
+  if (killer.attackState === "lunge") speed *= LUNGE_SPEED_MULT;
+
+  return {
+    x: killer.x + dx * speed * seconds,
+    y: killer.y + dy * speed * seconds
+  };
+}
+
+function botPalletSideSign(actor, pallet) {
+  if (!actor || !pallet) return 0;
+  const c = centerOf(pallet);
+  return pallet.orientation === "horizontal"
+    ? Math.sign(actor.y - c.y) || 0
+    : Math.sign(actor.x - c.x) || 0;
+}
+
+function botPalletStunOpportunity(game, survivor, killer, pallet) {
+  if (!game || !survivor || !killer || !pallet || pallet.state !== "upright" || pallet.broken) return null;
+
+  const currentRectDistance = pointRectDistance(killer.x, killer.y, pallet);
+  const projected = botKillerProjectedPoint(killer, BOT_SURVIVOR_PALLET_STUN_FORECAST_SECONDS);
+  const projectedRectDistance = projected ? pointRectDistance(projected.x, projected.y, pallet) : currentRectDistance;
+  const killerSwinging = killerIsSwingingForVoidStun(killer);
+  const killerMove = movementDirection(killer.input || {});
+  const killerMoving = Math.hypot(killerMove.dx || 0, killerMove.dy || 0) > 0.05 || killer.attackState === "lunge";
+  const closeStun = currentRectDistance <= VOID_STUN_CLOSE_RADIUS + 8;
+  const swingStun = killerSwinging && currentRectDistance <= VOID_STUN_SWING_RADIUS + 10;
+  const projectedCloseStun = projectedRectDistance <= VOID_STUN_CLOSE_RADIUS + 12;
+  const projectedSwingStun = killerSwinging && projectedRectDistance <= VOID_STUN_SWING_RADIUS + 12;
+  const approachingPallet = projectedRectDistance < currentRectDistance - 8;
+  const killerSide = botPalletSideSign(killer, pallet);
+  const survivorSide = botPalletSideSign(survivor, pallet);
+  const oppositeSides = killerSide !== 0 && survivorSide !== 0 && killerSide !== survivorSide;
   const killerDistance = dist(survivor.x, survivor.y, killer.x, killer.y);
-  if (killerDistance > BOT_SURVIVOR_PANIC_RADIUS * 1.32) return false;
+  const chaseLaneToPallet = pointSegmentDistance(centerOf(pallet).x, centerOf(pallet).y, survivor.x, survivor.y, killer.x, killer.y) < game.map.tile * 1.18;
 
-  const palletCenter = centerOf(hit.object);
-  const killerNearPallet = dist(killer.x, killer.y, palletCenter.x, palletCenter.y) < game.map.tile * 2.2;
+  const wouldStun = closeStun || swingStun || projectedCloseStun || projectedSwingStun;
+  const soonThreat = killerMoving
+    && approachingPallet
+    && currentRectDistance <= BOT_SURVIVOR_PALLET_STUN_INTENT_RADIUS
+    && (oppositeSides || chaseLaneToPallet || killerDistance < BOT_SURVIVOR_PANIC_RADIUS * 0.9);
+
+  return {
+    wouldStun,
+    soonThreat,
+    oppositeSides,
+    chaseLaneToPallet,
+    currentRectDistance,
+    projectedRectDistance,
+    killerSwinging
+  };
+}
+
+function botPalletDropCreatesEscapeWall(game, survivor, killer, pallet) {
+  if (!game || !survivor || !killer || !pallet) return false;
+  const c = centerOf(pallet);
+  const killerDistance = dist(survivor.x, survivor.y, killer.x, killer.y);
+  if (killerDistance > BOT_SURVIVOR_PALLET_WALL_EMERGENCY_RADIUS) return false;
+  if (pointSegmentDistance(c.x, c.y, survivor.x, survivor.y, killer.x, killer.y) > game.map.tile * 1.05) return false;
+
+  const escape = botRunnerEscapeLaneValue(game, survivor, killer, survivor.x, survivor.y, { nearLoop: true });
+  const survivorHasExit = !escape.deadEnd || escape.safeExits >= 1 || escape.losBreakingExits >= 1;
   const killerHasLos = segmentClear(game, survivor.x, survivor.y, killer.x, killer.y);
-  const survivorInjured = survivor.health <= 1 || survivor.injured;
-  const palletBetweenThem = pointSegmentDistance(palletCenter.x, palletCenter.y, survivor.x, survivor.y, killer.x, killer.y) < game.map.tile * 1.15;
-  const killerSameSide = hit.object.orientation === "horizontal"
-    ? Math.sign(killer.y - palletCenter.y) === Math.sign(survivor.y - palletCenter.y)
-    : Math.sign(killer.x - palletCenter.x) === Math.sign(survivor.x - palletCenter.x);
+  return survivorHasExit && killerHasLos;
+}
 
-  return killerNearPallet
-    || (palletBetweenThem && killerDistance < BOT_SURVIVOR_LOOP_RADIUS)
-    || (killerSameSide && killerHasLos && killerDistance < BOT_SURVIVOR_PANIC_RADIUS * 1.08)
-    || killerDistance < 205
-    || (survivorInjured && killerHasLos && killerDistance < BOT_SURVIVOR_PANIC_RADIUS * 1.18);
+function botShouldDropPallet(game, survivor, killer, hit) {
+  if (!game || !survivor || !killer || !hit || hit.type !== "palletDrop") return false;
+  const pallet = hit.object;
+  if (!pallet || pallet.state !== "upright" || pallet.broken) return false;
+
+  const killerDistance = dist(survivor.x, survivor.y, killer.x, killer.y);
+  if (killerDistance > BOT_SURVIVOR_LOOP_RADIUS * 0.95) return false;
+
+  const stun = botPalletStunOpportunity(game, survivor, killer, pallet);
+  if (!stun) return false;
+
+  // A pallet is a weapon first, wall second, and random floor decoration never.
+  // Bots now hold it unless The Void is close enough to get stunned, predicted to enter
+  // the stun zone, or the Runner needs a true last-second wall with a real escape lane.
+  if (stun.wouldStun) return true;
+  if (stun.soonThreat && killerDistance < BOT_SURVIVOR_PANIC_RADIUS * 1.12) return true;
+
+  const survivorInjured = survivor.health <= 1 || survivor.injured;
+  const emergencyWall = botPalletDropCreatesEscapeWall(game, survivor, killer, pallet);
+  if (emergencyWall && killerDistance < BOT_SURVIVOR_PALLET_WALL_EMERGENCY_RADIUS) return true;
+  if (survivorInjured && stun.chaseLaneToPallet && killerDistance < BOT_SURVIVOR_PALLET_WALL_EMERGENCY_RADIUS * 0.92) return true;
+
+  return false;
 }
 
 function botNearbyInteractables(game, actor, includePalletDrop = true) {
@@ -7409,17 +7509,29 @@ function buildSnapshotFor(lobby, socketId) {
 
     // Clean three-layer music ladder:
     // layer_1 = normal ambient when the survivor is safe / no meaningful terror pressure.
-    // layer_2 = killer is nearby, but the survivor is NOT in chase.
+    // layer_2 = warning pressure before a full chase, with a wider radius than the UI terror pulse.
     // layer_3 = survivor is in chase, regardless of whether the killer is currently on-screen.
-    const nearbyNoChase = !chase && terror > 0;
-    const terrorRamp = Math.pow(terror, 0.72);
+    const layer2Radius = Math.max(MUSIC_LAYER_2_RADIUS, MUSIC_LAYER_2_FULL_RADIUS + 1);
+    const layer2Range = Math.max(1, layer2Radius - MUSIC_LAYER_2_FULL_RADIUS);
+    const layer2DistanceBlend = clamp((layer2Radius - d) / layer2Range, 0, 1);
+    const layer2Ramp = Math.pow(smoothstep(layer2DistanceBlend), Math.max(0.35, MUSIC_LAYER_2_CURVE));
+    const layer2Audible = d < layer2Radius;
+    const layer2NoChase = layer2Audible
+      ? MUSIC_LAYER_2_MIN_VOLUME + (MUSIC_LAYER_2_MAX_VOLUME - MUSIC_LAYER_2_MIN_VOLUME) * layer2Ramp
+      : 0;
+    const layer2ChaseBed = chase && layer2Audible
+      ? MUSIC_LAYER_2_CHASE_BED_VOLUME * clamp(0.35 + layer2Ramp * 0.65, 0, 1)
+      : 0;
+    const layer2Target = chase ? layer2ChaseBed : layer2NoChase;
+    const layer1Duck = clamp(layer2Ramp * 0.78 + (chase ? 1 : 0), 0, 1);
 
     music = {
-      layer1: chase ? 0 : MUSIC_LAYER_1_VOLUME * (nearbyNoChase ? clamp(1 - terrorRamp * 0.85, 0.15, 1) : 1),
-      layer2: nearbyNoChase ? terrorRamp * MUSIC_LAYER_2_MAX_VOLUME : 0,
+      layer1: chase ? 0 : MUSIC_LAYER_1_VOLUME * clamp(1 - layer1Duck, 0.16, 1),
+      layer2: layer2Target,
       layer3: chase ? MUSIC_LAYER_3_VOLUME : 0,
       chase,
       terror,
+      musicPressure: layer2Ramp,
       distance: d,
       killerVisible,
       visibleHold: chase

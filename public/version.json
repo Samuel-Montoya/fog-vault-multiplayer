@@ -1,12 +1,26 @@
 {
   "latest": {
-    "version": "0.1.37",
-    "title": "Void M1 Hitbox Polish",
-    "summary": "M1 visuals now match server hit timing and Runner body overlap",
-    "description": "Aligned The Void M1 attack visuals with server-authoritative active timing, aged swipe visuals by server time so delayed snapshots cannot show stale hit cones, updated charge previews to use the real quick/lunge ranges and arcs, and changed hit testing to use Runner body overlap instead of center-point-only checks so visible cone clips connect consistently.",
+    "version": "0.1.39",
+    "title": "Layer 2 Music Presence",
+    "summary": "Layer 2 warning music now plays farther out with smoother fades",
+    "description": "Restored and strengthened the layer_2 warning music by giving it a wider server-side trigger radius, a smooth distance ramp, a faint chase bed under layer_3, stronger layer volume, and a slightly slower client fade so threat music breathes in and out cleanly instead of barely appearing.",
     "date": "2026-05-22"
   },
   "history": [
+    {
+      "version": "0.1.39",
+      "title": "Layer 2 Music Presence",
+      "summary": "Layer 2 warning music now plays farther out with smoother fades",
+      "description": "Restored and strengthened the layer_2 warning music by giving it a wider server-side trigger radius, a smooth distance ramp, a faint chase bed under layer_3, stronger layer volume, and a slightly slower client fade so threat music breathes in and out cleanly instead of barely appearing.",
+      "date": "2026-05-22"
+    },
+    {
+      "version": "0.1.38",
+      "title": "Sprint Camera and Smarter Pallets",
+      "summary": "Runner sprint zoom, faster orb flow, and stun-aware bot pallet drops",
+      "description": "Added a small additive Runner sprint camera zoom so walking keeps the wider default view, increased orb spawn density and respawn cadence, and tightened Runner bot pallet use so bots treat pallets as stun/escape resources instead of randomly dropping them whenever The Void is merely nearby.",
+      "date": "2026-05-22"
+    },
     {
       "version": "0.1.37",
       "title": "Void M1 Hitbox Polish",

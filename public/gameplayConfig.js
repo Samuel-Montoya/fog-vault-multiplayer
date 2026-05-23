@@ -90,6 +90,11 @@ const GAMEPLAY_CONFIG = {
     lowPowerTerrorZoom: 0.012,
     chaseZoom: 0.45,
     lowPowerChaseZoom: 0.18,
+    // Sprinting narrows the Runner camera slightly. Walking gives the default wider read.
+    sprintZoom: 0.095,
+    lowPowerSprintZoom: 0.055,
+    sprintZoomSmoothing: 8.5,
+    lowPowerSprintZoomSmoothing: 7.0,
 
     voidM1HoldZoom: 0.085,
     lowPowerVoidM1HoldZoom: 0.018,
@@ -242,13 +247,13 @@ const GAMEPLAY_CONFIG = {
     survivorDropOnHitPercent: 1.0,
     survivorPickupRadius: 48,
     voidPickupRadius: 92,
-    minTileSpacing: 3.0,
-    minObjectiveTileDistance: 1.8,
-    spawnFloorRatio: 0.032,
-    spawnMin: 16,
-    maxOnMap: 38,
-    respawnSeconds: 2.2,
-    respawnBatch: 3
+    minTileSpacing: 2.55,
+    minObjectiveTileDistance: 1.55,
+    spawnFloorRatio: 0.046,
+    spawnMin: 24,
+    maxOnMap: 56,
+    respawnSeconds: 1.25,
+    respawnBatch: 5
   },
 
   hook: {
@@ -264,8 +269,17 @@ const GAMEPLAY_CONFIG = {
     holdSeconds: 3,
     closeRevealRadius: 120,
     musicLayer1Volume: 0.12,
-    // Layer 2 is intentionally skipped. Chase goes straight from ambient layer_1 to layer_3.
-    musicLayer2MaxVolume: 0,
+    // Layer 2 is the warning layer before a full chase. It starts farther out than
+    // the terror UI so players feel the threat coming instead of getting silent jumpscared.
+    musicLayer2Radius: 1160,
+    // Inside this distance layer_2 reaches full strength. Between radius and full radius
+    // it uses a smoothstep ramp so it fades in instead of clicking on.
+    musicLayer2FullRadius: 430,
+    musicLayer2MinVolume: 0.035,
+    musicLayer2MaxVolume: 0.48,
+    // Keep a faint layer_2 bed under layer_3 so the transition into chase feels blended.
+    musicLayer2ChaseBedVolume: 0.075,
+    musicLayer2Curve: 1.08,
     musicLayer3Volume: 0.30
   },
 
@@ -290,6 +304,9 @@ const GAMEPLAY_CONFIG = {
     survivorEscapePlanSeconds: 2.65,
     survivorEscapeScanSteps: 2,
     survivorEscapeMinSafeExits: 2,
+    survivorPalletStunIntentRadius: 92,
+    survivorPalletStunForecastSeconds: 0.32,
+    survivorPalletWallEmergencyRadius: 190,
     voidMemorySeconds: 6.0,
     voidScratchMemorySeconds: 2.5,
     voidInteractCooldown: 1.25,
