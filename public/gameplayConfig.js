@@ -353,6 +353,15 @@ const GAMEPLAY_CONFIG = {
     },
     voidMemorySeconds: 6.0,
     voidScratchMemorySeconds: 2.5,
+    // Killer bot macro priorities: pressure/kick active rifts, then farm enough orbs
+    // for Void Sight / Null Rush during downtime instead of wandering like a haunted Roomba.
+    voidRiftPressureRadius: 1080,
+    voidRiftKickMinProgress: 0.045,
+    voidRiftDepositPressureBonus: 780,
+    voidOrbHuntMaxDistance: 680,
+    voidOrbHuntTargetDots: 18,
+    voidOrbHuntChaseLockout: 620,
+    voidSearchScanSeconds: 1.15,
     voidInteractCooldown: 1.25,
     voidWindowReuseCooldown: 0.95,
     voidStuckSeconds: 0.85

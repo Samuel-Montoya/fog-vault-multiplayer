@@ -428,6 +428,13 @@ const BOT_KILLER_WINDOW_REUSE_COOLDOWN = cfgNumber(GAMEPLAY_CONFIG.bots?.voidWin
 const BOT_KILLER_STUCK_SECONDS = cfgNumber(GAMEPLAY_CONFIG.bots?.voidStuckSeconds, 0.72);
 const BOT_KILLER_HOOK_PURSUIT_RADIUS = cfgNumber(GAMEPLAY_CONFIG.bots?.voidHookPursuitRadius, 980);
 const BOT_KILLER_ABILITY_CHASE_RADIUS = cfgNumber(GAMEPLAY_CONFIG.bots?.voidAbilityChaseRadius, 720);
+const BOT_KILLER_RIFT_PRESSURE_RADIUS = cfgNumber(GAMEPLAY_CONFIG.bots?.voidRiftPressureRadius, 1080);
+const BOT_KILLER_RIFT_KICK_MIN_PROGRESS = cfgNumber(GAMEPLAY_CONFIG.bots?.voidRiftKickMinProgress, 0.045);
+const BOT_KILLER_RIFT_DEPOSIT_PRESSURE_BONUS = cfgNumber(GAMEPLAY_CONFIG.bots?.voidRiftDepositPressureBonus, 780);
+const BOT_KILLER_ORB_HUNT_MAX_DISTANCE = cfgNumber(GAMEPLAY_CONFIG.bots?.voidOrbHuntMaxDistance, 680);
+const BOT_KILLER_ORB_HUNT_TARGET_DOTS = cfgNumber(GAMEPLAY_CONFIG.bots?.voidOrbHuntTargetDots, 18);
+const BOT_KILLER_ORB_HUNT_CHASE_LOCKOUT = cfgNumber(GAMEPLAY_CONFIG.bots?.voidOrbHuntChaseLockout, 620);
+const BOT_KILLER_SEARCH_SCAN_SECONDS = cfgNumber(GAMEPLAY_CONFIG.bots?.voidSearchScanSeconds, 1.15);
 const BOT_PATH_STUCK_REPATH_DISTANCE = cfgNumber(GAMEPLAY_CONFIG.bots?.pathStuckRepathDistance, 7);
 const BOT_SURVIVOR_STUCK_SECONDS = Math.max(0.8, cfgNumber(GAMEPLAY_CONFIG.bots?.survivorStuckSeconds, 1.0));
 const BOT_SURVIVOR_OBJECTIVE_STALL_SECONDS = Math.max(0.85, cfgNumber(GAMEPLAY_CONFIG.bots?.survivorObjectiveStallSeconds, 1.0));
@@ -4746,7 +4753,13 @@ function visibleSurvivorsForKiller(game, killer) {
       const downBonus = p.downed ? 360 : 0;
       const chaseBonus = p.chaseHold > 0 ? 60 : 0;
       const gateBonus = p.escapeProgress > 0 ? 170 : 0;
-      const score = d - carryingBonus - injuryBonus - downBonus - chaseBonus - gateBonus;
+      const depositGen = p.dotDepositTargetId ? (game.map.generators || []).find((gen) => gen.id === p.dotDepositTargetId && !gen.done) : null;
+      const depositBonus = depositGen
+        ? 260 + clamp(depositGen.progress || 0, 0, 1) * 240
+        : (p.dots || 0) > 0 && nearestUndoneGenerator(game, p.x, p.y)?.d <= DOT_DEPOSIT_DISTANCE * 1.35
+          ? 90
+          : 0;
+      const score = d - carryingBonus - injuryBonus - downBonus - chaseBonus - gateBonus - depositBonus;
       visible.push({ survivor: p, d, score });
     }
   }
@@ -4970,6 +4983,198 @@ function nearestUndoneGenerator(game, x, y) {
   return best ? { gen: best, d: bestDist } : null;
 }
 
+function isKillerChaseTarget(actor) {
+  return !!(actor && actor.role === "survivor" && !actor.dead && !actor.escaped && !actor.hooked);
+}
+
+function survivorIsDepositingAtRift(game, survivor, gen) {
+  if (!survivor || !gen || survivor.role !== "survivor") return false;
+  if (survivor.dead || survivor.escaped || survivor.hooked || survivor.downed) return false;
+  if ((survivor.dots || 0) <= 0) return false;
+  if (survivor.dotDepositTargetId === gen.id) return true;
+  return dist(survivor.x, survivor.y, gen.x, gen.y) <= DOT_DEPOSIT_DISTANCE * 1.22
+    && segmentClear(game, survivor.x, survivor.y, gen.x, gen.y);
+}
+
+function riftDepositors(game, gen) {
+  if (!game || !gen) return [];
+  return [...game.actors.values()].filter((actor) => survivorIsDepositingAtRift(game, actor, gen));
+}
+
+function killerCanSeePoint(game, killer, x, y, length = KILLER_CONE_LENGTH, angle = KILLER_CONE_ANGLE, allowClose = true) {
+  if (!game || !killer || !Number.isFinite(x) || !Number.isFinite(y)) return false;
+  const d = dist(killer.x, killer.y, x, y);
+  if (allowClose && d <= CLOSE_REVEAL_RADIUS) return segmentClear(game, killer.x, killer.y, x, y);
+  if (d > length) return false;
+  return coneSees(killer, { x, y }, length, angle) && segmentClear(game, killer.x, killer.y, x, y);
+}
+
+function visibleScratchMarksForKiller(game, killer) {
+  if (!game || !killer) return [];
+  const now = game.time || 0;
+  const marks = [];
+  for (const mark of game.scratchMarks || []) {
+    if (!mark || mark.ttl <= 0 || now - (mark.createdAt || 0) >= BOT_KILLER_SCRATCH_MEMORY_SECONDS) continue;
+    const d = dist(killer.x, killer.y, mark.x, mark.y);
+    if (d > KILLER_SCRATCH_MARK_VISIBILITY_RANGE) continue;
+    if (!killerCanSeePoint(game, killer, mark.x, mark.y, KILLER_SCRATCH_MARK_VISIBILITY_RANGE, KILLER_CONE_ANGLE, false)) continue;
+    marks.push({ mark, d, freshness: Math.max(0, BOT_KILLER_SCRATCH_MEMORY_SECONDS - (now - (mark.createdAt || 0))) });
+  }
+  return marks;
+}
+
+function chooseKillerScratchTarget(game, killer) {
+  let best = null;
+  let bestScore = Infinity;
+  const bot = killer.bot || (killer.bot = {});
+
+  for (const item of visibleScratchMarksForKiller(game, killer)) {
+    const sameTrailBonus = item.mark.actorId && item.mark.actorId === bot.lastScratchActorId ? 90 : 0;
+    const target = item.mark.actorId ? game.actors.get(item.mark.actorId) : null;
+    const targetStillValid = isKillerChaseTarget(target) ? 40 : 0;
+    const score = item.d - item.freshness * 110 - sameTrailBonus - targetStillValid;
+    if (score < bestScore) {
+      bestScore = score;
+      best = item.mark;
+    }
+  }
+
+  if (!best) return null;
+  bot.lastScratchActorId = best.actorId || bot.lastScratchActorId || null;
+  bot.lastScratchX = best.x;
+  bot.lastScratchY = best.y;
+  bot.lastScratchSeenTime = game.time || 0;
+  const actor = best.actorId ? game.actors.get(best.actorId) : null;
+  if (isKillerChaseTarget(actor)) {
+    bot.targetId = actor.id;
+    bot.lastSeenX = best.x;
+    bot.lastSeenY = best.y;
+    bot.lastSeenTime = Math.max(bot.lastSeenTime || 0, (game.time || 0) - BOT_KILLER_MEMORY_SECONDS * 0.45);
+  }
+  return { actor: null, x: best.x, y: best.y, visible: false, kind: "scratch", scratchActorId: best.actorId || null };
+}
+
+function progressedRiftValue(game, gen) {
+  if (!gen || gen.done) return 0;
+  const progress = clamp(gen.progress || 0, 0, 1);
+  const depositors = riftDepositors(game, gen);
+  const activeDeposit = !!(gen.dotDepositing || depositors.length);
+  const kickValue = progress >= BOT_KILLER_RIFT_KICK_MIN_PROGRESS && !gen.kickLocked ? 220 : 0;
+  const finishThreat = progress >= 0.72 ? 260 : progress >= 0.45 ? 120 : 0;
+  return progress * 1260
+    + kickValue
+    + finishThreat
+    + (activeDeposit ? BOT_KILLER_RIFT_DEPOSIT_PRESSURE_BONUS : 0)
+    + depositors.length * 260;
+}
+
+function chooseKillerRiftPressureTarget(game, killer, currentTarget = null) {
+  if (!game || !killer || areRiftsComplete(game)) return null;
+  const now = game.time || 0;
+  if (killer.bot.cachedRiftPressureTarget && now < (killer.bot.cachedRiftPressureUntil || 0)) {
+    const gen = game.map.generators.find((g) => g.id === killer.bot.cachedRiftPressureTarget.genId && !g.done);
+    const value = progressedRiftValue(game, gen);
+    if (gen && value > 0) {
+      const activeDeposit = !!(gen.dotDepositing || riftDepositors(game, gen).length);
+      return {
+        ...killer.bot.cachedRiftPressureTarget,
+        gen,
+        canKick: (gen.progress || 0) >= BOT_KILLER_RIFT_KICK_MIN_PROGRESS && !gen.kickLocked,
+        activeDeposit,
+        value
+      };
+    }
+  }
+
+  const currentVisibleChase = currentTarget?.actor && currentTarget.visible !== false;
+  const currentDistance = currentTarget?.actor ? dist(killer.x, killer.y, currentTarget.actor.x, currentTarget.actor.y) : Infinity;
+  let best = null;
+  let bestScore = Infinity;
+
+  for (const gen of game.map.generators || []) {
+    if (!gen || gen.done) continue;
+    const value = progressedRiftValue(game, gen);
+    if (value <= 0) continue;
+    const direct = dist(killer.x, killer.y, gen.x, gen.y);
+    const depositors = riftDepositors(game, gen);
+    const activeDeposit = !!(gen.dotDepositing || depositors.length);
+
+    // Do not abandon a clean close chase just to slap a rift. Even video-game monsters
+    // should not multitask themselves into incompetence.
+    if (currentVisibleChase && currentDistance < BOT_KILLER_ORB_HUNT_CHASE_LOCKOUT && !activeDeposit && (gen.progress || 0) < 0.78) continue;
+    if (direct > BOT_KILLER_RIFT_PRESSURE_RADIUS && !activeDeposit && (gen.progress || 0) < 0.55) continue;
+
+    const points = botPatrolApproachPoints(game, killer, gen, game.map.tile * 1.45)
+      .sort((a, b) => dist(killer.x, killer.y, a.x, a.y) - dist(killer.x, killer.y, b.x, b.y))
+      .slice(0, 4);
+    if (!points.length) points.push({ x: gen.x, y: gen.y, direct: true });
+
+    for (const point of points) {
+      const route = botCheapRouteDistance(game, killer, point.x, point.y, { role: "killer", allowKillerWindows: false, exact: false });
+      if (!Number.isFinite(route)) continue;
+      const recentPenalty = killer.bot.lastRiftPressureGenId === gen.id && now < (killer.bot.lastRiftPressureUntil || 0) ? 130 : 0;
+      const lineBonus = segmentClear(game, point.x, point.y, gen.x, gen.y) ? 70 : 0;
+      const score = route - value - lineBonus + recentPenalty + Math.random() * 12;
+      if (score < bestScore) {
+        bestScore = score;
+        best = {
+          x: point.x,
+          y: point.y,
+          visible: false,
+          kind: "riftPressure",
+          patrol: true,
+          gen,
+          genId: gen.id,
+          canKick: (gen.progress || 0) >= BOT_KILLER_RIFT_KICK_MIN_PROGRESS && !gen.kickLocked,
+          activeDeposit,
+          value
+        };
+      }
+    }
+  }
+
+  if (best) {
+    killer.bot.cachedRiftPressureTarget = { ...best, gen: undefined };
+    killer.bot.cachedRiftPressureUntil = now + 0.45 + Math.random() * 0.25;
+  }
+  return best;
+}
+
+function chooseKillerOrbTarget(game, killer, currentTarget = null) {
+  if (!game || !killer || !(game.collectibleDots || []).length) return null;
+  const carried = Math.floor(killer.dots || 0);
+  if (carried >= BOT_KILLER_ORB_HUNT_TARGET_DOTS && botAbilityReady(killer, "voidReveal", "killer")) return null;
+
+  const targetDistance = currentTarget?.actor ? dist(killer.x, killer.y, currentTarget.actor.x, currentTarget.actor.y) : Infinity;
+  if (currentTarget?.actor && currentTarget.visible !== false && targetDistance < BOT_KILLER_ORB_HUNT_CHASE_LOCKOUT) return null;
+  const activeRiftPressure = (game.map.generators || []).some((gen) => !gen.done && progressedRiftValue(game, gen) > 0 && (gen.dotDepositing || riftDepositors(game, gen).length));
+  if (activeRiftPressure) return null;
+
+  let best = null;
+  let bestScore = Infinity;
+  const dots = (game.collectibleDots || [])
+    .map((dot) => ({ dot, direct: dist(killer.x, killer.y, dot.x, dot.y) }))
+    .filter((item) => item.direct <= BOT_KILLER_ORB_HUNT_MAX_DISTANCE || carried < Math.min(15, BOT_KILLER_ORB_HUNT_TARGET_DOTS))
+    .sort((a, b) => a.direct - b.direct)
+    .slice(0, 12);
+
+  for (const item of dots) {
+    const route = botCheapRouteDistance(game, killer, item.dot.x, item.dot.y, { role: "killer", allowKillerWindows: false, exact: false });
+    if (!Number.isFinite(route)) continue;
+    const nearRift = nearestUndoneGenerator(game, item.dot.x, item.dot.y);
+    const riftBonus = nearRift ? Math.max(0, 480 - nearRift.d) * 0.26 + (nearRift.gen.progress || 0) * 130 : 0;
+    const visibleBonus = killerCanSeePoint(game, killer, item.dot.x, item.dot.y, KILLER_CONE_LENGTH, KILLER_CONE_ANGLE, true) ? 70 : 0;
+    const needBonus = Math.max(0, BOT_KILLER_ORB_HUNT_TARGET_DOTS - carried) * 14;
+    const score = route - riftBonus - visibleBonus - needBonus + Math.random() * 16;
+    if (score < bestScore) {
+      bestScore = score;
+      best = { x: item.dot.x, y: item.dot.y, visible: false, kind: "orb", orbId: item.dot.id || null, patrol: true };
+    }
+  }
+
+  return best;
+}
+
 function chooseKillerTarget(game, killer) {
   const visible = visibleSurvivorsForKiller(game, killer);
   const target = visible[0]?.survivor || null;
@@ -4979,27 +5184,22 @@ function chooseKillerTarget(game, killer) {
     killer.bot.lastSeenX = target.x;
     killer.bot.lastSeenY = target.y;
     killer.bot.lastSeenTime = game.time;
-    return { actor: target, x: target.x, y: target.y, visible: true };
+    return { actor: target, x: target.x, y: target.y, visible: true, kind: "chase" };
   }
 
   const remembered = killer.bot.targetId ? game.actors.get(killer.bot.targetId) : null;
-  if (remembered && !remembered.dead && !remembered.escaped && !remembered.hooked && game.time - (killer.bot.lastSeenTime || 0) < BOT_KILLER_MEMORY_SECONDS) {
-    return { actor: remembered, x: killer.bot.lastSeenX, y: killer.bot.lastSeenY, visible: false };
+  if (isKillerChaseTarget(remembered) && game.time - (killer.bot.lastSeenTime || 0) < BOT_KILLER_MEMORY_SECONDS) {
+    return { actor: remembered, x: killer.bot.lastSeenX, y: killer.bot.lastSeenY, visible: false, kind: "memory" };
   }
 
-  let scratch = null;
-  let scratchScore = Infinity;
-  for (const s of game.scratchMarks || []) {
-    if (s.ttl <= 0 || game.time - (s.createdAt || 0) >= BOT_KILLER_SCRATCH_MEMORY_SECONDS) continue;
-    const d = dist(killer.x, killer.y, s.x, s.y);
-    const freshness = Math.max(0, BOT_KILLER_SCRATCH_MEMORY_SECONDS - (game.time - (s.createdAt || 0)));
-    const score = d - freshness * 95;
-    if (score < scratchScore) {
-      scratchScore = score;
-      scratch = s;
-    }
-  }
-  if (scratch) return { actor: null, x: scratch.x, y: scratch.y, visible: false };
+  const scratch = chooseKillerScratchTarget(game, killer);
+  if (scratch) return scratch;
+
+  const pressure = chooseKillerRiftPressureTarget(game, killer);
+  if (pressure) return pressure;
+
+  const orb = chooseKillerOrbTarget(game, killer);
+  if (orb) return orb;
 
   const patrol = chooseKillerPatrolTarget(game, killer);
   if (patrol) return patrol;
@@ -5397,11 +5597,16 @@ function chooseKillerPatrolTarget(game, killer) {
   const objectives = [];
   for (const gen of game.map.generators || []) {
     if (gen.done) continue;
+    const depositors = riftDepositors(game, gen);
     objectives.push({
       x: gen.x,
       y: gen.y,
       kind: "rift",
-      value: 260 + (gen.progress || 0) * 900 + (gen.repairerCount || (gen.repairing ? 1 : 0)) * 320
+      value: 260
+        + (gen.progress || 0) * 980
+        + (gen.repairerCount || (gen.repairing ? 1 : 0)) * 320
+        + (gen.dotDepositing ? 420 : 0)
+        + depositors.length * 260
     });
   }
   for (const gate of game.map.gates || []) {
@@ -5462,6 +5667,32 @@ function botFaceTarget(killer, target) {
   const angleToTarget = Math.atan2(target.y - killer.y, target.x - killer.x);
   killer.input.angle = angleToTarget;
   killer.angle = angleToTarget;
+}
+
+function botKillerAimAtTarget(game, killer, target) {
+  if (!killer || !target) return;
+  if (target.actor && target.visible !== false) {
+    botFaceTarget(killer, target.actor);
+    return;
+  }
+
+  const now = game?.time || 0;
+  const closeToTarget = Number.isFinite(target.x) && Number.isFinite(target.y)
+    && dist(killer.x, killer.y, target.x, target.y) < (target.kind === "riftPressure" ? game.map.tile * 2.3 : game.map.tile * 1.35);
+  const baseAngle = Math.atan2((target.y || killer.y) - killer.y, (target.x || killer.x) - killer.x);
+
+  // While checking a rift or losing a scratch trail, sweep the cone like a player looking
+  // left/right around a generator instead of staring at one pixel until the heat death of JavaScript.
+  if (closeToTarget && (target.kind === "riftPressure" || target.kind === "patrol" || target.kind === "scratch")) {
+    const sweep = Math.sin(now * Math.PI * 2 / Math.max(0.25, BOT_KILLER_SEARCH_SCAN_SECONDS)) * (KILLER_CONE_ANGLE * 0.34);
+    const angle = baseAngle + sweep;
+    killer.input.angle = angle;
+    killer.angle = angle;
+    return;
+  }
+
+  killer.input.angle = baseAngle;
+  killer.angle = baseAngle;
 }
 
 function botShouldVaultWindow(game, killer, target, hit, hasClearAttack, targetDistance) {
@@ -7796,15 +8027,55 @@ function updateBotInputs(game, dt) {
         continue;
       }
 
-      const target = chooseKillerTarget(game, actor);
+      let target = chooseKillerTarget(game, actor);
+      const pressure = chooseKillerRiftPressureTarget(game, actor, target);
+      const currentTargetDistance = target?.actor ? dist(actor.x, actor.y, target.actor.x, target.actor.y) : Infinity;
+      const riftPressureBeatsCurrentTarget = pressure && (
+        !target
+        || !target.actor
+        || target.visible === false
+        || currentTargetDistance > BOT_KILLER_ORB_HUNT_CHASE_LOCKOUT
+        || (pressure.activeDeposit && currentTargetDistance > QUICK_ATTACK_RANGE * 1.8)
+      );
+      if (riftPressureBeatsCurrentTarget) {
+        target = pressure;
+      }
+      const orbTarget = chooseKillerOrbTarget(game, actor, target);
+      if (orbTarget && (!target || target.kind === "patrol" || target.kind === "rift" || (!target.actor && !pressure))) {
+        target = orbTarget;
+      }
       if (!target) continue;
 
-      if (target.actor) botFaceTarget(actor, target.actor);
-      else actor.input.angle = Math.atan2(target.y - actor.y, target.x - actor.x);
+      botKillerAimAtTarget(game, actor, target);
 
-      const targetDistance = dist(actor.x, actor.y, target.x, target.y);
-      const hasClearAttack = target.actor && botKillerHasAttackWindow(game, actor, target.actor);
+      const closeKickableRift = nearestKickableGenerator(game, actor);
+      const closeKickAllowed = closeKickableRift
+        && (!target.actor || target.visible === false || dist(actor.x, actor.y, target.actor.x, target.actor.y) > QUICK_ATTACK_RANGE * 1.55);
+      if (closeKickAllowed) {
+        actor.input.repair = true;
+        actor.input.angle = Math.atan2(closeKickableRift.y - actor.y, closeKickableRift.x - actor.x);
+        actor.bot.path = [];
+        actor.bot.repath = 0;
+        continue;
+      }
+
+      const tacticalTargetActor = target.actor && target.visible !== false ? target.actor : null;
+      const targetDistance = dist(actor.x, actor.y, tacticalTargetActor ? tacticalTargetActor.x : target.x, tacticalTargetActor ? tacticalTargetActor.y : target.y);
+      const hasClearAttack = tacticalTargetActor && botKillerHasAttackWindow(game, actor, tacticalTargetActor);
       botKillerMaybeUseAbility(game, actor, target, targetDistance, hasClearAttack);
+
+      if (target.kind === "riftPressure" && target.gen && target.canKick) {
+        const kickDistance = dist(actor.x, actor.y, target.gen.x, target.gen.y);
+        if (kickDistance <= INTERACT_DISTANCE + 10 && segmentClear(game, actor.x, actor.y, target.gen.x, target.gen.y)) {
+          actor.input.repair = true;
+          actor.input.angle = Math.atan2(target.gen.y - actor.y, target.gen.x - actor.x);
+          actor.bot.lastRiftPressureGenId = target.gen.id;
+          actor.bot.lastRiftPressureUntil = (game.time || 0) + 1.1;
+          actor.bot.path = [];
+          actor.bot.repath = 0;
+          continue;
+        }
+      }
 
       if (target.actor && target.actor.downed && !target.actor.hooked) {
         followPath(game, actor, target.actor.x, target.actor.y, false, { allowKillerInteract: true, allowKillerWindows: true });
@@ -7812,16 +8083,16 @@ function updateBotInputs(game, dt) {
         continue;
       }
 
-      const attacking = target.actor && botSetAttackIntent(game, actor, target.actor, targetDistance, hasClearAttack);
+      const attacking = tacticalTargetActor && botSetAttackIntent(game, actor, tacticalTargetActor, targetDistance, hasClearAttack);
 
-      const hitBeforeMove = target.actor ? nearestInteractable(game, actor, false) : null;
-      if (target.actor && !attacking && botUseKillerObstacle(game, actor, target.actor, hitBeforeMove, hasClearAttack, targetDistance)) {
+      const hitBeforeMove = tacticalTargetActor ? nearestInteractable(game, actor, false) : null;
+      if (tacticalTargetActor && !attacking && botUseKillerObstacle(game, actor, tacticalTargetActor, hitBeforeMove, hasClearAttack, targetDistance)) {
         continue;
       }
 
       if (!attacking) {
-        const chasePoint = target.actor
-          ? chooseKillerChasePoint(game, actor, target.actor, targetDistance, hasClearAttack)
+        const chasePoint = tacticalTargetActor
+          ? chooseKillerChasePoint(game, actor, tacticalTargetActor, targetDistance, hasClearAttack)
           : { x: target.x, y: target.y };
         followPath(game, actor, chasePoint.x, chasePoint.y, false, {
           allowKillerInteract: true,
@@ -7830,9 +8101,9 @@ function updateBotInputs(game, dt) {
         });
       }
 
-      const hitAfterMoveIntent = target.actor ? nearestInteractable(game, actor, false) : null;
-      if (target.actor && !attacking) {
-        botUseKillerObstacle(game, actor, target.actor, hitAfterMoveIntent, hasClearAttack, targetDistance);
+      const hitAfterMoveIntent = tacticalTargetActor ? nearestInteractable(game, actor, false) : null;
+      if (tacticalTargetActor && !attacking) {
+        botUseKillerObstacle(game, actor, tacticalTargetActor, hitAfterMoveIntent, hasClearAttack, targetDistance);
       }
       continue;
     }
