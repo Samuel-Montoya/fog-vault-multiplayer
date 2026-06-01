@@ -1,10 +1,8 @@
 "use strict";
 
-const { buildPathWithPathfinding } = require("./server-pathing.cjs");
-
 const PERSONALITY_ID = "rift-warden";
 const PERSONALITY_LABEL = "Rift Warden";
-const PATH_REPLAN_SECONDS = 0.34;
+const PATH_REPLAN_SECONDS = 0.72;
 const STUCK_SAMPLE_SECONDS = 0.42;
 const STUCK_REPATH_DISTANCE = 5.5;
 const STUCK_CLEAR_SECONDS = 1.55;
@@ -26,11 +24,10 @@ const VOID_LUNGE_COMMIT_SECONDS = 0.72;
 const VOID_OBSTACLE_ACTION_DISTANCE = 86;
 const VOID_OBSTACLE_SEEK_DISTANCE = 230;
 const VOID_OBSTACLE_PATH_WIDTH = 118;
-const VOID_CHASE_REPATH_SECONDS = 0.22;
+const VOID_CHASE_REPATH_SECONDS = 0.46;
 const VOID_HOOK_COMMIT_SECONDS = 3.1;
-const VOID_POST_OBSTACLE_SECONDS = 1.45;
-const VOID_OBSTACLE_REUSE_COOLDOWN_SECONDS = 3.4;
-const VOID_OBSTACLE_STUCK_BONUS_SECONDS = 0.7;
+const VOID_POST_OBSTACLE_SECONDS = 2.35;
+const VOID_OBSTACLE_REUSE_COOLDOWN_SECONDS = 6.25;
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -47,7 +44,51 @@ function helperDist(helpers, ax, ay, bx, by) {
   return typeof helpers?.dist === "function" ? helpers.dist(ax, ay, bx, by) : distance(ax, ay, bx, by);
 }
 
+const MOVE_INTENT_LOCK_SECONDS = 0.58;
+const MOVE_INTENT_REACHED_DISTANCE = 26;
+
+function stableMoveTarget(actor, tx, ty, brain) {
+  if (!brain || !Number.isFinite(tx) || !Number.isFinite(ty)) return { x: tx, y: ty };
+
+  const now = Number(brain.aiNow || 0);
+  const dx = tx - actor.x;
+  const dy = ty - actor.y;
+  const len = Math.hypot(dx, dy) || 1;
+  const nx = dx / len;
+  const ny = dy / len;
+  const old = brain.moveIntent;
+
+  if (old && now <= (old.until || 0)) {
+    const oldDistance = distance(actor.x, actor.y, old.x, old.y);
+    if (oldDistance > MOVE_INTENT_REACHED_DISTANCE) {
+      const dot = nx * (old.nx || 0) + ny * (old.ny || 0);
+      const targetShift = distance(tx, ty, old.x, old.y);
+      const notActuallyStuck = (brain.stuckFor || 0) < STUCK_CLEAR_SECONDS;
+
+      // This is the anti-ping-pong governor. New target choices are allowed, but not
+      // if they instantly reverse the actor or shuffle between near-identical points.
+      // That exact twitch was the "back/forth forever" bug wearing a tiny hat.
+      if ((dot < -0.18 || targetShift < 92) && notActuallyStuck) {
+        return { x: old.x, y: old.y };
+      }
+    }
+  }
+
+  brain.moveIntent = {
+    x: tx,
+    y: ty,
+    nx,
+    ny,
+    until: now + MOVE_INTENT_LOCK_SECONDS
+  };
+  return { x: tx, y: ty };
+}
+
 function setMoveToward(actor, tx, ty, sprint = true) {
+  const brain = actor.bot?.voidRiftAi || null;
+  const stable = stableMoveTarget(actor, tx, ty, brain);
+  tx = stable.x;
+  ty = stable.y;
   const dx = tx - actor.x;
   const dy = ty - actor.y;
   actor.input.left = dx < -8;
@@ -59,6 +100,8 @@ function setMoveToward(actor, tx, ty, sprint = true) {
 }
 
 function stopAndFace(actor, target) {
+  const brain = actor.bot?.voidRiftAi || null;
+  if (brain) brain.moveIntent = null;
   actor.input.left = false;
   actor.input.right = false;
   actor.input.up = false;
@@ -166,11 +209,11 @@ function isKnownHardBlockedTile(game, tx, ty) {
 function isTileBlocked(game, actor, tx, ty, helpers) {
   if (tx < 0 || ty < 0 || tx >= game.map.cols || ty >= game.map.rows) return true;
 
-  // Use map knowledge for AI planning, not the full actor collision box. The Void is wider
-  // than a tile on some maps, so requiring every tile center to fit its whole body can make
-  // A* think the entire map is impossible. The movement system still handles real collision.
-  if (Array.isArray(game.map.rawRows)) return isKnownHardBlockedTile(game, tx, ty);
+  if (Array.isArray(game.map.rawRows) && isKnownHardBlockedTile(game, tx, ty)) return true;
 
+  // Plan with the actual body again. The package/grid pass made mathematically clean
+  // paths that still scraped The Void into corners. A path that the body cannot fit is
+  // not a path, it is a wish with coordinates.
   const c = tileCenter(game, tx, ty);
   return !actorCanStandAt(game, actor, c.x, c.y, helpers);
 }
@@ -202,16 +245,6 @@ function findNearestStandableTile(game, actor, targetX, targetY, helpers) {
 }
 
 function buildPath(game, actor, targetX, targetY, helpers) {
-  const packagePath = buildPathWithPathfinding(game, actor, targetX, targetY, helpers, {
-    isTileBlocked,
-    actorCanStandAt,
-    tileAt,
-    tileCenter,
-    findNearestStandableTile,
-    distance
-  });
-  if (packagePath.length) return packagePath;
-
   const start = tileAt(game, actor.x, actor.y);
   const goal = findNearestStandableTile(game, actor, targetX, targetY, helpers);
   if (!goal) return [];
@@ -341,6 +374,7 @@ function fallbackMoveToward(game, actor, target, helpers, options = {}) {
 
 function followPath(game, actor, target, helpers, options = {}) {
   const brain = ensureVoidBrain(actor);
+  brain.aiNow = game.time || 0;
   const stopDistance = Math.max(8, options.stopDistance || 18);
   const targetKeyValue = `${Math.round(target.x)},${Math.round(target.y)}:${Math.round(stopDistance)}`;
   const d = helperDist(helpers, actor.x, actor.y, target.x, target.y);
@@ -366,13 +400,15 @@ function followPath(game, actor, target, helpers, options = {}) {
   const mustRepath = !brain.path?.length
     || brain.pathTargetKey !== targetKeyValue
     || brain.repathIn <= 0
-    || (brain.stuckFor || 0) >= STUCK_SAMPLE_SECONDS;
+    || (brain.stuckFor || 0) >= STUCK_CLEAR_SECONDS;
 
   if (mustRepath) {
     brain.path = buildPath(game, actor, target.x, target.y, helpers);
     brain.pathTargetKey = targetKeyValue;
     brain.repathIn = PATH_REPLAN_SECONDS + Math.random() * 0.18;
-    if ((brain.stuckFor || 0) >= STUCK_SAMPLE_SECONDS) brain.stuckFor = Math.max(0, (brain.stuckFor || 0) - STUCK_SAMPLE_SECONDS);
+    if ((brain.stuckFor || 0) >= STUCK_SAMPLE_SECONDS && (brain.stuckFor || 0) < STUCK_CLEAR_SECONDS) {
+      brain.stuckFor = Math.max(0, (brain.stuckFor || 0) - STUCK_SAMPLE_SECONDS);
+    }
   }
 
   if (!brain.path?.length) {
@@ -600,13 +636,6 @@ function centerOf(rect) {
   };
 }
 
-function pointRectDistance(px, py, rect) {
-  if (!rect) return Infinity;
-  const closestX = clamp(px, rect.x, rect.x + rect.w);
-  const closestY = clamp(py, rect.y, rect.y + rect.h);
-  return distance(px, py, closestX, closestY);
-}
-
 function distancePointToSegment(px, py, ax, ay, bx, by) {
   const vx = bx - ax;
   const vy = by - ay;
@@ -807,6 +836,41 @@ function obstacleScore(game, killer, target, object, type, helpers) {
     - d * 2.2;
 }
 
+function choosePostObstaclePoint(game, killer, object, target, helpers) {
+  const tile = game.map?.tile || 32;
+  const c = centerOf(object);
+  let vx = (target?.x ?? killer.x) - c.x;
+  let vy = (target?.y ?? killer.y) - c.y;
+  let len = Math.hypot(vx, vy);
+  if (len < 1) {
+    vx = killer.x - c.x;
+    vy = killer.y - c.y;
+    len = Math.hypot(vx, vy) || 1;
+  }
+  vx /= len;
+  vy /= len;
+
+  const distances = [tile * 3.5, tile * 5.0, tile * 6.6, tile * 2.4];
+  const sides = [0, tile * 1.35, -tile * 1.35, tile * 2.5, -tile * 2.5];
+  let best = null;
+  let bestScore = Infinity;
+  for (const forward of distances) {
+    for (const side of sides) {
+      const px = clamp(c.x + vx * forward + -vy * side, 44, game.map.width - 44);
+      const py = clamp(c.y + vy * forward + vx * side, 44, game.map.height - 44);
+      if (!actorCanStandAt(game, killer, px, py, helpers)) continue;
+      const targetScore = target ? distance(px, py, target.x, target.y) : 0;
+      const objectClear = distance(px, py, c.x, c.y);
+      const score = targetScore - objectClear * 0.28 + Math.abs(side) * 0.14;
+      if (score < bestScore) {
+        best = { x: px, y: py };
+        bestScore = score;
+      }
+    }
+  }
+  return best || { x: clamp(killer.x + vx * tile * 4, 44, game.map.width - 44), y: clamp(killer.y + vy * tile * 4, 44, game.map.height - 44) };
+}
+
 function recentlyUsedObstacle(brain, type, id, now) {
   const recent = brain.recentObstacle;
   if (!recent || !id) return false;
@@ -866,6 +930,15 @@ function tryUseKillerObstacle(game, killer, target, helpers, dt = 0) {
   if (!target || killer.vault || killer.breakTarget || killer.actionLock > 0 || killer.attackState || killer.hookActionTargetId) return false;
 
   if (brain.obstacleCommit?.postUntil && now <= brain.obstacleCommit.postUntil) {
+    const post = brain.obstacleCommit.postTarget;
+    if (post && Number.isFinite(post.x) && Number.isFinite(post.y)) {
+      killer.input.action = false;
+      killer.input.attack = false;
+      killer.input.attackHeld = false;
+      killer.input.attackReleased = false;
+      setMoveToward(killer, post.x, post.y, true);
+      return true;
+    }
     return false;
   }
 
@@ -906,7 +979,8 @@ function tryUseKillerObstacle(game, killer, target, helpers, dt = 0) {
       type: choice.type,
       id: choice.object.id || null,
       until: now + 0.2,
-      postUntil: now + VOID_POST_OBSTACLE_SECONDS
+      postUntil: now + VOID_POST_OBSTACLE_SECONDS,
+      postTarget: choosePostObstaclePoint(game, killer, choice.object, target, helpers)
     };
     brain.stuckFor = 0;
     clearPath(brain);
@@ -999,6 +1073,7 @@ function chaseRunner(game, killer, target, helpers, dt) {
 
 function runVoidHuntAi(game, actor, helpers = {}, dt = 0) {
   const brain = ensureVoidBrain(actor);
+  brain.aiNow = game.time || 0;
   if (game.escapeOpen || actor.dead || actor.escaped || (actor.voidStun || 0) > 0) return false;
 
   if (actor.hookActionTargetId || brain.hookCommitTargetId) {
@@ -1035,6 +1110,7 @@ function runVoidHuntAi(game, actor, helpers = {}, dt = 0) {
 
 function runVoidRiftAi(game, actor, helpers = {}, dt = 0) {
   const brain = ensureVoidBrain(actor);
+  brain.aiNow = game.time || 0;
   brain.holdingKick = false;
   actor.input.repair = false;
 

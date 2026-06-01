@@ -1076,6 +1076,190 @@ function HookEdgeIndicators() {
   )
 }
 
+
+function isTextEntryElement(element) {
+  if (!element) return false
+  const tag = String(element.tagName || "").toLowerCase()
+  return tag === "input" || tag === "textarea" || tag === "select" || element.isContentEditable
+}
+
+function getPossiblePhaserCamera() {
+  if (typeof window === "undefined") return null
+  const candidates = [
+    window.__RIFTRUNNER_GAME__,
+    window.__VOIDRIFT_GAME__,
+    window.__VOIDRIFT_CLIENT__?.game,
+    window.__RIFTRUNNER_CLIENT__?.game,
+    window.phaserGame,
+    window.game
+  ].filter(Boolean)
+
+  for (const candidate of candidates) {
+    const scenes = candidate.scene?.scenes || candidate.scenes || []
+    for (const scene of scenes) {
+      const camera = scene?.cameras?.main
+      if (camera && Number.isFinite(camera.scrollX) && Number.isFinite(camera.scrollY)) return camera
+    }
+    const camera = candidate.cameras?.main
+    if (camera && Number.isFinite(camera.scrollX) && Number.isFinite(camera.scrollY)) return camera
+  }
+
+  return null
+}
+
+function projectBotDebugPoint(actor, snapshot, detail) {
+  if (typeof window === "undefined") return { x: -9999, y: -9999, hidden: true }
+  const wrap = document.getElementById("gameWrap")
+  const canvas = wrap?.querySelector?.("canvas") || wrap
+  const rect = canvas?.getBoundingClientRect?.()
+  if (!rect || rect.width <= 0 || rect.height <= 0) return { x: -9999, y: -9999, hidden: true }
+
+  const cameraFromEvent = detail?.camera || snapshot?.camera || window.__RIFTRUNNER_DEBUG_CAMERA__ || window.__VOIDRIFT_DEBUG_CAMERA__
+  const camera = cameraFromEvent || getPossiblePhaserCamera()
+  if (camera) {
+    const zoom = Number(camera.zoom || camera.scale || 1) || 1
+    const cameraWidth = Number(camera.width || rect.width) || rect.width
+    const cameraHeight = Number(camera.height || rect.height) || rect.height
+    const scaleX = rect.width / cameraWidth
+    const scaleY = rect.height / cameraHeight
+    const worldView = camera.worldView || null
+    const scrollX = Number(worldView?.x ?? camera.scrollX ?? 0)
+    const scrollY = Number(worldView?.y ?? camera.scrollY ?? 0)
+    const x = rect.left + ((actor.x || 0) - scrollX) * zoom * scaleX
+    const y = rect.top + ((actor.y || 0) - scrollY) * zoom * scaleY
+    return {
+      x: Math.max(8, Math.min(window.innerWidth - 8, x)),
+      y: Math.max(8, Math.min(window.innerHeight - 8, y - 58)),
+      hidden: x < rect.left - 120 || x > rect.right + 120 || y < rect.top - 140 || y > rect.bottom + 120
+    }
+  }
+
+  const actors = Array.isArray(snapshot?.actors) ? snapshot.actors : []
+  const viewer = snapshot?.viewer || {}
+  const focusId = viewer.spectateTargetId && viewer.spectateTargetId !== "__overview__" ? viewer.spectateTargetId : (detail?.myId || snapshot?.viewerId)
+  const focusActor = actors.find((item) => item.id === focusId)
+    || actors.find((item) => item.id === snapshot?.viewerId)
+    || actors.find((item) => item.role === "killer")
+    || actors[0]
+
+  const map = snapshot?.map || {}
+  const overview = viewer.spectateTargetId === "__overview__"
+  const zoom = overview && map.width && map.height
+    ? Math.min(rect.width / map.width, rect.height / map.height)
+    : document.body.classList.contains("in-chase") ? 0.68 : 1
+  const centerX = overview && map.width ? map.width / 2 : (focusActor?.x || actor.x || 0)
+  const centerY = overview && map.height ? map.height / 2 : (focusActor?.y || actor.y || 0)
+  const x = rect.left + rect.width / 2 + ((actor.x || 0) - centerX) * zoom
+  const y = rect.top + rect.height / 2 + ((actor.y || 0) - centerY) * zoom
+
+  return {
+    x: Math.max(8, Math.min(window.innerWidth - 8, x)),
+    y: Math.max(8, Math.min(window.innerHeight - 8, y - 58)),
+    hidden: x < rect.left - 120 || x > rect.right + 120 || y < rect.top - 140 || y > rect.bottom + 120
+  }
+}
+
+function botDebugLines(actor) {
+  const debug = actor.aiDebug || {}
+  const target = debug.targetId || debug.nextTargetId || "none"
+  const actionBits = [
+    debug.move && `move:${debug.move}`,
+    debug.sprint ? "sprint" : "",
+    debug.action ? "action" : "",
+    debug.repair ? "repair" : "",
+    debug.attackHeld ? "M1-hold" : ""
+  ].filter(Boolean).join(" ")
+
+  const lines = [
+    `${actor.name || "Bot"} • ${debug.mode || "AI"}`,
+    `${debug.reason || debug.taskKind || "thinking"} → ${target}`,
+    `path:${debug.pathLength ?? 0} stuck:${debug.stuckFor ?? 0}s repath:${debug.repathIn ?? 0}s`,
+    actionBits || "input:none"
+  ]
+
+  if (debug.survivalKind) lines.splice(2, 0, `survival:${debug.survivalKind} lock:${debug.survivalLock ?? 0}s`)
+  if (debug.nextKind) lines.splice(2, 0, `next:${debug.nextKind}`)
+  if (debug.moveIntent) lines.push(`intent:${debug.moveIntent.x},${debug.moveIntent.y} ttl:${debug.moveIntent.ttl}s`)
+  if (debug.obstacleCommit) lines.push(`obstacle:${debug.obstacleCommit.type || "?"} ${debug.obstacleCommit.targetId || "?"}`)
+  return lines.slice(0, 6)
+}
+
+function BotDebugOverlay() {
+  const [enabled, setEnabled] = useState(() => {
+    if (typeof window === "undefined") return false
+    return window.localStorage?.getItem("riftrunnerBotDebug") === "1"
+  })
+  const [frame, setFrame] = useState({ snapshot: null, detail: null })
+
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (event.code !== "BracketLeft" && event.key !== "[") return
+      if (isTextEntryElement(event.target)) return
+      event.preventDefault()
+      setEnabled((current) => {
+        const next = !current
+        try {
+          window.localStorage?.setItem("riftrunnerBotDebug", next ? "1" : "0")
+        } catch {
+          // localStorage can be blocked. Humanity continues its gentle decline.
+        }
+        window.dispatchEvent(new CustomEvent("riftrunner:bot-debug-toggle", { detail: { enabled: next } }))
+        return next
+      })
+    }
+
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
+  }, [])
+
+  useEffect(() => {
+    const handleSnapshotEvent = (event) => {
+      const detail = event.detail || {}
+      const snapshot = detail.snapshot || detail
+      if (!snapshot?.actors) return
+      setFrame({ snapshot, detail })
+    }
+
+    window.addEventListener("voidrift:survivor-status-hud", handleSnapshotEvent)
+    window.addEventListener("riftrunner:snapshot", handleSnapshotEvent)
+    window.addEventListener("voidrift:snapshot", handleSnapshotEvent)
+    return () => {
+      window.removeEventListener("voidrift:survivor-status-hud", handleSnapshotEvent)
+      window.removeEventListener("riftrunner:snapshot", handleSnapshotEvent)
+      window.removeEventListener("voidrift:snapshot", handleSnapshotEvent)
+    }
+  }, [])
+
+  const snapshot = frame.snapshot
+  const actors = Array.isArray(snapshot?.actors) ? snapshot.actors : []
+  const bots = enabled
+    ? actors.filter((actor) => actor?.aiDebug && !actor.dead && !actor.escaped)
+    : []
+
+  return (
+    <div className={`bot-debug-overlay ${enabled ? "is-enabled" : ""}`} aria-hidden={!enabled}>
+      <div className="bot-debug-toggle-hint">
+        <kbd>[</kbd> bot debug {enabled ? "on" : "off"}
+      </div>
+      {bots.map((actor) => {
+        const point = projectBotDebugPoint(actor, snapshot, frame.detail)
+        if (point.hidden) return null
+        return (
+          <div
+            className={`bot-debug-label ${actor.role === "killer" ? "is-void" : "is-runner"} ${actor.aiDebug?.stuckFor >= 0.8 ? "is-stuck" : ""}`}
+            style={{ left: `${point.x}px`, top: `${point.y}px` }}
+            key={actor.id}
+          >
+            {botDebugLines(actor).map((line, index) => (
+              <span key={`${actor.id}-${index}`}>{line}</span>
+            ))}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 function EndScreen() {
   return (
     <div id="endScreen" className="screen io-screen">
@@ -1212,6 +1396,7 @@ export default function App() {
       <ChatWheel />
       <AbilityWheel />
       <HookEdgeIndicators />
+      <BotDebugOverlay />
       <PointFeed />
       <div id="toast" className="toast hidden" />
       <div id="screenFadeOverlay" className="screen-fade-overlay" aria-hidden="true" />
