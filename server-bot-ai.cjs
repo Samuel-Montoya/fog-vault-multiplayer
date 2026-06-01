@@ -1,5 +1,7 @@
 "use strict";
 
+const { buildPathWithPathfinding } = require("./server-pathing.cjs");
+
 const voidAi = require("./server-void-ai.cjs");
 
 const PERSONALITY_ID = "orb-runner";
@@ -30,6 +32,13 @@ const RUNNER_HOOK_RESCUE_DISTANCE = 108;
 const RUNNER_HOOK_TARGET_RADIUS = 1180;
 const RUNNER_HOOK_KILLER_CAMP_DISTANCE = 315;
 const RUNNER_UNHOOK_COMMIT_SECONDS = 3.2;
+const RUNNER_HEAL_DISTANCE = 82;
+const RUNNER_HEAL_TARGET_RADIUS = 860;
+const RUNNER_HEAL_KILLER_UNSAFE_DISTANCE = 430;
+const RUNNER_HEAL_COMMIT_SECONDS = 4.8;
+const RUNNER_HEALER_NEAR_DISTANCE = 150;
+const RUNNER_POST_INTERACT_SECONDS = 1.65;
+const RUNNER_INTERACT_REUSE_COOLDOWN_SECONDS = 3.2;
 
 function isFinitePoint(point) {
   return !!point && Number.isFinite(point.x) && Number.isFinite(point.y);
@@ -83,7 +92,8 @@ function ensureBotBrain(actor) {
     stuckSampleIn: 0,
     stuckX: actor.x,
     stuckY: actor.y,
-    nextStep: null
+    nextStep: null,
+    recentInteract: null
   };
 
   actor.bot.personalityId = PERSONALITY_ID;
@@ -170,6 +180,16 @@ function isTileBlocked(game, actor, tx, ty, helpers) {
 }
 
 function buildPath(game, actor, targetX, targetY, helpers) {
+  const packagePath = buildPathWithPathfinding(game, actor, targetX, targetY, helpers, {
+    isTileBlocked,
+    actorCanStandAt,
+    tileAt,
+    tileCenter,
+    findNearestStandableTile,
+    distance
+  });
+  if (packagePath.length) return packagePath;
+
   const start = tileAt(game, actor.x, actor.y);
   const goal = findNearestStandableTile(game, actor, targetX, targetY, helpers);
   if (!goal) return [];
@@ -336,7 +356,8 @@ function followPath(game, actor, target, helpers, options = {}) {
 
   if (!brain.path?.length) {
     // No path does not mean no movement. It usually means the current target sits near
-    // awkward collision, so steer toward the best nearby opening and let server collision slide.
+    // awkward collision, so first try the local interactable that is probably blocking us.
+    if (tryUseNearbyTraversalObject(game, actor, target, helpers, { ...options, force: true })) return false;
     fallbackMoveToward(game, actor, target, helpers, { ...options, now: game.time || 0 });
     return false;
   }
@@ -346,18 +367,24 @@ function followPath(game, actor, target, helpers, options = {}) {
     brain.path.shift();
   }
 
-  while (brain.path.length > 2) {
+  const allowWaypointSkip = (brain.stuckFor || 0) <= 0.01;
+  while (allowWaypointSkip && brain.path.length > 2) {
     const skip = brain.path[2];
-    if (!lineClear(game, actor, skip.x, skip.y, helpers)) break;
+    const skipDistance = helperDist(helpers, actor.x, actor.y, skip.x, skip.y);
+    if (skipDistance > (game.map.tile || 32) * 2.4 || !lineClear(game, actor, skip.x, skip.y, helpers)) break;
     brain.path.shift();
   }
 
   const next = brain.path[0];
+  if ((brain.stuckFor || 0) >= STUCK_SAMPLE_SECONDS && tryUseNearbyTraversalObject(game, actor, target, helpers, { ...options, force: true })) {
+    return false;
+  }
   setMoveToward(actor, next.x, next.y, !!options.sprint);
 
   if ((brain.stuckFor || 0) >= STUCK_CLEAR_SECONDS) {
     clearPath(brain);
     brain.stuckFor = STUCK_SAMPLE_SECONDS;
+    if (tryUseNearbyTraversalObject(game, actor, target, helpers, { ...options, force: true })) return false;
     fallbackMoveToward(game, actor, target, helpers, { ...options, now: game.time || 0 });
     return false;
   }
@@ -618,11 +645,87 @@ function ensureSurvivalBrain(actor) {
   brain.threatUntil = brain.threatUntil || 0;
   brain.safeAfter = brain.safeAfter || 0;
   brain.unhookTask = brain.unhookTask || null;
+  brain.healTask = brain.healTask || null;
   return brain;
 }
 
 function sameTargetTask(task, kind, id) {
   return !!task && task.kind === kind && task.id === (id || null);
+}
+
+function recentlyUsedSurvivalObject(actor, kind, id, now) {
+  const recent = ensureSurvivalBrain(actor).recentInteract;
+  if (!recent || !id) return false;
+  if (recent.id !== id) return false;
+  if (recent.kind !== kind && !(recent.kind === "palletDrop" && kind === "palletVault")) return false;
+  return now <= (recent.until || 0);
+}
+
+function rememberSurvivalInteract(actor, kind, id, now) {
+  if (!id) return;
+  const brain = ensureSurvivalBrain(actor);
+  brain.recentInteract = {
+    kind,
+    id,
+    until: now + RUNNER_INTERACT_REUSE_COOLDOWN_SECONDS
+  };
+}
+
+function tryUseNearbyTraversalObject(game, actor, target, helpers, options = {}) {
+  if (!game?.map || !target || actor.vault || actor.actionLock > 0) return false;
+  const brain = ensureSurvivalBrain(actor);
+  const now = game.time || 0;
+  const interactDistance = RUNNER_INTERACT_DISTANCE + (options.force ? 26 : 8);
+
+  if (now <= (brain.traversalPostUntil || 0)) return false;
+
+  let best = null;
+  let bestScore = Infinity;
+  const blockedToTarget = typeof helpers?.segmentClear === "function"
+    ? !helpers.segmentClear(game, actor.x, actor.y, target.x, target.y)
+    : false;
+
+  const consider = (object, kind) => {
+    if (!object?.id || recentlyUsedSurvivalObject(actor, kind, object.id, now)) return;
+    const c = centerOf(object);
+    const d = helperDist(helpers, actor.x, actor.y, c.x, c.y);
+    if (d > interactDistance) return;
+    const targetRectD = pointRectDistance(target.x, target.y, object);
+    const lineToObjectClear = typeof helpers?.segmentClear !== "function" || helpers.segmentClear(game, actor.x, actor.y, c.x, c.y);
+    if (!lineToObjectClear && !options.force) return;
+    const score = d + targetRectD * 0.12 + (blockedToTarget ? -180 : 60);
+    if (score < bestScore) {
+      best = { object, kind, center: c };
+      bestScore = score;
+    }
+  };
+
+  for (const win of game.map.windows || []) consider(win, "windowVault");
+  for (const pallet of game.map.pallets || []) {
+    if (!pallet || pallet.broken || pallet.state !== "dropped") continue;
+    consider(pallet, "palletVault");
+  }
+
+  if (!best) return false;
+
+  stopAndFace(actor, best.center);
+  actor.input.action = true;
+  actor.input.sprint = false;
+  rememberSurvivalInteract(actor, best.kind, best.object.id, now);
+  brain.traversalPostUntil = now + RUNNER_POST_INTERACT_SECONDS;
+  brain.stuckFor = 0;
+  clearPath(brain);
+  return true;
+}
+
+function postInteractSafePoint(game, actor, killer, task, helpers) {
+  if (Number.isFinite(task?.exitX) && Number.isFinite(task?.exitY)) {
+    return { x: task.exitX, y: task.exitY };
+  }
+  const point = chooseRawSafePoint(game, actor, killer, helpers);
+  task.exitX = point.x;
+  task.exitY = point.y;
+  return point;
 }
 
 function setSurvivalTask(game, actor, kind, target, extra = {}) {
@@ -652,6 +755,124 @@ function clearUnhookTask(actor) {
   const brain = ensureSurvivalBrain(actor);
   brain.unhookTask = null;
   clearPath(brain);
+}
+
+function clearHealTask(actor) {
+  const brain = ensureSurvivalBrain(actor);
+  brain.healTask = null;
+  clearPath(brain);
+}
+
+function isRunnerWounded(actor) {
+  return !!(
+    actor
+    && actor.role === "survivor"
+    && !actor.dead
+    && !actor.escaped
+    && !actor.hooked
+    && ((actor.downed && actor.health <= 0) || (actor.health === 1 && actor.injured))
+  );
+}
+
+function isSafeForHeal(game, actor, helpers, target = actor) {
+  const killer = getLivingKiller(game);
+  if (!killer) return true;
+  const actorThreat = survivorThreatInfo(game, actor, helpers);
+  if (actorThreat?.panic || actorThreat?.chase) return false;
+  const actorD = helperDist(helpers, actor.x, actor.y, killer.x, killer.y);
+  const targetD = helperDist(helpers, target.x, target.y, killer.x, killer.y);
+  const unsafeDistance = Number(helpers?.healKillerUnsafeDistance || RUNNER_HEAL_KILLER_UNSAFE_DISTANCE);
+  return actorD >= unsafeDistance && targetD >= unsafeDistance;
+}
+
+function chooseHealTarget(game, actor, helpers) {
+  if (!isSafeForHeal(game, actor, helpers)) return null;
+  let best = null;
+  let bestScore = -Infinity;
+  for (const target of game?.actors?.values?.() || []) {
+    if (!target || target.id === actor.id || !isRunnerWounded(target)) continue;
+    if (!isSafeForHeal(game, actor, helpers, target)) continue;
+    const d = helperDist(helpers, actor.x, actor.y, target.x, target.y);
+    if (d > RUNNER_HEAL_TARGET_RADIUS) continue;
+    const progressBonus = (target.healProgress || 0) * 1100;
+    const downedBonus = target.downed ? 520 : 0;
+    const injuredBonus = target.injured ? 180 : 0;
+    const score = 1500 + progressBonus + downedBonus + injuredBonus - d * 0.72;
+    if (score > bestScore) {
+      best = target;
+      bestScore = score;
+    }
+  }
+  return best;
+}
+
+function nearbyHealerForMe(game, actor, helpers) {
+  if (!isRunnerWounded(actor) || actor.downed || !isSafeForHeal(game, actor, helpers)) return null;
+  for (const other of game?.actors?.values?.() || []) {
+    if (!other || other.id === actor.id || other.role !== "survivor" || other.dead || other.escaped || other.hooked || other.downed) continue;
+    if (!isSafeForHeal(game, other, helpers, actor)) continue;
+    const d = helperDist(helpers, actor.x, actor.y, other.x, other.y);
+    if (d <= RUNNER_HEALER_NEAR_DISTANCE && (typeof helpers?.segmentClear !== "function" || helpers.segmentClear(game, actor.x, actor.y, other.x, other.y))) {
+      return other;
+    }
+  }
+  return null;
+}
+
+function runSurvivorWaitForHeal(game, actor, helpers) {
+  const healer = nearbyHealerForMe(game, actor, helpers);
+  if (!healer) return false;
+  actor.bot.simpleAi.nextStep = { kind: "receive-heal", targetId: healer.id };
+  stopAndFace(actor, healer);
+  actor.input.action = false;
+  actor.input.repair = false;
+  actor.input.sprint = false;
+  clearPath(ensureBotBrain(actor));
+  return true;
+}
+
+function runSurvivorHeal(game, actor, helpers, dt) {
+  const brain = ensureSurvivalBrain(actor);
+  const now = game.time || 0;
+  if (actor.downed || actor.hooked || !isSafeForHeal(game, actor, helpers)) {
+    clearHealTask(actor);
+    return false;
+  }
+
+  let target = brain.healTask?.id ? [...(game?.actors?.values?.() || [])].find((p) => p?.id === brain.healTask.id) : null;
+  if (!target || !isRunnerWounded(target) || !isSafeForHeal(game, actor, helpers, target) || now > (brain.healTask?.commitUntil || 0)) {
+    target = chooseHealTarget(game, actor, helpers);
+    if (target) {
+      brain.healTask = { id: target.id, x: target.x, y: target.y, commitUntil: now + RUNNER_HEAL_COMMIT_SECONDS };
+      clearPath(brain);
+    } else {
+      clearHealTask(actor);
+      return false;
+    }
+  }
+
+  const healDistance = Number(helpers?.healDistance || RUNNER_HEAL_DISTANCE);
+  const d = helperDist(helpers, actor.x, actor.y, target.x, target.y);
+  actor.bot.simpleAi.nextStep = { kind: "heal-teammate", targetId: target.id };
+
+  if (d <= healDistance && lineClear(game, actor, target.x, target.y, helpers)) {
+    stopAndFace(actor, target);
+    actor.input.action = false;
+    actor.input.repair = false;
+    actor.input.sprint = false;
+    brain.healTask.commitUntil = Math.max(brain.healTask.commitUntil || 0, now + 0.55);
+    brain.stuckFor = 0;
+    return true;
+  }
+
+  followPath(game, actor, target, helpers, {
+    sprint: true,
+    stopDistance: Math.max(22, healDistance * 0.65),
+    dt
+  });
+  actor.input.action = false;
+  actor.input.repair = false;
+  return true;
 }
 
 function chooseHookedRescueTarget(game, actor, helpers) {
@@ -812,8 +1033,10 @@ function chooseSafeObject(game, actor, killer, helpers) {
   let best = null;
   let bestScore = -Infinity;
   const actorSize = 32;
+  const now = game.time || 0;
 
   for (const win of game.map?.windows || []) {
+    if (recentlyUsedSurvivalObject(actor, "windowVault", win?.id, now)) continue;
     const c = centerOf(win);
     const approachD = helperDist(helpers, actor.x, actor.y, c.x, c.y);
     if (approachD > RUNNER_SAFE_OBJECT_RADIUS) continue;
@@ -828,6 +1051,7 @@ function chooseSafeObject(game, actor, killer, helpers) {
 
   for (const pallet of game.map?.pallets || []) {
     if (!pallet || pallet.broken) continue;
+    if (recentlyUsedSurvivalObject(actor, pallet.state === "upright" ? "palletDrop" : "palletVault", pallet.id, now)) continue;
     const c = centerOf(pallet);
     const approachD = helperDist(helpers, actor.x, actor.y, c.x, c.y);
     if (approachD > RUNNER_SAFE_OBJECT_RADIUS) continue;
@@ -951,13 +1175,28 @@ function runSurvivorSurvival(game, actor, helpers, dt) {
   const d = helperDist(helpers, actor.x, actor.y, target.x, target.y);
   const isInteractTask = task.kind === "windowVault" || task.kind === "palletDrop" || task.kind === "palletVault";
 
+  if (isInteractTask && now <= (task.afterInteractUntil || 0)) {
+    const postPoint = postInteractSafePoint(game, actor, threat.killer, task, helpers);
+    actor.input.action = false;
+    followPath(game, actor, postPoint, helpers, {
+      sprint: true,
+      stopDistance: 42,
+      dt
+    });
+    return true;
+  }
+
   if (isInteractTask && d <= RUNNER_INTERACT_DISTANCE + 8) {
     stopAndFace(actor, threat.killer);
     actor.input.action = true;
     actor.input.sprint = false;
-    // Keep the task alive for a moment after pressing action so the vault/drop starts and
-    // the bot does not instantly replan at the terror-radius edge like a broken sprinkler.
-    task.lockUntil = Math.max(task.lockUntil || 0, now + 0.85);
+    const postPoint = postInteractSafePoint(game, actor, threat.killer, task, helpers);
+    task.exitX = postPoint.x;
+    task.exitY = postPoint.y;
+    task.afterInteractUntil = Math.max(task.afterInteractUntil || 0, now + RUNNER_POST_INTERACT_SECONDS);
+    task.lockUntil = Math.max(task.lockUntil || 0, now + RUNNER_POST_INTERACT_SECONDS);
+    rememberSurvivalInteract(actor, task.kind, task.id, now);
+    clearPath(brain);
     return true;
   }
 
@@ -1037,6 +1276,7 @@ function updateBotInputs(game, dt, helpers = {}) {
       clearTask(actor);
       clearSurvivalTask(actor);
       clearUnhookTask(actor);
+      clearHealTask(actor);
       continue;
     }
 
@@ -1052,6 +1292,8 @@ function updateBotInputs(game, dt, helpers = {}) {
 
     if (runSurvivorSurvival(game, actor, helpers, dt)) continue;
     if (runSurvivorUnhook(game, actor, helpers, dt)) continue;
+    if (runSurvivorWaitForHeal(game, actor, helpers)) continue;
+    if (runSurvivorHeal(game, actor, helpers, dt)) continue;
 
     runSurvivorOrbRunner(game, actor, helpers, dt);
   }

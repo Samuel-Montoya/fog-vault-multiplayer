@@ -1,5 +1,7 @@
 "use strict";
 
+const { buildPathWithPathfinding } = require("./server-pathing.cjs");
+
 const PERSONALITY_ID = "rift-warden";
 const PERSONALITY_LABEL = "Rift Warden";
 const PATH_REPLAN_SECONDS = 0.34;
@@ -26,6 +28,9 @@ const VOID_OBSTACLE_SEEK_DISTANCE = 230;
 const VOID_OBSTACLE_PATH_WIDTH = 118;
 const VOID_CHASE_REPATH_SECONDS = 0.22;
 const VOID_HOOK_COMMIT_SECONDS = 3.1;
+const VOID_POST_OBSTACLE_SECONDS = 1.45;
+const VOID_OBSTACLE_REUSE_COOLDOWN_SECONDS = 3.4;
+const VOID_OBSTACLE_STUCK_BONUS_SECONDS = 0.7;
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -86,7 +91,9 @@ function ensureVoidBrain(actor) {
     lungeCommitUntil: 0,
     hookCommitTargetId: null,
     hookCommitUntil: 0,
-    obstacleCommit: null
+    obstacleCommit: null,
+    recentObstacle: null,
+    escapeSteer: null
   };
 
   actor.bot.personalityId = PERSONALITY_ID;
@@ -128,6 +135,15 @@ function tileKey(tx, ty) {
   return `${tx},${ty}`;
 }
 
+function tileCenterInsideRect(game, tx, ty, rect, pad = 0) {
+  if (!rect) return false;
+  const c = tileCenter(game, tx, ty);
+  return c.x >= rect.x - pad
+    && c.x <= rect.x + rect.w + pad
+    && c.y >= rect.y - pad
+    && c.y <= rect.y + rect.h + pad;
+}
+
 function isKnownHardBlockedTile(game, tx, ty) {
   if (tx < 0 || ty < 0 || tx >= game.map.cols || ty >= game.map.rows) return true;
 
@@ -135,9 +151,13 @@ function isKnownHardBlockedTile(game, tx, ty) {
   const ch = typeof row === "string" ? row[tx] : null;
   if (ch === "X" || ch === "+") return true;
 
+  for (const win of game.map.windows || []) {
+    if (tileCenterInsideRect(game, tx, ty, win, 2)) return true;
+  }
+
   for (const pallet of game.map.pallets || []) {
     if (pallet.broken || pallet.state !== "dropped") continue;
-    if (pallet.tileX === tx && pallet.tileY === ty) return true;
+    if ((Number.isFinite(pallet.tileX) && pallet.tileX === tx && pallet.tileY === ty) || tileCenterInsideRect(game, tx, ty, pallet, 2)) return true;
   }
 
   return false;
@@ -182,6 +202,16 @@ function findNearestStandableTile(game, actor, targetX, targetY, helpers) {
 }
 
 function buildPath(game, actor, targetX, targetY, helpers) {
+  const packagePath = buildPathWithPathfinding(game, actor, targetX, targetY, helpers, {
+    isTileBlocked,
+    actorCanStandAt,
+    tileAt,
+    tileCenter,
+    findNearestStandableTile,
+    distance
+  });
+  if (packagePath.length) return packagePath;
+
   const start = tileAt(game, actor.x, actor.y);
   const goal = findNearestStandableTile(game, actor, targetX, targetY, helpers);
   if (!goal) return [];
@@ -267,10 +297,28 @@ function clearPath(brain) {
 }
 
 function fallbackMoveToward(game, actor, target, helpers, options = {}) {
+  const brain = ensureVoidBrain(actor);
   const tile = game.map.tile || 32;
+  const now = options.now ?? (game.time || 0);
   const baseAngle = Math.atan2(target.y - actor.y, target.x - actor.x);
-  const probeDistance = Math.max(tile * 0.85, 34);
-  const angles = [0, Math.PI / 5, -Math.PI / 5, Math.PI / 2, -Math.PI / 2, Math.PI];
+  const probeDistance = Math.max(tile * 1.05, 42);
+
+  if (!brain.escapeSteer || now > (brain.escapeSteer.until || 0)) {
+    brain.escapeSteer = {
+      until: now + 0.95,
+      side: Math.random() < 0.5 ? -1 : 1
+    };
+  }
+
+  const side = brain.escapeSteer.side || 1;
+  const angles = [
+    0,
+    side * Math.PI / 5,
+    -side * Math.PI / 5,
+    side * Math.PI / 2,
+    -side * Math.PI / 2,
+    Math.PI
+  ];
 
   let best = null;
   let bestScore = Infinity;
@@ -279,15 +327,14 @@ function fallbackMoveToward(game, actor, target, helpers, options = {}) {
     const px = actor.x + Math.cos(angle) * probeDistance;
     const py = actor.y + Math.sin(angle) * probeDistance;
     if (!actorCanStandAt(game, actor, px, py, helpers)) continue;
-    const score = helperDist(helpers, px, py, target.x, target.y) + Math.abs(offset) * 42;
+    const clearBonus = lineClear(game, actor, px, py, helpers) ? -70 : 0;
+    const score = helperDist(helpers, px, py, target.x, target.y) + Math.abs(offset) * 42 + clearBonus;
     if (score < bestScore) {
       best = { x: px, y: py };
       bestScore = score;
     }
   }
 
-  // Last resort: push toward the actual objective and let server collision slide the Void.
-  // Standing still is worse than rubbing against a wall for one think cycle. Ancient wisdom.
   const moveTarget = best || target;
   setMoveToward(actor, moveTarget.x, moveTarget.y, !!options.sprint);
 }
@@ -329,7 +376,7 @@ function followPath(game, actor, target, helpers, options = {}) {
   }
 
   if (!brain.path?.length) {
-    fallbackMoveToward(game, actor, target, helpers, options);
+    fallbackMoveToward(game, actor, target, helpers, { ...options, now: game.time || 0 });
     return false;
   }
 
@@ -337,9 +384,11 @@ function followPath(game, actor, target, helpers, options = {}) {
     brain.path.shift();
   }
 
-  while (brain.path.length > 2) {
+  const allowWaypointSkip = (brain.stuckFor || 0) <= 0.01;
+  while (allowWaypointSkip && brain.path.length > 2) {
     const skip = brain.path[2];
-    if (!lineClear(game, actor, skip.x, skip.y, helpers)) break;
+    const skipDistance = helperDist(helpers, actor.x, actor.y, skip.x, skip.y);
+    if (skipDistance > (game.map.tile || 32) * 2.2 || !lineClear(game, actor, skip.x, skip.y, helpers)) break;
     brain.path.shift();
   }
 
@@ -348,7 +397,8 @@ function followPath(game, actor, target, helpers, options = {}) {
 
   if ((brain.stuckFor || 0) >= STUCK_CLEAR_SECONDS) {
     clearPath(brain);
-    brain.stuckFor = 0;
+    brain.stuckFor = STUCK_SAMPLE_SECONDS;
+    fallbackMoveToward(game, actor, target, helpers, { ...options, now: game.time || 0 });
     return false;
   }
 
@@ -508,6 +558,7 @@ function kickRift(game, actor, rift, helpers, dt) {
 
   actor.input.repair = false;
   brain.holdingKick = false;
+  if (tryUseKillerObstacle(game, actor, rift, helpers, dt)) return;
   followPath(game, actor, rift, helpers, {
     sprint: true,
     stopDistance: Math.max(18, kickDistance * 0.68),
@@ -526,6 +577,8 @@ function checkRift(game, actor, rift, helpers, dt) {
     setTask(game, actor, helpers, "kick", rift);
     return;
   }
+
+  if (tryUseKillerObstacle(game, actor, rift, helpers, dt)) return;
 
   const reached = followPath(game, actor, rift, helpers, {
     sprint: true,
@@ -754,12 +807,38 @@ function obstacleScore(game, killer, target, object, type, helpers) {
     - d * 2.2;
 }
 
+function recentlyUsedObstacle(brain, type, id, now) {
+  const recent = brain.recentObstacle;
+  if (!recent || !id) return false;
+  return recent.type === type && recent.id === id && now <= (recent.until || 0);
+}
+
+function rememberObstacleUse(brain, type, id, now) {
+  if (!id) return;
+  brain.recentObstacle = {
+    type,
+    id,
+    until: now + VOID_OBSTACLE_REUSE_COOLDOWN_SECONDS
+  };
+}
+
+function obstacleStillValid(game, commit) {
+  if (!commit) return false;
+  const collection = commit.type === "window" ? game.map?.windows : game.map?.pallets;
+  const object = (collection || []).find((o) => o?.id === commit.id) || null;
+  if (!object) return null;
+  if (commit.type === "pallet" && (object.broken || object.state !== "dropped")) return null;
+  return object;
+}
+
 function chooseKillerObstacle(game, killer, target, helpers) {
   let best = null;
   let bestScore = -Infinity;
+  const brain = ensureVoidBrain(killer);
+  const now = game.time || 0;
 
   for (const win of game.map?.windows || []) {
-    if (!win) continue;
+    if (!win || recentlyUsedObstacle(brain, "window", win.id, now)) continue;
     const score = obstacleScore(game, killer, target, win, "window", helpers);
     if (score > bestScore) {
       best = { type: "window", object: win, score };
@@ -768,7 +847,7 @@ function chooseKillerObstacle(game, killer, target, helpers) {
   }
 
   for (const pallet of game.map?.pallets || []) {
-    if (!pallet || pallet.broken || pallet.state !== "dropped") continue;
+    if (!pallet || pallet.broken || pallet.state !== "dropped" || recentlyUsedObstacle(brain, "pallet", pallet.id, now)) continue;
     const score = obstacleScore(game, killer, target, pallet, "pallet", helpers);
     if (score > bestScore) {
       best = { type: "pallet", object: pallet, score };
@@ -784,13 +863,16 @@ function tryUseKillerObstacle(game, killer, target, helpers, dt = 0) {
   const now = game.time || 0;
   const interactDistance = Number(helpers?.interactDistance || VOID_OBSTACLE_ACTION_DISTANCE);
 
+  if (!target || killer.vault || killer.breakTarget || killer.actionLock > 0 || killer.attackState || killer.hookActionTargetId) return false;
+
+  if (brain.obstacleCommit?.postUntil && now <= brain.obstacleCommit.postUntil) {
+    return false;
+  }
+
   let choice = null;
-  if (brain.obstacleCommit && now <= (brain.obstacleCommit.until || 0)) {
-    const collection = brain.obstacleCommit.type === "window" ? game.map?.windows : game.map?.pallets;
-    const object = (collection || []).find((o) => o?.id === brain.obstacleCommit.id) || null;
-    if (object && !(brain.obstacleCommit.type === "pallet" && (object.broken || object.state !== "dropped"))) {
-      choice = { type: brain.obstacleCommit.type, object };
-    }
+  const committedObject = obstacleStillValid(game, brain.obstacleCommit);
+  if (committedObject && now <= (brain.obstacleCommit.until || 0) && !recentlyUsedObstacle(brain, brain.obstacleCommit.type, brain.obstacleCommit.id, now)) {
+    choice = { type: brain.obstacleCommit.type, object: committedObject };
   }
 
   if (!choice) {
@@ -799,7 +881,8 @@ function tryUseKillerObstacle(game, killer, target, helpers, dt = 0) {
       brain.obstacleCommit = {
         type: choice.type,
         id: choice.object.id || null,
-        until: now + 1.25
+        until: now + 1.15,
+        postUntil: 0
       };
       clearPath(brain);
     }
@@ -811,13 +894,21 @@ function tryUseKillerObstacle(game, killer, target, helpers, dt = 0) {
   const d = helperDist(helpers, killer.x, killer.y, c.x, c.y);
   brain.nextStep = { kind: choice.type === "window" ? "vault-window" : "break-pallet", targetId: choice.object.id || null };
 
-  if (d <= interactDistance * 0.92) {
+  if (d <= interactDistance * 0.94) {
     freezeActorInput(killer, c);
     killer.input.action = true;
     killer.input.sprint = false;
     killer.input.attackHeld = false;
     killer.input.attackReleased = false;
     killer.input.attack = false;
+    rememberObstacleUse(brain, choice.type, choice.object.id, now);
+    brain.obstacleCommit = {
+      type: choice.type,
+      id: choice.object.id || null,
+      until: now + 0.2,
+      postUntil: now + VOID_POST_OBSTACLE_SECONDS
+    };
+    brain.stuckFor = 0;
     clearPath(brain);
     return true;
   }
@@ -858,6 +949,7 @@ function hookDownedRunner(game, killer, target, helpers, dt) {
   }
 
   killer.input.repair = false;
+  if (tryUseKillerObstacle(game, killer, target, helpers, dt)) return true;
   followPath(game, killer, target, helpers, {
     sprint: true,
     stopDistance: Math.max(20, hookDistance * 0.62),
