@@ -16,6 +16,7 @@ const { createAuthRoutes } = require("../auth/routes.cjs");
 async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") } = {}) {
   const ROOT_DIR = rootDir;
   const botAi = require(path.join(ROOT_DIR, "ai/server-bot-ai.cjs"));
+  const { analyzeMap, formatAnalysisSummary } = require(path.join(ROOT_DIR, "ai/nav/map-analysis.cjs"));
   const GAME_MAPS = loadPublicScriptGlobal(ROOT_DIR, "public/maps.js", "GAME_MAPS");
   const GAMEPLAY_CONFIG = loadPublicScriptGlobal(ROOT_DIR, "public/gameplayConfig.js", "GAMEPLAY_CONFIG");
   const RIFTRUNNER_CHATS = loadPublicScriptGlobal(ROOT_DIR, "public/chats.js", "RIFTRUNNER_CHATS");
@@ -1015,6 +1016,19 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     return map;
   }
 
+  function buildMapAnalysis(mapId, mapDef) {
+    try {
+      const analysis = analyzeMap(mapId, mapDef, { freeze: false });
+      if (process.env.MAP_ANALYSIS_DEBUG === "1") {
+        console.log(`[nav] Semantic map analysis ready for ${mapId}:\n${formatAnalysisSummary(analysis)}`);
+      }
+      return analysis;
+    } catch (error) {
+      console.warn(`[nav] Failed to analyze map ${mapId || "<unknown>"}:`, error?.message || error);
+      return null;
+    }
+  }
+
   function getMapRegistry() {
     return GAME_MAPS && typeof GAME_MAPS === "object" ? GAME_MAPS : {};
   }
@@ -1391,6 +1405,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       return {
         riftsKicked: 0,
         orbsCollected: 0,
+        orbsStolen: 0,
         injures: 0,
         hooks: 0,
         deaths: 0,
@@ -1443,6 +1458,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       return {
         riftsKicked: Math.floor(stats.riftsKicked || 0),
         orbsCollected: Math.floor(stats.orbsCollected || 0),
+        orbsStolen: Math.floor(stats.orbsStolen || 0),
         injures: Math.floor(stats.injures || 0),
         hooks: Math.floor(stats.hooks || 0),
         deaths: Math.floor(stats.deaths || 0),
@@ -1891,9 +1907,12 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     lobby.mapId = selection.id;
     lobby.mapName = selection.def.name || selection.id;
     const map = parseMap(selection.def);
+    map.id = selection.id;
+    const mapAnalysis = buildMapAnalysis(selection.id, selection.def);
     chooseActiveExitGates(map, 2);
     const game = {
       map,
+      mapAnalysis,
       matchId: uid("match"),
       phase: "game",
       startedAt: nowMs(),
@@ -2530,13 +2549,19 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     if (killer && dotsBeforeHit > 0) {
       const before = Math.max(0, killer.dots || 0);
       killer.dots = clamp(before + dotsBeforeHit, 0, KILLER_DOT_MAX);
-      awardStat(killer, "orbsCollected", "Orbs collected", killer.dots - before, "orb");
+      const gainedForAbilities = Math.max(0, killer.dots - before);
+      const stolenForBank = Math.max(0, Math.floor(dotsBeforeHit));
+      if (gainedForAbilities > 0) awardStat(killer, "orbsCollected", "Orbs collected", gainedForAbilities, "orb");
+      // This is the permanent Void reward bucket. Loose map pickups stay as in-match ability fuel only.
+      // Stolen hit-orbs are credited at match end, even if The Void was already at the ability-orb cap.
+      if (stolenForBank > 0) awardStat(killer, "orbsStolen", "Orbs stolen", stolenForBank, "void");
       addEvent(game, "voidOrbSteal", {
         x: survivor.x,
         y: survivor.y,
         survivorId: survivor.id,
         killerId: killer.id,
-        stolen: killer.dots - before,
+        stolen: stolenForBank,
+        gained: gainedForAbilities,
         carriedBefore: dotsBeforeHit,
         voidDots: killer.dots
       });
@@ -3873,15 +3898,37 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     return null;
   }
 
+  function accountRewardForActor(actor) {
+    const stats = ensureMatchStats(actor);
+    if (actor.role === "survivor") {
+      return {
+        amount: Math.max(0, Math.floor(Number(stats.orbsDeposited || 0))),
+        source: "deposited",
+        toastLabel: "deposited orbs"
+      };
+    }
+    if (actor.role === "killer") {
+      return {
+        amount: Math.max(0, Math.floor(Number(stats.orbsStolen || 0))),
+        source: "voidStolen",
+        toastLabel: "stolen Void orbs"
+      };
+    }
+    return { amount: 0, source: "none", toastLabel: "orbs" };
+  }
+
   function awardAccountRewardForActor(lobby, game, actor, reason = "match") {
     if (!accountService.authAvailable()) return;
-    if (!lobby || !game || !actor || actor.role !== "survivor" || actor.isBot || !actor.accountId) return;
+    if (!lobby || !game || !actor || actor.isBot || !actor.accountId) return;
+    if (actor.role !== "survivor" && actor.role !== "killer") return;
+    if (actor.accountRewardAwarded || actor.accountRewardPending) return;
 
-    const stats = ensureMatchStats(actor);
-    const orbsDeposited = Math.max(0, Math.floor(Number(stats.orbsDeposited || 0)));
+    const reward = accountRewardForActor(actor);
+    const orbsDeposited = reward.amount;
     if (orbsDeposited <= 0) return;
 
     const matchId = game.matchId || `${lobby.id}:${game.startedAt || nowMs()}`;
+    actor.accountRewardPending = true;
     accountService.awardMatchOrbs({
       accountId: actor.accountId,
       lobbyId: lobby.id,
@@ -3890,9 +3937,11 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       playerName: actor.name,
       orbsDeposited
     }).then((account) => {
+      actor.accountRewardPending = false;
       if (!account) return;
       actor.accountRewardAwarded = true;
       actor.accountRewardAwardReason = reason;
+      actor.accountRewardSource = reward.source;
       const socket = io.sockets.sockets.get(actor.id);
       if (socket) {
         socket.data.account = account;
@@ -3900,10 +3949,17 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
           ok: true,
           account,
           skins: accountService.publicCatalog(),
-          reward: { orbsDeposited, reason }
+          reward: {
+            orbsDeposited,
+            reason,
+            role: actor.role,
+            source: reward.source,
+            label: reward.toastLabel
+          }
         });
       }
     }).catch((error) => {
+      actor.accountRewardPending = false;
       console.error(`Failed to award ${reason} orbs`, error.message || error);
     });
   }
@@ -4055,7 +4111,8 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     lungeAttackRange: LUNGE_ATTACK_RANGE,
     hookInteractDistance: HOOK_INTERACT_DISTANCE,
     hookRescueDistance: HOOK_RESCUE_DISTANCE,
-    healDistance: HEAL_DISTANCE
+    healDistance: HEAL_DISTANCE,
+    getMapAnalysis: (game) => game?.mapAnalysis || null
   });
 
   function updateGame(lobby, dt) {

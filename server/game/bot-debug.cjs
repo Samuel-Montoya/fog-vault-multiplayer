@@ -23,6 +23,102 @@ function createBotDebugTools({ nowMs, clamp, survivorDotMax, killerDotMax }) {
     ].join("") || "none";
   }
 
+  function tileKey(x, y) {
+    return `${x},${y}`;
+  }
+
+  function worldToAnalysisTile(analysis, x, y) {
+    const tile = Number(analysis?.tile || analysis?.grid?.tile || 0);
+    const width = Number(analysis?.dimensions?.widthTiles || analysis?.grid?.width || 0);
+    const height = Number(analysis?.dimensions?.heightTiles || analysis?.grid?.height || 0);
+    if (!tile || !width || !height) return null;
+    return {
+      x: Math.max(0, Math.min(width - 1, Math.floor(Number(x || 0) / tile))),
+      y: Math.max(0, Math.min(height - 1, Math.floor(Number(y || 0) / tile)))
+    };
+  }
+
+  function nearestAnalysisResource(analysis, actor) {
+    const groups = analysis?.resources || {};
+    const resources = [
+      ...(groups.windows || []),
+      ...(groups.pallets || []),
+      ...(groups.exits || []),
+      ...(groups.rifts || [])
+    ];
+    let best = null;
+    let bestD = Infinity;
+    for (const resource of resources) {
+      const dx = Number(resource.x || 0) - Number(actor?.x || 0);
+      const dy = Number(resource.y || 0) - Number(actor?.y || 0);
+      const d = Math.hypot(dx, dy);
+      if (d < bestD) {
+        bestD = d;
+        best = resource;
+      }
+    }
+    if (!best) return null;
+    return {
+      id: best.id || null,
+      type: best.type || null,
+      distance: Math.round(bestD)
+    };
+  }
+
+  function routeHintForResource(analysis, resourceId) {
+    if (!resourceId) return null;
+    const hint = (analysis?.chase?.routeHints || []).find((entry) => entry?.id === resourceId);
+    const next = Array.isArray(hint?.bestNext) ? hint.bestNext[0] : null;
+    if (!hint) return null;
+    return {
+      id: hint.id,
+      type: hint.type,
+      loopScore: Number(hint.loopScore || 0),
+      deadEndRisk: Number(hint.deadEndRisk || 0),
+      bestNext: next ? {
+        to: next.to || null,
+        lengthTiles: Number(next.lengthTiles || 0),
+        routeScore: Number(next.routeScore || 0)
+      } : null
+    };
+  }
+
+  function serializeMapAwareness(game, actor) {
+    const analysis = game?.mapAnalysis;
+    if (!analysis || !actor) return null;
+    const tile = worldToAnalysisTile(analysis, actor.x, actor.y);
+    if (!tile) return null;
+    const meta = analysis.grid?.tileMeta?.get?.(tileKey(tile.x, tile.y)) || null;
+    const nearest = nearestAnalysisResource(analysis, actor);
+    const routeHint = routeHintForResource(analysis, nearest?.id);
+    const clearance = Number(meta?.clearance || 0);
+    const deadEndRisk = Number(meta?.deadEndRisk || 0);
+    const cornerRisk = Number(meta?.cornerRisk || 0);
+    const edgeDanger = Number(meta?.edgeDanger || 0);
+    return {
+      mapId: analysis.id || null,
+      tileX: tile.x,
+      tileY: tile.y,
+      clearance,
+      degree: Number(meta?.degree || 0),
+      deadEndRisk,
+      cornerRisk,
+      edgeDanger,
+      risk: Math.max(deadEndRisk, cornerRisk, edgeDanger * 10),
+      nearestResource: nearest,
+      routeHint
+    };
+  }
+
+  function formatMapAwarenessLine(nav) {
+    if (!nav) return "";
+    const nearest = nav.nearestResource
+      ? `${nav.nearestResource.type || "res"}:${nav.nearestResource.id || "?"}`
+      : "none";
+    const next = nav.routeHint?.bestNext?.to ? ` -> ${nav.routeHint.bestNext.to}` : "";
+    return `nav c${nav.clearance} r${Math.round(nav.risk || 0)} ${nearest}${next}`;
+  }
+
   function freezeBotAiDebug(game, actor) {
     const bot = actor?.bot;
     const lastLive = cloneBotAiDebug(bot?.lastLiveAiDebug);
@@ -167,6 +263,16 @@ function createBotDebugTools({ nowMs, clamp, survivorDotMax, killerDotMax }) {
       dots: actor.role === "survivor" ? clamp(actor.dots || 0, 0, SURVIVOR_DOT_MAX) : clamp(actor.dots || 0, 0, KILLER_DOT_MAX)
     };
 
+    const mapAwareness = serializeMapAwareness(game, actor);
+    if (mapAwareness) {
+      debug.mapAwareness = mapAwareness;
+      debug.navSummary = formatMapAwarenessLine(mapAwareness);
+      if (actor.role === "survivor") {
+        const baseReason = debug.reason || debug.taskKind || "thinking";
+        debug.reason = `${baseReason} • ${debug.navSummary}`.slice(0, 128);
+      }
+    }
+
     if (runnerBrain?.survivalTask) {
       debug.survivalKind = runnerBrain.survivalTask.kind || null;
       debug.survivalLock = Number(Math.max(0, (runnerBrain.survivalTask.lockUntil || 0) - (game.time || 0)).toFixed(2));
@@ -235,6 +341,23 @@ function createBotDebugTools({ nowMs, clamp, survivorDotMax, killerDotMax }) {
       survivalLock: Number(cleanNumber(debug.survivalLock).toFixed(2)),
       moveIntent,
       obstacleCommit,
+      navSummary: debug.navSummary ? cleanText(debug.navSummary, "") : null,
+      mapAwareness: debug.mapAwareness && typeof debug.mapAwareness === "object" ? {
+        mapId: debug.mapAwareness.mapId ? cleanText(debug.mapAwareness.mapId) : null,
+        tileX: Math.round(cleanNumber(debug.mapAwareness.tileX)),
+        tileY: Math.round(cleanNumber(debug.mapAwareness.tileY)),
+        clearance: Math.round(cleanNumber(debug.mapAwareness.clearance)),
+        degree: Math.round(cleanNumber(debug.mapAwareness.degree)),
+        deadEndRisk: Math.round(cleanNumber(debug.mapAwareness.deadEndRisk)),
+        cornerRisk: Math.round(cleanNumber(debug.mapAwareness.cornerRisk)),
+        edgeDanger: Math.round(cleanNumber(debug.mapAwareness.edgeDanger)),
+        risk: Math.round(cleanNumber(debug.mapAwareness.risk)),
+        nearestResource: debug.mapAwareness.nearestResource && typeof debug.mapAwareness.nearestResource === "object" ? {
+          id: debug.mapAwareness.nearestResource.id ? cleanText(debug.mapAwareness.nearestResource.id) : null,
+          type: debug.mapAwareness.nearestResource.type ? cleanText(debug.mapAwareness.nearestResource.type) : null,
+          distance: Math.round(cleanNumber(debug.mapAwareness.nearestResource.distance))
+        } : null
+      } : null,
       x: Math.round(cleanNumber(debug.x)),
       y: Math.round(cleanNumber(debug.y)),
       line1: cleanText(debug.line1, cleanText(debug.mode, "bot")),

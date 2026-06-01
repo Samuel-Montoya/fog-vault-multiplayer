@@ -116,6 +116,8 @@ const RESCUE_RESERVED_PENALTY = 1650;
 const RESCUE_RESERVED_HARD_LOCK_SECONDS = 2.8;
 const RUNNER_RESCUE_STALL_SECONDS = 1.35;
 const RUNNER_RESCUE_GIVEUP_SECONDS = 4.2;
+const UNREACHABLE_TARGET_COOLDOWN_SECONDS = 4.25;
+const UNREACHABLE_HOOK_COOLDOWN_SECONDS = 2.15;
 const HEAL_RESERVED_PENALTY = 1200;
 const TEAMMATE_SAFE_POINT_RADIUS = 250;
 const TEAMMATE_SAFE_POINT_PENALTY = 520;
@@ -848,7 +850,7 @@ function chooseInteractionApproachPoint(game, actor, target, helpers, interactDi
 
   const now = game.time || 0;
   const brain = ensureBotBrain(actor);
-  const key = `${options.kind || "interact"}:${target.id || Math.round(target.x)}:${Math.round(target.y)}`;
+  const key = `${options.kind || "interact"}:${target.id || "point"}:${Math.round(target.x)},${Math.round(target.y)}`;
   const cached = brain.interactionApproach;
   if (cached && cached.key === key && now <= (cached.until || 0) && actorCanStandAt(game, actor, cached.x, cached.y, helpers)) {
     return cached;
@@ -880,8 +882,10 @@ function chooseInteractionApproachPoint(game, actor, target, helpers, interactDi
     const interactionClear = segmentClearFromPoint(game, point.x, point.y, target.x, target.y, helpers);
     if (!interactionClear) continue;
 
-    const path = buildPath(game, actor, point.x, point.y, helpers);
-    const pathPenalty = path.length ? path.length * 9 : 1200;
+    const directClear = movementClear(game, actor, point.x, point.y, helpers, { extra: BODY_SEGMENT_EXTRA_RADIUS * 0.35 });
+    const path = directClear ? [] : buildPath(game, actor, point.x, point.y, helpers, { allowPartial: false });
+    if (!directClear && !pathReachesPoint(game, actor, path, point.x, point.y, helpers, Math.max(36, raw.radius * 0.45))) continue;
+    const pathPenalty = directClear ? 0 : path.length * 9;
     const actorDistance = helperDist(helpers, actor.x, actor.y, point.x, point.y);
     const targetDistance = Math.abs(helperDist(helpers, point.x, point.y, target.x, target.y) - safeDistance);
     const lineBonus = movementClear(game, actor, point.x, point.y, helpers, { extra: BODY_SEGMENT_EXTRA_RADIUS * 0.35 }) ? -120 : 0;
@@ -900,8 +904,11 @@ function chooseInteractionApproachPoint(game, actor, target, helpers, interactDi
 
   const fallback = clampToMapInterior(game, target.x, target.y);
   if (actorCanStandAt(game, actor, fallback.x, fallback.y, helpers)) {
-    brain.interactionApproach = { x: fallback.x, y: fallback.y, key, until: now + 0.6 };
-    return brain.interactionApproach;
+    const reach = reachablePathCheck(game, actor, fallback, helpers, { tolerance: Math.max(36, safeDistance * 0.5) });
+    if (reach.reachable) {
+      brain.interactionApproach = { x: fallback.x, y: fallback.y, key, until: now + 0.6 };
+      return brain.interactionApproach;
+    }
   }
 
   return null;
@@ -922,6 +929,35 @@ function tileCenter(game, tx, ty) {
 
 function tileKey(tx, ty) {
   return `${tx},${ty}`;
+}
+
+function semanticMapAnalysis(game, helpers) {
+  if (typeof helpers?.getMapAnalysis === "function") return helpers.getMapAnalysis(game);
+  return game?.mapAnalysis || null;
+}
+
+function semanticTileMeta(game, tx, ty, helpers) {
+  const analysis = semanticMapAnalysis(game, helpers);
+  return analysis?.grid?.tileMeta?.get?.(tileKey(tx, ty)) || null;
+}
+
+function semanticResourceHint(game, x, y, helpers) {
+  const analysis = semanticMapAnalysis(game, helpers);
+  if (!analysis?.resources) return null;
+  const resources = [
+    ...(analysis.resources.windows || []),
+    ...(analysis.resources.pallets || []),
+    ...(analysis.resources.exits || [])
+  ];
+  let best = null;
+  let bestD = Infinity;
+  for (const resource of resources) {
+    const d = distance(x, y, resource.x, resource.y);
+    if (d < bestD) { best = resource; bestD = d; }
+  }
+  if (!best) return null;
+  const hint = (analysis.chase?.routeHints || []).find((entry) => entry.id === best.id);
+  return { resource: best, distance: bestD, hint: hint || null };
 }
 
 function navPalletSignature(game) {
@@ -1113,6 +1149,14 @@ function navTileCost(game, actor, tx, ty, helpers, options = {}) {
   const cornerCost = (cornerTrapSeverity(game, c.x, c.y) * 1.35 + edgeTrapSeverity(game, c.x, c.y) * 0.45) * NAV_CORNER_COST;
   const edgeCost = Math.max(0, NAV_MIN_CLEARANCE_TILES - edgeTiles) * 0.38;
 
+  const semantic = semanticTileMeta(game, tx, ty, helpers);
+  const semanticCost = semantic
+    ? Math.max(0, 3 - Number(semantic.clearance || 0)) * 1.15
+      + Number(semantic.deadEndRisk || 0) * 0.085
+      + Number(semantic.cornerRisk || 0) * 0.11
+      + Number(semantic.edgeDanger || 0) * 0.28
+    : 0;
+
   let chaseCost = 0;
   const killer = options.killer || null;
   if (killer) {
@@ -1121,7 +1165,7 @@ function navTileCost(game, actor, tx, ty, helpers, options = {}) {
     chaseCost += danger * danger * 12.5;
   }
 
-  return lowClearanceCost + deadEndCost + cornerCost + edgeCost + chaseCost;
+  return lowClearanceCost + deadEndCost + cornerCost + edgeCost + semanticCost + chaseCost;
 }
 
 function findNearestStandableTile(game, actor, targetX, targetY, helpers) {
@@ -1181,7 +1225,10 @@ function buildPath(game, actor, targetX, targetY, helpers, options = {}) {
 
   const startKey = tileKey(start.x, start.y);
   const goalKey = tileKey(goal.x, goal.y);
-  if (startKey === goalKey) return [{ x: targetX, y: targetY }];
+  if (startKey === goalKey) {
+    const point = actorCanStandAt(game, actor, targetX, targetY, helpers) ? { x: targetX, y: targetY } : tileCenter(game, goal.x, goal.y);
+    return [point];
+  }
 
   const open = createPriorityQueue((a, b) => a.f < b.f);
   queueAdd(open, { x: start.x, y: start.y, g: 0, f: 0, dx: 0, dy: 0 });
@@ -1233,7 +1280,10 @@ function buildPath(game, actor, targetX, targetY, helpers, options = {}) {
         path.push({ x: targetX, y: targetY });
       }
       const smoothed = smoothPath(game, actor, path, helpers);
-      if (actor?.bot?.simpleAi) actor.bot.simpleAi.navMode = FastPriorityQueue ? "known-map+fastpq" : "known-map+heap";
+      if (actor?.bot?.simpleAi) {
+        const hasSemantic = !!semanticMapAnalysis(game, helpers);
+        actor.bot.simpleAi.navMode = `${hasSemantic ? "semantic-map" : "known-map"}+${FastPriorityQueue ? "fastpq" : "heap"}`;
+      }
       return smoothed;
     }
 
@@ -1262,8 +1312,9 @@ function buildPath(game, actor, targetX, targetY, helpers, options = {}) {
     }
   }
 
-  // Partial route fallback: a half-good route is better than ramming a wall forever.
-  if (bestSeen && bestSeen.key !== startKey && cameFrom.has(bestSeen.key)) {
+  // Partial route fallback: good for fleeing, bad for objectives. Objectives need
+  // a real route, otherwise bots march into a wall and contemplate drywall.
+  if (options.allowPartial !== false && bestSeen && bestSeen.key !== startKey && cameFrom.has(bestSeen.key)) {
     const path = [];
     let k = bestSeen.key;
     let guard = 0;
@@ -1301,6 +1352,71 @@ function resetPathStuckState(brain, actor) {
   brain.stuckSampleIn = STUCK_SAMPLE_SECONDS;
   brain.stuckX = actor.x;
   brain.stuckY = actor.y;
+}
+
+function targetCooldownKey(kind, targetOrId) {
+  if (targetOrId && typeof targetOrId === "object") {
+    const id = targetOrId.id || `${Math.round(targetOrId.x || 0)},${Math.round(targetOrId.y || 0)}`;
+    return `${kind}:${id}`;
+  }
+  return `${kind}:${targetOrId || "unknown"}`;
+}
+
+function purgeUnreachableTargets(brain, now) {
+  if (!brain?.unreachableTargets) return;
+  for (const [key, until] of Object.entries(brain.unreachableTargets)) {
+    if (Number(until || 0) <= now) delete brain.unreachableTargets[key];
+  }
+}
+
+function isTargetTemporarilyUnreachable(actor, kind, targetOrId, game = null) {
+  const brain = actor?.bot?.simpleAi;
+  if (!brain?.unreachableTargets) return false;
+  const now = Number(game?.time ?? brain.aiNow ?? 0);
+  purgeUnreachableTargets(brain, now);
+  return Number(brain.unreachableTargets[targetCooldownKey(kind, targetOrId)] || 0) > now;
+}
+
+function markTargetTemporarilyUnreachable(actor, kind, targetOrId, game = null, seconds = UNREACHABLE_TARGET_COOLDOWN_SECONDS) {
+  const brain = ensureBotBrain(actor);
+  const now = Number(game?.time ?? brain.aiNow ?? 0);
+  brain.unreachableTargets = brain.unreachableTargets || Object.create(null);
+  brain.unreachableTargets[targetCooldownKey(kind, targetOrId)] = now + Math.max(0.35, Number(seconds || UNREACHABLE_TARGET_COOLDOWN_SECONDS));
+  brain.progressWatch = null;
+  brain.interactionApproach = null;
+  clearPath(brain);
+}
+
+function clearTargetUnreachable(actor, kind, targetOrId) {
+  const brain = actor?.bot?.simpleAi;
+  if (!brain?.unreachableTargets) return;
+  delete brain.unreachableTargets[targetCooldownKey(kind, targetOrId)];
+}
+
+function pathReachesPoint(game, actor, path, x, y, helpers, tolerance = null) {
+  if (!Array.isArray(path) || !path.length || !Number.isFinite(x) || !Number.isFinite(y)) return false;
+  const last = path[path.length - 1];
+  if (!last) return false;
+  const tile = game.map?.tile || 32;
+  const allowed = Math.max(Number(tolerance || 0), tile * 1.15);
+  if (helperDist(helpers, last.x, last.y, x, y) <= allowed) return true;
+  const goal = findNearestStandableTile(game, actor, x, y, helpers);
+  if (goal) {
+    const center = tileCenter(game, goal.x, goal.y);
+    if (helperDist(helpers, last.x, last.y, center.x, center.y) <= allowed) return true;
+  }
+  return false;
+}
+
+function reachablePathCheck(game, actor, point, helpers, options = {}) {
+  if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) return { reachable: false, path: [], directClear: false };
+  const extra = Number(options.extra ?? BODY_SEGMENT_EXTRA_RADIUS * 0.25);
+  const directClear = actorCanStandAt(game, actor, point.x, point.y, helpers)
+    && movementClear(game, actor, point.x, point.y, helpers, { extra });
+  if (directClear) return { reachable: true, path: [], directClear: true };
+  const path = buildPath(game, actor, point.x, point.y, helpers, { ...options, allowPartial: false });
+  const reachable = pathReachesPoint(game, actor, path, point.x, point.y, helpers, options.tolerance);
+  return { reachable, path, directClear: false };
 }
 
 function resetObjectiveProgressWatch(brain, actor, key, target, helpers) {
@@ -1616,6 +1732,7 @@ function chooseBestRift(game, actor, helpers, fromPoint = actor) {
   let bestScore = -Infinity;
 
   for (const rift of unfinishedRifts(game)) {
+    if (isTargetTemporarilyUnreachable(actor, "rift", rift, game)) continue;
     const d = distance(fromPoint.x, fromPoint.y, rift.x, rift.y);
     const progress = riftProgress(rift);
     const canFinish = progress + carried / dotsPerRift >= 1;
@@ -1644,6 +1761,7 @@ function chooseNearbyRift(game, actor, helpers) {
   let best = null;
   let bestScore = -Infinity;
   for (const rift of unfinishedRifts(game)) {
+    if (isTargetTemporarilyUnreachable(actor, "rift", rift, game)) continue;
     const d = helperDist(helpers, actor.x, actor.y, rift.x, rift.y);
     if (d > nearbyDistance) continue;
     const depositors = reservationCount(game, actor, "rift", rift.id);
@@ -1669,12 +1787,15 @@ function chooseOrb(game, actor, helpers) {
   let best = null;
   let bestScore = Infinity;
   for (const item of shortlist) {
+    if (isTargetTemporarilyUnreachable(actor, "orb", item.dot, game)) continue;
+    const route = reachablePathBonus(game, actor, item.dot, helpers);
+    if (!route.reachable) continue;
     const nextRift = chooseBestRift(game, actor, helpers, item.dot);
     const riftDistance = nextRift ? distance(item.dot.x, item.dot.y, nextRift.x, nextRift.y) : 0;
     const progressPull = nextRift ? riftProgress(nextRift) * 260 : 0;
     const reservedPenalty = reservationPenalty(game, actor, "orb", item.dot.id, ORB_RESERVED_PENALTY);
     const clusterPenalty = teammateClusterPenalty(game, actor, item.dot.x, item.dot.y, ORB_CLUSTER_RADIUS, ORB_CLUSTER_PENALTY, "orb", item.dot.id);
-    const score = item.d + riftDistance * 0.22 - progressPull + reservedPenalty + clusterPenalty;
+    const score = item.d + riftDistance * 0.22 + route.pathLength * 7.5 - progressPull + reservedPenalty + clusterPenalty;
     if (score < bestScore) {
       best = item.dot;
       bestScore = score;
@@ -1751,10 +1872,12 @@ function taskStillValid(game, actor, task, helpers) {
   const target = resolveTaskTarget(game, task);
   if (!target) return false;
   if (task.kind === "orb") {
+    if (isTargetTemporarilyUnreachable(actor, "orb", target, game)) return false;
     if ((actor.dots || 0) >= Number(helpers?.survivorDotMax || 30)) return false;
     return (game.collectibleDots || []).some((dot) => dot.id === target.id);
   }
   if (task.kind === "deposit") {
+    if (isTargetTemporarilyUnreachable(actor, "rift", target, game)) return false;
     return (actor.dots || 0) > 0 && !target.done;
   }
   return false;
@@ -1782,7 +1905,13 @@ function depositAtRift(game, actor, rift, helpers, dt) {
     return;
   }
 
-  const approach = chooseInteractionApproachPoint(game, actor, rift, helpers, depositDistance, { kind: "deposit" }) || rift;
+  const approach = chooseInteractionApproachPoint(game, actor, rift, helpers, depositDistance, { kind: "deposit" });
+  if (!approach) {
+    markTargetTemporarilyUnreachable(actor, "rift", rift, game);
+    clearTask(actor, game);
+    brain.nextStep = { kind: "deposit-unreachable", targetId: rift.id };
+    return;
+  }
   brain.nextStep = { kind: "deposit-approach", targetId: rift.id };
 
   followPath(game, actor, approach, helpers, {
@@ -1795,12 +1924,26 @@ function depositAtRift(game, actor, rift, helpers, dt) {
   });
 
   if (!(actor.input.up || actor.input.down || actor.input.left || actor.input.right) && d > depositDistance * 0.84) {
-    fallbackMoveToward(game, actor, approach, helpers, { sprint: true, now: game.time || 0 });
+    if (movementClear(game, actor, approach.x, approach.y, helpers, { extra: BODY_SEGMENT_EXTRA_RADIUS * 0.25 })) {
+      fallbackMoveToward(game, actor, approach, helpers, { sprint: true, now: game.time || 0 });
+    } else {
+      markTargetTemporarilyUnreachable(actor, "rift", rift, game);
+      clearTask(actor, game);
+      brain.nextStep = { kind: "deposit-path-failed", targetId: rift.id };
+    }
   }
 }
 
 function collectOrb(game, actor, orb, helpers, dt) {
   const pickupRadius = Number(helpers?.survivorPickupRadius || 48);
+  const brain = ensureBotBrain(actor);
+  const route = reachablePathBonus(game, actor, orb, helpers);
+  if (!route.reachable) {
+    markTargetTemporarilyUnreachable(actor, "orb", orb, game);
+    clearTask(actor, game);
+    brain.nextStep = { kind: "orb-unreachable", targetId: orb.id };
+    return;
+  }
   actor.bot.simpleAi.nextStep = { kind: "collect-then-deposit", targetId: orb.id };
   followPath(game, actor, orb, helpers, {
     sprint: true,
@@ -1812,7 +1955,13 @@ function collectOrb(game, actor, orb, helpers, dt) {
   });
 
   if (!(actor.input.up || actor.input.down || actor.input.left || actor.input.right)) {
-    fallbackMoveToward(game, actor, orb, helpers, { sprint: true, now: game.time || 0 });
+    if (movementClear(game, actor, orb.x, orb.y, helpers, { extra: BODY_SEGMENT_EXTRA_RADIUS * 0.25 })) {
+      fallbackMoveToward(game, actor, orb, helpers, { sprint: true, now: game.time || 0 });
+    } else {
+      markTargetTemporarilyUnreachable(actor, "orb", orb, game);
+      clearTask(actor, game);
+      brain.nextStep = { kind: "orb-path-failed", targetId: orb.id };
+    }
   }
 }
 
@@ -2353,9 +2502,18 @@ function runSurvivorHeal(game, actor, helpers, dt) {
     return true;
   }
 
-  followPath(game, actor, target, helpers, {
+  const approach = chooseInteractionApproachPoint(game, actor, target, helpers, healDistance, { kind: "heal" });
+  if (!approach) {
+    clearHealTask(actor, game);
+    brain.nextStep = { kind: "heal-unreachable", targetId: target.id };
+    return false;
+  }
+
+  followPath(game, actor, approach, helpers, {
     sprint: true,
-    stopDistance: Math.max(22, healDistance * 0.65),
+    stopDistance: Math.max(18, healDistance * 0.42),
+    progressTarget: approach,
+    progressKey: `heal:${target.id}:${Math.round(approach.x)},${Math.round(approach.y)}`,
     dt
   });
   actor.input.action = false;
@@ -2368,11 +2526,13 @@ function chooseHookedRescueTarget(game, actor, helpers) {
   let best = null;
   let bestScore = -Infinity;
   const rescueDistance = Number(helpers?.hookRescueDistance || RUNNER_HOOK_RESCUE_DISTANCE);
+  const targetRadius = game?.escapeOpen ? Math.max(RUNNER_HOOK_TARGET_RADIUS, RUNNER_ESCAPE_GATE_TARGET_RADIUS) : RUNNER_HOOK_TARGET_RADIUS;
 
   for (const target of game?.actors?.values?.() || []) {
     if (!target || target.id === actor.id || target.role !== "survivor" || !target.hooked || target.dead || target.escaped) continue;
+    if (isTargetTemporarilyUnreachable(actor, "unhook", target, game)) continue;
     const d = helperDist(helpers, actor.x, actor.y, target.x, target.y);
-    if (d > RUNNER_HOOK_TARGET_RADIUS) continue;
+    if (d > targetRadius) continue;
 
     const killerD = killer ? helperDist(helpers, killer.x, killer.y, target.x, target.y) : Infinity;
     const killerActorD = killer ? helperDist(helpers, killer.x, killer.y, actor.x, actor.y) : Infinity;
@@ -2386,8 +2546,10 @@ function chooseHookedRescueTarget(game, actor, helpers) {
       if (freshReservation) continue;
     }
     const threat = survivorThreatInfo(game, actor, helpers);
-    if (threat?.threatened && !alreadyRescuing) continue;
-    if (killerCamping && !alreadyRescuing) continue;
+    const endgameSave = !!game?.escapeOpen && d < targetRadius * 0.92;
+    if (threat?.panic && !alreadyRescuing) continue;
+    if (threat?.threatened && !alreadyRescuing && !endgameSave) continue;
+    if (killerCamping && !alreadyRescuing && !endgameSave) continue;
 
     const progressBonus = (target.unhookProgress || 0) * 900;
     const urgency = (target.hookCount || 0) * 240;
@@ -2472,12 +2634,33 @@ function runSurvivorUnhook(game, actor, helpers, dt) {
     return true;
   }
 
-  followPath(game, actor, target, helpers, {
+  const approach = chooseInteractionApproachPoint(game, actor, target, helpers, rescueDistance, { kind: "unhook" });
+  if (!approach) {
+    markTargetTemporarilyUnreachable(actor, "unhook", target, game, UNREACHABLE_HOOK_COOLDOWN_SECONDS);
+    clearUnhookTask(actor, game);
+    brain.nextStep = { kind: "unhook-unreachable", targetId: target.id };
+    return false;
+  }
+
+  brain.nextStep = { kind: "unhook-approach", targetId: target.id };
+  followPath(game, actor, approach, helpers, {
     sprint: true,
-    stopDistance: Math.max(22, rescueDistance * 0.62),
+    stopDistance: Math.max(18, rescueDistance * 0.36),
     taskKind: "unhook",
+    progressTarget: approach,
+    progressKey: `unhook:${target.id}:${Math.round(approach.x)},${Math.round(approach.y)}`,
     dt
   });
+  if (!(actor.input.up || actor.input.down || actor.input.left || actor.input.right) && d > rescueDistance + 14) {
+    if (movementClear(game, actor, approach.x, approach.y, helpers, { extra: BODY_SEGMENT_EXTRA_RADIUS * 0.25 })) {
+      fallbackMoveToward(game, actor, approach, helpers, { sprint: true, now: game.time || 0 });
+    } else {
+      markTargetTemporarilyUnreachable(actor, "unhook", target, game, UNREACHABLE_HOOK_COOLDOWN_SECONDS);
+      clearUnhookTask(actor, game);
+      brain.nextStep = { kind: "unhook-path-failed", targetId: target.id };
+      return false;
+    }
+  }
   actor.input.action = false;
   actor.input.repair = false;
   return true;
@@ -2501,6 +2684,9 @@ function chooseEscapeGate(game, actor, helpers) {
   let bestScore = -Infinity;
 
   for (const gate of gates) {
+    if (isTargetTemporarilyUnreachable(actor, "escapeGate", gate, game)) continue;
+    const route = reachablePathBonus(game, actor, gate, helpers);
+    if (!route.reachable) continue;
     const d = helperDist(helpers, actor.x, actor.y, gate.x, gate.y);
     if (d > RUNNER_ESCAPE_GATE_TARGET_RADIUS) continue;
     const killerD = killer ? helperDist(helpers, killer.x, killer.y, gate.x, gate.y) : Infinity;
@@ -2516,6 +2702,7 @@ function chooseEscapeGate(game, actor, helpers) {
       + Math.min(killerD, 900) * 0.62
       + lineBlockedBonus
       - d * 0.86
+      - route.pathLength * 6
       - reservedPenalty
       - clusterPenalty
       - killerPenalty;
@@ -2579,7 +2766,14 @@ function runSurvivorEscape(game, actor, helpers, dt) {
   });
 
   if (!(actor.input.up || actor.input.down || actor.input.left || actor.input.right)) {
-    fallbackMoveToward(game, actor, gate, helpers, { sprint: true, now: game.time || 0 });
+    if (movementClear(game, actor, gate.x, gate.y, helpers, { extra: BODY_SEGMENT_EXTRA_RADIUS * 0.25 })) {
+      fallbackMoveToward(game, actor, gate, helpers, { sprint: true, now: game.time || 0 });
+    } else {
+      markTargetTemporarilyUnreachable(actor, "escapeGate", gate, game);
+      clearEscapeTask(actor, game);
+      brain.nextStep = { kind: "escape-path-failed", targetId: gate.id };
+      return false;
+    }
   }
 
   return true;
@@ -2712,12 +2906,13 @@ function edgePenalty(game, x, y) {
 }
 
 function reachablePathBonus(game, actor, point, helpers) {
-  const path = buildPath(game, actor, point.x, point.y, helpers);
-  if (!path.length) return { reachable: false, score: -2200, pathLength: 0 };
+  const check = reachablePathCheck(game, actor, point, helpers, { tolerance: (game.map?.tile || 32) * 1.2 });
+  if (!check.reachable) return { reachable: false, score: -2200, pathLength: 0 };
+  const length = check.directClear ? 1 : Math.max(1, check.path.length);
   return {
     reachable: true,
-    score: 360 + Math.min(path.length, 18) * 22,
-    pathLength: path.length
+    score: 360 + Math.min(length, 18) * 22,
+    pathLength: length
   };
 }
 

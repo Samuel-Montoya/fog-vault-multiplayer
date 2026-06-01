@@ -1320,7 +1320,8 @@
     currentAccount = payload.account || null;
     syncAccountUi();
     if (payload.reward?.orbsDeposited) {
-      toast(`Banked ${payload.reward.orbsDeposited} deposited orbs.`, 2400);
+      const rewardLabel = String(payload.reward.label || "deposited orbs");
+      toast(`Banked ${payload.reward.orbsDeposited} ${rewardLabel}.`, 2400);
     }
   }
 
@@ -7960,6 +7961,7 @@
         ? [
             statItem("Rifts kicked", stats.riftsKicked || 0),
             statItem("Orbs collected", stats.orbsCollected || 0),
+            statItem("Orbs stolen", stats.orbsStolen || 0),
             statItem("Injures", stats.injures || 0),
             statItem("Hooks", stats.hooks || 0),
             statItem("Runners consumed", stats.deaths || 0),
