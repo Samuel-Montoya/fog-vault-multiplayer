@@ -4675,3 +4675,245 @@ body.ultra-low-power.survivor-hit-impact #gameWrap {
 .bot-debug-label.is-stuck::after {
   border-color: rgba(255, 90, 120, 0.62);
 }
+
+.bot-debug-label.is-paused-live {
+  border-color: rgba(255, 211, 106, 0.62);
+  box-shadow: 0 18px 46px rgba(0,0,0,0.46), 0 0 28px rgba(255,211,106,0.14);
+}
+
+.skin-void-core {
+  background:
+    radial-gradient(circle at 32% 28%, #f5d0fe 0 10%, transparent 11%),
+    radial-gradient(circle at 50% 52%, #7c3aed 0 20%, #32105f 21% 54%, #020008 55% 100%);
+}
+
+.skin-void-solar {
+  background:
+    radial-gradient(circle at 34% 28%, #fff7ad 0 12%, transparent 13%),
+    radial-gradient(circle at 58% 56%, #facc15 0 20%, #b45309 21% 54%, #130900 55% 100%);
+  box-shadow: 0 0 18px rgba(250, 204, 21, 0.22), inset 0 -8px 12px rgba(0,0,0,0.28);
+}
+
+.skin-void-azure {
+  background:
+    linear-gradient(132deg, transparent 43%, rgba(224,242,254,0.92) 44% 49%, transparent 50%),
+    radial-gradient(circle at 42% 38%, #38bdf8 0 18%, #0e7490 19% 54%, #020617 55% 100%);
+  box-shadow: 0 0 18px rgba(56, 189, 248, 0.24), inset 0 -8px 12px rgba(0,0,0,0.26);
+}
+
+.skin-void-eclipse {
+  background:
+    radial-gradient(circle at 62% 42%, #070006 0 26%, transparent 27%),
+    radial-gradient(circle at 44% 42%, #ff3b6a 0 19%, #7f1d1d 20% 54%, #070006 55% 100%);
+  box-shadow: 0 0 18px rgba(255, 59, 106, 0.22), inset 0 -8px 12px rgba(0,0,0,0.32);
+}
+
+ .skin-void-wyrm {
+  background:
+    radial-gradient(ellipse at 50% 42%, transparent 0 26%, rgba(34,211,238,0.9) 27% 31%, transparent 32%),
+    radial-gradient(circle at 42% 36%, #c4b5fd 0 12%, #4338ca 13% 46%, #02030a 47% 100%);
+  box-shadow: 0 0 18px rgba(196, 181, 253, 0.24), inset 0 -8px 12px rgba(0,0,0,0.28);
+}
+
+.skin-void-lantern {
+  background:
+    linear-gradient(90deg, transparent 45%, rgba(255,247,173,0.72) 46% 54%, transparent 55%),
+    radial-gradient(ellipse at 50% 58%, #fff7ad 0 16%, #f59e0b 17% 35%, #3a1c05 36% 70%, #140b00 71% 100%);
+  box-shadow: 0 0 20px rgba(245, 158, 11, 0.30), inset 0 -8px 12px rgba(0,0,0,0.30);
+}
+
+.skin-void-siren {
+  background:
+    radial-gradient(ellipse at 18% 42%, rgba(125,211,252,0.88) 0 13%, transparent 14%),
+    radial-gradient(ellipse at 82% 42%, rgba(125,211,252,0.88) 0 13%, transparent 14%),
+    radial-gradient(circle at 48% 44%, #e0faff 0 9%, #38bdf8 10% 34%, #075985 35% 62%, #001018 63% 100%);
+  box-shadow: 0 0 20px rgba(56, 189, 248, 0.28), inset 0 -8px 12px rgba(0,0,0,0.30);
+}
+
+.skin-void-crowned {
+  background:
+    linear-gradient(160deg, transparent 34%, rgba(251,191,36,0.82) 35% 42%, transparent 43%),
+    linear-gradient(20deg, transparent 35%, rgba(251,191,36,0.82) 36% 43%, transparent 44%),
+    radial-gradient(circle at 50% 52%, #fef08a 0 10%, #4c1d95 11% 48%, #06030d 49% 100%);
+  box-shadow: 0 0 20px rgba(251,191,36,0.22), inset 0 -8px 12px rgba(0,0,0,0.32);
+}
+
+.skin-void-static {
+  background:
+    linear-gradient(90deg, transparent 16%, rgba(248,250,252,0.82) 17% 20%, transparent 21% 46%, rgba(163,230,53,0.7) 47% 51%, transparent 52%),
+    linear-gradient(0deg, transparent 22%, rgba(163,230,53,0.7) 23% 27%, transparent 28% 71%, rgba(248,250,252,0.5) 72% 75%, transparent 76%),
+    radial-gradient(circle at 50% 48%, #d9f99d 0 9%, #475569 10% 42%, #020617 43% 100%);
+  box-shadow: 0 0 20px rgba(163,230,53,0.24), inset 0 -8px 12px rgba(0,0,0,0.34);
+}
+
+.skin-void-seraph {
+  background:
+    radial-gradient(ellipse at 17% 50%, transparent 0 20%, rgba(103,232,249,0.86) 21% 27%, transparent 28%),
+    radial-gradient(ellipse at 83% 50%, transparent 0 20%, rgba(192,132,252,0.86) 21% 27%, transparent 28%),
+    radial-gradient(ellipse at 50% 19%, transparent 0 18%, rgba(245,208,254,0.86) 19% 25%, transparent 26%),
+    radial-gradient(circle at 50% 50%, #f5d0fe 0 9%, #7e22ce 10% 42%, #080316 43% 100%);
+  box-shadow: 0 0 20px rgba(192,132,252,0.28), inset 0 -8px 12px rgba(0,0,0,0.32);
+}
+
+.void-lobby-skin-picker {
+  border-color: rgba(255, 59, 106, 0.22);
+  background:
+    radial-gradient(circle at 100% 0%, rgba(255, 59, 106, 0.10), transparent 40%),
+    rgba(3, 7, 18, 0.42);
+}
+
+/* Account + orb economy */
+.account-panel {
+  margin: 14px 0 16px;
+  padding: 14px;
+  border: 1px solid rgba(103, 232, 249, 0.18);
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(103,232,249,0.10), transparent 34%),
+    rgba(3, 7, 18, 0.48);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 16px 38px rgba(0,0,0,0.18);
+}
+
+.compact-account-panel {
+  margin: 12px 0 14px;
+}
+
+.account-panel-top,
+.account-actions,
+.auth-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.account-panel-top strong {
+  display: block;
+  color: #fff;
+  font-size: 15px;
+  letter-spacing: -0.01em;
+}
+
+.account-eyebrow {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--rift);
+  font-size: 10px;
+  font-weight: 1000;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.orb-wallet {
+  display: grid;
+  min-width: 92px;
+  padding: 8px 12px;
+  border: 1px solid rgba(255, 211, 106, 0.25);
+  border-radius: 16px;
+  text-align: right;
+  background: rgba(255, 211, 106, 0.06);
+}
+
+.orb-wallet span {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 1000;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.orb-wallet b {
+  color: var(--gold);
+  font-size: 24px;
+  line-height: 1;
+}
+
+.auth-form {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.auth-actions {
+  flex-wrap: wrap;
+}
+
+.auth-actions button,
+.account-actions button {
+  padding: 10px 13px;
+  font-size: 12px;
+}
+
+.account-actions {
+  margin-top: 11px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.skin-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.skin-price {
+  color: var(--gold);
+  font-size: 10px;
+  font-weight: 1000;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.skin-btn.locked {
+  opacity: 0.78;
+  border-color: rgba(255, 211, 106, 0.20);
+}
+
+.skin-btn.locked .skin-preview {
+  filter: grayscale(0.28) brightness(0.78);
+}
+
+.skin-btn.locked::after {
+  content: "LOCKED";
+  margin-left: auto;
+  padding: 4px 7px;
+  border: 1px solid rgba(255, 211, 106, 0.24);
+  border-radius: 999px;
+  color: var(--gold);
+  font-size: 9px;
+  font-weight: 1000;
+  letter-spacing: 0.1em;
+}
+
+.skin-btn.locked.affordable::after {
+  content: "BUY";
+  color: #06111a;
+  background: linear-gradient(135deg, var(--gold), #fff1a8);
+}
+
+.skin-btn.owned .skin-price {
+  color: var(--safe);
+}
+
+.skin-shop-heading {
+  margin-top: 18px;
+}
+
+.void-shop-skin-picker {
+  margin-bottom: 4px;
+}
+
+@media (max-width: 720px) {
+  .account-panel-top,
+  .account-actions,
+  .auth-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .orb-wallet {
+    width: 100%;
+    text-align: left;
+  }
+}

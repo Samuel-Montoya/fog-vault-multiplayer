@@ -10,7 +10,9 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "check": "npm run lint && npm run build",
-    "start:server": "node server.cjs"
+    "start:server": "node server.cjs",
+    "db:init": "node scripts/init-db.cjs",
+    "db:schema": "node scripts/init-db.cjs"
   },
   "dependencies": {
     "@babel/core": "^7.29.0",
@@ -22,7 +24,11 @@
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "socket.io": "^4.8.3",
-    "vite": "^8.0.12"
+    "vite": "^8.0.12",
+    "fastpriorityqueue": "^0.7.4",
+    "pg": "^8.16.3",
+    "bcryptjs": "^3.0.3",
+    "jsonwebtoken": "^9.0.2"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

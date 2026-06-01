@@ -21,6 +21,9 @@ const VOID_ATTACK_LUNGE_RANGE = 122;
 const VOID_ATTACK_CLEAR_EXTRA = 18;
 const VOID_LUNGE_START_EXTRA = 56;
 const VOID_LUNGE_COMMIT_SECONDS = 0.72;
+const VOID_LUNGE_POINT_BLANK_MULT = 0.82;
+const VOID_LUNGE_BRAKE_RANGE_MULT = 1.08;
+const VOID_EXIT_PATROL_REPATH_SECONDS = 0.65;
 const VOID_OBSTACLE_ACTION_DISTANCE = 86;
 const VOID_OBSTACLE_SEEK_DISTANCE = 230;
 const VOID_OBSTACLE_PATH_WIDTH = 118;
@@ -762,6 +765,29 @@ function faceTarget(actor, target) {
   actor.input.angle = Math.atan2(target.y - actor.y, target.x - actor.x);
 }
 
+function clearAttackInputs(killer) {
+  killer.input.attack = false;
+  killer.input.attackHeld = false;
+  killer.input.attackReleased = false;
+}
+
+function triggerQuickAttack(killer, target) {
+  stopAndFace(killer, target);
+  faceTarget(killer, target);
+  killer.input.attack = true;
+  killer.input.attackReleased = true;
+  killer.input.attackHeld = false;
+}
+
+function holdLungeCharge(killer, target, shouldMove) {
+  faceTarget(killer, target);
+  if (shouldMove) setMoveToward(killer, target.x, target.y, true);
+  else stopAndFace(killer, target);
+  killer.input.attackHeld = true;
+  killer.input.attack = false;
+  killer.input.attackReleased = false;
+}
+
 function tryVoidAttack(game, killer, target, helpers, dt = 0) {
   if (!target || target.downed || target.dead || target.escaped || target.hooked) return false;
   const brain = ensureVoidBrain(killer);
@@ -769,32 +795,48 @@ function tryVoidAttack(game, killer, target, helpers, dt = 0) {
   if (killer.attackState === "quick" || killer.attackState === "lunge") return true;
   if (killer.recovery > 0 || killer.attackCooldown > 0 || killer.actionLock > 0 || killer.vault || killer.breakTarget || killer.hookActionTargetId || (killer.voidStun || 0) > 0) return false;
 
+  // After any attack, the engine requires one clean frame with M1 not held before the
+  // next charge. If the bot immediately holds again, it can get trapped in a fake
+  // "charging" intention that never becomes a real swing. Very glamorous failure mode.
+  if (killer.attackNeedsRelease) {
+    clearAttackInputs(killer);
+    return false;
+  }
+
   const now = game.time || 0;
   const d = helperDist(helpers, killer.x, killer.y, target.x, target.y);
+  const quickRange = Number(helpers?.quickAttackRange || VOID_ATTACK_QUICK_RANGE);
   const lungeRange = Number(helpers?.lungeAttackRange || VOID_ATTACK_LUNGE_RANGE);
   const startRange = lungeRange + VOID_ATTACK_CLEAR_EXTRA + VOID_LUNGE_START_EXTRA;
+  const pointBlankRange = Math.max(42, quickRange * VOID_LUNGE_POINT_BLANK_MULT);
+  const brakeRange = Math.max(pointBlankRange + 18, lungeRange * VOID_LUNGE_BRAKE_RANGE_MULT);
+  const clear = attackLineClear(game, killer, target, helpers);
   const committed = brain.lungeCommitTargetId === target.id && now <= (brain.lungeCommitUntil || 0);
 
+  // If The Void is already close enough to touch the runner, charging a lunge is how it
+  // strolls through them before active frames start. At point-blank range, quick attack is
+  // the best attack. The bot still charges for real lunges, it just stops suiciding into
+  // the lunge dead-zone.
+  if (d <= pointBlankRange && clear) {
+    triggerQuickAttack(killer, target);
+    brain.lungeCommitTargetId = null;
+    brain.lungeCommitUntil = 0;
+    return true;
+  }
+
   if (killer.attackState === "charging") {
-    faceTarget(killer, target);
-    setMoveToward(killer, target.x, target.y, true);
-    killer.input.attackHeld = true;
-    killer.input.attack = false;
-    killer.input.attackReleased = false;
+    const shouldMove = d > brakeRange;
+    holdLungeCharge(killer, target, shouldMove);
     brain.lungeCommitTargetId = target.id;
     brain.lungeCommitUntil = Math.max(brain.lungeCommitUntil || 0, now + VOID_LUNGE_COMMIT_SECONDS);
     return true;
   }
 
   if (!committed && d > startRange) return false;
-  if (!committed && !attackLineClear(game, killer, target, helpers)) return false;
+  if (!committed && !clear) return false;
 
-  // Bots always charge for the lunge. Quick-tap spam looks awful and wastes hits.
-  faceTarget(killer, target);
-  setMoveToward(killer, target.x, target.y, true);
-  killer.input.attackHeld = true;
-  killer.input.attack = false;
-  killer.input.attackReleased = false;
+  const shouldMove = d > brakeRange;
+  holdLungeCharge(killer, target, shouldMove);
   brain.lungeCommitTargetId = target.id;
   brain.lungeCommitUntil = Math.max(brain.lungeCommitUntil || 0, now + VOID_LUNGE_COMMIT_SECONDS);
   return true;
@@ -1074,7 +1116,7 @@ function chaseRunner(game, killer, target, helpers, dt) {
 function runVoidHuntAi(game, actor, helpers = {}, dt = 0) {
   const brain = ensureVoidBrain(actor);
   brain.aiNow = game.time || 0;
-  if (game.escapeOpen || actor.dead || actor.escaped || (actor.voidStun || 0) > 0) return false;
+  if (actor.dead || actor.escaped || (actor.voidStun || 0) > 0) return false;
 
   if (actor.hookActionTargetId || brain.hookCommitTargetId) {
     if (continueHookCommit(game, actor, helpers)) return true;
@@ -1108,19 +1150,74 @@ function runVoidHuntAi(game, actor, helpers = {}, dt = 0) {
   return false;
 }
 
+function chooseExitPatrolGate(game, killer, helpers) {
+  const gates = (game?.map?.gates || []).filter((gate) => gate && gate.open);
+  if (!gates.length) return null;
+  let best = null;
+  let bestScore = -Infinity;
+  for (const gate of gates) {
+    const d = helperDist(helpers, killer.x, killer.y, gate.x, gate.y);
+    let runnerNear = 0;
+    let escapePressure = 0;
+    for (const runner of livingRunners(game)) {
+      const rd = distance(runner.x, runner.y, gate.x, gate.y);
+      if (rd < 520) runnerNear += 1 - rd / 520;
+      if (runner.escapeGateId === gate.id) escapePressure += 2 + Math.max(0, Number(runner.escapeProgress || 0)) * 3;
+    }
+    const score = 1200 + runnerNear * 520 + escapePressure * 420 - d * 0.72;
+    if (score > bestScore) {
+      best = gate;
+      bestScore = score;
+    }
+  }
+  return best;
+}
+
+function patrolExitGates(game, actor, helpers, dt) {
+  const brain = ensureVoidBrain(actor);
+  const gate = chooseExitPatrolGate(game, actor, helpers);
+  if (!gate) {
+    stopAndFace(actor, null);
+    return true;
+  }
+  brain.task = { kind: "exitPatrol", id: gate.id, x: gate.x, y: gate.y };
+  brain.nextStep = { kind: "patrol-open-exit", targetId: gate.id };
+  brain.repathIn = Math.min(brain.repathIn || 0, VOID_EXIT_PATROL_REPATH_SECONDS);
+  followPath(game, actor, gate, helpers, {
+    sprint: true,
+    stopDistance: Math.max(24, DEFAULT_RIFT_KICK_DISTANCE * 0.7),
+    dt
+  });
+  actor.input.action = false;
+  actor.input.repair = false;
+  actor.input.attack = false;
+  actor.input.attackHeld = false;
+  actor.input.attackReleased = false;
+  if (!(actor.input.up || actor.input.down || actor.input.left || actor.input.right)) {
+    setMoveToward(actor, gate.x, gate.y, true);
+  }
+  return true;
+}
+
 function runVoidRiftAi(game, actor, helpers = {}, dt = 0) {
   const brain = ensureVoidBrain(actor);
   brain.aiNow = game.time || 0;
   brain.holdingKick = false;
   actor.input.repair = false;
 
-  if (game.escapeOpen || actor.dead || actor.escaped) {
+  if (actor.dead || actor.escaped) {
     clearTask(actor);
     stopAndFace(actor, null);
     return;
   }
 
   if (runVoidHuntAi(game, actor, helpers, dt)) return;
+
+  if (game.escapeOpen) {
+    clearTask(actor);
+    patrolExitGates(game, actor, helpers, dt);
+    return;
+  }
 
   if (!unfinishedRifts(game).length) {
     clearTask(actor);

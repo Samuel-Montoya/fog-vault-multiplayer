@@ -2,11 +2,16 @@ const path = require("path");
 const fs = require("fs");
 const express = require("express");
 const http = require("http");
-const { monitorEventLoopDelay, performance } = require("perf_hooks");
+const { monitorEventLoopDelay } = require("perf_hooks");
 const { Server } = require("socket.io");
 const { loadPublicScriptGlobal } = require("../config/load-public-script.cjs");
 const { cfgNumber, parseCsv, normalizeOrigin, readAppVersion } = require("../config/server-runtime.cjs");
 const { mountStaticAssetRoutes, setupFrontend } = require("../http/frontend.cjs");
+const { createBotDebugTools } = require("./bot-debug.cjs");
+const { registerSocketHandlers } = require("../net/socket-handlers.cjs");
+const { startGameLoops } = require("./tick-loop.cjs");
+const accountService = require("../auth/account-service.cjs");
+const { createAuthRoutes } = require("../auth/routes.cjs");
 
 async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") } = {}) {
   const ROOT_DIR = rootDir;
@@ -61,6 +66,9 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
 
   app.disable("x-powered-by");
   app.set("trust proxy", 1);
+  app.use(express.json({ limit: "32kb" }));
+
+  createAuthRoutes({ app, accountService });
 
   app.use((req, res, next) => {
     res.setHeader("X-Content-Type-Options", "nosniff");
@@ -79,7 +87,8 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       uptimeSeconds: Math.round(process.uptime()),
       lobbies: lobbies.size,
       players: activePlayers,
-      env: IS_PRODUCTION ? "production" : "development"
+      env: IS_PRODUCTION ? "production" : "development",
+      accounts: accountService.authAvailable() ? "online" : "disabled"
     });
   });
 
@@ -100,11 +109,17 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     profile: HOST_PROFILE,
     boosted: IS_BOOSTED_HOST,
     tickRate: cfgNumber(GAMEPLAY_CONFIG.server?.tickRate, 60),
-    // Boosted hosts can afford slightly more frequent snapshots, but keep this sane.
-    // Generator visuals are already throttled client-side; do not turn snapshots into a firehose again.
-    snapshotRate: IS_BOOSTED_HOST ? cfgNumber(GAMEPLAY_CONFIG.server?.snapshotRateBoosted, 20) : cfgNumber(GAMEPLAY_CONFIG.server?.snapshotRateStandard, 16),
-    botThinkRate: IS_BOOSTED_HOST ? cfgNumber(GAMEPLAY_CONFIG.server?.botThinkRateBoosted, 12) : cfgNumber(GAMEPLAY_CONFIG.server?.botThinkRateStandard, 8),
-    pathfindLoopLimit: IS_BOOSTED_HOST ? cfgNumber(GAMEPLAY_CONFIG.server?.pathfindLoopLimitBoosted, 1600) : cfgNumber(GAMEPLAY_CONFIG.server?.pathfindLoopLimitStandard, 950),
+    // Keep gameplay at 60Hz, but do not let config turn snapshots/bot thinking into
+    // a CPU firehose. 30 snapshots + 15 bot thinks was enough to make one lobby hitch.
+    snapshotRate: Math.min(
+      IS_BOOSTED_HOST ? 20 : 16,
+      IS_BOOSTED_HOST ? cfgNumber(GAMEPLAY_CONFIG.server?.snapshotRateBoosted, 20) : cfgNumber(GAMEPLAY_CONFIG.server?.snapshotRateStandard, 16)
+    ),
+    botThinkRate: Math.min(
+      IS_BOOSTED_HOST ? 10 : 8,
+      IS_BOOSTED_HOST ? cfgNumber(GAMEPLAY_CONFIG.server?.botThinkRateBoosted, 10) : cfgNumber(GAMEPLAY_CONFIG.server?.botThinkRateStandard, 8)
+    ),
+    pathfindLoopLimit: IS_BOOSTED_HOST ? cfgNumber(GAMEPLAY_CONFIG.server?.pathfindLoopLimitBoosted, 950) : cfgNumber(GAMEPLAY_CONFIG.server?.pathfindLoopLimitStandard, 700),
     pathCacheMax: IS_BOOSTED_HOST ? cfgNumber(GAMEPLAY_CONFIG.server?.pathCacheMaxBoosted, 900) : cfgNumber(GAMEPLAY_CONFIG.server?.pathCacheMaxStandard, 300),
     enablePathCache: process.env.ENABLE_PATH_CACHE !== "false",
     enableEventLoopMetrics: process.env.ENABLE_SERVER_METRICS !== "false",
@@ -118,8 +133,18 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
   const SCRATCH_MARK_MAX = cfgNumber(GAMEPLAY_CONFIG.match?.scratchMarkMax, 45);
   const MAX_SURVIVORS = cfgNumber(GAMEPLAY_CONFIG.match?.maxSurvivors, 4);
   const SURVIVOR_SKINS = new Set(["blueSquare", "yellowStar", "purplePentagon", "nebulaBloom", "eclipseWisp", "riftMoth", "signalDrone"]);
+  const VOID_SKINS = new Set(["voidCore", "solarMaw", "azureRift", "bloodEclipse", "starlessWyrm", "lanternHusk", "abyssSiren", "crownedHollow", "staticNull", "riftSeraph"]);
   function sanitizeSkin(value) {
     return SURVIVOR_SKINS.has(value) ? value : "blueSquare";
+  }
+  function sanitizeVoidSkin(value) {
+    if (value === "killerCircle") return "voidCore";
+    return VOID_SKINS.has(value) ? value : "voidCore";
+  }
+  function sanitizeRoleSkin(role, value) {
+    if (role === "killer") return sanitizeVoidSkin(value);
+    if (role === "survivor") return sanitizeSkin(value);
+    return "spectatorEye";
   }
 
   const serverMetrics = {
@@ -1454,6 +1479,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       killerCount,
       spectators,
       maxSurvivors: MAX_SURVIVORS,
+      hostId: lobby.hostId || null,
       createdAt: lobby.createdAt
     };
   }
@@ -1470,8 +1496,9 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       id: socket.id,
       name: sanitizePlayerName(name),
       isBot: !!options.isBot,
+      accountId: options.accountId || null,
       role,
-      skin: role === "survivor" ? sanitizeSkin(options.skin) : role === "killer" ? "killerCircle" : "spectatorEye",
+      skin: sanitizeRoleSkin(role, options.skin),
       ready: role === "spectator",
       x: 0,
       y: 0,
@@ -1593,11 +1620,25 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       phase: "lobby",
       createdAt,
       lastActivityAt: createdAt,
+      hostId: null,
       players: new Map(),
       game: null
     };
     lobbies.set(id, lobby);
     return lobby;
+  }
+
+  function assignLobbyHostIfNeeded(lobby, preferredId = null) {
+    if (!lobby) return null;
+    if (lobby.hostId && lobby.players.has(lobby.hostId)) return lobby.hostId;
+    const preferred = preferredId ? lobby.players.get(preferredId) : null;
+    if (preferred && !preferred.isBot) {
+      lobby.hostId = preferredId;
+      return lobby.hostId;
+    }
+    const nextHuman = [...lobby.players.values()].find((player) => !player.isBot);
+    lobby.hostId = nextHuman?.id || null;
+    return lobby.hostId;
   }
 
   const SPECTATE_OVERVIEW_ID = "__overview__";
@@ -1669,6 +1710,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     const player = makePlayer(socket, "spectator", name || "Spectator", { isBot: false });
     player.ready = true;
     lobby.players.set(socket.id, player);
+    assignLobbyHostIfNeeded(lobby, socket.id);
     touchLobby(lobby);
     socketToLobby.set(socket.id, lobby.id);
     socket.join(lobby.id);
@@ -1709,8 +1751,9 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       return false;
     }
 
-    const player = makePlayer(socket, role, name, { isBot: false, skin });
+    const player = makePlayer(socket, role, name, { isBot: false, skin, accountId: socket.data?.account?.id || null });
     lobby.players.set(socket.id, player);
+    assignLobbyHostIfNeeded(lobby, socket.id);
     touchLobby(lobby);
     socketToLobby.set(socket.id, lobby.id);
     socket.join(lobby.id);
@@ -1729,6 +1772,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
 
     if (!lobby) return;
     lobby.players.delete(socket.id);
+    assignLobbyHostIfNeeded(lobby);
 
     const humanCount = [...lobby.players.values()].filter((p) => !p.isBot).length;
     if (lobby.players.size === 0 || humanCount === 0) {
@@ -1743,6 +1787,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
             endGame(lobby, "survivors", "The Void disconnected. The Runners slip away.");
           } else {
             actor.dead = true;
+            awardAccountRewardForActor(lobby, lobby.game, actor, "disconnect");
             checkWinConditions(lobby);
           }
         }
@@ -1761,7 +1806,8 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       mapId: lobby.mapId,
       mapName: lobby.mapName,
       maxSurvivors: MAX_SURVIVORS,
-      players: [...lobby.players.values()].map((p) => ({ id: p.id, name: p.name, role: p.role, skin: p.skin || "blueSquare", ready: (p.role === "spectator" || p.isBot) ? true : !!p.ready, isBot: !!p.isBot }))
+      hostId: lobby.hostId || null,
+      players: [...lobby.players.values()].map((p) => ({ id: p.id, name: p.name, role: p.role, skin: p.skin || "blueSquare", ready: (p.role === "spectator" || p.isBot) ? true : !!p.ready, isBot: !!p.isBot, isHost: p.id === lobby.hostId }))
     });
   }
 
@@ -1775,7 +1821,10 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     const id = uid("bot");
     const count = players.filter((p) => p.isBot && p.role === roleValue).length + 1;
     const name = roleValue === "killer" ? `Void Bot ${count}` : `Runner Bot ${count}`;
-    const bot = makePlayer({ id }, roleValue, name, { isBot: true, skin: ["blueSquare", "yellowStar", "purplePentagon", "nebulaBloom", "eclipseWisp", "riftMoth", "signalDrone"][count % 7] });
+    const survivorBotSkins = ["blueSquare", "yellowStar", "purplePentagon", "nebulaBloom", "eclipseWisp", "riftMoth", "signalDrone"];
+    const voidBotSkins = ["voidCore", "solarMaw", "azureRift", "bloodEclipse", "starlessWyrm", "lanternHusk", "abyssSiren", "crownedHollow", "staticNull", "riftSeraph"];
+    const botSkin = roleValue === "killer" ? voidBotSkins[count % voidBotSkins.length] : survivorBotSkins[count % survivorBotSkins.length];
+    const bot = makePlayer({ id }, roleValue, name, { isBot: true, skin: botSkin });
     bot.ready = true;
     lobby.players.set(id, bot);
     touchLobby(lobby);
@@ -1845,6 +1894,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     chooseActiveExitGates(map, 2);
     const game = {
       map,
+      matchId: uid("match"),
       phase: "game",
       startedAt: nowMs(),
       endedAt: null,
@@ -1867,7 +1917,11 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       dotRespawnQueue: 0,
       redOrbs: 0,
       runnerReveal: 0,
-      dotRespawnTimer: DOT_RESPAWN_SECONDS
+      dotRespawnTimer: DOT_RESPAWN_SECONDS,
+      paused: false,
+      pausedBy: null,
+      pausedByName: null,
+      pausedAt: null
     };
 
     seedInitialCollectibleDots(game);
@@ -1879,7 +1933,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
         spectatorPlayers.push(player);
         continue;
       }
-      const actor = makePlayer({ id: player.id }, player.role, player.name, { isBot: !!player.isBot, skin: player.skin });
+      const actor = makePlayer({ id: player.id }, player.role, player.name, { isBot: !!player.isBot, skin: player.skin, accountId: player.accountId || null });
       actor.ready = player.ready;
       actor.stats = createMatchStats(actor.role);
       actor.currentChaseSeconds = 0;
@@ -3363,6 +3417,8 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     survivor.healingTargetId = null;
     survivor.input.up = survivor.input.down = survivor.input.left = survivor.input.right = false;
     addEvent(game, "execute", { x: survivor.x, y: survivor.y, survivorId: survivor.id });
+    const lobby = lobbyForGame(game);
+    if (lobby) awardAccountRewardForActor(lobby, game, survivor, "death");
   }
 
   function freeSurvivorFromHook(game, survivor, rescuers = []) {
@@ -3694,6 +3750,8 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
           actor.chatUntil = 0;
           actor.escapeChatAt = 0;
           addEvent(game, "escape", { x: actor.x, y: actor.y, survivorId: actor.id });
+          const lobby = lobbyForGame(game);
+          if (lobby) awardAccountRewardForActor(lobby, game, actor, "escape");
         }
       } else {
         actor.escapeProgress = 0;
@@ -3807,6 +3865,56 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     // Rifts complete now opens the escape voids. Survivors still have to escape through E tiles.
   }
 
+  function lobbyForGame(game) {
+    if (!game) return null;
+    for (const lobby of lobbies.values()) {
+      if (lobby.game === game) return lobby;
+    }
+    return null;
+  }
+
+  function awardAccountRewardForActor(lobby, game, actor, reason = "match") {
+    if (!accountService.authAvailable()) return;
+    if (!lobby || !game || !actor || actor.role !== "survivor" || actor.isBot || !actor.accountId) return;
+
+    const stats = ensureMatchStats(actor);
+    const orbsDeposited = Math.max(0, Math.floor(Number(stats.orbsDeposited || 0)));
+    if (orbsDeposited <= 0) return;
+
+    const matchId = game.matchId || `${lobby.id}:${game.startedAt || nowMs()}`;
+    accountService.awardMatchOrbs({
+      accountId: actor.accountId,
+      lobbyId: lobby.id,
+      matchId,
+      playerId: actor.id,
+      playerName: actor.name,
+      orbsDeposited
+    }).then((account) => {
+      if (!account) return;
+      actor.accountRewardAwarded = true;
+      actor.accountRewardAwardReason = reason;
+      const socket = io.sockets.sockets.get(actor.id);
+      if (socket) {
+        socket.data.account = account;
+        socket.emit("accountState", {
+          ok: true,
+          account,
+          skins: accountService.publicCatalog(),
+          reward: { orbsDeposited, reason }
+        });
+      }
+    }).catch((error) => {
+      console.error(`Failed to award ${reason} orbs`, error.message || error);
+    });
+  }
+
+  function awardAccountRewardsAfterMatch(lobby, game) {
+    if (!accountService.authAvailable()) return;
+    for (const actor of game.actors.values()) {
+      awardAccountRewardForActor(lobby, game, actor, actor?.dead ? "death" : actor?.escaped ? "escape" : "match");
+    }
+  }
+
   function endGame(lobby, winner, reason) {
     if (!lobby.game || lobby.game.phase === "ended") return;
     const game = lobby.game;
@@ -3823,6 +3931,8 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     }));
     const finalSurvivors = finalActors.filter((p) => p.role === "survivor");
     const escapedCount = finalSurvivors.filter((p) => p.escaped).length;
+
+    awardAccountRewardsAfterMatch(lobby, game);
 
     game.phase = "ended";
     game.endedAt = nowMs();
@@ -3883,6 +3993,52 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     return !wouldCollide(game, actor, x, y);
   }
 
+  function resetMatchInputs(game) {
+    if (!game?.actors) return;
+    for (const actor of game.actors.values()) {
+      if (!actor?.input) continue;
+      const angle = Number.isFinite(actor.input.angle) ? actor.input.angle : actor.angle || 0;
+      resetInput(actor.input);
+      actor.input.angle = angle;
+      actor.input.actionDir = null;
+      actor.input.attackHeld = false;
+      actor.input.attackReleased = false;
+    }
+  }
+
+  function canSocketControlPause(lobby, socketId) {
+    if (!lobby || !socketId) return false;
+    return lobby.hostId === socketId;
+  }
+
+  function setMatchPaused(lobby, socketId, paused) {
+    if (!lobby?.game || lobby.game.phase !== "game") return false;
+    if (!canSocketControlPause(lobby, socketId)) return false;
+    const game = lobby.game;
+    const nextPaused = !!paused;
+    if (game.paused === nextPaused) return true;
+    const controller = lobby.players.get(socketId) || game.actors.get(socketId);
+    if (nextPaused) captureLiveBotAiDebug(game);
+    game.paused = nextPaused;
+    game.pausedBy = nextPaused ? socketId : null;
+    game.pausedByName = nextPaused ? (controller?.name || "Host") : null;
+    game.pausedAt = nextPaused ? nowMs() : null;
+    resetMatchInputs(game);
+    game.events.push({
+      id: uid("evt"),
+      type: nextPaused ? "matchPaused" : "matchResumed",
+      text: nextPaused ? `Match paused by ${game.pausedByName}` : "Match resumed",
+      t: game.time || 0
+    });
+    io.to(lobby.id).emit("matchPauseChanged", {
+      paused: game.paused,
+      pausedBy: game.pausedBy,
+      pausedByName: game.pausedByName
+    });
+    touchLobby(lobby);
+    return true;
+  }
+
   const BOT_AI_HELPERS = Object.freeze({
     resetInput,
     dist,
@@ -3905,6 +4061,11 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
   function updateGame(lobby, dt) {
     const game = lobby.game;
     if (!game || game.phase !== "game") return;
+
+    if (game.paused) {
+      resetMatchInputs(game);
+      return;
+    }
 
     game.time = (game.time || 0) + dt;
 
@@ -4064,190 +4225,23 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
   }
 
 
-  function serializeBotAiDebug(game, actor) {
-    if (!actor?.isBot) return null;
-    const input = actor.input || {};
-    const isMoving = !!(input.up || input.down || input.left || input.right || actor.vault);
-    const movement = [
-      input.up ? "U" : "",
-      input.down ? "D" : "",
-      input.left ? "L" : "",
-      input.right ? "R" : ""
-    ].join("") || "none";
-
-    const runnerBrain = actor.role === "survivor" ? actor.bot?.simpleAi : null;
-    const voidBrain = actor.role === "killer" ? actor.bot?.voidRiftAi : null;
-    const brain = runnerBrain || voidBrain;
-    if (!brain) return null;
-
-    let mode = "idle";
-    let task = brain.task || null;
-    let targetId = task?.id || null;
-    let reason = "";
-
-    if (actor.role === "survivor") {
-      if (actor.vault) {
-        mode = "vaulting";
-        reason = "server vault animation";
-      } else if (brain.postTraversalTarget && (game.time || 0) <= (brain.postTraversalUntil || 0)) {
-        mode = "post-vault move";
-        reason = "moving away from used window/pallet";
-      } else if (brain.survivalTask) {
-        task = brain.survivalTask;
-        targetId = task.id || null;
-        mode = actor.chaseHold > 0 ? "chase escape" : "danger escape";
-        reason = task.kind || "safe task";
-      } else if (brain.unhookTask) {
-        task = brain.unhookTask;
-        targetId = task.id || null;
-        mode = "unhook";
-        reason = "rescue teammate";
-      } else if (brain.healTask) {
-        task = brain.healTask;
-        targetId = task.id || null;
-        mode = "heal";
-        reason = "heal teammate";
-      } else if (brain.nextStep?.kind === "receive-heal") {
-        mode = "receive heal";
-        targetId = brain.nextStep.targetId || null;
-        reason = "waiting for nearby healer";
-      } else if (brain.task) {
-        task = brain.task;
-        targetId = task.id || null;
-        mode = task.kind === "deposit" ? "deposit" : task.kind === "orb" ? "collect orb" : task.kind || "objective";
-        reason = task.reason || (task.nextKind ? `next:${task.nextKind}` : "objective");
-      }
-    } else if (actor.role === "killer") {
-      if (actor.hookActionTargetId || voidBrain.hookCommitTargetId) {
-        mode = "hook/execute";
-        targetId = actor.hookActionTargetId || voidBrain.hookCommitTargetId || null;
-        reason = "holding interaction";
-      } else if (actor.vault) {
-        mode = "vaulting";
-        reason = "window traversal";
-      } else if (actor.breakTarget) {
-        mode = "breaking pallet";
-        targetId = actor.breakTarget?.id || null;
-        reason = "obstacle clear";
-      } else if (voidBrain.lungeCommitTargetId && (game.time || 0) <= (voidBrain.lungeCommitUntil || 0)) {
-        mode = "lunge commit";
-        targetId = voidBrain.lungeCommitTargetId;
-        reason = "holding M1";
-      } else if (voidBrain.huntTargetId) {
-        mode = "hunt";
-        targetId = voidBrain.huntTargetId;
-        reason = voidBrain.nextStep?.kind || "chasing runner";
-      } else if (voidBrain.task) {
-        task = voidBrain.task;
-        targetId = task.id || null;
-        mode = task.kind === "kick" ? "kick rift" : task.kind === "check" ? "check rift" : task.kind || "rift control";
-        reason = voidBrain.nextStep?.kind || "objective pressure";
-      }
-    }
-
-    const nextStep = brain.nextStep || null;
-    const pathLength = Array.isArray(brain.path) ? brain.path.length : 0;
-    const debug = {
-      mode,
-      reason,
-      targetId: targetId || nextStep?.targetId || null,
-      taskKind: task?.kind || null,
-      nextKind: nextStep?.kind || null,
-      nextTargetId: nextStep?.targetId || null,
-      pathLength,
-      repathIn: Number(Math.max(0, brain.repathIn || 0).toFixed(2)),
-      stuckFor: Number(Math.max(0, brain.stuckFor || 0).toFixed(2)),
-      move: movement,
-      moving: isMoving,
-      sprint: !!input.sprint,
-      action: !!input.action,
-      repair: !!input.repair,
-      attackHeld: !!input.attackHeld,
-      attackState: actor.attackState || null,
-      vaulting: !!actor.vault,
-      breaking: !!actor.breakTarget,
-      chase: actor.role === "survivor" ? (actor.chaseHold || 0) > 0 : false,
-      dots: actor.role === "survivor" ? clamp(actor.dots || 0, 0, SURVIVOR_DOT_MAX) : clamp(actor.dots || 0, 0, KILLER_DOT_MAX)
-    };
-
-    if (runnerBrain?.survivalTask) {
-      debug.survivalKind = runnerBrain.survivalTask.kind || null;
-      debug.survivalLock = Number(Math.max(0, (runnerBrain.survivalTask.lockUntil || 0) - (game.time || 0)).toFixed(2));
-    }
-    if (runnerBrain?.moveIntent) {
-      debug.moveIntent = {
-        x: Math.round(runnerBrain.moveIntent.x || 0),
-        y: Math.round(runnerBrain.moveIntent.y || 0),
-        ttl: Number(Math.max(0, (runnerBrain.moveIntent.until || 0) - (game.time || 0)).toFixed(2))
-      };
-    }
-    if (voidBrain?.obstacleCommit) {
-      debug.obstacleCommit = {
-        type: voidBrain.obstacleCommit.type || null,
-        targetId: voidBrain.obstacleCommit.id || null,
-        ttl: Number(Math.max(0, (voidBrain.obstacleCommit.until || 0) - (game.time || 0)).toFixed(2))
-      };
-    }
-
-    return debug;
-  }
-
-  function serializeBotDebug(debug) {
-    if (!debug || typeof debug !== "object") return null;
-    const cleanText = (value, fallback = "") => String(value ?? fallback).slice(0, 96);
-    const cleanNumber = (value, fallback = 0) => {
-      const n = Number(value);
-      return Number.isFinite(n) ? n : fallback;
-    };
-    const cleanBool = (value) => value === true;
-    const moveIntent = debug.moveIntent && typeof debug.moveIntent === "object" ? {
-      x: Math.round(cleanNumber(debug.moveIntent.x)),
-      y: Math.round(cleanNumber(debug.moveIntent.y)),
-      ttl: Number(cleanNumber(debug.moveIntent.ttl).toFixed(2))
-    } : null;
-    const obstacleCommit = debug.obstacleCommit && typeof debug.obstacleCommit === "object" ? {
-      type: debug.obstacleCommit.type ? cleanText(debug.obstacleCommit.type) : null,
-      targetId: debug.obstacleCommit.targetId ? cleanText(debug.obstacleCommit.targetId) : null
-    } : null;
-    return {
-      mode: cleanText(debug.mode, "bot"),
-      task: cleanText(debug.task, "none"),
-      taskKind: debug.taskKind ? cleanText(debug.taskKind) : null,
-      reason: debug.reason ? cleanText(debug.reason) : null,
-      path: Math.max(0, Math.floor(cleanNumber(debug.path))),
-      pathLength: Math.max(0, Math.floor(cleanNumber(debug.pathLength ?? debug.path))),
-      stuck: Number(cleanNumber(debug.stuck).toFixed(2)),
-      stuckFor: Number(cleanNumber(debug.stuckFor ?? debug.stuck).toFixed(2)),
-      repathIn: Number(cleanNumber(debug.repathIn).toFixed(2)),
-      moveLock: Number(cleanNumber(debug.moveLock).toFixed(2)),
-      input: cleanText(debug.input, "idle"),
-      move: cleanText(debug.move, "idle"),
-      sprint: cleanBool(debug.sprint),
-      action: cleanBool(debug.action),
-      repair: cleanBool(debug.repair),
-      attackHeld: cleanBool(debug.attackHeld),
-      attackReleased: cleanBool(debug.attackReleased),
-      targetId: debug.targetId ? cleanText(debug.targetId) : null,
-      nextTargetId: debug.nextTargetId ? cleanText(debug.nextTargetId) : null,
-      nextKind: debug.nextKind ? cleanText(debug.nextKind) : null,
-      survivalKind: debug.survivalKind ? cleanText(debug.survivalKind) : null,
-      survivalLock: Number(cleanNumber(debug.survivalLock).toFixed(2)),
-      moveIntent,
-      obstacleCommit,
-      x: Math.round(cleanNumber(debug.x)),
-      y: Math.round(cleanNumber(debug.y)),
-      line1: cleanText(debug.line1, cleanText(debug.mode, "bot")),
-      line2: cleanText(debug.line2, ""),
-      line3: cleanText(debug.line3, "")
-    };
-  }
+  const {
+    captureLiveBotAiDebug,
+    serializeBotAiDebug,
+    serializeBotDebug
+  } = createBotDebugTools({
+    nowMs,
+    clamp,
+    survivorDotMax: SURVIVOR_DOT_MAX,
+    killerDotMax: KILLER_DOT_MAX
+  });
 
 
   function serializeActor(game, actor, visible = true) {
     // Always send position, angle, and skin, even when the viewer cannot see this actor.
     // The client hides the sprite locally but keeps interpolating it, so reappearing actors
     // do not teleport from an old stale position. The fog may lie, the server does not.
-    const actorSkin = actor.role === "survivor" ? sanitizeSkin(actor.skin) : "killerCircle";
+    const actorSkin = sanitizeRoleSkin(actor.role, actor.skin);
     return {
       id: actor.id,
       name: actor.name,
@@ -4484,6 +4478,10 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       lobbyId: lobby.id,
       seq: game.snapshotSeq || 0,
       serverTime: Number((game.time || 0).toFixed(3)),
+      paused: !!game.paused,
+      pausedBy: game.pausedBy || null,
+      pausedByName: game.pausedByName || null,
+      canPause: canSocketControlPause(lobby, socketId),
       matchStartFreezeRemaining: Math.max(0, (game.matchStartFreezeSeconds || MATCH_START_FREEZE_SECONDS) - (game.time || 0)),
       map: {
         width: map.width,
@@ -4512,8 +4510,9 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
         role: viewer.role,
         spectating: viewer.role === "spectator" || (viewer.role === "survivor" && (!!viewer.dead || !!viewer.escaped)),
         spectateTargetId: spectatorOverview ? SPECTATE_OVERVIEW_ID : (getSpectateTarget(game, viewer)?.id || null),
-        canPlay: viewer.role !== "spectator" && !viewer.dead && !viewer.escaped
-      } : { id: socketId, role: null, spectating: false, spectateTargetId: null, canPlay: false },
+        canPlay: viewer.role !== "spectator" && !viewer.dead && !viewer.escaped,
+        canPause: canSocketControlPause(lobby, socketId)
+      } : { id: socketId, role: null, spectating: false, spectateTargetId: null, canPlay: false, canPause: false },
       actors,
       events: game.events.slice(),
       scratchMarks: visibleScratchMarks.map((s) => ({ id: s.id, x: s.x, y: s.y, angle: s.angle, ttl: s.ttl })),
@@ -4558,305 +4557,54 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     }
   }
 
-  const GAME_TICK_DT = 1 / TICK_RATE;
-  const GAME_TICK_MS = 1000 / TICK_RATE;
-  let lastGameTickAt = performance.now();
-  let gameTickAccumulator = 0;
+  startGameLoops({
+    lobbies,
+    io,
+    serverMetrics,
+    tickRate: TICK_RATE,
+    snapshotRate: SNAPSHOT_RATE,
+    updateGame,
+    buildSnapshotFor,
+    recordTickDuration
+  });
 
-  function runGameTickFrame() {
-    const frameStarted = performance.now();
-    const now = frameStarted;
-    let elapsed = (now - lastGameTickAt) / 1000;
-    lastGameTickAt = now;
-
-    // If the process was paused by deploy/sleep/debugger, do not simulate a whole
-    // vacation in one frame. If it merely hiccuped, catch up a few fixed ticks so
-    // movement does not slow down for everyone.
-    elapsed = clamp(elapsed, 0, 0.12);
-    gameTickAccumulator += elapsed;
-
-    let steps = 0;
-    const maxSteps = 4;
-    while (gameTickAccumulator >= GAME_TICK_DT && steps < maxSteps) {
-      for (const lobby of lobbies.values()) updateGame(lobby, GAME_TICK_DT);
-      gameTickAccumulator -= GAME_TICK_DT;
-      steps++;
-    }
-
-    if (steps >= maxSteps && gameTickAccumulator > GAME_TICK_DT * 2) {
-      gameTickAccumulator = GAME_TICK_DT;
-    }
-
-    recordTickDuration(performance.now() - frameStarted);
-  }
-
-  setInterval(runGameTickFrame, GAME_TICK_MS);
-  setInterval(sendSnapshots, 1000 / SNAPSHOT_RATE);
-
-  io.on("connection", (socket) => {
-    if (io.engine.clientsCount > MAX_CONNECTIONS) {
-      socket.emit("toast", { type: "error", message: "Server is full right now. Try again in a bit." });
-      socket.disconnect(true);
-      return;
-    }
-
-    socket.data.connectedAt = nowMs();
-    socket.emit("hello", { id: socket.id, maps: getMapListForClient(), activeMapId: getDefaultMapId() });
-    socket.emit("lobbyList", [...lobbies.values()].map(getLobbySummary));
-
-    socket.on("createLobby", ({ name, role, playerName, skin, mapId } = {}) => {
-      if (!allowSocketEvent(socket, "lobby")) return;
-      try {
-        const lobby = createLobby(name, mapId);
-        joinLobby(socket, lobby, role, playerName, skin);
-      } catch (error) {
-        console.error("Failed to create lobby", error);
-        socket.emit("toast", { type: "error", message: error.message || "Failed to create lobby." });
-      }
-    });
-
-    socket.on("joinLobby", ({ lobbyId, role, playerName, skin } = {}) => {
-      if (!allowSocketEvent(socket, "lobby")) return;
-      const lobby = lobbies.get(String(lobbyId || ""));
-      if (!lobby) {
-        socket.emit("toast", { type: "error", message: "Lobby not found." });
-        return;
-      }
-      joinLobby(socket, lobby, role, playerName, skin);
-    });
-
-    socket.on("spectateLobby", ({ lobbyId, playerName } = {}) => {
-      if (!allowSocketEvent(socket, "lobby")) return;
-      const lobby = lobbies.get(String(lobbyId || ""));
-      if (!lobby) {
-        socket.emit("toast", { type: "error", message: "Lobby not found." });
-        return;
-      }
-      joinSpectatorLobby(socket, lobby, playerName);
-    });
-
-    socket.on("quickJoin", ({ role, playerName, skin, mapId } = {}) => {
-      if (!allowSocketEvent(socket, "lobby")) return;
-      try {
-        const available = [...lobbies.values()].filter((l) => l.phase === "lobby");
-        const roleValue = role === "killer" ? "killer" : "survivor";
-        const lobby = available.find((l) => {
-          const players = [...l.players.values()];
-          if (roleValue === "killer") return true;
-          return players.filter((p) => p.role === "survivor").length < MAX_SURVIVORS;
-        }) || createLobby("Open Lobby", mapId);
-        joinLobby(socket, lobby, roleValue, playerName, skin);
-      } catch (error) {
-        console.error("Failed to quick join", error);
-        socket.emit("toast", { type: "error", message: error.message || "Failed to quick join." });
-      }
-    });
-
-    socket.on("leaveLobby", () => {
-      if (!allowSocketEvent(socket, "lobby")) return;
-      leaveCurrentLobby(socket);
-    });
-
-    socket.on("setRole", ({ role, skin } = {}) => {
-      if (!allowSocketEvent(socket, "lobby")) return;
-      const lobby = lobbies.get(socketToLobby.get(socket.id));
-      if (!lobby || lobby.phase !== "lobby") return;
-      const player = lobby.players.get(socket.id);
-      if (!player) return;
-
-      const nextRole = role === "spectator" ? "spectator" : role === "killer" ? "killer" : "survivor";
-
-      if (player.role === "spectator" && nextRole !== "spectator") {
-        socket.emit("toast", { type: "info", message: "Spectators cannot switch into a playable role from this lobby." });
-        return;
-      }
-
-      if (!canChangeRole(lobby, player, nextRole)) {
-        socket.emit("toast", { type: "error", message: nextRole === "killer" ? "Could not select The Void." : nextRole === "spectator" ? "Could not join as spectator." : "Runner slots are full." });
-        return;
-      }
-
-      player.role = nextRole;
-      // If the player picked a survivor skin before switching back from killer,
-      // preserve that choice instead of silently resetting them to blue square.
-      player.skin = nextRole === "survivor" ? sanitizeSkin(skin || player.skin) : nextRole === "killer" ? "killerCircle" : "spectatorEye";
-      player.ready = nextRole === "spectator";
-      if (nextRole === "spectator") {
-        socket.emit("toast", { type: "info", message: "Joined as Spectator. You will load into the run watching only." });
-      }
-      touchLobby(lobby);
-      broadcastLobbyState(lobby);
-      broadcastLobbyList();
-    });
-
-    socket.on("setSkin", ({ skin } = {}) => {
-      if (!allowSocketEvent(socket, "lobby")) return;
-      const lobby = lobbies.get(socketToLobby.get(socket.id));
-      if (!lobby || lobby.phase !== "lobby") return;
-      const player = lobby.players.get(socket.id);
-      if (!player || player.role !== "survivor") return;
-      player.skin = sanitizeSkin(skin);
-      player.ready = false;
-      touchLobby(lobby);
-      broadcastLobbyState(lobby);
-    });
-
-    socket.on("setReady", ({ ready } = {}) => {
-      if (!allowSocketEvent(socket, "lobby")) return;
-      const lobby = lobbies.get(socketToLobby.get(socket.id));
-      if (!lobby || lobby.phase !== "lobby") return;
-      const player = lobby.players.get(socket.id);
-      if (!player) return;
-      if (player.role === "spectator") {
-        player.ready = true;
-        socket.emit("toast", { type: "info", message: "Spectators are always ready and do not affect match start." });
-        broadcastLobbyState(lobby);
-        return;
-      }
-      player.ready = !!ready;
-      touchLobby(lobby);
-      broadcastLobbyState(lobby);
-    });
-
-    socket.on("addBot", ({ role } = {}) => {
-      if (!allowSocketEvent(socket, "lobby")) return;
-      const lobby = lobbies.get(socketToLobby.get(socket.id));
-      if (!lobby) return;
-      const result = addBotToLobby(lobby, role);
-      if (!result.ok) {
-        socket.emit("toast", { type: "error", message: result.message });
-        return;
-      }
-      broadcastLobbyState(lobby);
-      broadcastLobbyList();
-    });
-
-    socket.on("removeBot", ({ botId } = {}) => {
-      if (!allowSocketEvent(socket, "lobby")) return;
-      const lobby = lobbies.get(socketToLobby.get(socket.id));
-      if (!lobby) return;
-      const result = removeBotFromLobby(lobby, botId);
-      if (!result.ok) {
-        socket.emit("toast", { type: "error", message: result.message });
-        return;
-      }
-      broadcastLobbyState(lobby);
-      broadcastLobbyList();
-    });
-
-    socket.on("startGame", () => {
-      if (!allowSocketEvent(socket, "lobby")) return;
-      const lobby = lobbies.get(socketToLobby.get(socket.id));
-      if (!lobby) return;
-      startGame(lobby);
-    });
-
-    socket.on("spectate", (payload = {}) => {
-      if (!allowSocketEvent(socket, "action")) return;
-      const lobby = lobbies.get(socketToLobby.get(socket.id));
-      if (!lobby || !lobby.game || lobby.game.phase !== "game") return;
-      const viewer = lobby.game.actors.get(socket.id);
-      if (!viewer || (viewer.role !== "spectator" && !(viewer.role === "survivor" && (viewer.dead || viewer.escaped)))) return;
-      const targetId = String(payload.targetId || "");
-      if (viewer.role === "spectator" && isSpectateOverviewId(targetId)) {
-        viewer.spectateTargetId = SPECTATE_OVERVIEW_ID;
-        viewer.x = lobby.game.map?.width ? lobby.game.map.width / 2 : viewer.x;
-        viewer.y = lobby.game.map?.height ? lobby.game.map.height / 2 : viewer.y;
-        viewer.angle = 0;
-        return;
-      }
-      const target = lobby.game.actors.get(targetId);
-      if (!isSpectatableActorForViewer(viewer, target)) return;
-      viewer.spectateTargetId = targetId;
-      viewer.x = target.x;
-      viewer.y = target.y;
-      viewer.angle = target.angle || 0;
-    });
-
-    socket.on("input", (input = {}) => {
-      if (!allowSocketEvent(socket, "input")) return;
-      serverMetrics.inputsReceived += 1;
-      const lobby = lobbies.get(socketToLobby.get(socket.id));
-      if (!lobby || !lobby.game) return;
-      const actor = lobby.game.actors.get(socket.id);
-      if (!actor || actor.role === "spectator") return;
-      if (actor.role === "survivor" && actor.dead) return;
-      if ((lobby.game.time || 0) < (lobby.game.matchStartFreezeSeconds || MATCH_START_FREEZE_SECONDS)) {
-        resetInput(actor.input);
-        // Let aim update during the intro so the camera/flashlight can settle naturally,
-        // but do not allow movement, attacks, vaults, healing, or deposits yet.
-        if (Number.isFinite(input.angle)) actor.input.angle = input.angle;
-        return;
-      }
-      if (actor.role === "killer" && (actor.voidStun || 0) > 0) {
-        resetInput(actor.input);
-        if (Number.isFinite(input.angle)) actor.input.angle = input.angle;
-        return;
-      }
-
-      actor.input.up = !!input.up;
-      actor.input.down = !!input.down;
-      actor.input.left = !!input.left;
-      actor.input.right = !!input.right;
-      actor.input.sprint = actor.role === "survivor" && !!input.sprint;
-      actor.input.repair = !!input.repair;
-      actor.input.action = actor.input.action || !!input.action;
-      actor.input.actionDir = ["up", "down", "left", "right"].includes(input.actionDir)
-        ? input.actionDir
-        : null;
-      if (actor.role === "killer") {
-        actor.input.attack = actor.input.attack || !!input.attack;
-        actor.input.attackHeld = !!input.attackHeld;
-        actor.input.attackReleased = actor.input.attackReleased || !!input.attackReleased;
-      }
-      if (Number.isFinite(input.angle)) actor.input.angle = input.angle;
-    });
-
-    socket.on("voidAbility", (payload = {}) => {
-      if (!allowSocketEvent(socket, "action")) return;
-      const lobby = lobbies.get(socketToLobby.get(socket.id));
-      if (!lobby || !lobby.game || lobby.game.phase !== "game") return;
-      const actor = lobby.game.actors.get(socket.id);
-      const result = applyVoidAbility(lobby.game, actor, payload.id);
-      if (!result.ok) socket.emit("toast", { type: "error", message: result.message || "The Void cannot use that." });
-    });
-
-    socket.on("survivorAbility", (payload = {}) => {
-      if (!allowSocketEvent(socket, "action")) return;
-      const lobby = lobbies.get(socketToLobby.get(socket.id));
-      if (!lobby || !lobby.game || lobby.game.phase !== "game") return;
-      const actor = lobby.game.actors.get(socket.id);
-      const result = applySurvivorAbility(lobby.game, actor, payload.id);
-      if (!result.ok) socket.emit("toast", { type: "error", message: result.message || "Runner ability cannot be used." });
-    });
-
-    socket.on("chatWheel", (payload = {}) => {
-      if (!allowSocketEvent(socket, "chat")) return;
-      const lobby = lobbies.get(socketToLobby.get(socket.id));
-      if (!lobby || !lobby.game || lobby.game.phase !== "game") return;
-      const actor = lobby.game.actors.get(socket.id);
-      if (!actor || actor.dead || actor.escaped) return;
-      const messages = getChatWheelMessagesForActor(actor);
-      const index = Number.isInteger(payload.index) ? payload.index : Math.floor(Number(payload.index));
-      if (!Number.isInteger(index) || index < 0 || index >= messages.length) return;
-      setActorChat(actor, messages[index], lobby.game);
-    });
-
-    socket.on("backToLobby", () => {
-      if (!allowSocketEvent(socket, "lobby")) return;
-      const lobby = lobbies.get(socketToLobby.get(socket.id));
-      if (!lobby) return;
-      if (lobby.phase === "ended") {
-        lobby.phase = "lobby";
-        lobby.game = null;
-        touchLobby(lobby);
-        for (const p of lobby.players.values()) p.ready = p.role === "spectator" || p.isBot;
-        broadcastLobbyState(lobby);
-        broadcastLobbyList();
-      }
-    });
-
-    socket.on("disconnect", () => leaveCurrentLobby(socket));
+  registerSocketHandlers({
+    io,
+    maxConnections: MAX_CONNECTIONS,
+    maxSurvivors: MAX_SURVIVORS,
+    lobbies,
+    socketToLobby,
+    serverMetrics,
+    matchStartFreezeSeconds: MATCH_START_FREEZE_SECONDS,
+    getMapListForClient,
+    getDefaultMapId,
+    getLobbySummary,
+    allowSocketEvent,
+    createLobby,
+    joinLobby,
+    joinSpectatorLobby,
+    leaveCurrentLobby,
+    canChangeRole,
+    sanitizeSkin,
+    sanitizeVoidSkin,
+    accountService,
+    touchLobby,
+    broadcastLobbyState,
+    broadcastLobbyList,
+    addBotToLobby,
+    removeBotFromLobby,
+    startGame,
+    canSocketControlPause,
+    setMatchPaused,
+    isSpectateOverviewId,
+    spectateOverviewId: SPECTATE_OVERVIEW_ID,
+    isSpectatableActorForViewer,
+    resetInput,
+    applyVoidAbility,
+    applySurvivorAbility,
+    getChatWheelMessagesForActor,
+    setActorChat,
+    nowMs
   });
 
 

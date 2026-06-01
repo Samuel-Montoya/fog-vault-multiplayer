@@ -14,19 +14,32 @@ const LEGACY_SCRIPT_CHAIN = [
 
 const MENU_ACTIONS = [
   { id: "menuPlayBtn", label: "Play", className: "menu-action primary" },
-  { id: "menuSkinsBtn", label: "Runner Skins", className: "menu-action" },
+  { id: "menuSkinsBtn", label: "Skins Shop", className: "menu-action" },
   { id: "menuOptionsBtn", label: "Settings", className: "menu-action" },
   { id: "menuHowBtn", label: "How To Play", className: "menu-action" }
 ]
 
 const SKINS = [
-  { id: "blueSquare", label: "Azure Orbit", className: "skin-square" },
-  { id: "yellowStar", label: "Solar Sprite", className: "skin-star" },
-  { id: "purplePentagon", label: "Prism Ghost", className: "skin-pentagon" },
-  { id: "nebulaBloom", label: "Nebula Bloom", className: "skin-nebula" },
-  { id: "eclipseWisp", label: "Eclipse Wisp", className: "skin-eclipse" },
-  { id: "riftMoth", label: "Night Moth", className: "skin-moth" },
-  { id: "signalDrone", label: "Signal Drone", className: "skin-drone" }
+  { id: "blueSquare", price: 0, label: "Azure Orbit", className: "skin-square" },
+  { id: "yellowStar", price: 120, label: "Solar Sprite", className: "skin-star" },
+  { id: "purplePentagon", price: 160, label: "Prism Ghost", className: "skin-pentagon" },
+  { id: "nebulaBloom", price: 220, label: "Nebula Bloom", className: "skin-nebula" },
+  { id: "eclipseWisp", price: 260, label: "Eclipse Wisp", className: "skin-eclipse" },
+  { id: "riftMoth", price: 300, label: "Night Moth", className: "skin-moth" },
+  { id: "signalDrone", price: 340, label: "Signal Drone", className: "skin-drone" }
+]
+
+const VOID_SKINS = [
+  { id: "voidCore", price: 0, label: "Void Core", className: "skin-void-core" },
+  { id: "solarMaw", price: 180, label: "Solar Maw", className: "skin-void-solar" },
+  { id: "azureRift", price: 180, label: "Azure Rift", className: "skin-void-azure" },
+  { id: "bloodEclipse", price: 240, label: "Blood Eclipse", className: "skin-void-eclipse" },
+  { id: "starlessWyrm", price: 280, label: "Starless Wyrm", className: "skin-void-wyrm" },
+  { id: "lanternHusk", price: 420, label: "Lantern Husk", className: "skin-void-lantern" },
+  { id: "abyssSiren", price: 420, label: "Abyss Siren", className: "skin-void-siren" },
+  { id: "crownedHollow", price: 520, label: "Crowned Hollow", className: "skin-void-crowned" },
+  { id: "staticNull", price: 520, label: "Static Null", className: "skin-void-static" },
+  { id: "riftSeraph", price: 650, label: "Rift Seraph", className: "skin-void-seraph" }
 ]
 
 const HOW_TO_PLAY = [
@@ -114,11 +127,15 @@ function useVoidriftClient(disabled = false) {
   }, [disabled])
 }
 
-function SkinButton({ skin, compact = false }) {
+function SkinButton({ skin, compact = false, role = "runner" }) {
+  const price = Number(skin.price || 0)
   return (
-    <button className="skin-btn" data-skin={skin.id} type="button">
+    <button className="skin-btn" data-skin={skin.id} data-skin-role={role} data-skin-price={price} type="button">
       <span className={`skin-preview ${skin.className}`} aria-hidden="true" />
-      <span>{compact ? skin.label.replace(" ", "\u00A0") : skin.label}</span>
+      <span className="skin-copy">
+        <span>{compact ? skin.label.replace(" ", "\u00A0") : skin.label}</span>
+        <small className="skin-price" data-skin-price-label>{price > 0 ? `${price} orbs` : "Owned"}</small>
+      </span>
     </button>
   )
 }
@@ -182,6 +199,44 @@ function VersionBadge() {
   )
 }
 
+
+function AuthPanel({ compact = false, panelId = "menu" }) {
+  const prefix = compact ? `${panelId}Compact` : panelId
+
+  return (
+    <section
+      id={compact ? `${prefix}AccountPanel` : "accountPanel"}
+      className={compact ? "account-panel compact-account-panel" : "account-panel"}
+      aria-label="RiftRunner account"
+      data-account-panel
+    >
+      <div className="account-panel-top">
+        <div>
+          <span className="account-eyebrow">Account</span>
+          <strong id={compact ? `${prefix}AuthStatusName` : "authStatusName"} data-auth-status-name>Playing as guest</strong>
+        </div>
+        <div className="orb-wallet" title="Deposited orbs available to spend">
+          <span>orbs</span>
+          <b id={compact ? `${prefix}AuthOrbBalance` : "authOrbBalance"} data-auth-orb-balance>0</b>
+        </div>
+      </div>
+      <div id={compact ? `${prefix}AuthForm` : "authForm"} className="auth-form" data-auth-form>
+        <input id={compact ? `${prefix}AuthUsername` : "authUsername"} data-auth-username maxLength="24" placeholder="Username" autoComplete="username" />
+        <input id={compact ? `${prefix}AuthPassword` : "authPassword"} data-auth-password maxLength="72" placeholder="Password" type="password" autoComplete="current-password" />
+        <div className="auth-actions">
+          <button id={compact ? `${prefix}AuthLoginBtn` : "authLoginBtn"} data-auth-action="login" type="button">Login</button>
+          <button id={compact ? `${prefix}AuthRegisterBtn` : "authRegisterBtn"} data-auth-action="register" type="button">Register</button>
+          <button id={compact ? `${prefix}AuthGuestBtn` : "authGuestBtn"} data-auth-action="guest" type="button">Play as Guest</button>
+        </div>
+      </div>
+      <div id={compact ? `${prefix}AccountActions` : "accountActions"} className="account-actions hidden" data-account-actions>
+        <span id={compact ? `${prefix}AccountHint` : "accountHint"} data-account-hint>Deposited orbs save after every run.</span>
+        <button id={compact ? `${prefix}AuthLogoutBtn` : "authLogoutBtn"} data-auth-logout type="button">Logout</button>
+      </div>
+    </section>
+  )
+}
+
 function MainMenu() {
   return (
     <div id="menu" className="screen screen-open io-screen menu-screen">
@@ -200,6 +255,8 @@ function MainMenu() {
             Collect Orbs. Feed the Rifts. Keep your team moving and Escape before The Void consumes you.
           </p>
         </div>
+
+        <AuthPanel />
 
         <nav className="main-menu-actions floating-menu-actions" aria-label="Main menu">
           {MENU_ACTIONS.map((action) => (
@@ -240,6 +297,8 @@ function PlayScreen() {
           description="Set your name and role, then join an open lobby, join as a spectator, or start a fresh run."
         />
 
+        <AuthPanel compact panelId="play" />
+
         <div className="form-grid">
           <label className="field-label" htmlFor="playerName">Player name</label>
           <input id="playerName" maxLength="18" placeholder="Player" autoComplete="off" />
@@ -276,11 +335,24 @@ function SkinScreen() {
     <div id="skinScreen" className="screen io-screen">
       <div className="void-card wide-menu-card">
         <ScreenHeader
-          eyebrow="runner forms"
-          title="Runner Skins"
+          eyebrow="orb shop"
+          title="Skins"
+          description="Deposit orbs after runs, then spend them here. The default skins are always free."
         />
+        <AuthPanel compact panelId="shop" />
+        <div className="section-heading skin-shop-heading">
+          <h2>Runner skins</h2>
+          <span>spend deposited orbs</span>
+        </div>
         <div className="skin-picker big-skin-picker" aria-label="Runner skin selector">
-          {SKINS.map((skin) => <SkinButton skin={skin} key={skin.id} />)}
+          {SKINS.map((skin) => <SkinButton skin={skin} role="runner" key={skin.id} />)}
+        </div>
+        <div className="section-heading skin-shop-heading">
+          <h2>Void skins</h2>
+          <span>nightmare cosmetics</span>
+        </div>
+        <div className="skin-picker big-skin-picker void-shop-skin-picker" aria-label="Void skin selector">
+          {VOID_SKINS.map((skin) => <SkinButton skin={skin} role="void" key={skin.id} />)}
         </div>
       </div>
     </div>
@@ -374,9 +446,14 @@ function LobbyScreen() {
               <button id="addBotSurvivorBtn" type="button">Add Runner Bot</button>
             </div>
 
-            <div className="skin-picker compact lobby-skin-picker" aria-label="Runner skin selector">
-              <div className="skin-title">Runner skin</div>
-              {SKINS.map((skin) => <SkinButton skin={skin} compact key={skin.id} />)}
+            <div className="skin-picker compact lobby-skin-picker runner-lobby-skin-picker" aria-label="Runner skin selector">
+              <div className="skin-title">Runner skins</div>
+              {SKINS.map((skin) => <SkinButton skin={skin} compact role="runner" key={skin.id} />)}
+            </div>
+
+            <div className="skin-picker compact lobby-skin-picker void-lobby-skin-picker hidden" aria-label="Void skin selector" aria-hidden="true">
+              <div className="skin-title">Void skins</div>
+              {VOID_SKINS.map((skin) => <SkinButton skin={skin} compact role="void" key={skin.id} />)}
             </div>
 
             <div className="button-row lobby-actions">
@@ -1170,18 +1247,25 @@ function botDebugLines(actor) {
     debug.attackHeld ? "M1-hold" : ""
   ].filter(Boolean).join(" ")
 
+  const pausedBadge = debug.pausedSnapshot ? " [last live]" : ""
   const lines = [
-    `${actor.name || "Bot"} • ${debug.mode || "AI"}`,
+    `${actor.name || "Bot"} • ${debug.mode || "AI"}${pausedBadge}`,
     `${debug.reason || debug.taskKind || "thinking"} → ${target}`,
     `path:${debug.pathLength ?? 0} stuck:${debug.stuckFor ?? 0}s repath:${debug.repathIn ?? 0}s`,
     actionBits || "input:none"
   ]
 
-  if (debug.survivalKind) lines.splice(2, 0, `survival:${debug.survivalKind} lock:${debug.survivalLock ?? 0}s`)
-  if (debug.nextKind) lines.splice(2, 0, `next:${debug.nextKind}`)
+  if (debug.pausedSnapshot) {
+    lines.splice(1, 0, `PAUSED live:${debug.liveAge ?? 0}s ago paused:${debug.pausedFor ?? 0}s`)
+    if (debug.frozenMove && debug.frozenMove !== debug.move) {
+      lines.push(`frozen input:${debug.frozenMove} live input:${debug.move || "none"}`)
+    }
+  }
+  if (debug.survivalKind) lines.splice(debug.pausedSnapshot ? 3 : 2, 0, `survival:${debug.survivalKind} lock:${debug.survivalLock ?? 0}s`)
+  if (debug.nextKind) lines.splice(debug.pausedSnapshot ? 3 : 2, 0, `next:${debug.nextKind}`)
   if (debug.moveIntent) lines.push(`intent:${debug.moveIntent.x},${debug.moveIntent.y} ttl:${debug.moveIntent.ttl}s`)
   if (debug.obstacleCommit) lines.push(`obstacle:${debug.obstacleCommit.type || "?"} ${debug.obstacleCommit.targetId || "?"}`)
-  return lines.slice(0, 6)
+  return lines.slice(0, debug.pausedSnapshot ? 8 : 6)
 }
 
 function BotDebugOverlay() {
@@ -1246,7 +1330,7 @@ function BotDebugOverlay() {
         if (point.hidden) return null
         return (
           <div
-            className={`bot-debug-label ${actor.role === "killer" ? "is-void" : "is-runner"} ${actor.aiDebug?.stuckFor >= 0.8 ? "is-stuck" : ""}`}
+            className={`bot-debug-label ${actor.role === "killer" ? "is-void" : "is-runner"} ${actor.aiDebug?.stuckFor >= 0.8 ? "is-stuck" : ""} ${actor.aiDebug?.pausedSnapshot ? "is-paused-live" : ""}`}
             style={{ left: `${point.x}px`, top: `${point.y}px` }}
             key={actor.id}
           >

@@ -950,6 +950,135 @@
     return SURVIVOR_SKINS[id] || SURVIVOR_SKINS.blueSquare;
   }
 
+  const VOID_SKINS = {
+    voidCore: {
+      id: "voidCore",
+      label: "Void Core",
+      shape: "core",
+      dark: 0x020008,
+      base: 0x120022,
+      mid: 0x32105f,
+      accent: 0x7c3aed,
+      glow: 0xd8b4fe,
+      shadow: 0x05020a,
+      highlight: 0xf5d0fe
+    },
+    solarMaw: {
+      id: "solarMaw",
+      label: "Solar Maw",
+      shape: "maw",
+      dark: 0x130900,
+      base: 0x3b1900,
+      mid: 0xb45309,
+      accent: 0xfacc15,
+      glow: 0xfef08a,
+      shadow: 0x1c0b00,
+      highlight: 0xfffbeb
+    },
+    azureRift: {
+      id: "azureRift",
+      label: "Azure Rift",
+      shape: "rift",
+      dark: 0x020617,
+      base: 0x082f49,
+      mid: 0x0e7490,
+      accent: 0x38bdf8,
+      glow: 0xbae6fd,
+      shadow: 0x03131f,
+      highlight: 0xe0f2fe
+    },
+    bloodEclipse: {
+      id: "bloodEclipse",
+      label: "Blood Eclipse",
+      shape: "eclipse",
+      dark: 0x070006,
+      base: 0x2b0714,
+      mid: 0x7f1d1d,
+      accent: 0xff3b6a,
+      glow: 0xfda4af,
+      shadow: 0x12020b,
+      highlight: 0xffe4e6
+    },
+    starlessWyrm: {
+      id: "starlessWyrm",
+      label: "Starless Wyrm",
+      shape: "wyrm",
+      dark: 0x02030a,
+      base: 0x111827,
+      mid: 0x4338ca,
+      accent: 0x22d3ee,
+      glow: 0xc4b5fd,
+      shadow: 0x050816,
+      highlight: 0xecfeff
+    },
+    lanternHusk: {
+      id: "lanternHusk",
+      label: "Lantern Husk",
+      shape: "lantern",
+      dark: 0x140b00,
+      base: 0x3a1c05,
+      mid: 0x8b4a12,
+      accent: 0xf59e0b,
+      glow: 0xfef3c7,
+      shadow: 0x1a0d02,
+      highlight: 0xfff7ad
+    },
+    abyssSiren: {
+      id: "abyssSiren",
+      label: "Abyss Siren",
+      shape: "siren",
+      dark: 0x001018,
+      base: 0x03253d,
+      mid: 0x075985,
+      accent: 0x38bdf8,
+      glow: 0x7dd3fc,
+      shadow: 0x001923,
+      highlight: 0xe0faff
+    },
+    crownedHollow: {
+      id: "crownedHollow",
+      label: "Crowned Hollow",
+      shape: "crowned",
+      dark: 0x06030d,
+      base: 0x1d1238,
+      mid: 0x4c1d95,
+      accent: 0xfbbf24,
+      glow: 0xfef08a,
+      shadow: 0x0b0416,
+      highlight: 0xfffbeb
+    },
+    staticNull: {
+      id: "staticNull",
+      label: "Static Null",
+      shape: "static",
+      dark: 0x020617,
+      base: 0x0f172a,
+      mid: 0x475569,
+      accent: 0xa3e635,
+      glow: 0xd9f99d,
+      shadow: 0x020617,
+      highlight: 0xf8fafc
+    },
+    riftSeraph: {
+      id: "riftSeraph",
+      label: "Rift Seraph",
+      shape: "seraph",
+      dark: 0x080316,
+      base: 0x241048,
+      mid: 0x7e22ce,
+      accent: 0x67e8f9,
+      glow: 0xc084fc,
+      shadow: 0x10051f,
+      highlight: 0xf5d0fe
+    }
+  };
+
+  function getVoidSkin(id) {
+    const key = id === "killerCircle" ? "voidCore" : id;
+    return VOID_SKINS[key] || VOID_SKINS.voidCore;
+  }
+
+
   const ui = {
     menu: document.getElementById("menu"),
     playScreen: document.getElementById("playScreen"),
@@ -969,8 +1098,10 @@
     menuBackBtns: [...document.querySelectorAll(".menu-back-btn")],
     playerName: document.getElementById("playerName"),
     roleBtns: [...document.querySelectorAll(".role-btn")],
-    skinBtns: [...document.querySelectorAll(".skin-btn")],
-    lobbySkinPicker: document.querySelector(".lobby-skin-picker"),
+    skinBtns: [...document.querySelectorAll('[data-skin-role="runner"]')],
+    voidSkinBtns: [...document.querySelectorAll('[data-skin-role="void"]')],
+    lobbySkinPicker: document.querySelector(".runner-lobby-skin-picker") || document.querySelector(".lobby-skin-picker"),
+    voidLobbySkinPicker: document.querySelector(".void-lobby-skin-picker"),
     quickJoinBtn: document.getElementById("quickJoinBtn"),
     createLobbyBtn: document.getElementById("createLobbyBtn"),
     lobbyList: document.getElementById("lobbyList"),
@@ -1002,7 +1133,19 @@
     endStats: document.getElementById("endStats"),
     backToLobbyBtn: document.getElementById("backToLobbyBtn"),
     spectateBtn: document.getElementById("spectateBtn"),
-    mainMenuBtn: document.getElementById("mainMenuBtn")
+    mainMenuBtn: document.getElementById("mainMenuBtn"),
+    authUsername: document.getElementById("authUsername"),
+    authPassword: document.getElementById("authPassword"),
+    authLoginBtn: document.getElementById("authLoginBtn"),
+    authRegisterBtn: document.getElementById("authRegisterBtn"),
+    authGuestBtn: document.getElementById("authGuestBtn"),
+    authLogoutBtn: document.getElementById("authLogoutBtn"),
+    compactAuthUsername: document.getElementById("compactAuthUsername"),
+    compactAuthPassword: document.getElementById("compactAuthPassword"),
+    compactAuthLoginBtn: document.getElementById("compactAuthLoginBtn"),
+    compactAuthRegisterBtn: document.getElementById("compactAuthRegisterBtn"),
+    compactAuthGuestBtn: document.getElementById("compactAuthGuestBtn"),
+    compactAuthLogoutBtn: document.getElementById("compactAuthLogoutBtn")
   };
 
   function ensureFpsCounter() {
@@ -1063,6 +1206,7 @@
   let myId = null;
   let selectedRole = "survivor";
   let selectedSkin = "blueSquare";
+  let selectedVoidSkin = "voidCore";
   let currentLobbyState = null;
   let currentSnapshot = null;
   const networkTiming = { lastSnapshotAt: 0, avgGapMs: 50, jitterMs: 0 };
@@ -1073,10 +1217,212 @@
   const INPUT_HEARTBEAT_MS = Math.max(50, cfgNumber(PERFORMANCE_CONFIG.inputHeartbeatMs, 140));
   let toastTimer = null;
   let activeScreenName = "menu";
+  const AUTH_TOKEN_KEY = "riftrunnerAuthToken";
+  let authToken = "";
+  let currentAccount = null;
+  let shopSkins = [];
+
+  function getStoredAuthToken() {
+    try { return String(localStorage.getItem(AUTH_TOKEN_KEY) || ""); }
+    catch { return ""; }
+  }
+
+  function setStoredAuthToken(token) {
+    authToken = String(token || "");
+    try {
+      if (authToken) localStorage.setItem(AUTH_TOKEN_KEY, authToken);
+      else localStorage.removeItem(AUTH_TOKEN_KEY);
+    } catch {
+      // Private browsing can refuse storage. The current session still works.
+    }
+  }
+
+  function accountDisplayName(account = currentAccount) {
+    if (!account) return "Playing as guest";
+    return `${account.displayName || account.username || "Runner"}${account.isGuest ? " · guest" : ""}`;
+  }
+
+  function accountOwnedSet(role = null) {
+    const owned = currentAccount?.ownedSkins || {};
+    const ids = role === "runner" ? owned.runner : role === "void" ? owned.void : owned.all;
+    return new Set(Array.isArray(ids) ? ids : []);
+  }
+
+  function skinIsOwned(role, skinId) {
+    if (role === "void") return skinId === "voidCore" || accountOwnedSet("void").has(skinId);
+    return skinId === "blueSquare" || accountOwnedSet("runner").has(skinId);
+  }
+
+  function shopSkinForButton(button) {
+    const id = button?.dataset?.skin || "";
+    return shopSkins.find((skin) => skin.id === id) || null;
+  }
+
+  function refreshSkinLockUi() {
+    const buttons = [...document.querySelectorAll(".skin-btn[data-skin][data-skin-role]")];
+    for (const button of buttons) {
+      const role = button.dataset.skinRole === "void" ? "void" : "runner";
+      const skinId = button.dataset.skin || "";
+      const shopSkin = shopSkinForButton(button);
+      const price = Math.max(0, Math.floor(Number(shopSkin?.price ?? button.dataset.skinPrice ?? 0)));
+      const owned = skinIsOwned(role, skinId);
+      const affordable = !!currentAccount && (currentAccount.orbBalance || 0) >= price;
+      button.classList.toggle("locked", !owned);
+      button.classList.toggle("owned", owned);
+      button.classList.toggle("affordable", !owned && affordable);
+      button.disabled = false;
+      button.title = owned ? "Owned" : currentAccount ? `Unlock for ${price} deposited orbs` : "Login or Play as Guest to unlock";
+      const priceLabel = button.querySelector("[data-skin-price-label]");
+      if (priceLabel) priceLabel.textContent = owned ? "Owned" : `${price} orbs`;
+    }
+
+    if (!skinIsOwned("runner", selectedSkin)) setSelectedSkin("blueSquare");
+    if (!skinIsOwned("void", selectedVoidSkin)) setSelectedVoidSkin("voidCore");
+  }
+
+  function getAccountPanels() {
+    return [...document.querySelectorAll("[data-account-panel]")];
+  }
+
+  function syncAccountUi() {
+    const panels = getAccountPanels();
+    const balance = String(Math.max(0, Math.floor(Number(currentAccount?.orbBalance || 0))));
+    const lifetime = Math.max(0, Math.floor(Number(currentAccount?.totalOrbsDeposited || 0)));
+
+    for (const panel of panels) {
+      const name = panel.querySelector("[data-auth-status-name]");
+      const balanceEl = panel.querySelector("[data-auth-orb-balance]");
+      const form = panel.querySelector("[data-auth-form]");
+      const actions = panel.querySelector("[data-account-actions]");
+      const hint = panel.querySelector("[data-account-hint]");
+
+      if (name) name.textContent = accountDisplayName();
+      if (balanceEl) balanceEl.textContent = balance;
+      form?.classList.toggle("hidden", !!currentAccount);
+      actions?.classList.toggle("hidden", !currentAccount);
+      if (hint) {
+        hint.textContent = currentAccount
+          ? `${lifetime} lifetime deposited orbs.`
+          : "Login or Play as Guest to save orbs.";
+      }
+    }
+
+    // Backward-compatible fallback for any older DOM copy that does not have data attributes.
+    const fallbackNames = [document.getElementById("authStatusName"), document.getElementById("compactAuthStatusName")].filter(Boolean);
+    for (const el of fallbackNames) el.textContent = accountDisplayName();
+
+    document.body.classList.toggle("has-riftrunner-account", !!currentAccount);
+    refreshSkinLockUi();
+  }
+
+  function applyAccountPayload(payload = {}) {
+    if (Array.isArray(payload.skins)) shopSkins = payload.skins;
+    currentAccount = payload.account || null;
+    syncAccountUi();
+    if (payload.reward?.orbsDeposited) {
+      toast(`Banked ${payload.reward.orbsDeposited} deposited orbs.`, 2400);
+    }
+  }
+
+  async function authFetch(path, options = {}) {
+    const headers = { "Content-Type": "application/json", ...(options.headers || {}) };
+    if (authToken) headers.Authorization = `Bearer ${authToken}`;
+    const response = await fetch(path, { ...options, headers });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || payload.ok === false) throw new Error(payload.error || `Request failed (${response.status})`);
+    return payload;
+  }
+
+  function reconnectSocketForAuth() {
+    if (!socket) return;
+    socket.auth = { ...(socket.auth || {}), token: authToken || "" };
+    if (socket.connected) socket.emit("refreshAccount", { token: authToken || "" });
+  }
+
+  async function submitAuth(kind, source = null) {
+    const sourceEl = source && typeof source.closest === "function" ? source : null;
+    const panel = sourceEl?.closest("[data-account-panel]") || null;
+    const usernameEl = panel?.querySelector("[data-auth-username]") || ui.authUsername;
+    const passwordEl = panel?.querySelector("[data-auth-password]") || ui.authPassword;
+    const username = (usernameEl?.value || "").trim();
+    const password = passwordEl?.value || "";
+    const path = kind === "login" ? "/api/auth/login" : kind === "register" ? "/api/auth/register" : "/api/auth/guest";
+    const body = kind === "guest" ? { name: getName() } : { username, password };
+    const payload = await authFetch(path, { method: "POST", body: JSON.stringify(body) });
+    setStoredAuthToken(payload.token || "");
+    applyAccountPayload(payload);
+    reconnectSocketForAuth();
+    toast(kind === "guest" ? "Guest account ready." : kind === "register" ? "Account created." : "Logged in.", 1800);
+  }
+
+  async function restoreAccount() {
+    authToken = getStoredAuthToken();
+    try {
+      const shop = await authFetch("/api/shop", { method: "GET" });
+      if (Array.isArray(shop.skins)) shopSkins = shop.skins;
+      if (authToken) {
+        const payload = await authFetch("/api/account", { method: "GET" });
+        applyAccountPayload(payload);
+      } else {
+        syncAccountUi();
+      }
+    } catch (error) {
+      console.warn("[account] restore failed", error);
+      syncAccountUi();
+    }
+  }
+
+  function logoutAccount() {
+    setStoredAuthToken("");
+    currentAccount = null;
+    syncAccountUi();
+    reconnectSocketForAuth();
+    toast("Logged out.", 1400);
+  }
+
+  async function buySkinFromButton(button) {
+    const role = button?.dataset?.skinRole === "void" ? "void" : "runner";
+    const skinId = button?.dataset?.skin || "";
+    if (!skinId) return false;
+    if (skinIsOwned(role, skinId)) return true;
+    if (!currentAccount || !authToken) {
+      toast("Login or Play as Guest first, tiny capitalism gate and all.", 2600);
+      return false;
+    }
+    const shopSkin = shopSkinForButton(button);
+    const price = Math.max(0, Math.floor(Number(shopSkin?.price ?? button.dataset.skinPrice ?? 0)));
+    if ((currentAccount.orbBalance || 0) < price) {
+      toast(`Need ${price} deposited orbs for ${shopSkin?.label || "that skin"}.`, 2600);
+      return false;
+    }
+    const payload = await authFetch("/api/shop/buy", { method: "POST", body: JSON.stringify({ skinId }) });
+    applyAccountPayload(payload);
+    socket?.emit("refreshAccount", { token: authToken || "" });
+    toast(`Unlocked ${shopSkin?.label || "skin"}.`, 1800);
+    return true;
+  }
 
   function setSelectedSkin(skinId) {
     selectedSkin = SURVIVOR_SKINS[skinId] ? skinId : "blueSquare";
     ui.skinBtns.forEach((b) => b.classList.toggle("selected", b.dataset.skin === selectedSkin));
+  }
+
+  function setSelectedVoidSkin(skinId) {
+    selectedVoidSkin = getVoidSkin(skinId).id;
+    ui.voidSkinBtns?.forEach((b) => b.classList.toggle("selected", b.dataset.skin === selectedVoidSkin));
+  }
+
+  function skinForSelectedRole(role = selectedRole) {
+    return role === "killer" ? selectedVoidSkin : selectedSkin;
+  }
+
+  function setLobbySkinPickerVisibility(role = selectedRole) {
+    const showRunner = role === "survivor";
+    const showVoid = role === "killer";
+    ui.lobbySkinPicker?.classList.toggle("hidden", !showRunner);
+    ui.lobbySkinPicker?.setAttribute("aria-hidden", showRunner ? "false" : "true");
+    ui.voidLobbySkinPicker?.classList.toggle("hidden", !showVoid);
+    ui.voidLobbySkinPicker?.setAttribute("aria-hidden", showVoid ? "false" : "true");
   }
 
   function syncLobbyRoleButtons(role = selectedRole) {
@@ -1084,8 +1430,7 @@
     ui.beKillerBtn?.classList.toggle("selected", lobbyRole === "killer");
     ui.beSurvivorBtn?.classList.toggle("selected", lobbyRole === "survivor");
     ui.beSpectatorBtn?.classList.toggle("selected", lobbyRole === "spectator");
-    ui.lobbySkinPicker?.classList.toggle("hidden", lobbyRole !== "survivor");
-    ui.lobbySkinPicker?.setAttribute("aria-hidden", lobbyRole !== "survivor" ? "true" : "false");
+    setLobbySkinPickerVisibility(lobbyRole);
     if (ui.lobbyRoleMark) {
       ui.lobbyRoleMark.classList.toggle("killer", lobbyRole === "killer");
       ui.lobbyRoleMark.classList.toggle("survivor", lobbyRole === "survivor");
@@ -1502,6 +1847,36 @@
     ui.toast.classList.remove("hidden");
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => ui.toast.classList.add("hidden"), ms);
+  }
+
+
+  function canLocalToggleMatchPause(snapshot = currentSnapshot) {
+    return !!(snapshot?.canPause || snapshot?.viewer?.canPause);
+  }
+
+  function removeMatchPauseOverlayElement() {
+    const overlay = document.getElementById("matchPauseOverlay");
+    if (overlay) overlay.remove();
+  }
+
+  function updateMatchPauseOverlay(snapshot = currentSnapshot) {
+    const paused = !!snapshot?.paused;
+    // Keep pause server-authoritative, but do not draw the giant pause screen.
+    // The whole point is freezing the match so bot debug labels remain readable,
+    // not covering them with a UI memorial plaque.
+    removeMatchPauseOverlayElement();
+    document.body.classList.toggle("match-paused", paused);
+  }
+
+  function requestToggleMatchPause() {
+    if (activeScreenName !== "game") return;
+    if (!canLocalToggleMatchPause()) {
+      toast("Only the host can pause the match.", 1800);
+      return;
+    }
+    clearHeldGameplayInput();
+    sendInput({}, true);
+    socket?.emit("togglePauseMatch");
   }
 
   function pushScoreGain(payload = {}) {
@@ -4549,7 +4924,7 @@
         }
 
         item.data = data;
-        item.skin = data.skin || (data.role === "survivor" ? "blueSquare" : "killerCircle");
+        item.skin = data.skin || (data.role === "survivor" ? "blueSquare" : "voidCore");
         const hideHookDestination = this.killerHidesRemoteHookedSurvivor(data);
         if (!hideHookDestination) {
           item.target.x = Number.isFinite(data.x) ? data.x : item.target.x;
@@ -4613,10 +4988,10 @@
           this.localServerTarget = { x: data.x, y: data.y, angle: data.angle, data };
           if (this.localVisual) {
             this.localVisual.role = data.role;
-            this.localVisual.skin = data.skin || "blueSquare";
+            this.localVisual.skin = data.skin || (data.role === "killer" ? "voidCore" : "blueSquare");
           }
           if (!this.localVisual || dist(this.localVisual.x, this.localVisual.y, data.x, data.y) > 180) {
-            this.localVisual = { x: data.x, y: data.y, angle: data.angle, role: data.role, skin: data.skin || "blueSquare" };
+            this.localVisual = { x: data.x, y: data.y, angle: data.angle, role: data.role, skin: data.skin || (data.role === "killer" ? "voidCore" : "blueSquare") };
           }
           this.primeIntroCameraForLocalActor(data);
           if (data.dead && data.role === "survivor") {
@@ -4683,7 +5058,7 @@
       container.add([outline, body, facing]);
       return {
         role: data.role,
-        skin: data.skin || "blueSquare",
+        skin: data.skin || (data.role === "killer" ? "voidCore" : "blueSquare"),
         container,
         body,
         outline,
@@ -4994,21 +5369,30 @@
         const wobble = cheapVoidVisual ? 0 : Math.sin(now / 145) * 1.25;
         const pulse = cheapVoidVisual ? 0.45 : Math.sin(now / 210) * 0.5 + 0.5;
         const coreR = 18.5 + wobble + angry * 3.0;
+        const voidSkin = getVoidSkin(data.skin);
+        const darkColor = voidSkin.dark || 0x020008;
+        const baseColor = voidSkin.base || 0x120022;
+        const midColor = voidSkin.mid || 0x32105f;
+        const accentColor = voidSkin.accent || 0x7c3aed;
+        const glowColor = voidSkin.glow || 0xd8b4fe;
+        const shadowColor = voidSkin.shadow || 0x05020a;
+        const highlightColor = voidSkin.highlight || 0xf5d0fe;
 
+        // The Void: layered cursed core. Skin palettes change silhouette details too,
+        // because a "skin" that is only a recolor is barely a costume, it's accounting.
 
-        // The Void: layered black/purple core with orbiting parasite-circles.
         // Kept simple circles only, because scary should not require a GPU funeral.
-        item.body.fillStyle(0x020008, 0.98);
+        item.body.fillStyle(darkColor, 0.98);
         item.body.fillCircle(0, 0, coreR + 6 + pulse * 1.4);
-        item.body.fillStyle(0x120022, 0.94);
+        item.body.fillStyle(baseColor, 0.94);
         item.body.fillCircle(-2, 1, coreR + 2);
-        item.body.fillStyle(0x32105f, 0.86);
+        item.body.fillStyle(midColor, 0.86);
         item.body.fillCircle(-5, -3, coreR * 0.86);
-        item.body.fillStyle(0x7c3aed, 0.34 + angry * 0.24);
+        item.body.fillStyle(accentColor, 0.34 + angry * 0.24);
         item.body.fillCircle(6, 4, coreR * 0.72);
-        item.body.fillStyle(0x000000, 0.70);
+        item.body.fillStyle(darkColor, 0.70);
         item.body.fillCircle(4, -5, coreR * 0.46);
-        item.body.fillStyle(0x090014, 0.78);
+        item.body.fillStyle(shadowColor, 0.78);
         item.body.fillCircle(-7, 7, coreR * 0.34);
 
         const orbCount = Math.max(0, Math.floor(performanceValue("voidBodyOrbCount", LOW_POWER_MODE ? 5 : 9)));
@@ -5018,7 +5402,7 @@
           const a = now / (560 + i * 39) + seed + angry * 0.65;
           const r = 12 + band * 7.8 + (i % 5) * 1.35 + Math.sin(now / (210 + i * 8) + i) * (1.8 + angry * 1.7);
           const size = 2.9 + (i % 4) * 1.35 + angry * 1.2;
-          const color = i % 5 === 0 ? 0xd8b4fe : i % 2 ? 0x8b5cf6 : 0x05020a;
+          const color = i % 5 === 0 ? glowColor : i % 2 ? accentColor : shadowColor;
           const alpha = i % 2 ? 0.58 + angry * 0.14 : 0.74;
           item.body.fillStyle(color, alpha);
           item.body.fillCircle(Math.cos(a) * r, Math.sin(a * (1.06 + band * 0.04)) * r, size);
@@ -5028,17 +5412,155 @@
           const a = -Math.PI * 0.85 + i * (Math.PI * 1.7 / 4) + Math.sin(now / 360 + i) * 0.08;
           const inner = 18 + angry * 2;
           const outer = 32 + i % 2 * 3 + angry * 4;
-          item.outline.lineStyle(1, i % 2 ? 0xa78bfa : 0x4c1d95, 0.22 + angry * 0.16);
+          item.outline.lineStyle(1, i % 2 ? glowColor : midColor, 0.22 + angry * 0.16);
           item.outline.beginPath();
           item.outline.moveTo(Math.cos(a) * inner, Math.sin(a) * inner);
           item.outline.lineTo(Math.cos(a + 0.18) * outer, Math.sin(a + 0.18) * outer);
           item.outline.strokePath();
         }
 
-        item.outline.lineStyle(2, stunned ? 0xff2a45 : 0xd8b4fe, 0.44 + angry * 0.36);
+        item.outline.lineStyle(2, stunned ? 0xff2a45 : glowColor, 0.44 + angry * 0.36);
         item.outline.strokeCircle(0, 0, 24 + angry * 2.4);
-        item.outline.lineStyle(1, stunned ? 0xff6b7a : 0x7c3aed, 0.34 + pulse * 0.18);
+        item.outline.lineStyle(1, stunned ? 0xff6b7a : accentColor, 0.34 + pulse * 0.18);
         item.outline.strokeCircle(0, 0, 34 + pulse * 2.0 + angry * 3.2);
+        if (voidSkin.shape === "maw") {
+          const jaw = coreR + 8 + angry * 4;
+          item.body.fillStyle(highlightColor, 0.16 + angry * 0.08);
+          item.body.beginPath();
+          item.body.moveTo(-jaw * 0.85, -jaw * 0.32);
+          item.body.lineTo(jaw * 0.82, -4);
+          item.body.lineTo(-jaw * 0.85, jaw * 0.32);
+          item.body.closePath();
+          item.body.fillPath();
+          item.outline.lineStyle(2, accentColor, 0.52 + angry * 0.14);
+          item.outline.beginPath();
+          item.outline.moveTo(-jaw, -jaw * 0.42);
+          item.outline.lineTo(jaw * 0.72, -3);
+          item.outline.lineTo(-jaw, jaw * 0.42);
+          item.outline.strokePath();
+        } else if (voidSkin.shape === "rift") {
+          const slash = 29 + angry * 6;
+          item.outline.lineStyle(4, highlightColor, 0.52 + pulse * 0.22);
+          item.outline.beginPath();
+          item.outline.moveTo(-slash * 0.35, -slash);
+          item.outline.lineTo(slash * 0.25, slash);
+          item.outline.strokePath();
+          item.outline.lineStyle(2, accentColor, 0.44);
+          item.outline.strokeEllipse(0, 0, 18 + angry * 3, 44 + angry * 5);
+        } else if (voidSkin.shape === "eclipse") {
+          item.body.fillStyle(0x000000, 0.78);
+          item.body.fillCircle(5, -3, coreR * 0.82);
+          item.outline.lineStyle(3, accentColor, 0.44 + pulse * 0.20);
+          item.outline.strokeCircle(0, 0, 29 + angry * 2);
+          item.outline.lineStyle(1, glowColor, 0.36);
+          item.outline.strokeCircle(-6, 4, 18 + pulse * 3);
+        } else if (voidSkin.shape === "wyrm") {
+          const coils = 3;
+          for (let i = 0; i < coils; i += 1) {
+            const a = now / (370 + i * 60) + i * 2.1;
+            const rx = 24 + i * 8 + angry * 3;
+            const ry = 10 + i * 2;
+            item.outline.lineStyle(2, i % 2 ? glowColor : accentColor, 0.28 + angry * 0.08);
+            item.outline.strokeEllipse(Math.cos(a) * 6, Math.sin(a) * 5, rx, ry);
+          }
+        } else if (voidSkin.shape === "lantern") {
+          const sway = cheapVoidVisual ? 0 : Math.sin(now / 260) * 5;
+          const cageR = 19 + angry * 3;
+          item.outline.lineStyle(2, glowColor, 0.52 + angry * 0.16);
+          item.outline.strokeEllipse(0, 3, cageR * 1.15, cageR * 1.55);
+          item.outline.lineStyle(1, accentColor, 0.42);
+          item.outline.beginPath();
+          item.outline.moveTo(-10 + sway * 0.12, -30);
+          item.outline.lineTo(-3 + sway * 0.18, -18);
+          item.outline.lineTo(6 + sway * 0.12, -30);
+          item.outline.strokePath();
+          item.body.fillStyle(highlightColor, 0.18 + pulse * 0.18 + angry * 0.10);
+          item.body.fillCircle(sway * 0.08, 5, 10 + pulse * 2 + angry * 2);
+          for (let i = -1; i <= 1; i += 1) {
+            item.outline.lineStyle(1, i === 0 ? highlightColor : accentColor, 0.28 + angry * 0.08);
+            item.outline.beginPath();
+            item.outline.moveTo(i * 8, -16);
+            item.outline.lineTo(i * 5 + sway * 0.12, 25);
+            item.outline.strokePath();
+          }
+        } else if (voidSkin.shape === "siren") {
+          const finWave = cheapVoidVisual ? 0 : Math.sin(now / 185) * 4;
+          item.body.fillStyle(accentColor, 0.16 + angry * 0.08);
+          item.body.beginPath();
+          item.body.moveTo(-coreR * 0.5, -8);
+          item.body.lineTo(-44 - angry * 5, -16 + finWave);
+          item.body.lineTo(-32 - angry * 3, 12 + finWave * 0.5);
+          item.body.closePath();
+          item.body.fillPath();
+          item.body.beginPath();
+          item.body.moveTo(coreR * 0.5, -8);
+          item.body.lineTo(44 + angry * 5, -16 - finWave);
+          item.body.lineTo(32 + angry * 3, 12 - finWave * 0.5);
+          item.body.closePath();
+          item.body.fillPath();
+          for (let i = 0; i < 3; i += 1) {
+            const y = -20 + i * 14 + Math.sin(now / 170 + i) * 2;
+            item.outline.lineStyle(2, i % 2 ? glowColor : highlightColor, 0.34 + angry * 0.08);
+            item.outline.beginPath();
+            item.outline.moveTo(-36 - i * 2, y);
+            item.outline.lineTo(-12, y + 4);
+            item.outline.moveTo(36 + i * 2, y);
+            item.outline.lineTo(12, y + 4);
+            item.outline.strokePath();
+          }
+        } else if (voidSkin.shape === "crowned") {
+          const crownTop = -coreR - 6;
+          const crownPulse = 1 + pulse * 0.08 + angry * 0.10;
+          item.body.fillStyle(accentColor, 0.22 + angry * 0.10);
+          item.body.beginPath();
+          item.body.moveTo(-24 * crownPulse, crownTop + 11);
+          item.body.lineTo(-14 * crownPulse, crownTop - 10 - angry * 2);
+          item.body.lineTo(-5 * crownPulse, crownTop + 8);
+          item.body.lineTo(0, crownTop - 15 - angry * 4);
+          item.body.lineTo(7 * crownPulse, crownTop + 8);
+          item.body.lineTo(18 * crownPulse, crownTop - 11 - angry * 2);
+          item.body.lineTo(26 * crownPulse, crownTop + 11);
+          item.body.closePath();
+          item.body.fillPath();
+          item.outline.lineStyle(2, glowColor, 0.48 + angry * 0.16);
+          item.outline.strokeCircle(0, -4, 33 + angry * 4);
+          item.body.fillStyle(highlightColor, 0.35 + pulse * 0.22);
+          item.body.fillCircle(0, crownTop - 15 - angry * 4, 3.8 + angry);
+        } else if (voidSkin.shape === "static") {
+          const glitch = Math.floor(now / 95) % 5;
+          item.body.fillStyle(highlightColor, 0.11 + angry * 0.07);
+          for (let i = 0; i < 6; i += 1) {
+            const sign = i % 2 ? 1 : -1;
+            const w = 7 + ((i + glitch) % 3) * 4;
+            const h = 2 + ((i + 1) % 3) * 2;
+            const x = sign * (12 + ((i * 7 + glitch * 5) % 19));
+            const y = -22 + ((i * 11 + glitch * 9) % 45);
+            item.body.fillRect(sign < 0 ? x - w : x, y, w, h);
+          }
+          for (let i = 0; i < 4; i += 1) {
+            const y = -25 + i * 16 + ((glitch + i) % 2 ? 2 : -2);
+            item.outline.lineStyle(1, i % 2 ? accentColor : highlightColor, 0.34 + angry * 0.10);
+            item.outline.beginPath();
+            item.outline.moveTo(-34 + i * 3, y);
+            item.outline.lineTo(34 - i * 2, y + (i % 2 ? 5 : -5));
+            item.outline.strokePath();
+          }
+        } else if (voidSkin.shape === "seraph") {
+          const wingLift = cheapVoidVisual ? 0 : Math.sin(now / 240) * 4;
+          for (let side = -1; side <= 1; side += 2) {
+            for (let i = 0; i < 3; i += 1) {
+              const rx = 21 + i * 9 + angry * 2;
+              const ry = 7 + i * 2;
+              item.outline.lineStyle(2, i % 2 ? glowColor : accentColor, 0.24 + angry * 0.08);
+              item.outline.strokeEllipse(side * (23 + i * 7), -3 + wingLift + i * 7, rx, ry);
+            }
+          }
+          item.outline.lineStyle(3, highlightColor, 0.34 + pulse * 0.22 + angry * 0.12);
+          item.outline.strokeEllipse(0, -30 - angry * 2, 20 + pulse * 4, 7 + pulse);
+          item.body.fillStyle(glowColor, 0.12 + angry * 0.08);
+          item.body.fillCircle(0, 0, coreR + 13 + pulse * 2);
+        }
+
         if (stunned) {
           const stunPulse = 0.5 + Math.sin(now / 70) * 0.5;
           item.outline.lineStyle(3, 0xff2438, 0.58 + stunPulse * 0.30);
@@ -5380,16 +5902,17 @@
         }
         const charging = data.attackState === "charging";
         const attacking = data.attacking || data.attackState === "quick" || data.attackState === "lunge";
-        const voidStateKey = `${data.attackState || "idle"}:${data.attacking ? 1 : 0}:${data.recovery > 0 ? 1 : 0}:${data.voidStun > 0 ? 1 : 0}:${data.voidSpeedBoost > 0 ? 1 : 0}`;
+        const voidSkin = getVoidSkin(data.skin);
+        const voidStateKey = `${voidSkin.id}:${data.attackState || "idle"}:${data.attacking ? 1 : 0}:${data.recovery > 0 ? 1 : 0}:${data.voidStun > 0 ? 1 : 0}:${data.voidSpeedBoost > 0 ? 1 : 0}`;
         const redrawEvery = performanceValue("voidRedrawMs", LOW_POWER_MODE ? 150 : 95);
         // The Void still animates, but not by redrawing 20+ circles every single frame.
         // Position updates remain smooth because the container moves independently.
         if (item.lastVoidStateKey !== voidStateKey || !item.lastVoidDrawAt || now - item.lastVoidDrawAt >= redrawEvery) {
           item.lastVoidStateKey = voidStateKey;
           item.lastVoidDrawAt = now;
-          this.drawActorShape(item, data, COLORS.killer, 1, 0xd8b4fe, attacking ? 1 : 0.84);
+          this.drawActorShape(item, data, voidSkin.accent || COLORS.killer, 1, voidSkin.glow || 0xd8b4fe, attacking ? 1 : 0.84);
         }
-        item.facing.setFillStyle(data.voidStun > 0 ? 0xff3048 : attacking ? 0xf5d0fe : 0xc084fc, data.voidStun > 0 ? 0.76 : attacking ? 0.82 : data.recovery > 0 ? 0.24 : charging ? 0.72 : 0.48);
+        item.facing.setFillStyle(data.voidStun > 0 ? 0xff3048 : attacking ? (voidSkin.highlight || 0xf5d0fe) : (voidSkin.glow || 0xc084fc), data.voidStun > 0 ? 0.76 : attacking ? 0.82 : data.recovery > 0 ? 0.24 : charging ? 0.72 : 0.48);
       } else {
         const skin = getSurvivorSkin(data.skin);
         let color = data.health <= 1 || data.injured ? COLORS.survivorInjured : skin.color;
@@ -5996,7 +6519,7 @@
       this.cameraSwayTargetY = 0;
       this.cameraFollowX = x;
       this.cameraFollowY = y;
-      this.localVisual = { x, y, angle: data.angle || 0, role: data.role, skin: data.skin || "blueSquare" };
+      this.localVisual = { x, y, angle: data.angle || 0, role: data.role, skin: data.skin || (data.role === "killer" ? "voidCore" : "blueSquare") };
       cameraZoomNow = CAMERA.BASE_ZOOM;
       this.currentCameraZoom = cameraZoomNow;
       this.targetCameraZoom = cameraZoomNow;
@@ -7509,6 +8032,20 @@
     bindMenuMusicToggle(ui.menuMusicToggleBtnOptions);
     bindMenuMusicVolumeSlider(ui.menuMusicVolumeSlider);
     syncMenuMusicVolumeUi();
+    const bindAccountPanelButtons = () => {
+      document.querySelectorAll("[data-auth-action]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const kind = btn.dataset.authAction || "login";
+          submitAuth(kind, btn).catch((error) => toast(error.message || "Account request failed.", 3000));
+        });
+      });
+      document.querySelectorAll("[data-auth-logout]").forEach((btn) => {
+        btn.addEventListener("click", logoutAccount);
+      });
+    };
+    bindAccountPanelButtons();
+    setSelectedSkin(selectedSkin);
+    setSelectedVoidSkin(selectedVoidSkin);
     setSelectedRole(selectedRole);
 
     ui.menuPlayBtn?.addEventListener("click", () => { ensureMenuAudioStarted(); showScreen("play"); });
@@ -7526,19 +8063,41 @@
     });
 
     ui.skinBtns.forEach((btn) => {
-      btn.addEventListener("click", () => {
-        setSelectedSkin(btn.dataset.skin || "blueSquare");
-        const mine = currentLobbyState?.players?.find((p) => p.id === myId);
-        if (socket && mine?.role === "survivor") {
-          socket.emit("setSkin", { skin: selectedSkin });
+      btn.addEventListener("click", async () => {
+        try {
+          const ok = await buySkinFromButton(btn);
+          if (!ok) return;
+          setSelectedSkin(btn.dataset.skin || "blueSquare");
+          const mine = currentLobbyState?.players?.find((p) => p.id === myId);
+          if (socket && mine?.role === "survivor") {
+            socket.emit("setSkin", { skin: selectedSkin });
+          }
+        } catch (error) {
+          toast(error.message || "Could not unlock skin.", 2600);
         }
       });
     });
 
-    ui.quickJoinBtn.addEventListener("click", () => socket.emit("quickJoin", { role: selectedRole, playerName: getName(), skin: selectedSkin }));
-    ui.createLobbyBtn.addEventListener("click", () => socket.emit("createLobby", { role: selectedRole, playerName: getName(), skin: selectedSkin }));
+    ui.voidSkinBtns?.forEach((btn) => {
+      btn.addEventListener("click", async () => {
+        try {
+          const ok = await buySkinFromButton(btn);
+          if (!ok) return;
+          setSelectedVoidSkin(btn.dataset.skin || "voidCore");
+          const mine = currentLobbyState?.players?.find((p) => p.id === myId);
+          if (socket && mine?.role === "killer") {
+            socket.emit("setSkin", { skin: selectedVoidSkin });
+          }
+        } catch (error) {
+          toast(error.message || "Could not unlock skin.", 2600);
+        }
+      });
+    });
+
+    ui.quickJoinBtn.addEventListener("click", () => socket.emit("quickJoin", { role: selectedRole, playerName: getName(), skin: skinForSelectedRole() }));
+    ui.createLobbyBtn.addEventListener("click", () => socket.emit("createLobby", { role: selectedRole, playerName: getName(), skin: skinForSelectedRole() }));
     ui.beSurvivorBtn.addEventListener("click", () => socket.emit("setRole", { role: "survivor", skin: selectedSkin }));
-    ui.beKillerBtn.addEventListener("click", () => socket.emit("setRole", { role: "killer" }));
+    ui.beKillerBtn.addEventListener("click", () => socket.emit("setRole", { role: "killer", skin: selectedVoidSkin }));
     ui.beSpectatorBtn?.addEventListener("click", () => socket.emit("setRole", { role: "spectator" }));
     ui.readyBtn.addEventListener("click", () => {
       const mine = currentLobbyState?.players?.find((p) => p.id === myId);
@@ -7600,7 +8159,7 @@
       const button = document.createElement("button");
       button.textContent = lobby.phase === "lobby" ? "Join" : "In Run";
       button.disabled = lobby.phase !== "lobby";
-      button.addEventListener("click", () => socket.emit("joinLobby", { lobbyId: lobby.id, role: selectedRole, playerName: getName(), skin: selectedSkin }));
+      button.addEventListener("click", () => socket.emit("joinLobby", { lobbyId: lobby.id, role: selectedRole, playerName: getName(), skin: skinForSelectedRole() }));
       const spectateButton = document.createElement("button");
       spectateButton.type = "button";
       spectateButton.className = "spectate-lobby-btn";
@@ -7669,7 +8228,7 @@
       dot.textContent = "•";
 
       const skin = document.createElement("span");
-      const skinName = isKiller ? "Void Core" : isSpectator ? "Watching only" : getSurvivorSkin(player.skin).label;
+      const skinName = isKiller ? getVoidSkin(player.skin).label : isSpectator ? "Watching only" : getSurvivorSkin(player.skin).label;
       skin.className = "player-skin-name";
       skin.title = skinName;
       skin.textContent = skinName;
@@ -7741,6 +8300,8 @@
     else if (iAmSpectator) syncLobbyRoleButtons("spectator");
     if (mine?.role === "survivor" && SURVIVOR_SKINS[mine.skin]) {
       setSelectedSkin(mine.skin);
+    } else if (mine?.role === "killer") {
+      setSelectedVoidSkin(mine.skin);
     }
     ui.readyBtn.textContent = iAmSpectator ? "Spectator Ready" : mine?.ready ? "Unready" : "Ready";
     ui.readyBtn.dataset.readyState = iAmSpectator ? "spectator" : mine?.ready ? "unready" : "ready";
@@ -7756,8 +8317,7 @@
     }
     ui.addBotSurvivorBtn.disabled = false;
     ui.addBotKillerBtn.disabled = false;
-    ui.lobbySkinPicker?.classList.toggle("hidden", iAmSpectator || selectedRole === "killer");
-    ui.lobbySkinPicker?.setAttribute("aria-hidden", (iAmSpectator || selectedRole === "killer") ? "true" : "false");
+    setLobbySkinPickerVisibility(iAmSpectator ? "spectator" : selectedRole);
     if (ui.startBtn) {
       ui.startBtn.disabled = !canStartRun;
       ui.startBtn.title = canStartRun ? "Start the run. Spectators will load in watching instead of playing." : "Need exactly 1 Void, at least 1 Runner, and every playable human ready. Spectators are optional and do not block the match.";
@@ -7798,6 +8358,11 @@
       if (isEditableTarget(e.target)) return;
       if (["KeyW", "KeyA", "KeyS", "KeyD", "ArrowUp", "ArrowLeft", "ArrowDown", "ArrowRight", "Space"].includes(e.code)) e.preventDefault();
       ensureAudioStarted();
+      if (e.code === "BracketRight") {
+        e.preventDefault();
+        if (!e.repeat) requestToggleMatchPause();
+        return;
+      }
       if (isIntroInputLocked() && INTRO_LOCKED_KEY_CODES.has(e.code)) {
         e.preventDefault();
         clearMovementInputOnly();
@@ -7879,7 +8444,8 @@
       reconnectionAttempts: Infinity,
       reconnectionDelay: 650,
       reconnectionDelayMax: 3500,
-      timeout: 10000
+      timeout: 10000,
+      auth: { token: authToken || getStoredAuthToken() || "" }
     };
     const configuredSocketUrl = typeof window.RIFTRUNNER_SOCKET_URL === "string"
       ? window.RIFTRUNNER_SOCKET_URL.trim()
@@ -7890,13 +8456,20 @@
       if (reason !== "io client disconnect") toast("Disconnected. Reconnecting...");
     });
     socket.on("hello", ({ id }) => { myId = id; });
+    socket.on("accountState", applyAccountPayload);
     socket.on("toast", ({ message }) => toast(message));
+    socket.on("matchPauseChanged", (payload = {}) => {
+      currentSnapshot = { ...(currentSnapshot || {}), ...payload };
+      updateMatchPauseOverlay(currentSnapshot);
+      toast(payload.paused ? `Match paused${payload.pausedByName ? ` by ${payload.pausedByName}` : ""}.` : "Match resumed.", 1500);
+    });
     socket.on("scoreGain", (payload) => pushScoreGain(payload));
     socket.on("lobbyList", renderLobbyList);
     socket.on("joinedLobby", () => showScreen("lobby"));
     socket.on("lobbyState", renderLobbyState);
     socket.on("gameStarted", (map) => {
       currentSnapshot = null;
+      updateMatchPauseOverlay(null);
       let lockSeconds = Number(map?.startFreezeSeconds || IMMERSION.MATCH_START_LOCK_SECONDS || 1.5);
       if (!Number.isFinite(lockSeconds) || lockSeconds < 0) lockSeconds = IMMERSION.MATCH_START_LOCK_SECONDS || 1.5;
       if (phaserScene) {
@@ -7944,9 +8517,12 @@
       networkTiming.lastSnapshotAt = arrivedAt;
       snapshot.clientArrivedAt = arrivedAt;
       currentSnapshot = snapshot;
+      updateMatchPauseOverlay(snapshot);
       if (phaserScene) phaserScene.applySnapshot(snapshot);
     });
     socket.on("matchEnded", ({ winner, reason, escapedCount = 0, totalSurvivors = 0, finalActors = [] }) => {
+      currentSnapshot = { ...(currentSnapshot || {}), paused: false, canPause: false };
+      updateMatchPauseOverlay(currentSnapshot);
       if (phaserScene) {
         phaserScene.spectateTargetId = null;
         phaserScene.lastSpectateEmitId = "";
@@ -7967,6 +8543,7 @@
     setupReactChatWheelBridge();
     setupReactAbilityWheelBridge();
     setupKeyboard();
+    restoreAccount();
     setupSockets();
     bootPhaser();
     showScreen("menu");
