@@ -14,8 +14,10 @@ const RECENT_CHECK_MEMORY = 3;
 
 const VOID_HUNT_RADIUS = 980;
 const VOID_CLOSE_SENSE_RADIUS = 360;
-const VOID_TARGET_MEMORY_SECONDS = 3.25;
-const VOID_HUNT_SWITCH_LOCK_SECONDS = 1.45;
+const VOID_TARGET_MEMORY_SECONDS = 2.35;
+const VOID_HUNT_SWITCH_LOCK_SECONDS = 4.25;
+const VOID_CHASE_TARGET_REPATH_DISTANCE = 96;
+const VOID_LAST_KNOWN_REACHED_DISTANCE = 62;
 const VOID_HOOK_DISTANCE = 128;
 const VOID_ATTACK_QUICK_RANGE = 86;
 const VOID_ATTACK_LUNGE_RANGE = 122;
@@ -32,6 +34,9 @@ const VOID_CHASE_REPATH_SECONDS = 0.46;
 const VOID_HOOK_COMMIT_SECONDS = 3.1;
 const VOID_POST_OBSTACLE_SECONDS = 2.35;
 const VOID_OBSTACLE_REUSE_COOLDOWN_SECONDS = 6.25;
+const VOID_OBSTACLE_ACTION_BUFFER = 70;
+const VOID_OBSTACLE_ACTION_LOCK_SECONDS = 0.45;
+const VOID_OBSTACLE_COMMIT_SECONDS = 2.15;
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -48,8 +53,8 @@ function helperDist(helpers, ax, ay, bx, by) {
   return typeof helpers?.dist === "function" ? helpers.dist(ax, ay, bx, by) : distance(ax, ay, bx, by);
 }
 
-const MOVE_INTENT_LOCK_SECONDS = 0.58;
-const MOVE_INTENT_REACHED_DISTANCE = 26;
+const MOVE_INTENT_LOCK_SECONDS = 0.72;
+const MOVE_INTENT_REACHED_DISTANCE = 30;
 
 function stableMoveTarget(actor, tx, ty, brain) {
   if (!brain || !Number.isFinite(tx) || !Number.isFinite(ty)) return { x: tx, y: ty };
@@ -72,7 +77,9 @@ function stableMoveTarget(actor, tx, ty, brain) {
       // This is the anti-ping-pong governor. New target choices are allowed, but not
       // if they instantly reverse the actor or shuffle between near-identical points.
       // That exact twitch was the "back/forth forever" bug wearing a tiny hat.
-      if (targetShift < 92 && dot > -0.45 && notActuallyStuck) {
+      const tinyCorrection = targetShift < 112 && dot > -0.45;
+      const hardReverse = targetShift < 170 && dot < -0.35 && oldDistance > MOVE_INTENT_REACHED_DISTANCE * 1.35;
+      if ((tinyCorrection || hardReverse) && notActuallyStuck) {
         return { x: old.x, y: old.y };
       }
     }
@@ -349,6 +356,8 @@ function buildPath(game, actor, targetX, targetY, helpers) {
 function clearPath(brain) {
   brain.path = [];
   brain.pathTargetKey = null;
+  brain.pathGoalX = null;
+  brain.pathGoalY = null;
   brain.repathIn = 0;
   brain.moveIntent = null;
   brain.moveAxis = null;
@@ -402,7 +411,12 @@ function followPath(game, actor, target, helpers, options = {}) {
   const brain = ensureVoidBrain(actor);
   brain.aiNow = game.time || 0;
   const stopDistance = Math.max(8, options.stopDistance || 18);
-  const targetKeyValue = `${Math.round(target.x)},${Math.round(target.y)}:${Math.round(stopDistance)}`;
+  const targetKeyValue = options.pathTargetKey || `${Math.round(target.x)},${Math.round(target.y)}:${Math.round(stopDistance)}`;
+  const repathTargetMoveDistance = Number(options.repathTargetMoveDistance || 0);
+  const targetMovedTooFar = repathTargetMoveDistance > 0
+    && Number.isFinite(brain.pathGoalX)
+    && Number.isFinite(brain.pathGoalY)
+    && helperDist(helpers, target.x, target.y, brain.pathGoalX, brain.pathGoalY) >= repathTargetMoveDistance;
   const d = helperDist(helpers, actor.x, actor.y, target.x, target.y);
 
   if (d <= stopDistance && lineClear(game, actor, target.x, target.y, helpers)) {
@@ -426,12 +440,15 @@ function followPath(game, actor, target, helpers, options = {}) {
   const mustRepath = !brain.path?.length
     || brain.pathTargetKey !== targetKeyValue
     || brain.repathIn <= 0
+    || targetMovedTooFar
     || (brain.stuckFor || 0) >= STUCK_CLEAR_SECONDS;
 
   if (mustRepath) {
     brain.path = buildPath(game, actor, target.x, target.y, helpers);
     brain.pathTargetKey = targetKeyValue;
-    brain.repathIn = PATH_REPLAN_SECONDS + Math.random() * 0.18;
+    brain.pathGoalX = target.x;
+    brain.pathGoalY = target.y;
+    brain.repathIn = Number(options.repathSeconds || PATH_REPLAN_SECONDS) + Math.random() * 0.18;
     if ((brain.stuckFor || 0) >= STUCK_SAMPLE_SECONDS && (brain.stuckFor || 0) < STUCK_CLEAR_SECONDS) {
       brain.stuckFor = Math.max(0, (brain.stuckFor || 0) - STUCK_SAMPLE_SECONDS);
     }
@@ -757,6 +774,11 @@ function rememberHuntTarget(game, brain, runner) {
   brain.lastKnownRunner = { id: runner.id, x: runner.x, y: runner.y, until: now + VOID_TARGET_MEMORY_SECONDS };
 }
 
+function keepRememberedHuntTarget(brain, runner) {
+  if (!runner) return;
+  brain.huntTargetId = runner.id;
+}
+
 function chooseHuntTarget(game, killer, helpers, brain) {
   let best = null;
   let bestScore = -Infinity;
@@ -779,8 +801,13 @@ function chooseHuntTarget(game, killer, helpers, brain) {
   // Do not switch hunt targets every tick. That was the Void's "hunt mode"
   // treadmill: target A wins by 2 points, then target B, then A, then everyone
   // watches the killer vibrate like a broken appliance.
-  if (currentValid && (currentSensed || currentRemembered) && now <= Number(brain.huntLockUntil || 0)) {
+  if (currentValid && currentSensed && now <= Number(brain.huntLockUntil || 0)) {
     rememberHuntTarget(game, brain, current);
+    return current;
+  }
+
+  if (currentValid && currentRemembered && now <= Number(brain.huntLockUntil || 0)) {
+    keepRememberedHuntTarget(brain, current);
     return current;
   }
 
@@ -811,7 +838,10 @@ function chooseHuntTarget(game, killer, helpers, brain) {
     if (bestScore < currentScore + switchMargin) best = current;
   }
 
-  if (best) rememberHuntTarget(game, brain, best);
+  if (best) {
+    if (canSenseRunner(game, killer, best, helpers)) rememberHuntTarget(game, brain, best);
+    else keepRememberedHuntTarget(brain, best);
+  }
   return best;
 }
 
@@ -973,6 +1003,68 @@ function choosePostObstaclePoint(game, killer, object, target, helpers) {
   return best || { x: clamp(killer.x + vx * tile * 4, 44, game.map.width - 44), y: clamp(killer.y + vy * tile * 4, 44, game.map.height - 44) };
 }
 
+function obstacleActionLocked(game, killer, type, object) {
+  if (!object) return true;
+  const now = game.time || 0;
+
+  for (const other of game.actors?.values?.() || []) {
+    if (!other || other === killer) continue;
+    if (other.vault?.objectId === object.id && other.vault?.vaultType === (type === "pallet" ? "pallet" : "window")) return true;
+    if (type === "pallet" && other.breakTarget === object.id) return true;
+  }
+
+  if (type === "window") {
+    if (killer.bot?.lastVaultWindowId === object.id && now < Number(killer.bot?.lastVaultWindowUntil || 0)) return true;
+  }
+
+  if (type === "pallet") {
+    if (!object || object.broken || object.state !== "dropped") return true;
+  }
+
+  return false;
+}
+
+function obstacleApproachPoint(game, killer, object, helpers, target = null) {
+  if (!object) return null;
+  const c = centerOf(object);
+  const tile = game.map?.tile || 32;
+  const gap = Math.max(40, tile * 0.92);
+  const raw = object.orientation === "horizontal"
+    ? [
+        { x: c.x, y: c.y - gap },
+        { x: c.x, y: c.y + gap },
+        { x: c.x - gap, y: c.y - gap },
+        { x: c.x + gap, y: c.y - gap },
+        { x: c.x - gap, y: c.y + gap },
+        { x: c.x + gap, y: c.y + gap }
+      ]
+    : [
+        { x: c.x - gap, y: c.y },
+        { x: c.x + gap, y: c.y },
+        { x: c.x - gap, y: c.y - gap },
+        { x: c.x - gap, y: c.y + gap },
+        { x: c.x + gap, y: c.y - gap },
+        { x: c.x + gap, y: c.y + gap }
+      ];
+
+  let best = null;
+  let bestScore = Infinity;
+  for (const point of raw) {
+    const px = clamp(point.x, 44, game.map.width - 44);
+    const py = clamp(point.y, 44, game.map.height - 44);
+    if (!actorCanStandAt(game, killer, px, py, helpers)) continue;
+    const route = buildPath(game, killer, px, py, helpers);
+    if (!route && distance(killer.x, killer.y, px, py) > gap * 1.3) continue;
+    const targetScore = target ? distance(px, py, target.x, target.y) : 0;
+    const score = (route?.length || 0) * 46 + distance(killer.x, killer.y, px, py) * 0.45 + targetScore * 0.22;
+    if (score < bestScore) {
+      bestScore = score;
+      best = { x: px, y: py };
+    }
+  }
+  return best;
+}
+
 function recentlyUsedObstacle(brain, type, id, now) {
   const recent = brain.recentObstacle;
   if (!recent || !id) return false;
@@ -1004,7 +1096,7 @@ function chooseKillerObstacle(game, killer, target, helpers) {
   const now = game.time || 0;
 
   for (const win of game.map?.windows || []) {
-    if (!win || recentlyUsedObstacle(brain, "window", win.id, now)) continue;
+    if (!win || recentlyUsedObstacle(brain, "window", win.id, now) || obstacleActionLocked(game, killer, "window", win)) continue;
     const score = obstacleScore(game, killer, target, win, "window", helpers);
     if (score > bestScore) {
       best = { type: "window", object: win, score };
@@ -1013,7 +1105,7 @@ function chooseKillerObstacle(game, killer, target, helpers) {
   }
 
   for (const pallet of game.map?.pallets || []) {
-    if (!pallet || pallet.broken || pallet.state !== "dropped" || recentlyUsedObstacle(brain, "pallet", pallet.id, now)) continue;
+    if (!pallet || pallet.broken || pallet.state !== "dropped" || recentlyUsedObstacle(brain, "pallet", pallet.id, now) || obstacleActionLocked(game, killer, "pallet", pallet)) continue;
     const score = obstacleScore(game, killer, target, pallet, "pallet", helpers);
     if (score > bestScore) {
       best = { type: "pallet", object: pallet, score };
@@ -1046,7 +1138,9 @@ function tryUseKillerObstacle(game, killer, target, helpers, dt = 0) {
 
   let choice = null;
   const committedObject = obstacleStillValid(game, brain.obstacleCommit);
-  if (committedObject && now <= (brain.obstacleCommit.until || 0) && !recentlyUsedObstacle(brain, brain.obstacleCommit.type, brain.obstacleCommit.id, now)) {
+  if (committedObject && now <= (brain.obstacleCommit.until || 0)
+    && !recentlyUsedObstacle(brain, brain.obstacleCommit.type, brain.obstacleCommit.id, now)
+    && !obstacleActionLocked(game, killer, brain.obstacleCommit.type, committedObject)) {
     choice = { type: brain.obstacleCommit.type, object: committedObject };
   }
 
@@ -1056,7 +1150,7 @@ function tryUseKillerObstacle(game, killer, target, helpers, dt = 0) {
       brain.obstacleCommit = {
         type: choice.type,
         id: choice.object.id || null,
-        until: now + 1.15,
+        until: now + VOID_OBSTACLE_COMMIT_SECONDS,
         postUntil: 0
       };
       clearPath(brain);
@@ -1069,6 +1163,12 @@ function tryUseKillerObstacle(game, killer, target, helpers, dt = 0) {
   const d = helperDist(helpers, killer.x, killer.y, c.x, c.y);
   brain.nextStep = { kind: choice.type === "window" ? "vault-window" : "break-pallet", targetId: choice.object.id || null };
 
+  if (obstacleActionLocked(game, killer, choice.type, choice.object)) {
+    rememberObstacleUse(brain, choice.type, choice.object.id, now);
+    brain.obstacleCommit = null;
+    return false;
+  }
+
   if (d <= interactDistance * 0.94) {
     freezeActorInput(killer, c);
     killer.input.action = true;
@@ -1076,12 +1176,11 @@ function tryUseKillerObstacle(game, killer, target, helpers, dt = 0) {
     killer.input.attackHeld = false;
     killer.input.attackReleased = false;
     killer.input.attack = false;
-    rememberObstacleUse(brain, choice.type, choice.object.id, now);
     brain.obstacleCommit = {
       type: choice.type,
       id: choice.object.id || null,
-      until: now + 0.2,
-      postUntil: now + VOID_POST_OBSTACLE_SECONDS,
+      until: now + VOID_OBSTACLE_ACTION_LOCK_SECONDS,
+      postUntil: now + 0.35,
       postTarget: choosePostObstaclePoint(game, killer, choice.object, target, helpers)
     };
     brain.stuckFor = 0;
@@ -1089,15 +1188,23 @@ function tryUseKillerObstacle(game, killer, target, helpers, dt = 0) {
     return true;
   }
 
-  followPath(game, killer, c, helpers, {
-    sprint: true,
-    stopDistance: Math.max(20, interactDistance * 0.62),
-    dt
-  });
   killer.input.action = false;
   killer.input.attackHeld = false;
   killer.input.attackReleased = false;
   killer.input.attack = false;
+
+  if (d <= interactDistance + VOID_OBSTACLE_ACTION_BUFFER) {
+    setMoveToward(killer, c.x, c.y, true);
+    return true;
+  }
+
+  const approach = obstacleApproachPoint(game, killer, choice.object, helpers, target);
+  const pathTarget = approach || c;
+  followPath(game, killer, pathTarget, helpers, {
+    sprint: true,
+    stopDistance: Math.max(14, interactDistance * 0.38),
+    dt
+  });
   return true;
 }
 
@@ -1152,12 +1259,65 @@ function continueHookCommit(game, killer, helpers) {
   return true;
 }
 
+function clearHuntMemory(actor) {
+  const brain = ensureVoidBrain(actor);
+  brain.huntTargetId = null;
+  brain.lastKnownRunner = null;
+  brain.huntLockUntil = 0;
+  brain.lungeCommitTargetId = null;
+  brain.lungeCommitUntil = 0;
+  brain.obstacleCommit = null;
+  brain.nextStep = null;
+  clearPath(brain);
+}
+
+function chaseLastKnownRunner(game, killer, target, helpers, dt) {
+  const brain = ensureVoidBrain(killer);
+  const now = game.time || 0;
+  const last = brain.lastKnownRunner && brain.lastKnownRunner.id === target.id ? brain.lastKnownRunner : null;
+
+  if (!last || now > Number(last.until || 0)) {
+    clearHuntMemory(killer);
+    return false;
+  }
+
+  const reachedLastKnown = helperDist(helpers, killer.x, killer.y, last.x, last.y) <= VOID_LAST_KNOWN_REACHED_DISTANCE;
+  if (reachedLastKnown) {
+    clearHuntMemory(killer);
+    return false;
+  }
+
+  brain.holdingKick = false;
+  brain.huntTargetId = target.id;
+  brain.nextStep = { kind: "hunt-last-known", targetId: target.id };
+  killer.input.action = false;
+  killer.input.repair = false;
+  clearAttackInputs(killer);
+
+  const oldReplan = brain.repathIn;
+  brain.repathIn = Math.min(oldReplan || 0, VOID_CHASE_REPATH_SECONDS);
+  followPath(game, killer, { x: last.x, y: last.y }, helpers, {
+    sprint: true,
+    stopDistance: VOID_LAST_KNOWN_REACHED_DISTANCE,
+    pathTargetKey: `lastKnown:${target.id}:${Math.round(last.x / 32)},${Math.round(last.y / 32)}`,
+    repathTargetMoveDistance: VOID_CHASE_TARGET_REPATH_DISTANCE,
+    repathSeconds: VOID_CHASE_REPATH_SECONDS,
+    dt
+  });
+  return true;
+}
+
 function chaseRunner(game, killer, target, helpers, dt) {
   const brain = ensureVoidBrain(killer);
+  const sensed = canSenseRunner(game, killer, target, helpers);
+
+  if (!sensed) {
+    return chaseLastKnownRunner(game, killer, target, helpers, dt);
+  }
+
+  rememberHuntTarget(game, brain, target);
   brain.holdingKick = false;
   brain.nextStep = { kind: "hunt-runner", targetId: target.id };
-  brain.huntTargetId = target.id;
-  brain.lastKnownRunner = { id: target.id, x: target.x, y: target.y, until: (game.time || 0) + VOID_TARGET_MEMORY_SECONDS };
 
   if (tryVoidAttack(game, killer, target, helpers, dt)) return true;
 
@@ -1167,7 +1327,10 @@ function chaseRunner(game, killer, target, helpers, dt) {
   brain.repathIn = Math.min(oldReplan || 0, VOID_CHASE_REPATH_SECONDS);
   followPath(game, killer, target, helpers, {
     sprint: true,
-    stopDistance: Math.max(24, Number(helpers?.quickAttackRange || VOID_ATTACK_QUICK_RANGE) * 0.72),
+    stopDistance: Math.max(18, Number(helpers?.quickAttackRange || VOID_ATTACK_QUICK_RANGE) * 0.48),
+    pathTargetKey: `chase:${target.id}`,
+    repathTargetMoveDistance: VOID_CHASE_TARGET_REPATH_DISTANCE,
+    repathSeconds: VOID_CHASE_REPATH_SECONDS,
     dt
   });
   return true;

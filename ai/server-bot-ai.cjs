@@ -22,6 +22,8 @@ const RESCUE_SCAN_DISTANCE = 2400;
 const HEAL_SCAN_DISTANCE = 900;
 const OBJECTIVE_SCAN_LIMIT = 12;
 const SAFETY_SCAN_LIMIT = 10;
+const SAFETY_ACTION_BUFFER = 88;
+const SAFETY_POST_ACTION_SECONDS = 1.35;
 
 const KILLER_THREAT_RADIUS = 690;
 const KILLER_CHASE_RADIUS = 430;
@@ -77,6 +79,10 @@ function isActiveSurvivor(actor) {
 
 function isWoundedSurvivor(actor) {
   return !!(actor && actor.role === "survivor" && !actor.dead && !actor.escaped && !actor.hooked && (actor.downed || actor.injured || actor.health === 1));
+}
+
+function carriedOrbs(actor) {
+  return Math.max(0, Math.floor(Number(actor?.dots || 0)));
 }
 
 function getActorById(game, id) {
@@ -146,6 +152,31 @@ function clearNonSlotTasks(brain, keep) {
   if (keep !== "healTask") brain.healTask = null;
   if (keep !== "escapeTask") brain.escapeTask = null;
   if (keep !== "survivalTask") brain.survivalTask = null;
+}
+
+function clearZeroOrbDepositState(actor, brain) {
+  if (carriedOrbs(actor) > 0) return false;
+  let cleared = false;
+
+  if (brain?.task?.kind === "deposit") {
+    brain.task = null;
+    clearPath(brain);
+    cleared = true;
+  }
+
+  if (brain?.nextStep?.kind === "hold-deposit" || brain?.nextStep?.kind === "deposit") {
+    brain.nextStep = null;
+    cleared = true;
+  }
+
+  if (actor) {
+    if (actor.dotDepositTargetId || actor.dotDepositProgress || actor.dotDepositChain) cleared = true;
+    actor.dotDepositTargetId = null;
+    actor.dotDepositProgress = 0;
+    actor.dotDepositChain = 0;
+  }
+
+  return cleared;
 }
 
 function resetActorInput(actor, helpers) {
@@ -478,6 +509,34 @@ function followPath(game, actor, helpers, target, options = {}) {
   return true;
 }
 
+function holdOrCreepToInteraction(game, actor, helpers, target, interactDistance, holdKind, closeKind, targetId, options = {}) {
+  if (!target) return false;
+  const brain = ensureBotBrain(actor);
+  const holdBuffer = Number(options.holdBuffer ?? 6);
+  const creepBuffer = Number(options.creepBuffer ?? 72);
+  const requireLos = options.requireLos !== false;
+  const d = helperDist(helpers, actor.x, actor.y, target.x, target.y);
+  const hasLine = !requireLos || segmentClear(game, actor.x, actor.y, target.x, target.y, helpers);
+
+  if (hasLine && d <= Math.max(16, interactDistance - holdBuffer)) {
+    stopAndFace(actor, target);
+    brain.nextStep = { kind: holdKind, targetId: targetId || target.id || null };
+    return true;
+  }
+
+  // This is the important bit: pathing often brings a bot to a valid approach
+  // point around a Rift/hook/heal target, but the server interaction still checks
+  // distance to the actual center. If we stop at the approach point, the bot just
+  // stares at the objective like it is waiting for a notarized invitation.
+  if (hasLine && d <= interactDistance + creepBuffer) {
+    setMoveToward(actor, target, true);
+    brain.nextStep = { kind: closeKind, targetId: targetId || target.id || null };
+    return true;
+  }
+
+  return false;
+}
+
 function directFlee(actor, killer) {
   const dx = actor.x - killer.x;
   const dy = actor.y - killer.y;
@@ -546,12 +605,48 @@ function tryUseSpeedBurst(game, actor, helpers, threat) {
   return !!result?.ok;
 }
 
-function interactionObjects(game) {
+function interactionObjectLocked(game, actor, item) {
+  if (!game?.actors || !item?.object) return false;
+  const vaultType = item.type === "palletVault" ? "pallet" : item.type === "window" ? "window" : null;
+  if (!vaultType) return false;
+  for (const other of game.actors.values()) {
+    if (!other || other === actor) continue;
+    if (other.vault?.objectId === item.object.id && other.vault?.vaultType === vaultType) return true;
+  }
+  return false;
+}
+
+function interactionObjectUsableForActor(actor, item, game = null) {
+  if (!item?.object) return false;
+  if (interactionObjectLocked(game, actor, item)) return false;
+  if (item.type === "window") return (actor.windowVaultCooldown || 0) <= 0;
+  if (item.type === "palletVault") return item.object.state === "dropped" && (actor.palletVaultCooldown || 0) <= 0;
+  if (item.type === "palletDrop") return item.object.state === "upright" && !item.object.broken;
+  return true;
+}
+
+function interactionObjects(game, actor = null) {
   const windows = (game?.map?.windows || []).map((object) => ({ type: "window", object, x: centerOf(object).x, y: centerOf(object).y }));
   const pallets = (game?.map?.pallets || [])
     .filter((object) => object && !object.broken)
     .map((object) => ({ type: object.state === "dropped" ? "palletVault" : "palletDrop", object, x: centerOf(object).x, y: centerOf(object).y }));
-  return [...windows, ...pallets];
+  const all = [...windows, ...pallets];
+  return actor ? all.filter((item) => interactionObjectUsableForActor(actor, item, game)) : all;
+}
+
+function findInteractionObject(game, type, id) {
+  if (!type || !id) return null;
+  if (type === "window") {
+    const object = (game?.map?.windows || []).find((win) => win?.id === id) || null;
+    return object ? { type, object, x: centerOf(object).x, y: centerOf(object).y } : null;
+  }
+  if (type === "palletVault" || type === "palletDrop") {
+    const object = (game?.map?.pallets || []).find((pallet) => pallet?.id === id && !pallet.broken) || null;
+    if (!object) return null;
+    const actualType = object.state === "dropped" ? "palletVault" : "palletDrop";
+    return actualType === type ? { type, object, x: centerOf(object).x, y: centerOf(object).y } : null;
+  }
+  return null;
 }
 
 function objectApproachPoints(game, actor, object, helpers, preferredAwayFrom = null) {
@@ -584,9 +679,12 @@ function objectApproachPoints(game, actor, object, helpers, preferredAwayFrom = 
 function nearestCurrentInteractable(game, actor, helpers) {
   const interactDistance = Number(helpers?.interactDistance || 96);
   let best = null;
-  for (const item of interactionObjects(game)) {
+  for (const item of interactionObjects(game, actor)) {
     const d = helperDist(helpers, actor.x, actor.y, item.x, item.y);
-    if (d > interactDistance + 12) continue;
+    // Do not press Space early. The server only accepts the interaction inside
+    // INTERACT_DISTANCE, so acting from the outer edge made bots freeze near
+    // windows and pallets while accomplishing exactly nothing. Art imitates QA.
+    if (d > interactDistance - 4) continue;
     if (!best || d < best.d) best = { ...item, d };
   }
   return best;
@@ -595,7 +693,7 @@ function nearestCurrentInteractable(game, actor, helpers) {
 function chooseSafetyObject(game, actor, helpers, threat) {
   const killer = threat?.killer;
   if (!killer) return null;
-  const objects = interactionObjects(game)
+  const objects = interactionObjects(game, actor)
     .map((item) => ({ ...item, d: helperDist(helpers, actor.x, actor.y, item.x, item.y) }))
     .filter((item) => item.d <= 1050)
     .sort((a, b) => a.d - b.d)
@@ -685,24 +783,74 @@ function runPostInteract(game, actor, helpers, dt) {
   return true;
 }
 
+function shouldUseSafetyNow(item, threat) {
+  if (!item) return false;
+  if (item.type === "window" || item.type === "palletVault") return true;
+  return threat?.distance <= 250 || !!threat?.panic;
+}
+
+function tryUseSafetyObject(game, actor, helpers, threat, item) {
+  if (!item?.object || !interactionObjectUsableForActor(actor, item, game)) return false;
+  if (!shouldUseSafetyNow(item, threat)) return false;
+
+  const brain = ensureBotBrain(actor);
+  const interactDistance = Number(helpers?.interactDistance || 96);
+  const c = centerOf(item.object);
+  const d = helperDist(helpers, actor.x, actor.y, c.x, c.y);
+
+  // Do not require a perfect segment clear here. A window/pallet is itself a
+  // collider, so a strict wall segment check can claim the interactable blocks
+  // its own interaction. Humanity peaked when it invented doors, then wrote LOS
+  // checks that forgot what doors are.
+  if (d <= interactDistance - 4) {
+    stopAndFace(actor, c);
+    actor.input.action = true;
+    actor.input.sprint = true;
+    brain.survivalTask = {
+      kind: item.type,
+      id: item.object.id || null,
+      x: c.x,
+      y: c.y,
+      lockUntil: now(game) + CHASE_COMMIT_SECONDS,
+      reason: "use safety"
+    };
+    brain.afterInteractTarget = postObjectTarget(game, actor, item.object, helpers, threat?.killer || null);
+    brain.afterInteractUntil = now(game) + SAFETY_POST_ACTION_SECONDS;
+    brain.nextStep = { kind: item.type, targetId: item.object.id || null };
+    clearPath(brain);
+    return true;
+  }
+
+  if (d <= interactDistance + SAFETY_ACTION_BUFFER) {
+    setMoveToward(actor, c, true);
+    actor.input.action = false;
+    brain.survivalTask = {
+      kind: item.type,
+      id: item.object.id || null,
+      x: c.x,
+      y: c.y,
+      lockUntil: now(game) + CHASE_COMMIT_SECONDS,
+      reason: "close safety"
+    };
+    brain.nextStep = { kind: `close-${item.type}`, targetId: item.object.id || null };
+    return true;
+  }
+
+  return false;
+}
+
 function runFlee(game, actor, helpers, dt, threat) {
   const brain = ensureBotBrain(actor);
   clearNonSlotTasks(brain, "survivalTask");
   tryUseSpeedBurst(game, actor, helpers, threat);
 
   const current = nearestCurrentInteractable(game, actor, helpers);
-  if (current) {
-    const shouldUse = current.type !== "palletDrop" || threat.distance <= 250 || threat.panic;
-    if (shouldUse) {
-      actor.input.action = true;
-      actor.input.sprint = true;
-      actor.input.angle = Math.atan2(current.y - actor.y, current.x - actor.x);
-      brain.survivalTask = { kind: current.type, id: current.object.id, lockUntil: now(game) + CHASE_COMMIT_SECONDS, reason: "use safety" };
-      brain.afterInteractTarget = postObjectTarget(game, actor, current.object, helpers, threat.killer);
-      brain.afterInteractUntil = now(game) + POST_INTERACT_SECONDS;
-      return true;
-    }
-  }
+  if (current && tryUseSafetyObject(game, actor, helpers, threat, current)) return true;
+
+  const lockedSafety = brain.survivalTask?.id
+    ? findInteractionObject(game, brain.survivalTask.kind, brain.survivalTask.id)
+    : null;
+  if (lockedSafety && (brain.survivalTask.lockUntil || 0) > now(game) && tryUseSafetyObject(game, actor, helpers, threat, lockedSafety)) return true;
 
   let target = null;
   const locked = brain.survivalTask && brain.survivalTask.x && (brain.survivalTask.lockUntil || 0) > now(game);
@@ -723,6 +871,7 @@ function runFlee(game, actor, helpers, dt, threat) {
       brain.path = safety.path;
       brain.pathKey = `safety:${safety.object.id}:${Math.round(target.x)},${Math.round(target.y)}`;
       brain.repathAt = now(game) + CHASE_PATH_REPLAN_SECONDS;
+      if (tryUseSafetyObject(game, actor, helpers, threat, safety)) return true;
     }
   }
 
@@ -743,7 +892,7 @@ function runFlee(game, actor, helpers, dt, threat) {
     key: `flee:${Math.round(target.x)},${Math.round(target.y)}`,
     kind: "flee",
     sprint: true,
-    stopDistance: 34,
+    stopDistance: 8,
     repathSeconds: CHASE_PATH_REPLAN_SECONDS,
     nodeLimit: 650
   });
@@ -752,7 +901,10 @@ function runFlee(game, actor, helpers, dt, threat) {
 }
 
 function approachPointForTarget(game, actor, helpers, target, radius, options = {}) {
-  const rings = [radius * 0.72, radius * 0.92, radius * 1.15].filter((r) => r > 24);
+  // Keep approach points inside the actual server interaction radius. The old
+  // outer ring plus a loose stopDistance left bots close-ish, but not close
+  // enough for deposits/unhooks/heals to start. Very brave, very useless.
+  const rings = [radius * 0.55, radius * 0.72, radius * 0.9, radius * 1.05].filter((r) => r > 24);
   const steps = 16;
   let best = null;
   let bestScore = Infinity;
@@ -837,10 +989,7 @@ function runUnhook(game, actor, helpers, dt, threat) {
   setTask(brain, "unhookTask", "unhook", choice.target, game, { lockSeconds: RESCUE_COMMIT_SECONDS, reason: "rescue teammate" });
 
   const rescueDistance = Number(helpers?.hookRescueDistance || 96);
-  const d = helperDist(helpers, actor.x, actor.y, choice.target.x, choice.target.y);
-  if (d <= rescueDistance - 8 && segmentClear(game, actor.x, actor.y, choice.target.x, choice.target.y, helpers)) {
-    stopAndFace(actor, choice.target);
-    brain.nextStep = { kind: "hold-unhook", targetId: choice.target.id };
+  if (holdOrCreepToInteraction(game, actor, helpers, choice.target, rescueDistance, "hold-unhook", "close-unhook", choice.target.id, { holdBuffer: 8, creepBuffer: 84 })) {
     return true;
   }
 
@@ -849,7 +998,7 @@ function runUnhook(game, actor, helpers, dt, threat) {
     kind: "unhook",
     targetId: choice.target.id,
     sprint: true,
-    stopDistance: 28,
+    stopDistance: 6,
     repathSeconds: THINK_PATH_REPLAN_SECONDS,
     nodeLimit: 850
   });
@@ -894,10 +1043,7 @@ function runHeal(game, actor, helpers, dt, threat) {
   clearNonSlotTasks(brain, "healTask");
   setTask(brain, "healTask", "heal", choice.target, game, { lockSeconds: HEAL_COMMIT_SECONDS, reason: "heal teammate" });
   const healDistance = Number(helpers?.healDistance || 82);
-  const d = helperDist(helpers, actor.x, actor.y, choice.target.x, choice.target.y);
-  if (d <= healDistance - 6 && segmentClear(game, actor.x, actor.y, choice.target.x, choice.target.y, helpers)) {
-    stopAndFace(actor, choice.target);
-    brain.nextStep = { kind: "hold-heal", targetId: choice.target.id };
+  if (holdOrCreepToInteraction(game, actor, helpers, choice.target, healDistance, "hold-heal", "close-heal", choice.target.id, { holdBuffer: 6, creepBuffer: 72 })) {
     return true;
   }
   return followPath(game, actor, helpers, choice.approach, {
@@ -905,7 +1051,7 @@ function runHeal(game, actor, helpers, dt, threat) {
     kind: "heal",
     targetId: choice.target.id,
     sprint: true,
-    stopDistance: 24,
+    stopDistance: 6,
     repathSeconds: THINK_PATH_REPLAN_SECONDS,
     nodeLimit: 650
   });
@@ -943,9 +1089,7 @@ function runEscape(game, actor, helpers, dt) {
   setTask(brain, "escapeTask", "escape", choice.gate, game, { lockSeconds: ESCAPE_COMMIT_SECONDS, reason: "gate open" });
 
   const gateDistance = Number(helpers?.interactDistance || 96) + 16;
-  if (helperDist(helpers, actor.x, actor.y, choice.gate.x, choice.gate.y) <= gateDistance) {
-    stopAndFace(actor, choice.gate);
-    brain.nextStep = { kind: "hold-escape", targetId: choice.gate.id };
+  if (holdOrCreepToInteraction(game, actor, helpers, choice.gate, gateDistance, "hold-escape", "close-escape", choice.gate.id, { holdBuffer: 0, creepBuffer: 84, requireLos: false })) {
     return true;
   }
 
@@ -954,7 +1098,7 @@ function runEscape(game, actor, helpers, dt) {
     kind: "escape",
     targetId: choice.gate.id,
     sprint: true,
-    stopDistance: 28,
+    stopDistance: 6,
     repathSeconds: THINK_PATH_REPLAN_SECONDS,
     nodeLimit: 850
   });
@@ -965,7 +1109,7 @@ function unfinishedRifts(game) {
 }
 
 function chooseRift(game, actor, helpers) {
-  const carried = Math.max(0, Math.floor(actor.dots || 0));
+  const carried = carriedOrbs(actor);
   let best = null;
   let bestScore = Infinity;
   for (const rift of unfinishedRifts(game)) {
@@ -1020,7 +1164,7 @@ function nearAnyRift(game, actor, helpers) {
 }
 
 function shouldDeposit(game, actor, helpers) {
-  const carried = Math.max(0, Math.floor(actor.dots || 0));
+  const carried = carriedOrbs(actor);
   if (carried <= 0) return false;
   if (nearAnyRift(game, actor, helpers)) return true;
   if (carried >= Number(helpers?.survivorDotMax || 30)) return true;
@@ -1031,6 +1175,11 @@ function shouldDeposit(game, actor, helpers) {
 
 function runDeposit(game, actor, helpers, dt) {
   const brain = ensureBotBrain(actor);
+  if (carriedOrbs(actor) <= 0) {
+    clearZeroOrbDepositState(actor, brain);
+    return false;
+  }
+
   const lockedRift = brain.task?.kind === "deposit" && brain.task.id
     ? (game.map.generators || []).find((g) => g.id === brain.task.id && !g.done)
     : null;
@@ -1041,13 +1190,15 @@ function runDeposit(game, actor, helpers, dt) {
   }
   if (!choice) choice = chooseRift(game, actor, helpers);
   if (!choice) return false;
+  if (carriedOrbs(actor) <= 0) {
+    clearZeroOrbDepositState(actor, brain);
+    return false;
+  }
 
   clearNonSlotTasks(brain, "task");
   setTask(brain, "task", "deposit", choice.rift, game, { lockSeconds: TASK_COMMIT_SECONDS, reason: "deposit carried orbs" });
   const depositDistance = Number(helpers?.dotDepositDistance || 96);
-  if (helperDist(helpers, actor.x, actor.y, choice.rift.x, choice.rift.y) <= depositDistance - 6 && segmentClear(game, actor.x, actor.y, choice.rift.x, choice.rift.y, helpers)) {
-    stopAndFace(actor, choice.rift);
-    brain.nextStep = { kind: "hold-deposit", targetId: choice.rift.id };
+  if (holdOrCreepToInteraction(game, actor, helpers, choice.rift, depositDistance, "hold-deposit", "close-deposit", choice.rift.id, { holdBuffer: 6, creepBuffer: 84 })) {
     return true;
   }
   return followPath(game, actor, helpers, choice.approach, {
@@ -1055,7 +1206,7 @@ function runDeposit(game, actor, helpers, dt) {
     kind: "deposit",
     targetId: choice.rift.id,
     sprint: true,
-    stopDistance: 26,
+    stopDistance: 6,
     repathSeconds: THINK_PATH_REPLAN_SECONDS,
     nodeLimit: 950
   });
@@ -1191,14 +1342,19 @@ function runReceiveHeal(game, actor, helpers, dt, threat) {
 
 function runObjectives(game, actor, helpers, dt) {
   if (!unfinishedRifts(game).length && !game.escapeOpen) return runIdle(game, actor, helpers, dt);
-  if (shouldDeposit(game, actor, helpers) && runDeposit(game, actor, helpers, dt)) return true;
+
+  const carried = carriedOrbs(actor);
+  if (carried <= 0) clearZeroOrbDepositState(actor, ensureBotBrain(actor));
+
+  if (carried > 0 && shouldDeposit(game, actor, helpers) && runDeposit(game, actor, helpers, dt)) return true;
   if (runCollectOrb(game, actor, helpers, dt)) return true;
-  if ((actor.dots || 0) > 0 && runDeposit(game, actor, helpers, dt)) return true;
+  if (carriedOrbs(actor) > 0 && runDeposit(game, actor, helpers, dt)) return true;
   return runIdle(game, actor, helpers, dt);
 }
 
 function updateRunner(game, actor, helpers, dt) {
   const brain = ensureBotBrain(actor);
+  if (carriedOrbs(actor) <= 0) clearZeroOrbDepositState(actor, brain);
 
   if (actor.vault) {
     brain.nextStep = { kind: "vaulting", targetId: actor.vault.objectId || null };
@@ -1234,11 +1390,25 @@ function updateRunner(game, actor, helpers, dt) {
 
 function assignRunnerBotPersonalities(game) {
   if (!game?.actors) return;
+  const matchKey = String(game.matchId || game.startedAt || game.id || "match");
   for (const actor of game.actors.values()) {
     if (!actor?.isBot || actor.role !== "survivor") continue;
     actor.bot = actor.bot || {};
     actor.bot.personality = { id: PERSONALITY_ID, label: PERSONALITY_LABEL };
-    ensureBotBrain(actor);
+
+    // Do not carry objective intent across matches/spawns. A stale "deposit"
+    // task from the previous run is exactly how a zero-orb bot starts praying at
+    // a Rift instead of going to collect. Beautiful little disaster.
+    if (actor.bot.simpleAiMatchKey !== matchKey) {
+      actor.bot.simpleAi = {};
+      actor.bot.simpleAiMatchKey = matchKey;
+      actor.dotDepositTargetId = null;
+      actor.dotDepositProgress = 0;
+      actor.dotDepositChain = 0;
+    }
+
+    const brain = ensureBotBrain(actor);
+    clearZeroOrbDepositState(actor, brain);
   }
 }
 

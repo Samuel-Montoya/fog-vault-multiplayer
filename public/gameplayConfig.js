@@ -241,10 +241,10 @@ const GAMEPLAY_CONFIG = {
     kickTime: 1.0,
     kickRegression: 0.10,
     escapeTime: 4.0,
-    dotsPerRift: 30,
+    dotsPerRift: 25,
     depositDistance: 96,
     depositSecondsPerOrb: 0.5,
-    maxDepositChain: 30
+    maxDepositChain: 25
   },
 
   survivorAbilities: {
