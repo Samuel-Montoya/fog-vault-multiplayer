@@ -21,6 +21,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
   const GAMEPLAY_CONFIG = loadPublicScriptGlobal(ROOT_DIR, "public/gameplayConfig.js", "GAMEPLAY_CONFIG");
   const RIFTRUNNER_CHATS = loadPublicScriptGlobal(ROOT_DIR, "public/chats.js", "RIFTRUNNER_CHATS");
   const RIFTRUNNER_ABILITIES = loadPublicScriptGlobal(ROOT_DIR, "public/abilities.js", "RIFTRUNNER_ABILITIES");
+  const RIFTRUNNER_PERKS = loadPublicScriptGlobal(ROOT_DIR, "public/perkConfig.js", "RIFTRUNNER_PERK_CONFIG");
 
   const app = express();
   const server = http.createServer(app);
@@ -264,6 +265,96 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
   const VOID_ABILITY_ORDER = Array.isArray(RIFTRUNNER_ABILITIES.wheelOrder) ? RIFTRUNNER_ABILITIES.wheelOrder : Object.keys(VOID_ABILITY_DEFS);
   const SURVIVOR_ABILITY_DEFS = RIFTRUNNER_ABILITIES.survivorAbilities || {};
   const SURVIVOR_ABILITY_ORDER = Array.isArray(RIFTRUNNER_ABILITIES.survivorWheelOrder) ? RIFTRUNNER_ABILITIES.survivorWheelOrder : Object.keys(SURVIVOR_ABILITY_DEFS);
+
+  function normalizePerkRole(role) {
+    const value = String(role || "").toLowerCase();
+    if (value === "killer" || value === "void") return "killer";
+    return "survivor";
+  }
+
+  function perkConfigById(perkId, role = null) {
+    const id = String(perkId || "");
+    const roleKey = role ? normalizePerkRole(role) : null;
+    if (roleKey && RIFTRUNNER_PERKS.roles?.[roleKey]?.perks?.[id]) return RIFTRUNNER_PERKS.roles[roleKey].perks[id];
+    for (const roleDef of Object.values(RIFTRUNNER_PERKS.roles || {})) {
+      if (roleDef?.perks?.[id]) return roleDef.perks[id];
+    }
+    return null;
+  }
+
+  function perkLevels(perk) {
+    return Array.isArray(perk?.levels) ? perk.levels : [];
+  }
+
+  function perkMaxLevel(perk) {
+    const configured = Math.max(1, Math.floor(cfgNumber(perk?.maxLevel || RIFTRUNNER_PERKS.maxLevel, 4)));
+    const levels = perkLevels(perk).map((level) => Math.floor(cfgNumber(level.level, 0))).filter(Boolean);
+    return Math.max(1, Math.min(configured, levels.length ? Math.max(...levels) : configured));
+  }
+
+  function perkLevelConfig(perk, level) {
+    const target = Math.max(1, Math.floor(cfgNumber(level, 1)));
+    return perkLevels(perk).find((row) => Math.floor(cfgNumber(row.level, 0)) === target) || null;
+  }
+
+  function normalizePerkLevelMap(perks, role = null, isBot = false) {
+    const roleKey = role ? normalizePerkRole(role) : null;
+    const out = { all: {}, survivor: {}, killer: {} };
+    if (isBot) {
+      const botLevel = Math.max(1, Math.floor(cfgNumber(RIFTRUNNER_PERKS.botLevel, RIFTRUNNER_PERKS.maxLevel || 4)));
+      for (const [configuredRole, roleDef] of Object.entries(RIFTRUNNER_PERKS.roles || {})) {
+        const normalizedRole = normalizePerkRole(configuredRole);
+        if (roleKey && normalizedRole !== roleKey) continue;
+        for (const perk of Object.values(roleDef?.perks || {})) {
+          const level = Math.min(perkMaxLevel(perk), botLevel);
+          out.all[perk.id] = level;
+          out[normalizedRole][perk.id] = level;
+        }
+      }
+      return out;
+    }
+    const sources = [perks?.all, perks?.survivor, perks?.runner, perks?.killer, perks?.void, perks].filter(Boolean);
+    for (const source of sources) {
+      for (const [id, rawLevel] of Object.entries(source || {})) {
+        const perk = perkConfigById(id);
+        if (!perk) continue;
+        const normalizedRole = normalizePerkRole(perk.role);
+        if (roleKey && normalizedRole !== roleKey) continue;
+        const level = Math.max(0, Math.min(perkMaxLevel(perk), Math.floor(cfgNumber(rawLevel, 0))));
+        if (level <= 0) continue;
+        out.all[perk.id] = Math.max(out.all[perk.id] || 0, level);
+        out[normalizedRole][perk.id] = Math.max(out[normalizedRole][perk.id] || 0, level);
+      }
+    }
+    return out;
+  }
+
+  function actorPerkLevel(actor, perkId, role = null) {
+    const id = String(perkId || "");
+    if (!id || !actor) return 0;
+    const roleKey = normalizePerkRole(role || actor.role);
+    const perks = actor.perkLevels || normalizePerkLevelMap(null, roleKey, !!actor.isBot);
+    const sources = [
+      perks[roleKey],
+      roleKey === "killer" ? perks.void : perks.runner,
+      perks.all,
+      perks
+    ].filter(Boolean);
+    for (const source of sources) {
+      const level = Math.floor(cfgNumber(source?.[id], 0));
+      if (level > 0) return level;
+    }
+    return 0;
+  }
+
+  function actorPerkEffect(actor, perkId, role = null) {
+    const roleKey = normalizePerkRole(role || actor?.role);
+    const perk = perkConfigById(perkId, roleKey);
+    const level = actorPerkLevel(actor, perkId, roleKey);
+    if (!perk || level <= 0) return null;
+    return perkLevelConfig(perk, level) || null;
+  }
+
   const SURVIVOR_RIFT_LENS_LENGTH_MULT = cfgNumber(GAMEPLAY_CONFIG.survivorAbilities?.riftLensLengthMultiplier, 1.55);
   const SURVIVOR_RIFT_LENS_ANGLE_MULT = cfgNumber(GAMEPLAY_CONFIG.survivorAbilities?.riftLensAngleMultiplier, 1.38);
   const SURVIVOR_SAFE_CONE_LENGTH_MULT = Math.max(1, cfgNumber(
@@ -444,19 +535,27 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
   }
 
 
-  function getVoidAbilityDef(id) {
+  function getVoidAbilityDef(id, actor = null) {
     const key = String(id || "");
     const ability = VOID_ABILITY_DEFS[key];
     if (!ability || ability.cancel || !VOID_ABILITY_ORDER.includes(key)) return null;
+    const abilityId = ability.id || key;
+    const perk = perkConfigById(abilityId, "killer");
+    const level = actor ? actorPerkLevel(actor, abilityId, "killer") : 0;
+    const effect = level > 0 ? perkLevelConfig(perk, level) : null;
     return {
-      id: ability.id || key,
+      id: abilityId,
       name: ability.name || key,
-      cost: Math.max(0, Math.floor(cfgNumber(ability.cost, 0))),
-      duration: Math.max(0, cfgNumber(ability.duration, 0)),
-      radius: Math.max(0, cfgNumber(ability.radius, 0)),
-      stealPerRunner: Math.max(0, Math.floor(cfgNumber(ability.stealPerRunner, 1))),
-      stealPercent: clamp(cfgNumber(ability.stealPercent, 0), 0, 1),
-      cooldown: Math.max(0, cfgNumber(ability.cooldown, 20))
+      cost: Math.max(0, Math.floor(cfgNumber(perk?.abilityCost ?? ability.cost, 0))),
+      duration: Math.max(0, cfgNumber(effect?.duration ?? ability.duration, 0)),
+      radius: Math.max(0, cfgNumber(effect?.radius ?? ability.radius, 0)),
+      stealPerRunner: Math.max(0, Math.floor(cfgNumber(effect?.stealPerRunner ?? ability.stealPerRunner, 1))),
+      stealPercent: clamp(cfgNumber(effect?.stealPercent ?? ability.stealPercent, 0), 0, 1),
+      cooldown: Math.max(0, cfgNumber(perk?.cooldown ?? ability.cooldown, 20)),
+      level,
+      maxLevel: perkMaxLevel(perk || {}),
+      effect,
+      locked: level <= 0
     };
   }
 
@@ -471,8 +570,9 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       return { ok: false, message: "The Void cannot use that right now." };
     }
 
-    const ability = getVoidAbilityDef(abilityId);
+    const ability = getVoidAbilityDef(abilityId, actor);
     if (!ability) return { ok: false, message: "Unknown Void ability." };
+    if (ability.locked) return { ok: false, message: `Unlock ${ability.name} in Perks first.` };
     const cooldowns = actor.voidAbilityCooldowns || (actor.voidAbilityCooldowns = {});
     const remainingCooldown = Math.max(0, cfgNumber(cooldowns[ability.id], 0));
     if (remainingCooldown > 0) {
@@ -491,6 +591,8 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       actor.voidSpeedBoost = Math.max(actor.voidSpeedBoost || 0, ability.duration || 10);
     } else if (ability.id === "redshiftOrbs") {
       game.redOrbs = Math.max(game.redOrbs || 0, ability.duration || 15);
+      game.redOrbSlowMultiplier = cfgNumber(ability.effect?.slowMultiplier, RED_ORB_SLOW_MULT);
+      game.redOrbSlowSeconds = cfgNumber(ability.effect?.slowSeconds, RED_ORB_SLOW_SECONDS);
     } else if (ability.id === "voidReveal") {
       game.runnerReveal = Math.max(game.runnerReveal || 0, ability.duration || 5);
       affected = [...game.actors.values()].filter((runner) => runner.role === "survivor" && !runner.dead && !runner.escaped).length;
@@ -523,16 +625,24 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
   }
 
 
-  function getSurvivorAbilityDef(id) {
+  function getSurvivorAbilityDef(id, actor = null) {
     const key = String(id || "");
     const ability = SURVIVOR_ABILITY_DEFS[key];
     if (!ability || ability.cancel || ability.disabled || !SURVIVOR_ABILITY_ORDER.includes(key)) return null;
+    const abilityId = ability.id || key;
+    const perk = perkConfigById(abilityId, "survivor");
+    const level = actor ? actorPerkLevel(actor, abilityId, "survivor") : 0;
+    const effect = level > 0 ? perkLevelConfig(perk, level) : null;
     return {
-      id: ability.id || key,
+      id: abilityId,
       name: ability.name || key,
-      cost: Math.max(0, Math.floor(cfgNumber(ability.cost, 0))),
-      duration: Math.max(0, cfgNumber(ability.duration, 0)),
-      cooldown: Math.max(0, cfgNumber(ability.cooldown, 30))
+      cost: Math.max(0, Math.floor(cfgNumber(perk?.abilityCost ?? ability.cost, 0))),
+      duration: Math.max(0, cfgNumber(effect?.duration ?? ability.duration, 0)),
+      cooldown: Math.max(0, cfgNumber(perk?.cooldown ?? ability.cooldown, 30)),
+      level,
+      maxLevel: perkMaxLevel(perk || {}),
+      effect,
+      locked: level <= 0
     };
   }
 
@@ -547,23 +657,23 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
   function survivorVisionLengthFor(actor) {
     let length = SURVIVOR_CONE_LENGTH;
     if (survivorCarefulVisionActive(actor)) length *= SURVIVOR_SAFE_CONE_LENGTH_MULT;
-    if (actor?.role === "survivor" && (actor.riftLens || 0) > 0) length *= SURVIVOR_RIFT_LENS_LENGTH_MULT;
+    if (actor?.role === "survivor" && (actor.riftLens || 0) > 0) length *= cfgNumber(actorPerkEffect(actor, "riftLens", "survivor")?.lengthMultiplier, SURVIVOR_RIFT_LENS_LENGTH_MULT);
     return length;
   }
 
   function survivorVisionAngleFor(actor) {
     let angle = SURVIVOR_CONE_ANGLE;
     if (survivorCarefulVisionActive(actor)) angle *= SURVIVOR_SAFE_CONE_ANGLE_MULT;
-    if (actor?.role === "survivor" && (actor.riftLens || 0) > 0) angle *= SURVIVOR_RIFT_LENS_ANGLE_MULT;
+    if (actor?.role === "survivor" && (actor.riftLens || 0) > 0) angle *= cfgNumber(actorPerkEffect(actor, "riftLens", "survivor")?.angleMultiplier, SURVIVOR_RIFT_LENS_ANGLE_MULT);
     return Math.min(Math.PI * 1.08, angle);
   }
 
   function survivorBackVisionLengthFor(actor) {
-    return survivorVisionLengthFor(actor) * SURVIVOR_HOURGLASS_BACK_LENGTH_MULT;
+    return survivorVisionLengthFor(actor) * cfgNumber(actorPerkEffect(actor, "hourglass", "survivor")?.backLengthMultiplier, SURVIVOR_HOURGLASS_BACK_LENGTH_MULT);
   }
 
   function survivorBackVisionAngleFor(actor) {
-    return Math.min(Math.PI * 1.08, survivorVisionAngleFor(actor) * SURVIVOR_HOURGLASS_BACK_ANGLE_MULT);
+    return Math.min(Math.PI * 1.08, survivorVisionAngleFor(actor) * cfgNumber(actorPerkEffect(actor, "hourglass", "survivor")?.backAngleMultiplier, SURVIVOR_HOURGLASS_BACK_ANGLE_MULT));
   }
 
   function survivorVisionSamplesForActor(actor) {
@@ -616,8 +726,9 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       return { ok: false, message: "You cannot use that right now." };
     }
 
-    const ability = getSurvivorAbilityDef(abilityId);
+    const ability = getSurvivorAbilityDef(abilityId, actor);
     if (!ability) return { ok: false, message: "Unknown Runner ability." };
+    if (ability.locked) return { ok: false, message: `Unlock ${ability.name} in Perks first.` };
 
     const cooldowns = actor.survivorAbilityCooldowns || (actor.survivorAbilityCooldowns = {});
     const remainingCooldown = Math.max(0, cfgNumber(cooldowns[ability.id], 0));
@@ -634,7 +745,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       actor.riftLens = Math.max(actor.riftLens || 0, ability.duration || 15);
     } else if (ability.id === "hourglass") {
       actor.hourglass = Math.max(actor.hourglass || 0, ability.duration || 5);
-      if (SURVIVOR_HOURGLASS_HIDES_SCRATCH && Array.isArray(game.scratchMarks)) {
+      if ((ability.effect?.hidesScratchMarks ?? SURVIVOR_HOURGLASS_HIDES_SCRATCH) && Array.isArray(game.scratchMarks)) {
         game.scratchMarks = game.scratchMarks.filter((mark) => mark.actorId !== actor.id);
       }
     } else if (ability.id === "speedBurst") {
@@ -1515,6 +1626,8 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       accountId: options.accountId || null,
       role,
       skin: sanitizeRoleSkin(role, options.skin),
+      perkLevels: normalizePerkLevelMap(options.perkLevels, role, !!options.isBot),
+      botDebugEnabled: !!options.botDebugEnabled,
       ready: role === "spectator",
       x: 0,
       y: 0,
@@ -1708,7 +1821,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     if (!lobby?.game || !player || player.role !== "spectator") return null;
     const existing = lobby.game.actors.get(player.id);
     if (existing?.role === "spectator") return existing;
-    const spectator = makePlayer({ id: player.id }, "spectator", player.name, { isBot: false });
+    const spectator = makePlayer({ id: player.id }, "spectator", player.name, { isBot: false, botDebugEnabled: !!player.botDebugEnabled });
     spectator.ready = true;
     placeSpectatorNearTarget(lobby.game, spectator);
     lobby.game.actors.set(spectator.id, spectator);
@@ -1723,7 +1836,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       return false;
     }
 
-    const player = makePlayer(socket, "spectator", name || "Spectator", { isBot: false });
+    const player = makePlayer(socket, "spectator", name || "Spectator", { isBot: false, botDebugEnabled: !!socket.data?.botDebugEnabled });
     player.ready = true;
     lobby.players.set(socket.id, player);
     assignLobbyHostIfNeeded(lobby, socket.id);
@@ -1767,7 +1880,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       return false;
     }
 
-    const player = makePlayer(socket, role, name, { isBot: false, skin, accountId: socket.data?.account?.id || null });
+    const player = makePlayer(socket, role, name, { isBot: false, skin, accountId: socket.data?.account?.id || null, perkLevels: socket.data?.account?.perks || null, botDebugEnabled: !!socket.data?.botDebugEnabled });
     lobby.players.set(socket.id, player);
     assignLobbyHostIfNeeded(lobby, socket.id);
     touchLobby(lobby);
@@ -1935,6 +2048,8 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       collectibleDots: [],
       dotRespawnQueue: 0,
       redOrbs: 0,
+      redOrbSlowMultiplier: RED_ORB_SLOW_MULT,
+      redOrbSlowSeconds: RED_ORB_SLOW_SECONDS,
       runnerReveal: 0,
       dotRespawnTimer: DOT_RESPAWN_SECONDS,
       paused: false,
@@ -1952,7 +2067,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
         spectatorPlayers.push(player);
         continue;
       }
-      const actor = makePlayer({ id: player.id }, player.role, player.name, { isBot: !!player.isBot, skin: player.skin, accountId: player.accountId || null });
+      const actor = makePlayer({ id: player.id }, player.role, player.name, { isBot: !!player.isBot, skin: player.skin, accountId: player.accountId || null, perkLevels: player.perkLevels || null, botDebugEnabled: !!player.botDebugEnabled });
       actor.ready = player.ready;
       actor.stats = createMatchStats(actor.role);
       actor.currentChaseSeconds = 0;
@@ -1973,7 +2088,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     }
 
     for (const player of spectatorPlayers) {
-      const spectator = makePlayer({ id: player.id }, "spectator", player.name, { isBot: false });
+      const spectator = makePlayer({ id: player.id }, "spectator", player.name, { isBot: false, botDebugEnabled: !!player.botDebugEnabled });
       spectator.ready = true;
       placeSpectatorNearTarget(game, spectator);
       game.actors.set(spectator.id, spectator);
@@ -2155,9 +2270,9 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     else if (actor.role === "survivor" && actor.hitBoost > 0) speed = SURVIVOR_HIT_BURST_SPEED;
     if (actor.role === "killer" && areRiftsComplete(game)) speed *= KILLER_ENDGAME_SPEED_MULT;
     if (actor.role === "killer" && actor.recovery > 0) speed *= KILLER_RECOVERY_SPEED_MULT;
-    if (actor.role === "killer" && (actor.voidSpeedBoost || 0) > 0) speed *= VOID_SPEED_BUFF_MULT;
-    if (actor.role === "survivor" && (actor.speedBurst || 0) > 0 && !actor.downed) speed *= SURVIVOR_SPEED_BURST_MULT;
-    if (actor.role === "survivor" && (actor.orbSlow || 0) > 0) speed *= RED_ORB_SLOW_MULT;
+    if (actor.role === "killer" && (actor.voidSpeedBoost || 0) > 0) speed *= cfgNumber(actorPerkEffect(actor, "nullRush", "killer")?.speedMultiplier, VOID_SPEED_BUFF_MULT);
+    if (actor.role === "survivor" && (actor.speedBurst || 0) > 0 && !actor.downed) speed *= cfgNumber(actorPerkEffect(actor, "speedBurst", "survivor")?.speedMultiplier, SURVIVOR_SPEED_BURST_MULT);
+    if (actor.role === "survivor" && (actor.orbSlow || 0) > 0) speed *= cfgNumber(game.redOrbSlowMultiplier, RED_ORB_SLOW_MULT);
     if (actor.role === "survivor" && (actor.voidSlow || 0) > 0) speed *= GRAVITY_WELL_SLOW_MULT;
 
     const moved = moveActorWithCollision(game, actor, dx * speed * dt, dy * speed * dt, {
@@ -3050,8 +3165,8 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       actor.dots = Math.min(maxDots, dotsBefore + 1);
       awardStat(actor, "orbsCollected", "Orb collected", Math.max(0, actor.dots - dotsBefore), "orb");
       if (actor.role === "survivor" && (game.redOrbs || 0) > 0) {
-        actor.orbSlow = Math.max(actor.orbSlow || 0, RED_ORB_SLOW_SECONDS);
-        addEvent(game, "redOrbSlow", { x: actor.x, y: actor.y, survivorId: actor.id, duration: RED_ORB_SLOW_SECONDS });
+        actor.orbSlow = Math.max(actor.orbSlow || 0, cfgNumber(game.redOrbSlowSeconds, RED_ORB_SLOW_SECONDS));
+        addEvent(game, "redOrbSlow", { x: actor.x, y: actor.y, survivorId: actor.id, duration: cfgNumber(game.redOrbSlowSeconds, RED_ORB_SLOW_SECONDS) });
       }
       queueDotRespawns(game, 1);
       addEvent(game, "dotPickup", {
@@ -4113,6 +4228,11 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     hookRescueDistance: HOOK_RESCUE_DISTANCE,
     healDistance: HEAL_DISTANCE,
     applySurvivorAbility,
+    pathfindLoopLimit: PERF.pathfindLoopLimit,
+    pathCacheMax: PERF.pathCacheMax,
+    enablePathCache: PERF.enablePathCache,
+    recordPathCacheHit: () => { serverMetrics.pathCacheHits += 1; },
+    recordPathCacheMiss: () => { serverMetrics.pathCacheMisses += 1; },
     getMapAnalysis: (game) => game?.mapAnalysis || null
   });
 
@@ -4295,17 +4415,33 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
   });
 
 
-  function serializeActor(game, actor, visible = true) {
-    // Always send position, angle, and skin, even when the viewer cannot see this actor.
-    // The client hides the sprite locally but keeps interpolating it, so reappearing actors
-    // do not teleport from an old stale position. The fog may lie, the server does not.
+  function shouldSendFullActorSnapshot(viewer, actor, visible, spectatorOverview = false) {
+    if (!actor) return false;
+    if (!viewer) return true;
+    if (spectatorOverview) return true;
+    if (actor.id === viewer.id) return true;
+    if (visible) return true;
+    // Survivor HUD needs rescue/death state for teammates even when fog hides their body.
+    if (viewer.role === "survivor" && actor.role === "survivor" && (actor.hooked || actor.downed || actor.dead || actor.escaped)) return true;
+    return false;
+  }
+
+  function serializeActor(game, actor, visible = true, options = {}) {
     const actorSkin = sanitizeRoleSkin(actor.role, actor.skin);
-    return {
+    const isSelf = !!options.isSelf;
+    const sendDebug = !!options.sendBotDebug && !!actor.isBot;
+    const debugPayload = sendDebug ? serializeBotAiDebug(game, actor) : null;
+    const chatText = (() => {
+      const text = actor.chatUntil > (game.time || 0) ? actor.chatText : null;
+      if ((actor.downed || actor.hooked || actor.dead || actor.escaped) && isOrbFullChatMessage(text)) return null;
+      return text;
+    })();
+
+    const base = {
       id: actor.id,
       name: actor.name,
       role: actor.role,
       isBot: !!actor.isBot,
-      aiDebug: actor.isBot ? serializeBotDebug(actor.bot?.aiDebug) : null,
       skin: actorSkin,
       visible: !!visible,
       x: Number(actor.x.toFixed(2)),
@@ -4315,37 +4451,46 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       sprinting: actor.role === "survivor" && !!actor.input?.sprint && !!actorHasMoveInput(actor),
       health: actor.health,
       dots: actor.role === "killer" ? clamp(actor.dots || 0, 0, KILLER_DOT_MAX) : actor.role === "survivor" ? clamp(actor.dots || 0, 0, SURVIVOR_DOT_MAX) : 0,
-      stats: serializeMatchStats(actor),
-      dotDepositTargetId: actor.role === "survivor" ? actor.dotDepositTargetId || null : null,
-      dotDepositProgress: actor.role === "survivor" ? quantizedProgress(actor.dotDepositProgress || 0) : 0,
-      injured: actor.injured,
-      dead: actor.dead,
-      escaped: actor.escaped,
-      escapeProgress: actor.role === "survivor" ? quantizedProgress((actor.escapeProgress || 0) / GATE_ESCAPE_TIME) : 0,
-      escapeGateId: actor.role === "survivor" ? actor.escapeGateId || null : null,
-      downed: actor.downed,
-      hooked: actor.hooked,
-      hookId: actor.hookId,
+      injured: !!actor.injured,
+      dead: !!actor.dead,
+      escaped: !!actor.escaped,
+      downed: !!actor.downed,
+      hooked: !!actor.hooked,
+      hookId: actor.hookId || null,
       hookCount: actor.hookCount || 0,
       hookProgress: actor.hookProgress || 0,
       unhookProgress: actor.unhookProgress || 0,
+      escapeProgress: actor.role === "survivor" ? quantizedProgress((actor.escapeProgress || 0) / GATE_ESCAPE_TIME) : 0,
+      escapeGateId: actor.role === "survivor" ? actor.escapeGateId || null : null,
+      chase: actor.chaseHold > 0,
+      chatText,
+      aiDebug: debugPayload
+    };
+
+    if (!options.full) return base;
+
+    return {
+      ...base,
+      dotDepositTargetId: actor.role === "survivor" ? actor.dotDepositTargetId || null : null,
+      dotDepositProgress: actor.role === "survivor" ? quantizedProgress(actor.dotDepositProgress || 0) : 0,
       hookActionTargetId: actor.hookActionTargetId || null,
       hookActionType: actor.hookActionType || null,
-      hookReadyTargetId: actor.role === "killer" ? (nearestDownedSurvivorForHook(game, actor)?.id || null) : null,
+      hookReadyTargetId: actor.role === "killer" && isSelf ? (nearestDownedSurvivorForHook(game, actor)?.id || null) : null,
       generatorKickTargetId: actor.generatorKickTargetId || null,
       generatorKickProgress: actor.generatorKickProgress || 0,
       unhookTargetId: actor.unhookTargetId || null,
       recovery: actor.recovery,
       voidStun: actor.role === "killer" ? actor.voidStun || 0 : 0,
       voidSpeedBoost: actor.role === "killer" ? actor.voidSpeedBoost || 0 : 0,
-      voidAbilityCooldowns: actor.role === "killer" ? Object.fromEntries(
+      voidAbilityCooldowns: actor.role === "killer" && isSelf ? Object.fromEntries(
         Object.entries(actor.voidAbilityCooldowns || {}).map(([id, remaining]) => [id, Number(Math.max(0, remaining || 0).toFixed(2))])
       ) : {},
+      perkLevels: isSelf && (actor.role === "killer" || actor.role === "survivor") ? actor.perkLevels || {} : {},
       stealthStep: actor.role === "survivor" ? actor.stealthStep || 0 : 0,
       riftLens: actor.role === "survivor" ? actor.riftLens || 0 : 0,
       hourglass: actor.role === "survivor" ? actor.hourglass || 0 : 0,
       speedBurst: actor.role === "survivor" ? actor.speedBurst || 0 : 0,
-      survivorAbilityCooldowns: actor.role === "survivor" ? Object.fromEntries(
+      survivorAbilityCooldowns: actor.role === "survivor" && isSelf ? Object.fromEntries(
         Object.entries(actor.survivorAbilityCooldowns || {}).map(([id, remaining]) => [id, Number(Math.max(0, remaining || 0).toFixed(2))])
       ) : {},
       orbSlow: actor.role === "survivor" ? actor.orbSlow || 0 : 0,
@@ -4363,21 +4508,14 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       vaultToX: actor.vault ? Number(actor.vault.toX.toFixed(2)) : null,
       vaultToY: actor.vault ? Number(actor.vault.toY.toFixed(2)) : null,
       vaultProgress: actor.vault ? quantizedProgress(actor.vault.t / actor.vault.duration) : 0,
-      windowVaultCooldown: actor.role === "survivor" ? Number((actor.windowVaultCooldown || 0).toFixed(2)) : 0,
+      windowVaultCooldown: actor.role === "survivor" && isSelf ? Number((actor.windowVaultCooldown || 0).toFixed(2)) : 0,
       breaking: !!actor.breakTarget,
       invuln: actor.invuln,
       hitBoost: actor.hitBoost,
       healProgress: actor.healProgress || 0,
       activeHealers: actor.activeHealers || [],
       healingTargetId: actor.healingTargetId || null,
-      chase: actor.chaseHold > 0,
-      killerVisibleHold: actor.killerVisibleHold || 0,
-      aiDebug: serializeBotAiDebug(game, actor),
-      chatText: (() => {
-        const text = actor.chatUntil > (game.time || 0) ? actor.chatText : null;
-        if ((actor.downed || actor.hooked || actor.dead || actor.escaped) && isOrbFullChatMessage(text)) return null;
-        return text;
-      })()
+      killerVisibleHold: actor.killerVisibleHold || 0
     };
   }
 
@@ -4436,16 +4574,53 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     };
   }
 
+  function snapshotListKey(items, mapper) {
+    if (!Array.isArray(items) || !items.length) return "";
+    return items.map(mapper).join("|");
+  }
+
+  function trimUnchangedSnapshotForSocket(game, socketId, snapshot) {
+    if (!game || !socketId || !snapshot?.map) return snapshot;
+    const cache = game.snapshotClientCache || (game.snapshotClientCache = new Map());
+    const previous = cache.get(socketId) || null;
+    const map = snapshot.map;
+    const keys = {
+      pallets: snapshotListKey(map.pallets, (p) => `${p.id}:${p.state}:${p.broken ? 1 : 0}`),
+      generators: snapshotListKey(map.generators, (g) => `${g.id}:${g.showProgress ? 1 : 0}:${Math.round((g.progress || 0) * 50)}:${g.done ? 1 : 0}:${g.repairing ? 1 : 0}:${g.dotDepositing ? 1 : 0}:${Math.round((g.dotDepositProgress || 0) * 12)}:${g.beingKicked ? 1 : 0}:${Math.round((g.kickProgress || 0) * 12)}:${g.kickLocked ? 1 : 0}`),
+      gates: snapshotListKey(map.gates, (g) => `${g.id}:${g.open ? 1 : 0}:${Math.round((g.escapeProgress || 0) * 20)}`),
+      hooks: snapshotListKey(map.hooks, (h) => `${h.id}:${h.active ? 1 : 0}:${h.survivorId || ""}`),
+      dots: snapshotListKey(snapshot.collectibleDots, (d) => `${d.id}:${d.red ? 1 : 0}`)
+    };
+    cache.set(socketId, keys);
+    if (!previous) return snapshot;
+
+    const nextMap = { ...map };
+    if (previous.pallets === keys.pallets) delete nextMap.pallets;
+    if (previous.generators === keys.generators) delete nextMap.generators;
+    if (previous.gates === keys.gates) delete nextMap.gates;
+    if (previous.hooks === keys.hooks) delete nextMap.hooks;
+    snapshot.map = nextMap;
+    if (previous.dots === keys.dots) delete snapshot.collectibleDots;
+    return snapshot;
+  }
+
   function buildSnapshotFor(lobby, socketId) {
     const game = lobby.game;
     const viewer = game.actors.get(socketId);
     const spectatorOverview = isSpectatorOverviewViewer(viewer);
     const pov = getViewerForVisibility(game, viewer);
     const map = game.map;
+    const sendBotDebug = !!(game.paused || viewer?.botDebugEnabled || lobby.players.get(socketId)?.botDebugEnabled);
     const actors = [];
     for (const actor of game.actors.values()) {
       if (actor.role === "spectator") continue;
-      actors.push(serializeActor(game, actor, isActorVisibleToViewer(game, pov, actor)));
+      const visible = isActorVisibleToViewer(game, pov, actor);
+      const full = shouldSendFullActorSnapshot(viewer, actor, visible, spectatorOverview);
+      actors.push(serializeActor(game, actor, visible, {
+        full,
+        isSelf: actor.id === socketId,
+        sendBotDebug
+      }));
     }
 
     const killer = [...game.actors.values()].find((p) => p.role === "killer");
@@ -4532,7 +4707,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     const requiredGenerators = game.requiredGenerators;
     const riftsComplete = areRiftsComplete(game);
 
-    return {
+    const snapshot = {
       lobbyId: lobby.id,
       seq: game.snapshotSeq || 0,
       serverTime: Number((game.time || 0).toFixed(3)),
@@ -4593,6 +4768,8 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       },
       music
     };
+
+    return trimUnchangedSnapshotForSocket(game, socketId, snapshot);
   }
 
   function sendSnapshots() {

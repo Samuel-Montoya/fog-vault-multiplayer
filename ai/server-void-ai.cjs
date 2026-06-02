@@ -15,6 +15,7 @@ const RECENT_CHECK_MEMORY = 3;
 const VOID_HUNT_RADIUS = 980;
 const VOID_CLOSE_SENSE_RADIUS = 360;
 const VOID_TARGET_MEMORY_SECONDS = 3.25;
+const VOID_HUNT_SWITCH_LOCK_SECONDS = 1.45;
 const VOID_HOOK_DISTANCE = 128;
 const VOID_ATTACK_QUICK_RANGE = 86;
 const VOID_ATTACK_LUNGE_RANGE = 122;
@@ -71,7 +72,7 @@ function stableMoveTarget(actor, tx, ty, brain) {
       // This is the anti-ping-pong governor. New target choices are allowed, but not
       // if they instantly reverse the actor or shuffle between near-identical points.
       // That exact twitch was the "back/forth forever" bug wearing a tiny hat.
-      if ((dot < -0.18 || targetShift < 92) && notActuallyStuck) {
+      if (targetShift < 92 && dot > -0.45 && notActuallyStuck) {
         return { x: old.x, y: old.y };
       }
     }
@@ -94,12 +95,31 @@ function setMoveToward(actor, tx, ty, sprint = true) {
   ty = stable.y;
   const dx = tx - actor.x;
   const dy = ty - actor.y;
-  actor.input.left = dx < -8;
-  actor.input.right = dx > 8;
-  actor.input.up = dy < -8;
-  actor.input.down = dy > 8;
+  const d = Math.hypot(dx, dy);
+  actor.input.left = false;
+  actor.input.right = false;
+  actor.input.up = false;
+  actor.input.down = false;
   actor.input.sprint = !!sprint;
   actor.input.angle = Math.atan2(dy, dx);
+  if (d <= 4) return false;
+
+  const deadZone = Math.max(8, Math.min(18, d * 0.12));
+  const absX = Math.abs(dx);
+  const absY = Math.abs(dy);
+
+  // Let the path target control movement. The one-axis governor made the bot
+  // commit to the wrong axis, overshoot the waypoint, then reverse forever.
+  // A proud little treadmill of failure.
+  if (absX > deadZone) {
+    actor.input.left = dx < 0;
+    actor.input.right = dx > 0;
+  }
+  if (absY > deadZone) {
+    actor.input.up = dy < 0;
+    actor.input.down = dy > 0;
+  }
+  return !!(actor.input.left || actor.input.right || actor.input.up || actor.input.down);
 }
 
 function stopAndFace(actor, target) {
@@ -330,6 +350,9 @@ function clearPath(brain) {
   brain.path = [];
   brain.pathTargetKey = null;
   brain.repathIn = 0;
+  brain.moveIntent = null;
+  brain.moveAxis = null;
+  brain.moveAxisUntil = 0;
 }
 
 function fallbackMoveToward(game, actor, target, helpers, options = {}) {
@@ -556,6 +579,12 @@ function clearTask(actor) {
   clearPath(brain);
 }
 
+function clearObjectiveTaskOnly(actor) {
+  const brain = ensureVoidBrain(actor);
+  brain.task = null;
+  brain.holdingKick = false;
+}
+
 function resolveTaskTarget(game, task) {
   if (!task) return null;
   return getRiftById(game, task.id);
@@ -721,12 +750,41 @@ function chooseDownedTarget(game, killer, helpers) {
   return best;
 }
 
+function rememberHuntTarget(game, brain, runner) {
+  const now = game.time || 0;
+  brain.huntTargetId = runner.id;
+  brain.huntLockUntil = now + VOID_HUNT_SWITCH_LOCK_SECONDS;
+  brain.lastKnownRunner = { id: runner.id, x: runner.x, y: runner.y, until: now + VOID_TARGET_MEMORY_SECONDS };
+}
+
 function chooseHuntTarget(game, killer, helpers, brain) {
   let best = null;
   let bestScore = -Infinity;
   const current = getActorById(game, brain.huntTargetId);
   const now = game.time || 0;
 
+  const currentValid = current
+    && current.role === "survivor"
+    && !current.dead
+    && !current.escaped
+    && !current.hooked
+    && !current.downed
+    && current.health > 0;
+  const currentRemembered = currentValid
+    && brain.lastKnownRunner
+    && brain.lastKnownRunner.id === current.id
+    && now <= (brain.lastKnownRunner.until || 0);
+  const currentSensed = currentValid && canSenseRunner(game, killer, current, helpers);
+
+  // Do not switch hunt targets every tick. That was the Void's "hunt mode"
+  // treadmill: target A wins by 2 points, then target B, then A, then everyone
+  // watches the killer vibrate like a broken appliance.
+  if (currentValid && (currentSensed || currentRemembered) && now <= Number(brain.huntLockUntil || 0)) {
+    rememberHuntTarget(game, brain, current);
+    return current;
+  }
+
+  let currentScore = -Infinity;
   for (const runner of activeSurvivors(game)) {
     const d = helperDist(helpers, killer.x, killer.y, runner.x, runner.y);
     const sensed = canSenseRunner(game, killer, runner, helpers);
@@ -740,18 +798,20 @@ function chooseHuntTarget(game, killer, helpers, brain) {
       + (runner.dotDepositing ? 620 : 0)
       + ((runner.chaseHold || 0) > 0 ? 260 : 0)
       + (los ? 180 : 0)
-      + (current?.id === runner.id ? 320 : 0);
+      + (current?.id === runner.id ? 520 : 0);
+    if (current?.id === runner.id) currentScore = score;
     if (score > bestScore) {
       best = runner;
       bestScore = score;
     }
   }
 
-  if (best) {
-    brain.huntTargetId = best.id;
-    brain.lastKnownRunner = { id: best.id, x: best.x, y: best.y, until: now + VOID_TARGET_MEMORY_SECONDS };
+  if (currentValid && (currentSensed || currentRemembered) && currentScore > -Infinity && best && best.id !== current.id) {
+    const switchMargin = now <= Number(brain.huntLockUntil || 0) ? 9999 : 360;
+    if (bestScore < currentScore + switchMargin) best = current;
   }
 
+  if (best) rememberHuntTarget(game, brain, best);
   return best;
 }
 
@@ -1133,13 +1193,13 @@ function runVoidHuntAi(game, actor, helpers = {}, dt = 0) {
 
   const downed = chooseDownedTarget(game, actor, helpers);
   if (downed) {
-    clearTask(actor);
+    clearObjectiveTaskOnly(actor);
     return hookDownedRunner(game, actor, downed, helpers, dt);
   }
 
   const target = chooseHuntTarget(game, actor, helpers, brain);
   if (target) {
-    clearTask(actor);
+    clearObjectiveTaskOnly(actor);
     return chaseRunner(game, actor, target, helpers, dt);
   }
 

@@ -1683,6 +1683,244 @@ body.ultra-low-power.survivor-hit-impact #gameWrap {
   .lobby-rift-mark { width: 58px; height: 58px; }
 }
 
+
+.perks-card {
+  max-width: min(1180px, calc(100vw - 48px));
+  max-height: calc(100vh - 58px);
+  overflow: auto;
+}
+
+.perk-shop-layout {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+  margin-top: 18px;
+}
+
+.perk-shop-section {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid rgba(255,255,255,0.09);
+  border-radius: 24px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.018));
+}
+
+.perk-shop-grid {
+  display: grid;
+  gap: 12px;
+}
+
+.perk-card {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at 12% 0%, rgba(103,232,249,0.15), transparent 36%),
+    linear-gradient(180deg, rgba(5, 10, 24, 0.94), rgba(3, 6, 16, 0.86));
+  box-shadow: 0 14px 32px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.05);
+}
+
+.perk-card.accent-purple {
+  background:
+    radial-gradient(circle at 12% 0%, rgba(167,139,250,0.18), transparent 38%),
+    linear-gradient(180deg, rgba(11, 7, 28, 0.94), rgba(5, 4, 18, 0.88));
+}
+
+.perk-card.accent-red {
+  background:
+    radial-gradient(circle at 12% 0%, rgba(255,59,106,0.18), transparent 38%),
+    linear-gradient(180deg, rgba(25, 5, 18, 0.94), rgba(10, 3, 10, 0.88));
+}
+
+.perk-card.accent-yellow {
+  background:
+    radial-gradient(circle at 12% 0%, rgba(255,211,106,0.18), transparent 38%),
+    linear-gradient(180deg, rgba(25, 18, 5, 0.94), rgba(10, 8, 3, 0.88));
+}
+
+.perk-card.accent-green {
+  background:
+    radial-gradient(circle at 12% 0%, rgba(77,226,131,0.18), transparent 38%),
+    linear-gradient(180deg, rgba(5, 24, 16, 0.94), rgba(3, 12, 8, 0.88));
+}
+
+.perk-card.accent-gold {
+  background:
+    radial-gradient(circle at 12% 0%, rgba(255,211,106,0.18), transparent 38%),
+    linear-gradient(180deg, rgba(24, 18, 5, 0.94), rgba(10, 8, 3, 0.88));
+}
+
+.perk-card.accent-gray {
+  background:
+    radial-gradient(circle at 12% 0%, rgba(203,213,225,0.16), transparent 38%),
+    linear-gradient(180deg, rgba(13, 16, 24, 0.94), rgba(6, 8, 14, 0.88));
+}
+
+.perk-card-top {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+
+.perk-icon {
+  width: 34px;
+  height: 34px;
+  flex: 0 0 auto;
+  border-radius: 14px;
+  background:
+    radial-gradient(circle at 34% 28%, rgba(255,255,255,0.94), transparent 18%),
+    linear-gradient(135deg, var(--rift), var(--rift-2));
+  box-shadow: 0 0 22px rgba(103,232,249,0.18);
+}
+
+.accent-purple .perk-icon {
+  background:
+    radial-gradient(circle at 34% 28%, rgba(255,255,255,0.9), transparent 18%),
+    linear-gradient(135deg, #a78bfa, #ff3b6a);
+}
+
+.accent-red .perk-icon {
+  background:
+    radial-gradient(circle at 34% 28%, rgba(255,255,255,0.88), transparent 18%),
+    linear-gradient(135deg, #ff3b6a, #fb7185);
+}
+
+.accent-yellow .perk-icon {
+  background:
+    radial-gradient(circle at 34% 28%, rgba(255,255,255,0.88), transparent 18%),
+    linear-gradient(135deg, var(--gold), #fbbf24);
+}
+
+.accent-green .perk-icon {
+  background:
+    radial-gradient(circle at 34% 28%, rgba(255,255,255,0.88), transparent 18%),
+    linear-gradient(135deg, var(--safe), #22d3ee);
+}
+
+.accent-gold .perk-icon {
+  background:
+    radial-gradient(circle at 34% 28%, rgba(255,255,255,0.88), transparent 18%),
+    linear-gradient(135deg, var(--gold), #fbbf24);
+}
+
+.accent-gray .perk-icon {
+  background:
+    radial-gradient(circle at 34% 28%, rgba(255,255,255,0.88), transparent 18%),
+    linear-gradient(135deg, #cbd5e1, #64748b);
+}
+
+.perk-card-top strong {
+  display: block;
+  font-size: 15px;
+  letter-spacing: 0.01em;
+}
+
+.perk-card-top small {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 1000;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.perk-summary,
+.perk-effect,
+.perk-shop-empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.perk-effect {
+  color: #d9fbff;
+  font-weight: 850;
+}
+
+.perk-level-pips {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.perk-level-pips span {
+  height: 7px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.10);
+  border: 1px solid rgba(255,255,255,0.08);
+}
+
+.perk-level-pips span.filled {
+  background: linear-gradient(90deg, var(--rift), var(--rift-2));
+  border-color: rgba(103,232,249,0.38);
+  box-shadow: 0 0 16px rgba(103,232,249,0.14);
+}
+
+.accent-purple .perk-level-pips span.filled {
+  background: linear-gradient(90deg, #a78bfa, #ff3b6a);
+  border-color: rgba(167,139,250,0.38);
+}
+
+.accent-red .perk-level-pips span.filled {
+  background: linear-gradient(90deg, #ff3b6a, #fb7185);
+  border-color: rgba(255,59,106,0.38);
+}
+
+.accent-yellow .perk-level-pips span.filled {
+  background: linear-gradient(90deg, var(--gold), #fbbf24);
+  border-color: rgba(255,211,106,0.38);
+}
+
+.accent-green .perk-level-pips span.filled {
+  background: linear-gradient(90deg, var(--safe), #22d3ee);
+  border-color: rgba(77,226,131,0.38);
+}
+
+.accent-gold .perk-level-pips span.filled {
+  background: linear-gradient(90deg, var(--gold), #fbbf24);
+  border-color: rgba(255,211,106,0.38);
+}
+
+.accent-gray .perk-level-pips span.filled {
+  background: linear-gradient(90deg, #cbd5e1, #64748b);
+  border-color: rgba(203,213,225,0.34);
+}
+
+.perk-card.locked {
+  opacity: 0.84;
+}
+
+.perk-card.locked .perk-icon {
+  filter: grayscale(0.45) brightness(0.75);
+}
+
+.perk-card.maxed button {
+  color: var(--safe);
+  cursor: default;
+}
+
+.perk-card.affordable:not(.maxed) button {
+  color: #06111a;
+  background:
+    radial-gradient(circle at 24% 16%, rgba(255,255,255,0.9), transparent 22%),
+    linear-gradient(135deg, var(--gold), #fff1a8);
+  border-color: rgba(255,211,106,0.7);
+}
+
+@media (max-width: 980px) {
+  .perks-card {
+    max-width: calc(100vw - 24px);
+  }
+
+  .perk-shop-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 720px) {
   .screen { padding: 14px; align-items: flex-start; }
   .void-card { max-height: calc(100vh - 28px); border-radius: 22px; padding: 20px; }
@@ -1738,6 +1976,8 @@ body.ultra-low-power.survivor-hit-impact #gameWrap {
   .match-announcement-copy strong { font-size: 15px; }
   .match-announcement-copy span { font-size: 10px; }
 }
+
+
 
 @media (max-width: 720px) {
   .chat-wheel {
@@ -2405,6 +2645,8 @@ body.ultra-low-power.survivor-hit-impact #gameWrap {
   }
 }
 
+
+
 @media (max-width: 720px) {
   .end-stat-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2813,6 +3055,8 @@ body.ultra-low-power.survivor-hit-impact #gameWrap {
   color: rgba(255,235,239,0.96);
 }
 
+
+
 @media (max-width: 720px) {
   .floating-menu-actions .menu-action:hover,
   .floating-menu-actions .menu-action:focus-visible,
@@ -2880,6 +3124,8 @@ body.ultra-low-power.survivor-hit-impact #gameWrap {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+
 
 @media (max-width: 720px) {
   .version-badge {
@@ -3848,6 +4094,8 @@ body.ultra-low-power.survivor-hit-impact #gameWrap {
 .ability-wheel-left { left: 18px; top: 50%; transform: translateY(-50%); }
 .ability-wheel-left.selected { transform: translateY(-50%) translateX(-8px); }
 
+
+
 @media (max-width: 720px) {
   .void-ability-hud {
     top: 104px;
@@ -4556,6 +4804,8 @@ body.ultra-low-power.survivor-hit-impact #gameWrap {
   box-shadow: inset 0 0 0 1px rgba(226, 232, 240, 0.08), 0 0 20px rgba(148, 163, 184, 0.12);
 }
 
+
+
 @media (max-width: 720px) {
   .lobby-item {
     align-items: stretch;
@@ -4903,6 +5153,8 @@ body.ultra-low-power.survivor-hit-impact #gameWrap {
 .void-shop-skin-picker {
   margin-bottom: 4px;
 }
+
+
 
 @media (max-width: 720px) {
   .account-panel-top,

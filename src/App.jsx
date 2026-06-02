@@ -8,6 +8,7 @@ const LEGACY_SCRIPT_CHAIN = [
   "/audioConfig.js",
   "/gameplayConfig.js",
   "/chats.js",
+  "/perkConfig.js",
   "/abilities.js",
   "/client.js"
 ]
@@ -15,6 +16,7 @@ const LEGACY_SCRIPT_CHAIN = [
 const MENU_ACTIONS = [
   { id: "menuPlayBtn", label: "Play", className: "menu-action primary" },
   { id: "menuSkinsBtn", label: "Skins Shop", className: "menu-action" },
+  { id: "menuPerksBtn", label: "Perks", className: "menu-action" },
   { id: "menuOptionsBtn", label: "Settings", className: "menu-action" },
   { id: "menuHowBtn", label: "How To Play", className: "menu-action" }
 ]
@@ -359,6 +361,39 @@ function SkinScreen() {
   )
 }
 
+function PerkScreen() {
+  return (
+    <div id="perksScreen" className="screen io-screen">
+      <div className="void-card wide-menu-card perks-card">
+        <ScreenHeader
+          eyebrow="orb upgrades"
+          title="Perks"
+          description="Buy abilities with banked orbs, then level them up to stretch their duration and power. Yes, even The Void has a skill tree now."
+        />
+        <AuthPanel compact panelId="perks" />
+
+        <div className="perk-shop-layout">
+          <section className="perk-shop-section runner-perk-section" aria-labelledby="runnerPerksTitle">
+            <div className="section-heading skin-shop-heading">
+              <h2 id="runnerPerksTitle">Runner perks</h2>
+              <span>escape tools</span>
+            </div>
+            <div id="runnerPerkShop" className="perk-shop-grid" data-perk-shop="survivor" aria-live="polite" />
+          </section>
+
+          <section className="perk-shop-section void-perk-section" aria-labelledby="voidPerksTitle">
+            <div className="section-heading skin-shop-heading">
+              <h2 id="voidPerksTitle">Void perks</h2>
+              <span>hunting tools</span>
+            </div>
+            <div id="voidPerkShop" className="perk-shop-grid" data-perk-shop="killer" aria-live="polite" />
+          </section>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function OptionsScreen() {
   return (
     <div id="optionsScreen" className="screen io-screen">
@@ -563,7 +598,10 @@ function normalizeAbilities(abilities, role = "killer") {
     available: ability?.available !== false && !ability?.disabled,
     active: !!ability?.active,
     cooldown: Number.isFinite(Number(ability?.cooldown)) ? Number(ability.cooldown) : Number(fallback[index]?.cooldown || (role === "survivor" ? 30 : 20)),
-    cooldownRemaining: Math.max(0, Number.isFinite(Number(ability?.cooldownRemaining)) ? Number(ability.cooldownRemaining) : 0)
+    cooldownRemaining: Math.max(0, Number.isFinite(Number(ability?.cooldownRemaining)) ? Number(ability.cooldownRemaining) : 0),
+    locked: !!ability?.locked,
+    level: Math.max(0, Number.isFinite(Number(ability?.level)) ? Number(ability.level) : 0),
+    maxLevel: Math.max(1, Number.isFinite(Number(ability?.maxLevel)) ? Number(ability.maxLevel) : 4)
   }))
 }
 
@@ -674,7 +712,7 @@ function AbilityWheel() {
           const cancel = !!ability.cancel
           const ready = cancel || ability.available !== false
           const cooldownRemaining = Math.max(0, Number(ability.cooldownRemaining || 0))
-          const costLabel = cooldownRemaining > 0 ? `${Math.ceil(cooldownRemaining)}s CD` : `${ability.cost} orbs`
+          const costLabel = ability.locked ? "LOCKED" : cooldownRemaining > 0 ? `${Math.ceil(cooldownRemaining)}s CD` : `${ability.cost} orbs`
           return (
             <div
               className={`ability-wheel-segment ability-wheel-${segment.className} ${selected ? "selected" : ""} ${ready ? "can-use" : "locked"} ${ability.active ? "is-active" : ""} ${cancel ? "is-cancel" : ""} accent-${ability.accent || "purple"}`}
@@ -1470,6 +1508,7 @@ export default function App() {
       <MainMenu />
       <PlayScreen />
       <SkinScreen />
+      <PerkScreen />
       <OptionsScreen />
       <HowScreen />
       <LobbyScreen />

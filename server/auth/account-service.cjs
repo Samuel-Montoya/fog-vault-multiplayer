@@ -1,6 +1,9 @@
 const crypto = require("crypto");
+const path = require("path");
 const { query, withTransaction, isDatabaseReady } = require("../db/pool.cjs");
 const skinCatalog = require("../economy/skin-catalog.cjs");
+const { loadPublicScriptGlobal } = require("../config/load-public-script.cjs");
+const perkCatalog = loadPublicScriptGlobal(path.resolve(__dirname, "../.."), "public/perkConfig.js", "RIFTRUNNER_PERK_CONFIG");
 
 let bcrypt = null;
 let jwt = null;
@@ -50,6 +53,86 @@ function assertPassword(password) {
   const value = String(password || "");
   if (value.length < 6 || value.length > 72) throw new Error("Password must be 6-72 characters.");
   return value;
+}
+
+
+function normalizePerkRole(role) {
+  const value = String(role || "").toLowerCase();
+  if (value === "void" || value === "killer") return "killer";
+  return "survivor";
+}
+
+function getPerkDef(perkId) {
+  const id = String(perkId || "");
+  const roles = perkCatalog.roles || {};
+  for (const [role, roleDef] of Object.entries(roles)) {
+    const perk = roleDef?.perks?.[id];
+    if (perk) return { ...perk, role: normalizePerkRole(perk.role || role) };
+  }
+  return null;
+}
+
+function perkLevelRows(perk) {
+  return Array.isArray(perk?.levels) ? perk.levels : [];
+}
+
+function getMaxPerkLevel(perk) {
+  const configured = Math.max(1, Math.floor(Number(perkCatalog.maxLevel || 4)));
+  const levels = perkLevelRows(perk).map((level) => Math.floor(Number(level.level || 0))).filter(Boolean);
+  return Math.max(1, Math.min(configured, levels.length ? Math.max(...levels) : configured));
+}
+
+function getPerkLevelConfig(perk, level) {
+  const target = Math.max(1, Math.floor(Number(level || 1)));
+  return perkLevelRows(perk).find((row) => Math.floor(Number(row.level || 0)) === target) || null;
+}
+
+function getPerkNextCost(perk, currentLevel) {
+  const level = Math.max(0, Math.floor(Number(currentLevel || 0)));
+  const maxLevel = getMaxPerkLevel(perk);
+  if (level >= maxLevel) return 0;
+  const target = getPerkLevelConfig(perk, level + 1);
+  if (!target) return 0;
+  if (level <= 0) return Math.max(0, Math.floor(Number(target.unlockCost ?? perk.unlockCost ?? 0)));
+  return Math.max(0, Math.floor(Number(target.upgradeCost ?? target.unlockCost ?? perk.upgradeCost ?? 0)));
+}
+
+function publicPerkCatalog() {
+  const roles = perkCatalog.roles || {};
+  const catalog = [];
+  for (const [role, roleDef] of Object.entries(roles)) {
+    const normalizedRole = normalizePerkRole(role);
+    for (const perk of Object.values(roleDef?.perks || {})) {
+      const levels = perkLevelRows(perk).map((level) => ({
+        level: Math.max(1, Math.floor(Number(level.level || 1))),
+        unlockCost: level.unlockCost == null ? undefined : Math.max(0, Math.floor(Number(level.unlockCost || 0))),
+        upgradeCost: level.upgradeCost == null ? undefined : Math.max(0, Math.floor(Number(level.upgradeCost || 0))),
+        duration: Number(level.duration || 0),
+        speedMultiplier: level.speedMultiplier == null ? undefined : Number(level.speedMultiplier),
+        lengthMultiplier: level.lengthMultiplier == null ? undefined : Number(level.lengthMultiplier),
+        angleMultiplier: level.angleMultiplier == null ? undefined : Number(level.angleMultiplier),
+        backLengthMultiplier: level.backLengthMultiplier == null ? undefined : Number(level.backLengthMultiplier),
+        backAngleMultiplier: level.backAngleMultiplier == null ? undefined : Number(level.backAngleMultiplier),
+        slowMultiplier: level.slowMultiplier == null ? undefined : Number(level.slowMultiplier),
+        slowSeconds: level.slowSeconds == null ? undefined : Number(level.slowSeconds),
+        hidesScratchMarks: level.hidesScratchMarks == null ? undefined : !!level.hidesScratchMarks
+      }));
+      catalog.push({
+        id: perk.id,
+        role: normalizePerkRole(perk.role || normalizedRole),
+        name: perk.name || perk.id,
+        shortName: perk.shortName || perk.name || perk.id,
+        accent: perk.accent || (normalizedRole === "killer" ? "purple" : "cyan"),
+        abilityCost: Math.max(0, Math.floor(Number(perk.abilityCost || 0))),
+        cooldown: Math.max(0, Number(perk.cooldown || 0)),
+        summary: perk.summary || "Unlock and upgrade this ability.",
+        detail: perk.detail || "Spend banked orbs to make this ability less embarrassing.",
+        maxLevel: getMaxPerkLevel(perk),
+        levels
+      });
+    }
+  }
+  return catalog;
 }
 
 function signToken(account) {
@@ -116,6 +199,26 @@ async function getOwnedSkins(accountId, client = null) {
   };
 }
 
+
+async function getOwnedPerks(accountId, client = null) {
+  const runner = client || { query };
+  const result = await runner.query(
+    `SELECT perk_id, perk_role, level FROM account_perks WHERE account_id = $1`,
+    [accountId]
+  );
+  const out = { all: {}, survivor: {}, killer: {} };
+  for (const row of result.rows) {
+    const perk = getPerkDef(row.perk_id);
+    if (!perk) continue;
+    const role = normalizePerkRole(row.perk_role || perk.role);
+    const level = Math.max(0, Math.min(getMaxPerkLevel(perk), Math.floor(Number(row.level || 0))));
+    if (level <= 0) continue;
+    out.all[perk.id] = level;
+    out[role][perk.id] = level;
+  }
+  return out;
+}
+
 async function accountSummary(accountId) {
   assertAuthReady();
   const result = await query(`SELECT * FROM accounts WHERE id = $1`, [accountId]);
@@ -123,6 +226,7 @@ async function accountSummary(accountId) {
   if (!account) return null;
   await ensureDefaultSkins(account.id);
   account.ownedSkins = await getOwnedSkins(account.id);
+  account.perks = await getOwnedPerks(account.id);
   return account;
 }
 
@@ -237,6 +341,51 @@ async function purchaseSkin(accountId, skinId) {
   return accountSummary(accountId);
 }
 
+
+async function purchasePerk(accountId, perkId) {
+  assertAuthReady();
+  const perk = getPerkDef(perkId);
+  if (!perk) throw new Error("Unknown perk.");
+  const maxLevel = getMaxPerkLevel(perk);
+  const nextLevel = await withTransaction(async (client) => {
+    const current = await client.query(
+      `SELECT level FROM account_perks WHERE account_id = $1 AND perk_id = $2 FOR UPDATE`,
+      [accountId, perk.id]
+    );
+    const currentLevel = Math.max(0, Math.floor(Number(current.rows[0]?.level || 0)));
+    if (currentLevel >= maxLevel) throw new Error(`${perk.name || "Perk"} is already max level.`);
+    const targetLevel = currentLevel + 1;
+    const cost = getPerkNextCost(perk, currentLevel);
+
+    const account = await client.query(
+      `SELECT orb_balance FROM accounts WHERE id = $1 FOR UPDATE`,
+      [accountId]
+    );
+    if (!account.rows.length) throw new Error("Account not found.");
+    const balance = Number(account.rows[0].orb_balance || 0);
+    if (balance < cost) {
+      throw new Error(`Need ${cost} deposited orbs to ${currentLevel <= 0 ? "unlock" : "upgrade"} ${perk.name}.`);
+    }
+    if (cost > 0) {
+      await client.query(
+        `UPDATE accounts SET orb_balance = orb_balance - $2, updated_at = NOW() WHERE id = $1`,
+        [accountId, cost]
+      );
+    }
+    await client.query(
+      `INSERT INTO account_perks (account_id, perk_id, perk_role, level)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (account_id, perk_id)
+       DO UPDATE SET level = EXCLUDED.level, perk_role = EXCLUDED.perk_role, updated_at = NOW()`,
+      [accountId, perk.id, perk.role, targetLevel]
+    );
+    return targetLevel;
+  });
+
+  const account = await accountSummary(accountId);
+  return { account, perk: { id: perk.id, role: perk.role, level: nextLevel, maxLevel } };
+}
+
 function ownsSkinSync(account, skinId) {
   if (!skinCatalog.hasSkin(skinId)) return false;
   if (skinCatalog.isDefaultSkin(skinId)) return true;
@@ -293,9 +442,12 @@ module.exports = {
   login,
   createGuest,
   purchaseSkin,
+  purchasePerk,
   awardMatchOrbs,
   ownsSkinSync,
   sanitizeOwnedSkin,
   publicCatalog: skinCatalog.publicCatalog,
-  getSkin: skinCatalog.getSkin
+  publicPerkCatalog,
+  getSkin: skinCatalog.getSkin,
+  getPerkDef
 };

@@ -517,14 +517,14 @@
   function survivorVisionLengthForData(data) {
     let length = LIGHTING.SURVIVOR_LENGTH;
     if (survivorVisionIsCareful(data)) length *= LIGHTING.SURVIVOR_SAFE_LENGTH_MULT;
-    if ((data?.riftLens || 0) > 0) length *= LIGHTING.SURVIVOR_RIFT_LENS_LENGTH_MULT;
+    if ((data?.riftLens || 0) > 0) length *= cfgNumber(perkEffectForActor(data, "riftLens", "survivor")?.lengthMultiplier, LIGHTING.SURVIVOR_RIFT_LENS_LENGTH_MULT);
     return length;
   }
 
   function survivorVisionAngleForData(data) {
     let angle = LIGHTING.SURVIVOR_ANGLE;
     if (survivorVisionIsCareful(data)) angle *= LIGHTING.SURVIVOR_SAFE_ANGLE_MULT;
-    if ((data?.riftLens || 0) > 0) angle *= LIGHTING.SURVIVOR_RIFT_LENS_ANGLE_MULT;
+    if ((data?.riftLens || 0) > 0) angle *= cfgNumber(perkEffectForActor(data, "riftLens", "survivor")?.angleMultiplier, LIGHTING.SURVIVOR_RIFT_LENS_ANGLE_MULT);
     return Math.min(Math.PI * 1.08, angle);
   }
 
@@ -846,6 +846,7 @@
 
   const SHARED_CHATS = window.RIFTRUNNER_CHATS || {};
   const SHARED_ABILITIES = window.RIFTRUNNER_ABILITIES || {};
+  const SHARED_PERKS = window.RIFTRUNNER_PERK_CONFIG || {};
   const VOID_ABILITIES = SHARED_ABILITIES.abilities || {};
   const VOID_ABILITY_ORDER = Array.isArray(SHARED_ABILITIES.wheelOrder) ? SHARED_ABILITIES.wheelOrder : Object.keys(VOID_ABILITIES);
   const SURVIVOR_ABILITIES = SHARED_ABILITIES.survivorAbilities || {};
@@ -1083,12 +1084,14 @@
     menu: document.getElementById("menu"),
     playScreen: document.getElementById("playScreen"),
     skinScreen: document.getElementById("skinScreen"),
+    perksScreen: document.getElementById("perksScreen"),
     optionsScreen: document.getElementById("optionsScreen"),
     howScreen: document.getElementById("howScreen"),
     lobbyScreen: document.getElementById("lobbyScreen"),
     endScreen: document.getElementById("endScreen"),
     menuPlayBtn: document.getElementById("menuPlayBtn"),
     menuSkinsBtn: document.getElementById("menuSkinsBtn"),
+    menuPerksBtn: document.getElementById("menuPerksBtn"),
     menuOptionsBtn: document.getElementById("menuOptionsBtn"),
     menuHowBtn: document.getElementById("menuHowBtn"),
     menuMusicToggleBtn: document.getElementById("menuMusicToggleBtn"),
@@ -1221,6 +1224,7 @@
   let authToken = "";
   let currentAccount = null;
   let shopSkins = [];
+  let shopPerks = [];
 
   function getStoredAuthToken() {
     try { return String(localStorage.getItem(AUTH_TOKEN_KEY) || ""); }
@@ -1280,6 +1284,220 @@
     if (!skinIsOwned("void", selectedVoidSkin)) setSelectedVoidSkin("voidCore");
   }
 
+
+  function normalizePerkRole(role) {
+    const value = String(role || "").toLowerCase();
+    if (value === "killer" || value === "void") return "killer";
+    return "survivor";
+  }
+
+  function configuredPerksForRole(role) {
+    const roleKey = normalizePerkRole(role);
+    return Object.values(SHARED_PERKS.roles?.[roleKey]?.perks || {});
+  }
+
+  function perkConfigById(perkId, role = null) {
+    const id = String(perkId || "");
+    const roleKey = role ? normalizePerkRole(role) : null;
+    if (roleKey && SHARED_PERKS.roles?.[roleKey]?.perks?.[id]) return SHARED_PERKS.roles[roleKey].perks[id];
+    for (const roleDef of Object.values(SHARED_PERKS.roles || {})) {
+      if (roleDef?.perks?.[id]) return roleDef.perks[id];
+    }
+    return null;
+  }
+
+  function publicPerkById(perkId, role = null) {
+    const id = String(perkId || "");
+    const roleKey = role ? normalizePerkRole(role) : null;
+    return shopPerks.find((perk) => perk.id === id && (!roleKey || normalizePerkRole(perk.role) === roleKey)) || perkConfigById(id, roleKey) || null;
+  }
+
+  function perkLevels(perk) {
+    return Array.isArray(perk?.levels) ? perk.levels : [];
+  }
+
+  function perkMaxLevel(perk) {
+    const configured = Math.max(1, Math.floor(Number(perk?.maxLevel || SHARED_PERKS.maxLevel || 4)));
+    const levels = perkLevels(perk).map((level) => Math.floor(Number(level.level || 0))).filter(Boolean);
+    return Math.max(1, Math.min(configured, levels.length ? Math.max(...levels) : configured));
+  }
+
+  function perkLevelConfig(perk, level) {
+    const target = Math.max(1, Math.floor(Number(level || 1)));
+    return perkLevels(perk).find((row) => Math.floor(Number(row.level || 0)) === target) || null;
+  }
+
+  function perkNextCost(perk, currentLevel) {
+    const level = Math.max(0, Math.floor(Number(currentLevel || 0)));
+    if (level >= perkMaxLevel(perk)) return 0;
+    const target = perkLevelConfig(perk, level + 1);
+    if (!target) return 0;
+    if (level <= 0) return Math.max(0, Math.floor(Number(target.unlockCost ?? perk.unlockCost ?? 0)));
+    return Math.max(0, Math.floor(Number(target.upgradeCost ?? target.unlockCost ?? perk.upgradeCost ?? 0)));
+  }
+
+  function accountPerkLevel(perkId, role = null, account = currentAccount) {
+    const id = String(perkId || "");
+    const roleKey = role ? normalizePerkRole(role) : null;
+    const perks = account?.perks || {};
+    const sources = [
+      roleKey ? perks[roleKey] : null,
+      roleKey === "killer" ? perks.void : roleKey === "survivor" ? perks.runner : null,
+      perks.all,
+      perks
+    ].filter(Boolean);
+    for (const source of sources) {
+      const value = Number(source?.[id] || 0);
+      if (value > 0) return Math.max(0, Math.floor(value));
+    }
+    return 0;
+  }
+
+  function actorPerkLevel(actor, perkId, role = null) {
+    const id = String(perkId || "");
+    const roleKey = normalizePerkRole(role || actor?.role);
+    if (actor?.isBot) return Math.max(1, Math.floor(Number(SHARED_PERKS.botLevel || SHARED_PERKS.maxLevel || 4)));
+    const perks = actor?.perkLevels || actor?.perks || {};
+    const sources = [
+      perks[roleKey],
+      roleKey === "killer" ? perks.void : perks.runner,
+      perks.all,
+      perks
+    ].filter(Boolean);
+    for (const source of sources) {
+      const value = Number(source?.[id] || 0);
+      if (value > 0) return Math.max(0, Math.floor(value));
+    }
+    return 0;
+  }
+
+  function perkEffectForActor(actor, perkId, role = null) {
+    const roleKey = normalizePerkRole(role || actor?.role);
+    const perk = perkConfigById(perkId, roleKey);
+    const level = actorPerkLevel(actor, perkId, roleKey);
+    if (!perk || level <= 0) return null;
+    return perkLevelConfig(perk, level) || null;
+  }
+
+  function formatSeconds(value) {
+    const seconds = Number(value || 0);
+    if (!Number.isFinite(seconds)) return "0s";
+    return `${Number.isInteger(seconds) ? seconds : seconds.toFixed(1)}s`;
+  }
+
+  function perkEffectLine(perk, level) {
+    const currentLevel = Math.max(0, Math.floor(Number(level || 0)));
+    const effect = currentLevel > 0 ? perkLevelConfig(perk, currentLevel) : perkLevelConfig(perk, 1);
+    if (!effect) return "Unlock to use this ability in match.";
+    const parts = [];
+    if (Number(effect.duration || 0) > 0) parts.push(`${formatSeconds(effect.duration)} duration`);
+    if (effect.lengthMultiplier) parts.push(`${Number(effect.lengthMultiplier).toFixed(2)}x cone length`);
+    if (effect.angleMultiplier) parts.push(`${Number(effect.angleMultiplier).toFixed(2)}x cone width`);
+    if (effect.backLengthMultiplier) parts.push(`${Number(effect.backLengthMultiplier).toFixed(2)}x rear length`);
+    if (effect.backAngleMultiplier) parts.push(`${Number(effect.backAngleMultiplier).toFixed(2)}x rear width`);
+    if (effect.speedMultiplier && perk.id !== "speedBurst") parts.push(`${Number(effect.speedMultiplier).toFixed(2)}x speed`);
+    if (effect.slowMultiplier) parts.push(`${Math.round((1 - Number(effect.slowMultiplier)) * 100)}% slow`);
+    if (effect.slowSeconds) parts.push(`${formatSeconds(effect.slowSeconds)} slow`);
+    return parts.join(" · ") || "Level effect configured.";
+  }
+
+  function renderPerkShop() {
+    const mounts = [...document.querySelectorAll("[data-perk-shop]")];
+    if (!mounts.length) return;
+    for (const mount of mounts) {
+      const role = normalizePerkRole(mount.dataset.perkShop || "survivor");
+      const perks = shopPerks.filter((perk) => normalizePerkRole(perk.role) === role);
+      const fallback = configuredPerksForRole(role);
+      const catalog = perks.length ? perks : fallback;
+      mount.replaceChildren();
+      if (!catalog.length) {
+        const empty = document.createElement("p");
+        empty.className = "perk-shop-empty";
+        empty.textContent = "Perk catalog did not load. Very dramatic. Try refreshing.";
+        mount.appendChild(empty);
+        continue;
+      }
+      for (const perk of catalog) {
+        const id = String(perk.id || "");
+        const level = accountPerkLevel(id, role);
+        const maxLevel = perkMaxLevel(perk);
+        const nextCost = perkNextCost(perk, level);
+        const maxed = level >= maxLevel;
+        const affordable = !!currentAccount && (currentAccount.orbBalance || 0) >= nextCost;
+
+        const card = document.createElement("article");
+        card.className = `perk-card accent-${perk.accent || (role === "killer" ? "purple" : "cyan")}`;
+        card.classList.toggle("locked", level <= 0);
+        card.classList.toggle("owned", level > 0);
+        card.classList.toggle("maxed", maxed);
+        card.classList.toggle("affordable", !maxed && affordable);
+
+        const top = document.createElement("div");
+        top.className = "perk-card-top";
+        const icon = document.createElement("span");
+        icon.className = "perk-icon";
+        icon.setAttribute("aria-hidden", "true");
+        const title = document.createElement("div");
+        const name = document.createElement("strong");
+        name.textContent = perk.name || id;
+        const meta = document.createElement("small");
+        meta.textContent = level > 0 ? `Level ${level}/${maxLevel}` : "Locked";
+        title.append(name, meta);
+        top.append(icon, title);
+
+        const summary = document.createElement("p");
+        summary.className = "perk-summary";
+        summary.textContent = perk.summary || "Unlock and upgrade this ability.";
+
+        const effect = document.createElement("p");
+        effect.className = "perk-effect";
+        effect.textContent = perkEffectLine(perk, level);
+
+        const pips = document.createElement("div");
+        pips.className = "perk-level-pips";
+        for (let i = 1; i <= maxLevel; i++) {
+          const pip = document.createElement("span");
+          pip.className = i <= level ? "filled" : "";
+          pips.appendChild(pip);
+        }
+
+        const button = document.createElement("button");
+        button.type = "button";
+        button.dataset.perkBuy = id;
+        button.dataset.perkRole = role;
+        button.disabled = maxed;
+        button.textContent = maxed ? "Max level" : level <= 0 ? `Unlock · ${nextCost} orbs` : `Upgrade · ${nextCost} orbs`;
+        button.title = currentAccount ? button.textContent : "Login or Play as Guest to buy perks";
+
+        card.append(top, summary, effect, pips, button);
+        mount.appendChild(card);
+      }
+    }
+  }
+
+  async function buyPerkFromButton(button) {
+    const perkId = String(button?.dataset?.perkBuy || "");
+    const role = normalizePerkRole(button?.dataset?.perkRole || "survivor");
+    if (!perkId) return false;
+    if (!currentAccount || !authToken) {
+      toast("Login or Play as Guest first. The perk goblin requires paperwork.", 2600);
+      return false;
+    }
+    const perk = publicPerkById(perkId, role);
+    const level = accountPerkLevel(perkId, role);
+    const cost = perkNextCost(perk, level);
+    if ((currentAccount.orbBalance || 0) < cost) {
+      toast(`Need ${cost} deposited orbs for ${perk?.name || "that perk"}.`, 2600);
+      return false;
+    }
+    const payload = await authFetch("/api/perks/buy", { method: "POST", body: JSON.stringify({ perkId }) });
+    applyAccountPayload(payload);
+    socket?.emit("refreshAccount", { token: authToken || "" });
+    const nextLevel = payload.perk?.level || Math.min(level + 1, perkMaxLevel(perk));
+    toast(`${level <= 0 ? "Unlocked" : "Upgraded"} ${perk?.name || "perk"} to level ${nextLevel}.`, 1900);
+    return true;
+  }
+
   function getAccountPanels() {
     return [...document.querySelectorAll("[data-account-panel]")];
   }
@@ -1313,10 +1531,12 @@
 
     document.body.classList.toggle("has-riftrunner-account", !!currentAccount);
     refreshSkinLockUi();
+    renderPerkShop();
   }
 
   function applyAccountPayload(payload = {}) {
     if (Array.isArray(payload.skins)) shopSkins = payload.skins;
+    if (Array.isArray(payload.perks)) shopPerks = payload.perks;
     currentAccount = payload.account || null;
     syncAccountUi();
     if (payload.reward?.orbsDeposited) {
@@ -1361,6 +1581,7 @@
     try {
       const shop = await authFetch("/api/shop", { method: "GET" });
       if (Array.isArray(shop.skins)) shopSkins = shop.skins;
+      if (Array.isArray(shop.perks)) shopPerks = shop.perks;
       if (authToken) {
         const payload = await authFetch("/api/account", { method: "GET" });
         applyAccountPayload(payload);
@@ -1691,6 +1912,7 @@
     ui.menu?.classList.toggle("screen-open", name === "menu");
     ui.playScreen?.classList.toggle("screen-open", name === "play");
     ui.skinScreen?.classList.toggle("screen-open", name === "skins");
+    ui.perksScreen?.classList.toggle("screen-open", name === "perks");
     ui.optionsScreen?.classList.toggle("screen-open", name === "options");
     ui.howScreen?.classList.toggle("screen-open", name === "how");
     ui.lobbyScreen?.classList.toggle("screen-open", name === "lobby");
@@ -2183,11 +2405,41 @@
   let reactAbilityWheelOpen = false;
   let reactAbilityWheelRole = null;
 
+
+  function configuredAbilityForActor(id, defs, actor, role) {
+    const fallbackName = role === "survivor" ? "Runner Ability" : "Void Ability";
+    const base = defs[id] || { id, name: fallbackName, shortName: "Ability", cost: 0, summary: "Spend orbs to bend the run.", cooldown: role === "survivor" ? 30 : 20 };
+    const isCancel = !!base.cancel || id === "cancel" || !!base.disabled;
+    if (isCancel) return { ...base, cancel: true, locked: false, level: 0, maxLevel: 1 };
+
+    const roleKey = normalizePerkRole(role);
+    const perk = perkConfigById(base.id || id, roleKey) || publicPerkById(base.id || id, roleKey);
+    const level = actorPerkLevel(actor, base.id || id, roleKey);
+    const maxLevel = perkMaxLevel(perk || {});
+    const effect = level > 0 ? perkLevelConfig(perk, level) : null;
+    const duration = Number(effect?.duration ?? base.duration ?? 0);
+    const abilityCost = Number(perk?.abilityCost ?? base.cost ?? 0);
+    const cooldown = Number(perk?.cooldown ?? base.cooldown ?? (role === "survivor" ? 30 : 20));
+    const levelLabel = level > 0
+      ? `Lv ${level}/${maxLevel} · ${formatSeconds(duration)}`
+      : "Locked · buy in Perks";
+    return {
+      ...base,
+      cost: abilityCost,
+      cooldown,
+      duration,
+      level,
+      maxLevel,
+      locked: level <= 0,
+      summary: `${levelLabel}. ${perk?.summary || base.summary || "Spend orbs to bend the run."}`
+    };
+  }
+
   function normalizeAbilityList(order, defs, actor, role) {
     const orbs = Math.max(0, Math.floor(actor?.dots || 0));
     return order.slice(0, 4).map((id) => {
       const fallbackName = role === "survivor" ? "Runner Ability" : "Void Ability";
-      const ability = defs[id] || { id, name: fallbackName, shortName: "Ability", cost: 0, summary: "Spend orbs to bend the run.", cooldown: role === "survivor" ? 30 : 20 };
+      const ability = configuredAbilityForActor(id, defs, actor, role);
       const isCancel = !!ability.cancel || id === "cancel" || !!ability.disabled;
       const cooldowns = role === "survivor" ? actor?.survivorAbilityCooldowns : actor?.voidAbilityCooldowns;
       const cooldownRemaining = isCancel ? 0 : Math.max(0, Number(cooldowns?.[ability.id || id] || 0));
@@ -2209,7 +2461,11 @@
         cancel: isCancel,
         cooldown: Number(ability.cooldown || (role === "survivor" ? 30 : 20)),
         cooldownRemaining,
-        available: isCancel || (orbs >= Number(ability.cost || 0) && cooldownRemaining <= 0),
+        available: isCancel || (!ability.locked && orbs >= Number(ability.cost || 0) && cooldownRemaining <= 0),
+        locked: !!ability.locked,
+        level: Math.max(0, Math.floor(Number(ability.level || 0))),
+        maxLevel: Math.max(1, Math.floor(Number(ability.maxLevel || 4))),
+        duration: Number(ability.duration || 0),
         active
       };
     });
@@ -4233,8 +4489,8 @@
       const baseAngle = role === "killer" ? LIGHTING.KILLER_ANGLE : survivorVisionAngleForData(subject?.data);
       const length = baseLength + WALL_VISION.CONE_EXTRA_LENGTH;
       const coneAngle = baseAngle + WALL_VISION.CONE_EXTRA_ANGLE;
-      const backLength = length * LIGHTING.SURVIVOR_HOURGLASS_BACK_LENGTH_MULT;
-      const backConeAngle = Math.min(Math.PI * 1.08, coneAngle * LIGHTING.SURVIVOR_HOURGLASS_BACK_ANGLE_MULT);
+      const backLength = length * cfgNumber(perkEffectForActor(subject?.data, "hourglass", "survivor")?.backLengthMultiplier, LIGHTING.SURVIVOR_HOURGLASS_BACK_LENGTH_MULT);
+      const backConeAngle = Math.min(Math.PI * 1.08, coneAngle * cfgNumber(perkEffectForActor(subject?.data, "hourglass", "survivor")?.backAngleMultiplier, LIGHTING.SURVIVOR_HOURGLASS_BACK_ANGLE_MULT));
       const nearRadius = role === "killer" ? WALL_VISION.KILLER_NEAR_RADIUS : WALL_VISION.SURVIVOR_NEAR_RADIUS;
       let animating = false;
 
@@ -6569,10 +6825,10 @@
       let speed = data.role === "killer" ? LOCAL_SPEEDS.killer : (input.sprint ? LOCAL_SPEEDS.survivorSprint : LOCAL_SPEEDS.survivorWalk);
       if (data.role === "survivor" && data.downed) speed = LOCAL_SPEEDS.downedCrawl;
       else if (data.role === "survivor" && data.hitBoost > 0) speed = LOCAL_SPEEDS.survivorBoost;
-      if (data.role === "survivor" && (data.speedBurst || 0) > 0 && !data.downed) speed *= LOCAL_SPEEDS.survivorSpeedBurstMult;
+      if (data.role === "survivor" && (data.speedBurst || 0) > 0 && !data.downed) speed *= cfgNumber(perkEffectForActor(data, "speedBurst", "survivor")?.speedMultiplier, LOCAL_SPEEDS.survivorSpeedBurstMult);
       if (data.role === "survivor" && (data.orbSlow || data.voidSlow || 0) > 0) speed *= 0.58;
       if (data.role === "killer" && currentSnapshot?.objective?.voidBuffed) speed *= LOCAL_SPEEDS.killerEndgameMult;
-      if (data.role === "killer" && (data.voidSpeedBoost || 0) > 0) speed *= 1.28;
+      if (data.role === "killer" && (data.voidSpeedBoost || 0) > 0) speed *= cfgNumber(perkEffectForActor(data, "nullRush", "killer")?.speedMultiplier, 1.28);
       if (data.role === "killer" && data.attackState === "lunge") {
         dx = Math.cos(input.angle);
         dy = Math.sin(input.angle);
@@ -6957,8 +7213,8 @@
       };
       const forwardAlpha = this.computeWallVisionAlpha(pointItem, sourceX, sourceY, facing, length, coneAngle, nearRadius);
       if (!hourglassActive) return forwardAlpha;
-      const backLength = length * LIGHTING.SURVIVOR_HOURGLASS_BACK_LENGTH_MULT;
-      const backAngle = Math.min(Math.PI * 1.08, coneAngle * LIGHTING.SURVIVOR_HOURGLASS_BACK_ANGLE_MULT);
+      const backLength = length * cfgNumber(perkEffectForActor(subject?.data, "hourglass", "survivor")?.backLengthMultiplier, LIGHTING.SURVIVOR_HOURGLASS_BACK_LENGTH_MULT);
+      const backAngle = Math.min(Math.PI * 1.08, coneAngle * cfgNumber(perkEffectForActor(subject?.data, "hourglass", "survivor")?.backAngleMultiplier, LIGHTING.SURVIVOR_HOURGLASS_BACK_ANGLE_MULT));
       const backAlpha = this.computeWallVisionAlpha(pointItem, sourceX, sourceY, facing + Math.PI, backLength, backAngle, nearRadius);
       return Math.max(forwardAlpha, backAlpha);
     }
@@ -7109,8 +7365,8 @@
       const baseAngle = role === "killer" ? LIGHTING.KILLER_ANGLE : survivorVisionAngleForData(subject?.data);
       const length = baseLength + WALL_VISION.CONE_EXTRA_LENGTH;
       const coneAngle = baseAngle + WALL_VISION.CONE_EXTRA_ANGLE;
-      const backLength = length * LIGHTING.SURVIVOR_HOURGLASS_BACK_LENGTH_MULT;
-      const backConeAngle = Math.min(Math.PI * 1.08, coneAngle * LIGHTING.SURVIVOR_HOURGLASS_BACK_ANGLE_MULT);
+      const backLength = length * cfgNumber(perkEffectForActor(subject?.data, "hourglass", "survivor")?.backLengthMultiplier, LIGHTING.SURVIVOR_HOURGLASS_BACK_LENGTH_MULT);
+      const backConeAngle = Math.min(Math.PI * 1.08, coneAngle * cfgNumber(perkEffectForActor(subject?.data, "hourglass", "survivor")?.backAngleMultiplier, LIGHTING.SURVIVOR_HOURGLASS_BACK_ANGLE_MULT));
       const nearRadius = role === "killer" ? WALL_VISION.KILLER_NEAR_RADIUS : WALL_VISION.SURVIVOR_NEAR_RADIUS;
 
       if (role !== "killer") this.killerWallVisionStableKey = "";
@@ -7639,8 +7895,8 @@
       const segments = Math.max(4, Math.floor(performanceValue("coneSegments", LIGHTING.CONE_SEGMENTS)));
       this.drawVisionConeGraphic(g, vx, vy, vfacing, vlength, vangle, lightColor, coneAlpha, segments);
       if (hourglassActive) {
-        const backLength = vlength * LIGHTING.SURVIVOR_HOURGLASS_BACK_LENGTH_MULT;
-        const backAngle = Math.min(Math.PI * 1.08, vangle * LIGHTING.SURVIVOR_HOURGLASS_BACK_ANGLE_MULT);
+        const backLength = vlength * cfgNumber(perkEffectForActor(me.data, "hourglass", "survivor")?.backLengthMultiplier, LIGHTING.SURVIVOR_HOURGLASS_BACK_LENGTH_MULT);
+        const backAngle = Math.min(Math.PI * 1.08, vangle * cfgNumber(perkEffectForActor(me.data, "hourglass", "survivor")?.backAngleMultiplier, LIGHTING.SURVIVOR_HOURGLASS_BACK_ANGLE_MULT));
         this.drawVisionConeGraphic(g, vx, vy, vfacing + Math.PI, backLength, backAngle, 0x67e8f9, coneAlpha * 0.82, segments);
       }
     }
@@ -8052,6 +8308,7 @@
 
     ui.menuPlayBtn?.addEventListener("click", () => { ensureMenuAudioStarted(); showScreen("play"); });
     ui.menuSkinsBtn?.addEventListener("click", () => { ensureMenuAudioStarted(); showScreen("skins"); });
+    ui.menuPerksBtn?.addEventListener("click", () => { ensureMenuAudioStarted(); renderPerkShop(); showScreen("perks"); });
     ui.menuOptionsBtn?.addEventListener("click", () => { ensureMenuAudioStarted(); showScreen("options"); });
     ui.menuHowBtn?.addEventListener("click", () => { ensureMenuAudioStarted(); showScreen("how"); });
     ui.menuBackBtns?.forEach((btn) => {
@@ -8094,6 +8351,12 @@
           toast(error.message || "Could not unlock skin.", 2600);
         }
       });
+    });
+
+    document.addEventListener("click", (event) => {
+      const button = event.target?.closest?.("[data-perk-buy]");
+      if (!button) return;
+      buyPerkFromButton(button).catch((error) => toast(error.message || "Could not buy perk.", 2600));
     });
 
     ui.quickJoinBtn.addEventListener("click", () => socket.emit("quickJoin", { role: selectedRole, playerName: getName(), skin: skinForSelectedRole() }));
@@ -8453,6 +8716,18 @@
       ? window.RIFTRUNNER_SOCKET_URL.trim()
       : "";
     socket = configuredSocketUrl ? io(configuredSocketUrl, socketOptions) : io(socketOptions);
+    const syncBotDebugPreference = (enabled = null) => {
+      if (!socket?.connected) return;
+      const stored = (() => {
+        try { return window.localStorage?.getItem("riftrunnerBotDebug") === "1"; }
+        catch (_) { return false; }
+      })();
+      socket.emit("setBotDebug", { enabled: enabled === null ? stored : !!enabled });
+    };
+    window.addEventListener("riftrunner:bot-debug-toggle", (event) => {
+      syncBotDebugPreference(!!event.detail?.enabled);
+    });
+    socket.on("connect", () => syncBotDebugPreference());
     socket.on("connect_error", () => toast("Could not connect to the RiftRunner server."));
     socket.on("disconnect", (reason) => {
       if (reason !== "io client disconnect") toast("Disconnected. Reconnecting...");
@@ -8518,6 +8793,10 @@
       }
       networkTiming.lastSnapshotAt = arrivedAt;
       snapshot.clientArrivedAt = arrivedAt;
+      if (currentSnapshot) {
+        snapshot.map = { ...(currentSnapshot.map || {}), ...(snapshot.map || {}) };
+        if (!("collectibleDots" in snapshot)) snapshot.collectibleDots = currentSnapshot.collectibleDots || [];
+      }
       currentSnapshot = snapshot;
       updateMatchPauseOverlay(snapshot);
       if (phaserScene) phaserScene.applySnapshot(snapshot);

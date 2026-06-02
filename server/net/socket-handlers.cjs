@@ -62,6 +62,7 @@ function registerSocketHandlers(context) {
       ok: true,
       account: account || null,
       skins: accountService?.publicCatalog ? accountService.publicCatalog() : [],
+      perks: accountService?.publicPerkCatalog ? accountService.publicPerkCatalog() : [],
       ...extra
     };
   }
@@ -95,6 +96,16 @@ function registerSocketHandlers(context) {
     socket.emit("accountState", accountPayload(socket.data.account));
     socket.emit("lobbyList", [...lobbies.values()].map(getLobbySummary));
 
+    socket.on("setBotDebug", ({ enabled } = {}) => {
+      const next = !!enabled;
+      socket.data.botDebugEnabled = next;
+      const lobby = lobbies.get(socketToLobby.get(socket.id));
+      const player = lobby?.players?.get(socket.id);
+      if (player && !player.isBot) player.botDebugEnabled = next;
+      const liveActor = lobby?.game?.actors?.get?.(socket.id);
+      if (liveActor && !liveActor.isBot) liveActor.botDebugEnabled = next;
+    });
+
     socket.on("refreshAccount", ({ token } = {}) => {
       if (typeof token === "string") socket.data.authTokenOverride = token;
       loadSocketAccount(socket).then((account) => {
@@ -102,7 +113,10 @@ function registerSocketHandlers(context) {
         const player = lobby?.players?.get(socket.id);
         if (player && !player.isBot) {
           player.accountId = account?.id || null;
+          player.perkLevels = account?.perks || null;
           player.skin = skinForSocket(socket, player.role, player.skin);
+          const liveActor = lobby?.game?.actors?.get?.(socket.id);
+          if (liveActor && !liveActor.isBot) liveActor.perkLevels = account?.perks || null;
           if (lobby.phase === "lobby") broadcastLobbyState(lobby);
         }
         socket.emit("accountState", accountPayload(account));

@@ -37,3 +37,15 @@ CREATE TABLE IF NOT EXISTS match_rewards (
 
 CREATE INDEX IF NOT EXISTS idx_match_rewards_account_id ON match_rewards (account_id);
 CREATE INDEX IF NOT EXISTS idx_match_rewards_match_id ON match_rewards (match_id);
+
+CREATE TABLE IF NOT EXISTS account_perks (
+  account_id UUID NOT NULL REFERENCES accounts(id) ON DELETE CASCADE,
+  perk_id TEXT NOT NULL,
+  perk_role TEXT NOT NULL CHECK (perk_role IN ('survivor', 'killer')),
+  level INTEGER NOT NULL DEFAULT 1 CHECK (level >= 1 AND level <= 4),
+  unlocked_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (account_id, perk_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_account_perks_account_id ON account_perks (account_id);
