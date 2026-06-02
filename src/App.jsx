@@ -14,7 +14,7 @@ const LEGACY_SCRIPT_CHAIN = [
 ]
 
 const MENU_ACTIONS = [
-  { id: "menuPlayBtn", label: "Play", className: "menu-action primary" },
+  { id: "menuPlayBtn", label: "Start Playing", className: "menu-action primary" },
   { id: "menuSkinsBtn", label: "Skins", className: "menu-action" },
   { id: "menuPerksBtn", label: "Perks", className: "menu-action" },
   { id: "menuOptionsBtn", label: "Options", className: "menu-action" },
@@ -157,7 +157,11 @@ function ScreenHeader({ eyebrow, title, description, backTo = "menu" }) {
 
 function MenuBackground() {
   return (
-    <div className="menu-bg" aria-hidden="true">
+    <div className="menu-bg aero-menu-bg" aria-hidden="true">
+      <div className="aero-skyline" />
+      <div className="aero-waterline" />
+      <div className="aero-hill" />
+      <div className="aero-sun-glass" />
       <div className="void-grid" />
       <div className="rift-halo halo-a" />
       <div className="rift-halo halo-b" />
@@ -166,6 +170,15 @@ function MenuBackground() {
       <div className="rift-sigil sigil-b" />
       <div className="fog-layer fog-low" />
       <div className="fog-layer fog-high" />
+      <div className="aero-bubble bubble-a" />
+      <div className="aero-bubble bubble-b" />
+      <div className="aero-bubble bubble-c" />
+      <div className="aero-bubble bubble-d" />
+      <div className="aero-bubble bubble-e" />
+      <div className="aero-cell cell-a" />
+      <div className="aero-cell cell-b" />
+      <div className="aero-fish fish-a" />
+      <div className="aero-fish fish-b" />
     </div>
   )
 }
@@ -241,48 +254,79 @@ function AuthPanel({ compact = false, panelId = "menu" }) {
 
 function MainMenu() {
   return (
-    <div id="menu" className="screen screen-open io-screen menu-screen">
-      <div className="main-menu-stage">
-        <header className="main-menu-logo" aria-label="RiftRunner">
-          <div className="brand-lockup portal-brand-lockup">
-            <div className="brand-rift" aria-hidden="true">
+    <div id="menu" className="screen screen-open io-screen menu-screen aero-main-menu">
+      <div className="main-menu-stage duelyst-aero-stage">
+        <header className="main-menu-logo aero-logo" aria-label="RiftRunner">
+          <div className="brand-lockup portal-brand-lockup aero-brand-lockup">
+            <div className="brand-rift aero-brand-rift" aria-hidden="true">
               <span />
             </div>
             <div>
-              <div className="eyebrow">free browser chase game</div>
+              <div className="eyebrow">void chase system</div>
               <h1>RiftRunner</h1>
             </div>
           </div>
-          <p className="menu-build-label">orb economy online · rifts unstable</p>
+          <p className="menu-build-label">main menu pack</p>
         </header>
 
-        <div className="main-menu-account">
+        <div className="main-menu-account aero-account-dock">
           <AuthPanel />
         </div>
 
-        <nav className="main-menu-actions floating-menu-actions" aria-label="Main menu">
-          {MENU_ACTIONS.map((action) => (
-            <button id={action.id} className={action.className} type="button" key={action.id}>{action.label}</button>
-          ))}
-          <a
-            className="coffee-link"
-            href="https://buymeacoffee.com/riftrunner"
-            target="_blank"
-            rel="noreferrer"
-          >
-            Buy me a Coffee
-          </a>
-        </nav>
+        <div className="aero-top-icons" aria-label="Quick menu">
+          <button type="button" onClick={() => document.getElementById("menuSkinsBtn")?.click()}>
+            <span aria-hidden="true">◈</span>
+            <b>Skins</b>
+          </button>
+          <button type="button" onClick={() => document.getElementById("menuPerksBtn")?.click()}>
+            <span aria-hidden="true">✦</span>
+            <b>Perks</b>
+          </button>
+          <button type="button" onClick={() => document.getElementById("menuOptionsBtn")?.click()}>
+            <span aria-hidden="true">⚙</span>
+            <b>Settings</b>
+          </button>
+        </div>
 
-        <aside className="main-menu-hero-copy" aria-label="Game mode summary">
-          <span>1 Void · 4 Runners</span>
-          <strong>Collect. Rescue. Escape.</strong>
-          <p>Feed the rifts before the map becomes a very decorative grave.</p>
+        <div className="aero-menu-cluster">
+          <nav className="main-menu-actions floating-menu-actions aero-duelyst-nav" aria-label="Main menu">
+            {MENU_ACTIONS.map((action) => (
+              <button id={action.id} className={action.className} type="button" key={action.id}>{action.label}</button>
+            ))}
+            <a
+              className="coffee-link"
+              href="https://buymeacoffee.com/riftrunner"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Buy me a Coffee
+            </a>
+          </nav>
+
+          <button className="aero-pack-orb" type="button" onClick={() => document.getElementById("menuPerksBtn")?.click()}>
+            <span className="aero-pack-ring" aria-hidden="true" />
+            <span className="aero-pack-text">
+              <b>0</b>
+              perk packs
+            </span>
+          </button>
+        </div>
+
+        <aside className="main-menu-hero-copy aero-hero-copy" aria-label="Game mode summary">
+          <span>RiftRunner</span>
+          <strong>Main Menu Pack</strong>
+          <p>Dark arcade interface. Purple glass, white text, less aquarium screensaver nonsense.</p>
         </aside>
 
-        <div className="menu-footer-strip">
+        <div className="aero-card-stack" aria-hidden="true">
+          <span />
+          <span />
+          <span />
+        </div>
+
+        <div className="menu-footer-strip aero-footer-strip">
           <span className="enrichment-mark" aria-hidden="true" />
-          <span>press enter to chat · shift to sprint · q for perks</span>
+          <span>shift sprint · q abilities · space interact</span>
           <button id="menuMusicToggleBtn" className="menu-music-toggle" type="button" aria-pressed="false">
             Menu music on
           </button>
