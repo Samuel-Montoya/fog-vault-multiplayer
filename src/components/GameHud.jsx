@@ -1,0 +1,961 @@
+import { useEffect, useRef, useState } from "react"
+import { SKINS, VOID_SKINS } from "../data/menuData"
+import "../styles/game_hud.css"
+
+const VOID_ABILITY_WHEEL_FALLBACK = [
+  { id: "nullRush", name: "Null Rush", shortName: "Rush", cost: 15, summary: "Move faster.", accent: "gray" },
+  { id: "redshiftOrbs", name: "Redshift Bloom", shortName: "Redshift", cost: 25, summary: "Corrupts orbs.", accent: "red" },
+  { id: "cancel", name: "Cancel", shortName: "Cancel", cost: 0, summary: "Close the wheel.", accent: "muted", cancel: true },
+  { id: "voidReveal", name: "Void Sight", shortName: "Sight", cost: 15, summary: "Reveals all Runners.", accent: "purple", cooldown: 20 }
+]
+
+const RUNNER_ABILITY_WHEEL_FALLBACK = [
+  { id: "speedBurst", name: "Speed Burst", shortName: "Burst", cost: 10, summary: "Small speed boost.", accent: "green", cooldown: 60 },
+  { id: "riftLens", name: "Rift Lens", shortName: "Lens", cost: 10, summary: "Widen your vision cone.", accent: "gold", cooldown: 30 },
+  { id: "cancel", name: "Cancel", shortName: "Cancel", cost: 0, summary: "Close the wheel.", accent: "muted", cancel: true },
+  { id: "hourglass", name: "Hourglass", shortName: "Hourglass", cost: 10, summary: "Rear cone + no trails.", accent: "cyan", cooldown: 30 }
+]
+
+function abilityFallbackForRole(role) {
+  return role === "survivor" ? RUNNER_ABILITY_WHEEL_FALLBACK : VOID_ABILITY_WHEEL_FALLBACK
+}
+
+function normalizeAbilities(abilities, role = "killer") {
+  const fallback = abilityFallbackForRole(role)
+  const safe = Array.isArray(abilities) ? abilities.slice(0, 4) : []
+  while (safe.length < 4) safe.push(fallback[safe.length])
+  return safe.map((ability, index) => ({
+    id: String(ability?.id || fallback[index]?.id || `ability-${index}`),
+    name: String(ability?.name || fallback[index]?.name || "Ability"),
+    shortName: String(ability?.shortName || ability?.name || fallback[index]?.shortName || "Ability"),
+    cost: Number.isFinite(Number(ability?.cost)) ? Number(ability.cost) : Number(fallback[index]?.cost || 0),
+    summary: String(ability?.summary || fallback[index]?.summary || "Spend orbs to bend the run."),
+    accent: String(ability?.accent || (role === "survivor" ? "cyan" : "purple")),
+    cancel: !!ability?.cancel || String(ability?.id || "") === "cancel" || String(ability?.id || "") === "moreSoon" || !!ability?.disabled,
+    available: ability?.available !== false && !ability?.disabled,
+    active: !!ability?.active,
+    cooldown: Number.isFinite(Number(ability?.cooldown)) ? Number(ability.cooldown) : Number(fallback[index]?.cooldown || (role === "survivor" ? 30 : 20)),
+    cooldownRemaining: Math.max(0, Number.isFinite(Number(ability?.cooldownRemaining)) ? Number(ability.cooldownRemaining) : 0),
+    locked: !!ability?.locked,
+    level: Math.max(0, Number.isFinite(Number(ability?.level)) ? Number(ability.level) : 0),
+    maxLevel: Math.max(1, Number.isFinite(Number(ability?.maxLevel)) ? Number(ability.maxLevel) : 4)
+  }))
+}
+
+export function AbilityWheel() {
+  const [wheel, setWheel] = useState({
+    open: false,
+    role: "killer",
+    title: "Void abilities",
+    orbs: 0,
+    abilities: VOID_ABILITY_WHEEL_FALLBACK,
+    selected: -1
+  })
+
+  const openRef = useRef(false)
+  const selectedRef = useRef(-1)
+  const lastPointerRef = useRef(null)
+  const abilitiesRef = useRef(VOID_ABILITY_WHEEL_FALLBACK)
+  const roleRef = useRef("killer")
+
+  useEffect(() => {
+    const setSelected = (selected) => {
+      selectedRef.current = selected
+      setWheel((current) => current.selected === selected ? current : { ...current, selected })
+    }
+
+    const handlePointerMove = (event) => {
+      const point = { x: event.clientX, y: event.clientY }
+      lastPointerRef.current = point
+      if (openRef.current) setSelected(getChatWheelSelectionFromPoint(point))
+    }
+
+    const handleOpen = (event) => {
+      const detail = event.detail || {}
+      const role = detail.role === "survivor" ? "survivor" : "killer"
+      const point = detail.pointer || lastPointerRef.current
+      const selected = getChatWheelSelectionFromPoint(point)
+      const abilities = normalizeAbilities(detail.abilities, role)
+      abilitiesRef.current = abilities
+      roleRef.current = role
+      openRef.current = true
+      selectedRef.current = selected
+      setWheel({
+        open: true,
+        role,
+        title: String(detail.title || (role === "survivor" ? "Runner abilities" : "Void abilities")),
+        orbs: Number(detail.orbs || 0),
+        abilities,
+        selected
+      })
+    }
+
+    const handleUpdate = (event) => {
+      const detail = event.detail || {}
+      setWheel((current) => {
+        const role = detail.role === "survivor" ? "survivor" : current.role
+        const abilities = detail.abilities ? normalizeAbilities(detail.abilities, role) : current.abilities
+        abilitiesRef.current = abilities
+        roleRef.current = role
+        return {
+          ...current,
+          role,
+          title: String(detail.title || current.title),
+          orbs: Number(detail.orbs ?? current.orbs ?? 0),
+          abilities
+        }
+      })
+    }
+
+    const handleClose = (event) => {
+      const shouldSubmit = event.detail?.submit !== false
+      const selected = selectedRef.current
+      const ability = abilitiesRef.current[selected]
+
+      if (shouldSubmit && selected >= 0 && !ability?.cancel && ability?.available !== false) {
+        window.dispatchEvent(new CustomEvent("riftrunner:ability-submit", { detail: { index: selected, role: roleRef.current } }))
+      }
+
+      openRef.current = false
+      selectedRef.current = -1
+      setWheel((current) => ({ ...current, open: false, selected: -1 }))
+    }
+
+    window.addEventListener("pointermove", handlePointerMove, { passive: true })
+    window.addEventListener("riftrunner:ability-open", handleOpen)
+    window.addEventListener("riftrunner:ability-update", handleUpdate)
+    window.addEventListener("riftrunner:ability-close", handleClose)
+
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove)
+      window.removeEventListener("riftrunner:ability-open", handleOpen)
+      window.removeEventListener("riftrunner:ability-update", handleUpdate)
+      window.removeEventListener("riftrunner:ability-close", handleClose)
+    }
+  }, [])
+
+  return (
+    <div className={`ability-wheel-overlay ${wheel.open ? "is-open" : ""} is-${wheel.role === "survivor" ? "runner" : "void"}`} aria-hidden={!wheel.open}>
+      <div className="ability-wheel-backdrop" />
+      <div className="ability-wheel" role="menu" aria-label={wheel.title}>
+        <div className="ability-wheel-center" aria-hidden="true">
+          <img className="ability-wheel-orb-icon" src="/images/orb.png" alt="" />
+          <strong>{wheel.orbs}</strong>
+          <span>orbs</span>
+        </div>
+        {CHAT_WHEEL_SEGMENTS.map((segment) => {
+          const fallback = abilityFallbackForRole(wheel.role)[segment.index]
+          const ability = wheel.abilities[segment.index] || fallback
+          const selected = wheel.selected === segment.index
+          const cancel = !!ability.cancel
+          const ready = cancel || ability.available !== false
+          const cooldownRemaining = Math.max(0, Number(ability.cooldownRemaining || 0))
+          const costLabel = ability.locked ? "LOCKED" : cooldownRemaining > 0 ? `${Math.ceil(cooldownRemaining)}s CD` : `${ability.cost} orbs`
+          return (
+            <div
+              className={`ability-wheel-segment ability-wheel-${segment.className} ${selected ? "selected" : ""} ${ready ? "can-use" : "locked"} ${ability.active ? "is-active" : ""} ${cancel ? "is-cancel" : ""} accent-${ability.accent || "purple"}`}
+              role="menuitem"
+              aria-label={cancel ? "Cancel ability wheel" : `${ability.name}, ${costLabel}`}
+              key={`${wheel.role}-${ability.id}-${segment.index}`}
+            >
+              <span className="ability-name">{ability.shortName || ability.name}</span>
+              {!cancel && <span className="ability-cost">{costLabel}</span>}
+              <small>{ability.summary}</small>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+export function VoidAbilityHud() {
+  const [hud, setHud] = useState({ visible: false, orbs: 0, effects: [] })
+
+  useEffect(() => {
+    const handleHud = (event) => {
+      const detail = event.detail || {}
+      setHud({
+        visible: !!detail.visible,
+        orbs: Number(detail.orbs || 0),
+        effects: Array.isArray(detail.effects) ? detail.effects : []
+      })
+    }
+
+    window.addEventListener("riftrunner:void-ability-hud", handleHud)
+    return () => window.removeEventListener("riftrunner:void-ability-hud", handleHud)
+  }, [])
+
+  if (!hud.visible) return null
+
+  return (
+    <div className="void-ability-hud" aria-live="polite">
+      <div className="void-orb-bank">
+        <img className="void-orb-icon" src="/images/orb.png" alt="" aria-hidden="true" />
+        <div>
+          <span>Void Orbs</span>
+          <strong>{hud.orbs}</strong>
+        </div>
+      </div>
+      {!!hud.effects.length && (
+        <div className="void-active-effects">
+          {hud.effects.map((effect) => (
+            <span key={effect.id}>{effect.label} {Math.ceil(effect.time)}s</span>
+          ))}
+        </div>
+      )}
+      <p>Hold <b>Q</b> for abilities</p>
+    </div>
+  )
+}
+
+export function RunnerAbilityHud() {
+  const [hud, setHud] = useState({ visible: false, orbs: 0, effects: [] })
+
+  useEffect(() => {
+    const handleHud = (event) => {
+      const detail = event.detail || {}
+      setHud({
+        visible: !!detail.visible,
+        orbs: Number(detail.orbs || 0),
+        effects: Array.isArray(detail.effects) ? detail.effects : []
+      })
+    }
+
+    window.addEventListener("riftrunner:runner-ability-hud", handleHud)
+    return () => window.removeEventListener("riftrunner:runner-ability-hud", handleHud)
+  }, [])
+
+  if (!hud.visible) return null
+
+  return (
+    <div className="void-ability-hud runner-ability-hud" aria-live="polite">
+      <div className="void-orb-bank runner-orb-bank">
+        <img className="void-orb-icon runner-orb-icon" src="/images/orb.png" alt="" aria-hidden="true" />
+        <div>
+          <span>Runner Orbs</span>
+          <strong>{hud.orbs}</strong>
+        </div>
+      </div>
+      {!!hud.effects.length && (
+        <div className="void-active-effects runner-active-effects">
+          {hud.effects.map((effect) => (
+            <span key={effect.id}>{effect.label} {Math.ceil(effect.time)}s</span>
+          ))}
+        </div>
+      )}
+      <p>Hold <b>Q</b> for abilities</p>
+    </div>
+  )
+}
+
+const CHAT_WHEEL_FALLBACK_MESSAGES = ["Let's feed a rift.", "I'm so scared...", "Here he comes!", "What was that?!"]
+
+const SURVIVOR_DOT_MAX = Number(window.GAMEPLAY_CONFIG?.orbs?.survivorMax) || 30
+
+const DEFAULT_RUNNER_SKIN = SKINS[0]
+const DEFAULT_VOID_SKIN = VOID_SKINS[0]
+
+function normalizeSkinKey(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+}
+
+function skinPoolForHudRole(role) {
+  return role === "void" || role === "killer" ? VOID_SKINS : SKINS
+}
+
+function defaultHudSkinForRole(role) {
+  return role === "void" || role === "killer" ? DEFAULT_VOID_SKIN : DEFAULT_RUNNER_SKIN
+}
+
+function actorSkinSearchText(actor) {
+  const values = [
+    actor?.skin,
+    actor?.skinId,
+    actor?.skinName,
+    actor?.selectedSkin,
+    actor?.selectedSkinId,
+    actor?.selectedSkinName,
+    actor?.skinLabel,
+    actor?.skinClass,
+    actor?.skinClassName,
+    actor?.cosmeticSkin,
+    actor?.cosmeticSkinId,
+    actor?.playerSkin,
+    actor?.playerSkinId,
+    actor?.loadout?.skin,
+    actor?.loadout?.skinId,
+    actor?.cosmetics?.skin,
+    actor?.cosmetics?.skinId,
+    actor?.profile?.skin,
+    actor?.profile?.skinId,
+    actor?.appearance?.skin,
+    actor?.appearance?.skinId
+  ]
+
+  return values.filter(Boolean).join(" ")
+}
+
+function findHudSkin(actor, role = "runner") {
+  const skins = skinPoolForHudRole(role)
+  const fallback = defaultHudSkinForRole(role)
+  const raw = actorSkinSearchText(actor)
+  const normalized = normalizeSkinKey(raw)
+  if (!normalized) return fallback
+
+  return skins.find((skin) => [skin.id, skin.label, skin.className].some((value) => normalizeSkinKey(value) === normalized))
+    || skins.find((skin) => [skin.id, skin.label, skin.className].some((value) => normalized.includes(normalizeSkinKey(value))))
+    || fallback
+}
+
+const ORB_FULL_CHAT_MESSAGES = new Set([
+  "I have too many orbs...",
+  "I should deposit these",
+  "I can't pick any more up.",
+  "I'm getting full..."
+])
+
+function visibleChatTextForActor(actor) {
+  const text = actor?.chatText || ""
+  if (!text) return ""
+  if ((actor.downed || actor.hooked || actor.dead || actor.escaped) && ORB_FULL_CHAT_MESSAGES.has(text)) return ""
+  return text
+}
+
+function survivorStateLabel(actor) {
+  if (actor.dead) return "Dead"
+  if (actor.escaped) return "Escaped"
+  if (actor.escapeProgress > 0) return `Escaping ${Math.round((actor.escapeProgress || 0) * 100)}%`
+  if (actor.hooked) return actor.unhookProgress > 0 ? "Being Rescued" : `Hooked ${actor.hookCount || 1}/2`
+  if (actor.downed) {
+    if (actor.healProgress > 0) return "Being Healed"
+    return actor.hookProgress > 0 ? ((actor.hookCount || 0) >= 2 ? "Being Executed" : "Being Hooked") : "Downed"
+  }
+  if (actor.dotDepositTargetId) return `Depositing ${Math.round((actor.dotDepositProgress || 0) * 100)}%`
+  if (actor.health <= 1 || actor.injured) return actor.healProgress > 0 ? "Being Healed" : "Injured"
+  return "Healthy"
+}
+
+function survivorCardClass(actor, myId, spectateTargetId, spectating) {
+  const classes = ["survivor-status-card"]
+  if (actor.id === myId) classes.push("self")
+  if (spectating && actor.id === spectateTargetId) classes.push("spectating")
+  if (actor.dead) classes.push("dead")
+  else if (actor.escaped) classes.push("escaped")
+  else if (actor.hooked) classes.push("hooked")
+  else if (actor.downed) classes.push("downed")
+  else if (actor.health <= 1 || actor.injured) classes.push("injured")
+  else classes.push("healthy")
+  if (actor.chase && !actor.dead && !actor.escaped && !actor.hooked && !actor.downed) classes.push("chased")
+  return classes.join(" ")
+}
+
+function actionLabel(actor) {
+  if (actor.dead) return "skull"
+  if (actor.escaped) return "out"
+  if (actor.hooked) return actor.unhookProgress > 0 ? "rescue" : "hook"
+  if (actor.downed) {
+    if (actor.healProgress > 0) return "heal"
+    return actor.hookProgress > 0 ? ((actor.hookCount || 0) >= 2 ? "execute" : "capture") : "down"
+  }
+  if (actor.chase) return "chase"
+  if (actor.dotDepositTargetId) return "feed"
+  if (actor.healProgress > 0) return "heal"
+  if (actor.health <= 1 || actor.injured) return "hurt"
+  return "safe"
+}
+
+const CHAT_WHEEL_SEGMENTS = [
+  { index: 0, className: "top" },
+  { index: 1, className: "right" },
+  { index: 2, className: "bottom" },
+  { index: 3, className: "left" }
+]
+
+function getChatWheelSelectionFromPoint(point) {
+  if (!point || !Number.isFinite(point.x) || !Number.isFinite(point.y)) return -1
+
+  const cx = window.innerWidth / 2
+  const cy = window.innerHeight / 2
+  const dx = point.x - cx
+  const dy = point.y - cy
+  const distance = Math.hypot(dx, dy)
+
+  if (distance < 44) return -1
+
+  const angle = Math.atan2(dy, dx)
+  if (angle >= -Math.PI * 0.25 && angle < Math.PI * 0.25) return 1
+  if (angle >= Math.PI * 0.25 && angle < Math.PI * 0.75) return 2
+  if (angle <= -Math.PI * 0.25 && angle > -Math.PI * 0.75) return 0
+  return 3
+}
+
+function normalizeChatMessages(messages) {
+  const safe = Array.isArray(messages) ? messages.slice(0, 4) : []
+  while (safe.length < 4) safe.push(CHAT_WHEEL_FALLBACK_MESSAGES[safe.length] || "...")
+  return safe.map((message) => String(message || "..."))
+}
+
+export function ChatWheel() {
+  const [wheel, setWheel] = useState({
+    open: false,
+    role: "survivor",
+    state: "normal",
+    messages: CHAT_WHEEL_FALLBACK_MESSAGES,
+    selected: -1
+  })
+
+  const openRef = useRef(false)
+  const selectedRef = useRef(-1)
+  const lastPointerRef = useRef(null)
+
+  useEffect(() => {
+    const setSelected = (selected) => {
+      selectedRef.current = selected
+      setWheel((current) => current.selected === selected ? current : { ...current, selected })
+    }
+
+    const handlePointerMove = (event) => {
+      const point = { x: event.clientX, y: event.clientY }
+      lastPointerRef.current = point
+      if (openRef.current) setSelected(getChatWheelSelectionFromPoint(point))
+    }
+
+    const handleOpen = (event) => {
+      const detail = event.detail || {}
+      const point = detail.pointer || lastPointerRef.current
+      const selected = getChatWheelSelectionFromPoint(point)
+      openRef.current = true
+      selectedRef.current = selected
+      setWheel({
+        open: true,
+        role: detail.role === "killer" ? "killer" : "survivor",
+        state: String(detail.state || "normal"),
+        messages: normalizeChatMessages(detail.messages),
+        selected
+      })
+    }
+
+    const handleClose = (event) => {
+      const shouldSubmit = event.detail?.submit !== false
+      const selected = selectedRef.current
+
+      if (shouldSubmit && selected >= 0) {
+        window.dispatchEvent(new CustomEvent("voidrift:chat-wheel-submit", { detail: { index: selected } }))
+      }
+
+      openRef.current = false
+      selectedRef.current = -1
+      setWheel((current) => ({ ...current, open: false, selected: -1 }))
+    }
+
+    window.addEventListener("pointermove", handlePointerMove, { passive: true })
+    window.addEventListener("voidrift:chat-wheel-open", handleOpen)
+    window.addEventListener("voidrift:chat-wheel-close", handleClose)
+
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove)
+      window.removeEventListener("voidrift:chat-wheel-open", handleOpen)
+      window.removeEventListener("voidrift:chat-wheel-close", handleClose)
+    }
+  }, [])
+
+  return (
+    <div className={`chat-wheel-overlay ${wheel.open ? "is-open" : ""} ${wheel.role === "killer" ? "is-killer" : "is-survivor"}`} aria-hidden={!wheel.open}>
+      <div className="chat-wheel-backdrop" />
+      <div className="chat-wheel" role="menu" aria-label="Quick chat wheel">
+        <div className="chat-wheel-center" aria-hidden="true" />
+        {CHAT_WHEEL_SEGMENTS.map((segment) => {
+          const selected = wheel.selected === segment.index
+          return (
+            <div
+              className={`chat-wheel-segment chat-wheel-${segment.className} ${selected ? "selected" : ""}`}
+              role="menuitem"
+              aria-label={wheel.messages[segment.index]}
+              key={segment.index}
+            >
+              <span>{wheel.messages[segment.index]}</span>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+export function SurvivorStatusHud() {
+  const [hud, setHud] = useState({
+    survivors: [],
+    killerChat: null,
+    myId: null,
+    spectating: false,
+    canCycleSpectate: false
+  })
+
+  useEffect(() => {
+    const handleHud = (event) => {
+      const detail = event.detail || {}
+      const snapshot = detail.snapshot || {}
+      const myId = detail.myId || null
+      const spectateTargetId = detail.spectateTargetId || null
+      const spectating = !!detail.spectating
+      const actors = snapshot.actors || []
+      const dedicatedSpectator = snapshot.viewer?.id === myId && snapshot.viewer?.role === "spectator"
+      const killer = actors.find((actor) => actor.role === "killer" && visibleChatTextForActor(actor))
+      const livingSpectateTargets = actors.filter((actor) => dedicatedSpectator
+        ? ((actor.role === "killer" && !actor.dead) || (actor.role === "survivor" && !actor.dead && !actor.escaped))
+        : (
+          actor.role === "survivor"
+          && actor.id !== myId
+          && !actor.dead
+          && !actor.escaped
+        ))
+      const survivors = actors
+        .filter((actor) => actor.role === "survivor")
+        .sort((a, b) => {
+          if (a.id === myId) return -1
+          if (b.id === myId) return 1
+          return String(a.name || "").localeCompare(String(b.name || ""))
+        })
+        .map((actor) => {
+          const skin = findHudSkin(actor, "runner")
+          return {
+            id: actor.id,
+            name: actor.name || "Runner",
+            state: survivorStateLabel(actor),
+            className: survivorCardClass(actor, myId, spectateTargetId, spectating),
+            chat: visibleChatTextForActor(actor),
+            action: actionLabel(actor),
+            dotsHeld: Math.min(SURVIVOR_DOT_MAX, actor.dots || 0),
+            skinClassName: `survivor-portrait skin-preview survivor-skin-portrait ${skin.className}`,
+            skinLabel: skin.label,
+            depositText: actor.dotDepositTargetId
+              ? ` • feeding ${Math.round((actor.dotDepositProgress || 0) * 100)}%`
+              : ""
+          }
+        })
+
+      setHud({
+        myId,
+        survivors,
+        spectating,
+        canCycleSpectate: livingSpectateTargets.length > 0,
+        killerChat: killer
+          ? (() => {
+              const skin = findHudSkin(killer, "void")
+              return {
+                name: killer.name || "The Void",
+                chat: visibleChatTextForActor(killer),
+                skinClassName: `survivor-portrait killer-portrait skin-preview survivor-skin-portrait ${skin.className}`,
+                skinLabel: skin.label
+              }
+            })()
+          : null
+      })
+    }
+
+    window.addEventListener("voidrift:survivor-status-hud", handleHud)
+    return () => window.removeEventListener("voidrift:survivor-status-hud", handleHud)
+  }, [])
+
+  return (
+    <div id="survivorStatusHud" className="survivor-status-list hidden" aria-live="polite">
+      {hud.spectating && hud.canCycleSpectate && (
+        <div className="spectate-hint-card" role="status">
+          <span>Tab</span> switch view
+          <i aria-hidden="true" />
+          <span>Esc</span> exit
+        </div>
+      )}
+      {hud.killerChat && (
+        <div className="survivor-status-card killer-chat-card has-chat">
+          <div className={hud.killerChat.skinClassName} title={hud.killerChat.skinLabel} aria-hidden="true" />
+          <div className="survivor-meta">
+            <div className="survivor-name-row">
+              <span className="survivor-name">{hud.killerChat.name}</span>
+              <span className="survivor-you">VOID</span>
+            </div>
+          </div>
+          <div className="survivor-action">chat</div>
+          {hud.killerChat.chat && (
+            <div className="survivor-chat survivor-chat-bubble" role="status">&quot;{hud.killerChat.chat}&quot;</div>
+          )}
+        </div>
+      )}
+      {hud.survivors.map((actor) => (
+        <div className={`${actor.className}${actor.chat ? " has-chat" : ""}`} key={actor.id}>
+          <div className={actor.skinClassName} title={actor.skinLabel} aria-hidden="true" />
+          <div className="survivor-meta">
+            <div className="survivor-name-row">
+              <span className="survivor-name">{actor.name}</span>
+              {actor.id === hud.myId && <span className="survivor-you">You</span>}
+            </div>
+            <div className="survivor-state">{actor.state}</div>
+            <div className="survivor-dots" aria-label="Collectible dots">
+              {actor.dotsHeld} / {SURVIVOR_DOT_MAX}{actor.depositText}
+            </div>
+          </div>
+          <div className="survivor-action">{actor.action}</div>
+          {actor.chat && (
+            <div className="survivor-chat survivor-chat-bubble" role="status">&quot;{actor.chat}&quot;</div>
+          )}
+        </div>
+      ))}
+      {!hud.survivors.length && !hud.killerChat && (
+        <div className="survivor-status-card dead">
+          <div className="survivor-portrait" />
+          <div className="survivor-meta">
+            <div className="survivor-name">No runners</div>
+            <div className="survivor-state">The void is quiet</div>
+          </div>
+          <div className="survivor-action">void</div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+export function PointFeed() {
+  const [items, setItems] = useState([])
+  const nextId = useRef(1)
+
+  useEffect(() => {
+    const timers = new Set()
+
+    const handleScoreGain = (event) => {
+      const label = String(event.detail?.label || "Point gained").trim().slice(0, 42)
+      const amount = Math.max(1, Math.floor(Number(event.detail?.amount) || 1))
+      const kind = String(event.detail?.kind || "point").trim().slice(0, 18)
+      const id = nextId.current++
+
+      setItems((current) => [
+        { id, label, amount, kind },
+        ...current
+      ].slice(0, 3))
+
+      const timer = window.setTimeout(() => {
+        setItems((current) => current.filter((item) => item.id !== id))
+        timers.delete(timer)
+      }, 1850)
+      timers.add(timer)
+    }
+
+    window.addEventListener("voidrift:score-gain", handleScoreGain)
+    return () => {
+      window.removeEventListener("voidrift:score-gain", handleScoreGain)
+      timers.forEach((timer) => window.clearTimeout(timer))
+      timers.clear()
+    }
+  }, [])
+
+  return (
+    <div className={`point-feed ${items.length ? "is-active" : ""}`} aria-live="polite" aria-atomic="false">
+      {items.map((item) => (
+        <div className={`point-feed-item is-${item.kind}`} key={item.id}>
+          {String(item.kind).includes("orb") && <img className="point-feed-orb-icon" src="/images/orb.png" alt="" aria-hidden="true" />}
+          <span>{item.label}</span>
+          <strong>+{item.amount}</strong>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+export function HookEdgeIndicators() {
+  const [indicators, setIndicators] = useState([])
+
+  useEffect(() => {
+    const handleIndicators = (event) => {
+      const items = Array.isArray(event.detail?.items) ? event.detail.items : []
+      setIndicators(items)
+    }
+
+    window.addEventListener("voidrift:hook-indicators", handleIndicators)
+    return () => window.removeEventListener("voidrift:hook-indicators", handleIndicators)
+  }, [])
+
+  return (
+    <div className={`hook-edge-indicators ${indicators.length ? "is-active" : ""}`} aria-hidden={!indicators.length}>
+      {indicators.map((indicator) => (
+        <div
+          className={`hook-edge-indicator ${indicator.danger ? "danger" : ""}`}
+          style={{
+            left: `${Number(indicator.x) || 0}px`,
+            top: `${Number(indicator.y) || 0}px`,
+            "--hook-angle": `${Number(indicator.angle) || 0}rad`
+          }}
+          title={`${indicator.name || "Runner"} is hooked`}
+          key={indicator.id}
+        >
+          <span className="hook-edge-arrow" aria-hidden="true" />
+          <span className="hook-edge-mark">!</span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function isTextEntryElement(element) {
+  if (!element) return false
+  const tag = String(element.tagName || "").toLowerCase()
+  return tag === "input" || tag === "textarea" || tag === "select" || element.isContentEditable
+}
+
+function getPossiblePhaserCamera() {
+  if (typeof window === "undefined") return null
+  const candidates = [
+    window.__RIFTRUNNER_GAME__,
+    window.__VOIDRIFT_GAME__,
+    window.__VOIDRIFT_CLIENT__?.game,
+    window.__RIFTRUNNER_CLIENT__?.game,
+    window.phaserGame,
+    window.game
+  ].filter(Boolean)
+
+  for (const candidate of candidates) {
+    const scenes = candidate.scene?.scenes || candidate.scenes || []
+    for (const scene of scenes) {
+      const camera = scene?.cameras?.main
+      if (camera && Number.isFinite(camera.scrollX) && Number.isFinite(camera.scrollY)) return camera
+    }
+    const camera = candidate.cameras?.main
+    if (camera && Number.isFinite(camera.scrollX) && Number.isFinite(camera.scrollY)) return camera
+  }
+
+  return null
+}
+
+function projectBotDebugPoint(actor, snapshot, detail) {
+  if (typeof window === "undefined") return { x: -9999, y: -9999, hidden: true }
+  const wrap = document.getElementById("gameWrap")
+  const canvas = wrap?.querySelector?.("canvas") || wrap
+  const rect = canvas?.getBoundingClientRect?.()
+  if (!rect || rect.width <= 0 || rect.height <= 0) return { x: -9999, y: -9999, hidden: true }
+
+  const cameraFromEvent = detail?.camera || snapshot?.camera || window.__RIFTRUNNER_DEBUG_CAMERA__ || window.__VOIDRIFT_DEBUG_CAMERA__
+  const camera = cameraFromEvent || getPossiblePhaserCamera()
+  if (camera) {
+    const zoom = Number(camera.zoom || camera.scale || 1) || 1
+    const cameraWidth = Number(camera.width || rect.width) || rect.width
+    const cameraHeight = Number(camera.height || rect.height) || rect.height
+    const scaleX = rect.width / cameraWidth
+    const scaleY = rect.height / cameraHeight
+    const worldView = camera.worldView || null
+    const scrollX = Number(worldView?.x ?? camera.scrollX ?? 0)
+    const scrollY = Number(worldView?.y ?? camera.scrollY ?? 0)
+    const x = rect.left + ((actor.x || 0) - scrollX) * zoom * scaleX
+    const y = rect.top + ((actor.y || 0) - scrollY) * zoom * scaleY
+    return {
+      x: Math.max(8, Math.min(window.innerWidth - 8, x)),
+      y: Math.max(8, Math.min(window.innerHeight - 8, y - 58)),
+      hidden: x < rect.left - 120 || x > rect.right + 120 || y < rect.top - 140 || y > rect.bottom + 120
+    }
+  }
+
+  const actors = Array.isArray(snapshot?.actors) ? snapshot.actors : []
+  const viewer = snapshot?.viewer || {}
+  const focusId = viewer.spectateTargetId && viewer.spectateTargetId !== "__overview__" ? viewer.spectateTargetId : (detail?.myId || snapshot?.viewerId)
+  const focusActor = actors.find((item) => item.id === focusId)
+    || actors.find((item) => item.id === snapshot?.viewerId)
+    || actors.find((item) => item.role === "killer")
+    || actors[0]
+
+  const map = snapshot?.map || {}
+  const overview = viewer.spectateTargetId === "__overview__"
+  const zoom = overview && map.width && map.height
+    ? Math.min(rect.width / map.width, rect.height / map.height)
+    : document.body.classList.contains("in-chase") ? 0.68 : 1
+  const centerX = overview && map.width ? map.width / 2 : (focusActor?.x || actor.x || 0)
+  const centerY = overview && map.height ? map.height / 2 : (focusActor?.y || actor.y || 0)
+  const x = rect.left + rect.width / 2 + ((actor.x || 0) - centerX) * zoom
+  const y = rect.top + rect.height / 2 + ((actor.y || 0) - centerY) * zoom
+
+  return {
+    x: Math.max(8, Math.min(window.innerWidth - 8, x)),
+    y: Math.max(8, Math.min(window.innerHeight - 8, y - 58)),
+    hidden: x < rect.left - 120 || x > rect.right + 120 || y < rect.top - 140 || y > rect.bottom + 120
+  }
+}
+
+function botDebugLines(actor) {
+  const debug = actor.aiDebug || {}
+  const target = debug.targetId || debug.nextTargetId || "none"
+  const actionBits = [
+    debug.move && `move:${debug.move}`,
+    debug.sprint ? "sprint" : "",
+    debug.action ? "action" : "",
+    debug.repair ? "repair" : "",
+    debug.attackHeld ? "M1-hold" : ""
+  ].filter(Boolean).join(" ")
+
+  const pausedBadge = debug.pausedSnapshot ? " [last live]" : ""
+  const lines = [
+    `${actor.name || "Bot"} • ${debug.mode || "AI"}${pausedBadge}`,
+    `${debug.reason || debug.taskKind || "thinking"} → ${target}`,
+    `path:${debug.pathLength ?? 0} stuck:${debug.stuckFor ?? 0}s repath:${debug.repathIn ?? 0}s`,
+    actionBits || "input:none"
+  ]
+
+  if (debug.pausedSnapshot) {
+    lines.splice(1, 0, `PAUSED live:${debug.liveAge ?? 0}s ago paused:${debug.pausedFor ?? 0}s`)
+    if (debug.frozenMove && debug.frozenMove !== debug.move) {
+      lines.push(`frozen input:${debug.frozenMove} live input:${debug.move || "none"}`)
+    }
+  }
+  if (debug.survivalKind) lines.splice(debug.pausedSnapshot ? 3 : 2, 0, `survival:${debug.survivalKind} lock:${debug.survivalLock ?? 0}s`)
+  if (debug.nextKind) lines.splice(debug.pausedSnapshot ? 3 : 2, 0, `next:${debug.nextKind}`)
+  if (debug.moveIntent) lines.push(`intent:${debug.moveIntent.x},${debug.moveIntent.y} ttl:${debug.moveIntent.ttl}s`)
+  if (debug.obstacleCommit) lines.push(`obstacle:${debug.obstacleCommit.type || "?"} ${debug.obstacleCommit.targetId || "?"}`)
+  return lines.slice(0, debug.pausedSnapshot ? 8 : 6)
+}
+
+export function BotDebugOverlay() {
+  const [enabled, setEnabled] = useState(() => {
+    if (typeof window === "undefined") return false
+    return window.localStorage?.getItem("riftrunnerBotDebug") === "1"
+  })
+  const [frame, setFrame] = useState({ snapshot: null, detail: null })
+
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (event.code !== "BracketLeft" && event.key !== "[") return
+      if (isTextEntryElement(event.target)) return
+      event.preventDefault()
+      setEnabled((current) => {
+        const next = !current
+        try {
+          window.localStorage?.setItem("riftrunnerBotDebug", next ? "1" : "0")
+        } catch {
+          // localStorage can be blocked. Humanity continues its gentle decline.
+        }
+        window.dispatchEvent(new CustomEvent("riftrunner:bot-debug-toggle", { detail: { enabled: next } }))
+        return next
+      })
+    }
+
+    window.addEventListener("keydown", handleKeyDown)
+    return () => window.removeEventListener("keydown", handleKeyDown)
+  }, [])
+
+  useEffect(() => {
+    const handleSnapshotEvent = (event) => {
+      const detail = event.detail || {}
+      const snapshot = detail.snapshot || detail
+      if (!snapshot?.actors) return
+      setFrame({ snapshot, detail })
+    }
+
+    window.addEventListener("voidrift:survivor-status-hud", handleSnapshotEvent)
+    window.addEventListener("riftrunner:snapshot", handleSnapshotEvent)
+    window.addEventListener("voidrift:snapshot", handleSnapshotEvent)
+    return () => {
+      window.removeEventListener("voidrift:survivor-status-hud", handleSnapshotEvent)
+      window.removeEventListener("riftrunner:snapshot", handleSnapshotEvent)
+      window.removeEventListener("voidrift:snapshot", handleSnapshotEvent)
+    }
+  }, [])
+
+  const snapshot = frame.snapshot
+  const actors = Array.isArray(snapshot?.actors) ? snapshot.actors : []
+  const bots = enabled
+    ? actors.filter((actor) => actor?.aiDebug && !actor.dead && !actor.escaped)
+    : []
+
+  return (
+    <div className={`bot-debug-overlay ${enabled ? "is-enabled" : ""}`} aria-hidden={!enabled}>
+      <div className="bot-debug-toggle-hint">
+        <kbd>[</kbd> bot debug {enabled ? "on" : "off"}
+      </div>
+      {bots.map((actor) => {
+        const point = projectBotDebugPoint(actor, snapshot, frame.detail)
+        if (point.hidden) return null
+        return (
+          <div
+            className={`bot-debug-label ${actor.role === "killer" ? "is-void" : "is-runner"} ${actor.aiDebug?.stuckFor >= 0.8 ? "is-stuck" : ""} ${actor.aiDebug?.pausedSnapshot ? "is-paused-live" : ""}`}
+            style={{ left: `${point.x}px`, top: `${point.y}px` }}
+            key={actor.id}
+          >
+            {botDebugLines(actor).map((line, index) => (
+              <span key={`${actor.id}-${index}`}>{line}</span>
+            ))}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+export function GameHud() {
+  return (
+    <>
+      <div id="hud" className="hud hidden" data-role="survivor">
+        <div id="roleHudCard" className="hud-card compact-card role-hud-card">
+          <div id="roleHudIcon" className="role-hud-icon" aria-hidden="true">
+            <img className="role-hud-img role-hud-runner-img" src="/images/runner.png" alt="" />
+            <img className="role-hud-img role-hud-void-img" src="/images/void.png" alt="" />
+          </div>
+          <div className="role-hud-copy">
+            <span>Playing as</span>
+            <h2 id="roleLabel">Runner</h2>
+            <p id="controlsLabel">Controls</p>
+            <div id="fpsCounterRow" className="fps-counter-row">
+              <span>FPS</span>
+              <b id="fpsText">--</b>
+            </div>
+          </div>
+        </div>
+        <div className="hud-data-bucket" aria-hidden="true">
+          <span id="genText">0 / 0</span>
+          <span id="gateText">Closed</span>
+          <span id="healthText">Healthy</span>
+          <span id="audioText">Press any key</span>
+        </div>
+      </div>
+
+      <div id="bigGenCounter" className="big-gen-counter hidden" aria-live="polite">
+        <div className="big-gen-icon rift-counter-icon" aria-hidden="true">
+          <span className="rift-counter-core" />
+          <span className="rift-counter-orbit orbit-a" />
+          <span className="rift-counter-orbit orbit-b" />
+          <span className="rift-counter-orbit orbit-c" />
+        </div>
+        <div className="big-gen-copy">
+          <span>Rifts sealed</span>
+          <strong id="bigGenText">0 / 5</strong>
+        </div>
+      </div>
+
+      <div id="matchAnnouncements" className="match-announcements" aria-live="polite" />
+
+      <div id="horrorFx" className="horror-fx hidden" aria-hidden="true">
+        <div className="fx-vignette" />
+        <div className="fx-blood" />
+        <div className="fx-hit" />
+        <div className="fx-terror" />
+        <div className="fx-focus" />
+        <div className="fx-grain" />
+      </div>
+    </>
+  )
+}
+
+export function EndScreen() {
+  return (
+    <div id="endScreen" className="screen io-screen">
+      <div className="void-card end-panel">
+        <div className="eyebrow">run ended</div>
+        <h1 id="winnerText">Runners Escape</h1>
+        <p id="reasonText" className="screen-copy">The route is open.</p>
+        <div id="endStats" className="end-stats" aria-live="polite" />
+        <div className="button-row center">
+          <button id="backToLobbyBtn" className="primary" type="button">Back to Lobby</button>
+          <button id="spectateBtn" type="button" className="hidden">Spectate Match</button>
+          <button id="mainMenuBtn" type="button">Main Menu</button>
+        </div>
+      </div>
+    </div>
+  )
+}

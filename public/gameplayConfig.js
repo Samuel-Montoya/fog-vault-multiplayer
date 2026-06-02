@@ -241,7 +241,7 @@ const GAMEPLAY_CONFIG = {
     kickTime: 1.0,
     kickRegression: 0.10,
     escapeTime: 4.0,
-    dotsPerRift: 25,
+    dotsPerRift: 5,
     depositDistance: 96,
     depositSecondsPerOrb: 0.5,
     maxDepositChain: 25

@@ -1,0 +1,400 @@
+/* HowScreen.jsx: full-screen role guide matching the dark RiftRunner page style. */
+#howScreen.how-page-screen {
+  align-items: stretch;
+  justify-content: stretch;
+  padding: clamp(20px, 3vh, 42px) clamp(28px, 4.2vw, 82px) !important;
+  overflow: hidden !important;
+  color: rgba(250, 250, 255, 0.96);
+}
+
+#howScreen .how-page-stage {
+  position: relative;
+  width: min(1760px, 100%);
+  height: 100%;
+  min-height: 0;
+  margin: 0 auto;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  gap: clamp(12px, 1.4vh, 20px);
+}
+
+#howScreen .how-back-btn {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 3;
+  min-width: clamp(118px, 8.4vw, 150px);
+  min-height: clamp(38px, 4.7vh, 48px);
+  padding: 0 clamp(16px, 1.4vw, 22px);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border-radius: 4px;
+  border: 1px solid rgba(195, 130, 255, 0.42);
+  background:
+    linear-gradient(90deg, rgba(13, 12, 27, 0.86), rgba(23, 14, 42, 0.72)),
+    rgba(4, 4, 12, 0.78);
+  color: rgba(255, 255, 255, 0.9);
+  box-shadow:
+    0 0 22px rgba(152, 76, 255, 0.12),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.04),
+    inset 0 0 28px rgba(139, 92, 246, 0.09);
+  font-size: clamp(9px, 0.66vw, 12px);
+  line-height: 1;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+
+#howScreen .how-back-btn:hover,
+#howScreen .how-back-btn:focus-visible {
+  transform: translateY(-1px);
+  border-color: rgba(210, 166, 255, 0.85);
+  background:
+    linear-gradient(90deg, rgba(35, 22, 62, 0.94), rgba(58, 23, 106, 0.8)),
+    rgba(8, 7, 20, 0.94);
+  box-shadow:
+    0 0 30px rgba(166, 95, 255, 0.28),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+#howScreen .how-title-block {
+  align-self: end;
+  width: min(960px, 62vw);
+  margin: clamp(54px, 6.6vh, 82px) 0 0 0;
+}
+
+#howScreen .how-title-block h1 {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.98);
+  font-size: clamp(44px, 4.7vw, 86px) !important;
+  line-height: 0.82;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  font-weight: 900;
+  text-shadow:
+    0 0 18px rgba(166, 132, 255, 0.36),
+    0 0 52px rgba(110, 35, 255, 0.18);
+}
+
+#howScreen .how-title-block h1::after {
+  content: "";
+  display: block;
+  width: min(100%, 760px);
+  height: 1px;
+  margin-top: clamp(10px, 1.25vh, 16px);
+  background: linear-gradient(90deg, rgba(185, 101, 255, 0.8), rgba(185, 101, 255, 0.16) 72%, transparent);
+  box-shadow: 0 0 18px rgba(172, 86, 255, 0.52);
+}
+
+#howScreen .how-title-block p {
+  margin: clamp(8px, 1.1vh, 14px) 0 0;
+  max-width: 720px;
+  color: rgba(244, 241, 252, 0.86);
+  font-family: var(--font-display);
+  font-size: clamp(12px, 0.86vw, 16px);
+  line-height: 1.6;
+  letter-spacing: 0.035em;
+}
+
+#howScreen .how-rule-strip {
+  width: min(1280px, 76vw);
+  min-height: clamp(34px, 4.4vh, 44px);
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(14px, 1.8vw, 28px);
+  padding: 0 clamp(18px, 2vw, 36px);
+  border: 1px solid rgba(187, 119, 255, 0.44);
+  border-radius: 3px;
+  background:
+    linear-gradient(90deg, rgba(4, 4, 13, 0.44), rgba(25, 11, 45, 0.74), rgba(4, 4, 13, 0.44));
+  box-shadow:
+    0 0 22px rgba(119, 54, 255, 0.16),
+    inset 0 0 38px rgba(151, 71, 255, 0.08);
+  color: rgba(255, 255, 255, 0.86);
+  font-size: clamp(9px, 0.7vw, 12px);
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+#howScreen .how-rule-strip i {
+  width: 5px;
+  height: 5px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: rgba(186, 93, 255, 0.88);
+  box-shadow: 0 0 14px rgba(186, 93, 255, 0.76);
+}
+
+#howScreen .how-role-grid {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: clamp(16px, 1.5vw, 24px);
+}
+
+#howScreen .how-role-card {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  gap: clamp(11px, 1.25vh, 16px);
+  padding: clamp(22px, 2.1vw, 34px);
+  border: 1px solid rgba(181, 108, 255, 0.42);
+  border-radius: 4px;
+  background:
+    linear-gradient(180deg, rgba(14, 11, 28, 0.72), rgba(4, 4, 13, 0.74)),
+    rgba(7, 6, 17, 0.62);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.035),
+    inset 0 0 70px rgba(95, 33, 173, 0.11),
+    0 0 40px rgba(71, 28, 133, 0.16);
+  backdrop-filter: blur(4px);
+  overflow: hidden;
+}
+
+#howScreen .how-role-card-runner {
+  border-color: rgba(118, 190, 255, 0.38);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.035),
+    inset 0 0 80px rgba(0, 157, 255, 0.08),
+    0 0 40px rgba(72, 80, 255, 0.12);
+}
+
+#howScreen .how-role-head {
+  display: grid;
+  grid-template-columns: clamp(72px, 5.6vw, 100px) minmax(0, 1fr);
+  gap: clamp(16px, 1.6vw, 24px);
+  align-items: center;
+}
+
+#howScreen .how-role-icon {
+  width: clamp(70px, 5.4vw, 98px);
+  height: clamp(70px, 5.4vw, 98px);
+  object-fit: contain;
+  filter: drop-shadow(0 0 20px rgba(175, 96, 255, 0.42));
+}
+
+#howScreen .how-role-card-runner .how-role-icon {
+  filter: drop-shadow(0 0 20px rgba(0, 191, 255, 0.4));
+}
+
+#howScreen .how-role-head h2 {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.96);
+  font-size: clamp(24px, 2.1vw, 40px) !important;
+  line-height: 0.95;
+  letter-spacing: 0.20em;
+  text-transform: uppercase;
+  text-shadow: 0 0 18px rgba(166, 132, 255, 0.25);
+}
+
+#howScreen .how-role-subtitle {
+  margin: 7px 0 0;
+  color: rgba(202, 112, 255, 0.92);
+  font-size: clamp(9px, 0.76vw, 13px);
+  line-height: 1.2;
+  letter-spacing: 0.20em;
+  text-transform: uppercase;
+}
+
+#howScreen .how-role-card-runner .how-role-subtitle {
+  color: rgba(37, 222, 255, 0.92);
+}
+
+#howScreen .how-summary-block {
+  padding-bottom: clamp(10px, 1vh, 14px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+#howScreen .how-summary-block h3,
+#howScreen .how-list-panel h3,
+#howScreen .how-tips-panel h3 {
+  margin: 0 0 clamp(7px, 0.8vh, 11px);
+  color: rgba(189, 108, 255, 0.96);
+  font-size: clamp(10px, 0.78vw, 14px);
+  line-height: 1;
+  letter-spacing: 0.19em;
+  text-transform: uppercase;
+}
+
+#howScreen .how-summary-block p {
+  margin: 0;
+  max-width: 780px;
+  color: rgba(249, 247, 255, 0.84);
+  font-size: clamp(11px, 0.78vw, 14px);
+  line-height: 1.55;
+  letter-spacing: 0.025em;
+}
+
+#howScreen .how-two-col {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 4px;
+  background: rgba(2, 3, 9, 0.36);
+  overflow: hidden;
+}
+
+#howScreen .how-list-panel {
+  min-width: 0;
+  padding: clamp(14px, 1.35vw, 24px);
+}
+
+#howScreen .how-list-panel + .how-list-panel {
+  border-left: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+#howScreen .how-list-panel ul,
+#howScreen .how-tips-panel ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: clamp(6px, 0.72vh, 10px);
+}
+
+#howScreen .how-list-panel li,
+#howScreen .how-tips-panel li {
+  position: relative;
+  padding-left: clamp(16px, 1.2vw, 21px);
+  color: rgba(247, 245, 253, 0.83);
+  font-size: clamp(10px, 0.73vw, 13px);
+  line-height: 1.45;
+  letter-spacing: 0.018em;
+}
+
+#howScreen .how-list-panel li::before,
+#howScreen .how-tips-panel li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.72em;
+  width: 4px;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(195, 88, 255, 0.92);
+  box-shadow: 0 0 12px rgba(195, 88, 255, 0.68);
+}
+
+#howScreen .how-role-card-runner .how-list-panel li::before,
+#howScreen .how-role-card-runner .how-tips-panel li::before {
+  background: rgba(32, 220, 255, 0.9);
+  box-shadow: 0 0 12px rgba(32, 220, 255, 0.62);
+}
+
+#howScreen .how-tips-panel {
+  padding: clamp(14px, 1.35vw, 22px);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 4px;
+  background: rgba(2, 3, 9, 0.34);
+}
+
+#howScreen .how-footer-strip {
+  width: min(1320px, 82vw);
+  min-height: clamp(46px, 5.8vh, 60px);
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(12px, 1.3vw, 20px);
+  padding: 0 clamp(18px, 2vw, 34px);
+  border: 1px solid rgba(190, 110, 255, 0.44);
+  border-radius: 4px;
+  background:
+    linear-gradient(90deg, rgba(5, 5, 14, 0.62), rgba(23, 11, 44, 0.76), rgba(5, 5, 14, 0.62));
+  color: rgba(255, 255, 255, 0.86);
+  box-shadow:
+    0 0 28px rgba(135, 64, 255, 0.16),
+    inset 0 0 38px rgba(151, 71, 255, 0.08);
+}
+
+#howScreen .how-footer-strip img {
+  width: clamp(28px, 2.3vw, 40px);
+  height: clamp(28px, 2.3vw, 40px);
+  object-fit: contain;
+  filter: drop-shadow(0 0 16px rgba(170, 95, 255, 0.46));
+}
+
+#howScreen .how-footer-strip p {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: clamp(9px, 0.7vw, 12px);
+  line-height: 1.45;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+
+#howScreen .how-footer-strip b {
+  color: rgba(208, 122, 255, 0.98);
+  font-weight: 900;
+}
+
+@media (max-height: 830px) and (min-width: 1000px) {
+  #howScreen.how-page-screen {
+    padding-top: 18px !important;
+    padding-bottom: 18px !important;
+  }
+
+  #howScreen .how-page-stage {
+    gap: 10px;
+  }
+
+  #howScreen .how-title-block {
+    margin-top: 50px;
+  }
+
+  #howScreen .how-title-block h1 {
+    font-size: clamp(38px, 4vw, 68px) !important;
+  }
+
+  #howScreen .how-role-card {
+    gap: 9px;
+    padding: clamp(16px, 1.65vw, 26px);
+  }
+
+  #howScreen .how-role-icon {
+    width: clamp(58px, 4.7vw, 82px);
+    height: clamp(58px, 4.7vw, 82px);
+  }
+
+  #howScreen .how-role-head {
+    grid-template-columns: clamp(58px, 4.8vw, 84px) minmax(0, 1fr);
+  }
+
+  #howScreen .how-list-panel,
+  #howScreen .how-tips-panel {
+    padding: clamp(11px, 1.05vw, 18px);
+  }
+
+  #howScreen .how-list-panel li,
+  #howScreen .how-tips-panel li,
+  #howScreen .how-summary-block p {
+    font-size: clamp(9px, 0.68vw, 12px);
+    line-height: 1.34;
+  }
+}
+
+@media (max-width: 1280px) and (min-width: 900px) {
+  #howScreen.how-page-screen {
+    overflow: auto !important;
+  }
+
+  #howScreen .how-page-stage {
+    height: auto;
+    min-height: 100%;
+  }
+
+  #howScreen .how-title-block,
+  #howScreen .how-rule-strip,
+  #howScreen .how-footer-strip {
+    width: 100%;
+  }
+
+  #howScreen .how-role-grid {
+    grid-template-columns: 1fr;
+  }
+}

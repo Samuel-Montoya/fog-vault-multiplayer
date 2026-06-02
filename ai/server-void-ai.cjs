@@ -724,6 +724,10 @@ function activeSurvivors(game) {
   return livingSurvivors(game).filter((p) => !p.downed && p.health > 0);
 }
 
+function livingRunners(game) {
+  return activeSurvivors(game);
+}
+
 function downedSurvivors(game) {
   return livingSurvivors(game).filter((p) => p.downed && p.health <= 0);
 }

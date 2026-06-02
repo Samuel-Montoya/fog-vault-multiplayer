@@ -1,0 +1,101 @@
+/* AccountBadge.jsx: tiny account status used outside the Main Menu. */
+.account-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: clamp(12px, 1.2vw, 18px);
+  width: fit-content;
+  max-width: min(520px, 100%);
+  min-height: 42px;
+  padding: 9px 13px;
+  border: 1px solid rgba(178, 107, 255, 0.32);
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.055), rgba(255,255,255,0.018)),
+    rgba(7, 4, 18, 0.62);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.07),
+    0 0 22px rgba(131, 65, 255, 0.12);
+  color: rgba(255,255,255,0.9);
+  backdrop-filter: blur(8px) saturate(1.05);
+}
+
+.account-badge-name-row {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+.account-badge-label {
+  color: rgba(214, 190, 255, 0.8);
+  font-size: clamp(8px, 0.58vw, 10px);
+  font-weight: 400;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.account-badge-label::after {
+  content: " -";
+  color: rgba(255,255,255,0.46);
+}
+
+.account-badge strong {
+  min-width: 0;
+  max-width: 260px;
+  overflow: hidden;
+  color: rgba(255,255,255,0.94);
+  font-size: clamp(10px, 0.74vw, 13px);
+  font-weight: 400;
+  letter-spacing: 0.06em;
+  text-overflow: ellipsis;
+  text-transform: none;
+}
+
+.account-badge-with-orbs {
+  padding-right: 10px;
+}
+
+.account-badge-orbs {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  padding: 5px 9px;
+  border-left: 1px solid rgba(255,255,255,0.10);
+  color: rgba(255, 220, 132, 0.82);
+}
+
+.account-badge-orbs img {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+  filter: drop-shadow(0 0 10px rgba(255, 194, 61, 0.42));
+}
+
+.account-badge-orbs b {
+  color: #ffd968;
+  font-size: clamp(15px, 1.05vw, 20px);
+  font-weight: 400;
+  line-height: 1;
+  letter-spacing: 0.08em;
+  text-shadow: 0 0 18px rgba(255, 188, 61, 0.30);
+}
+
+.account-badge-orbs span {
+  color: rgba(255, 220, 132, 0.74);
+  font-size: clamp(7px, 0.52vw, 9px);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+@media (max-width: 980px) {
+  .account-badge {
+    gap: 10px;
+  }
+
+  .account-badge strong {
+    max-width: 190px;
+  }
+}

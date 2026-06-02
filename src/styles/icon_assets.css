@@ -1,0 +1,353 @@
+/* Shared icon asset pass: use the transparent source images instead of CSS doodles. */
+:root {
+  --icon-orb: url('/images/orb.png');
+  --icon-runner: url('/images/runner.png');
+  --icon-void: url('/images/void.png');
+}
+
+img.orb-wallet-icon,
+.side-option-icon img,
+.skin-store-icon img,
+.role-icon img,
+.lobby-role-img,
+.button-role-img,
+.section-title-icon,
+.role-hud-img,
+.ability-wheel-orb-icon,
+img.void-orb-icon,
+.point-feed-orb-icon {
+  display: block;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* Orb balance badges */
+.orb-wallet {
+  grid-template-columns: 34px auto !important;
+  grid-template-rows: auto auto;
+  align-items: center;
+  column-gap: 10px;
+  text-align: left !important;
+}
+
+.orb-wallet-icon {
+  grid-row: 1 / 3;
+  width: 30px;
+  height: 30px;
+  filter: drop-shadow(0 0 10px rgba(255, 201, 74, 0.55));
+}
+
+.orb-wallet span,
+.orb-wallet b {
+  grid-column: 2;
+}
+
+/* Main menu role summaries */
+.side-option-icon {
+  overflow: hidden;
+}
+
+.side-option-icon img {
+  width: 72%;
+  height: 72%;
+  filter: drop-shadow(0 0 12px rgba(188, 144, 255, 0.58));
+}
+
+.side-option-runner .side-option-icon img {
+  filter: drop-shadow(0 0 12px rgba(143, 210, 255, 0.62));
+}
+
+.side-option-void .side-option-icon img {
+  filter: drop-shadow(0 0 13px rgba(194, 128, 255, 0.66));
+}
+
+/* Store section headers */
+.skin-store-icon {
+  transform: none !important;
+  border-radius: 18px !important;
+}
+
+.skin-store-icon > * {
+  transform: none !important;
+}
+
+.skin-store-icon img {
+  width: 74%;
+  height: 74%;
+  filter: drop-shadow(0 0 14px rgba(190, 132, 255, 0.62));
+}
+
+/* Role select buttons and generated role emblems. */
+.role-icon {
+  display: grid !important;
+  place-items: center;
+  overflow: hidden;
+  background: rgba(14, 8, 28, 0.68) !important;
+}
+
+.role-icon img {
+  width: 78%;
+  height: 78%;
+  filter: drop-shadow(0 0 10px rgba(186, 145, 255, 0.58));
+}
+
+.survivor-role-icon,
+.role-icon.survivor-role-icon,
+.player-item .player-role-emblem.survivor {
+  background: rgba(8, 20, 34, 0.72) var(--icon-runner) center / 72% 72% no-repeat !important;
+}
+
+.void-role-icon,
+.role-icon.void-role-icon,
+.player-item .player-role-emblem.killer {
+  background: rgba(16, 7, 28, 0.76) var(--icon-void) center / 74% 74% no-repeat !important;
+}
+
+.player-item .player-role-emblem.survivor,
+.player-item .player-role-emblem.killer {
+  border-color: rgba(190, 132, 255, 0.42) !important;
+  box-shadow: 0 0 18px rgba(155, 96, 255, 0.22), inset 0 0 13px rgba(0, 0, 0, 0.36) !important;
+}
+
+/* Current lobby role mark. The server/client may toggle survivor/killer classes. */
+.lobby-role-mark {
+  display: grid !important;
+  place-items: center;
+  overflow: hidden;
+}
+
+.lobby-role-mark span,
+.lobby-role-mark::before,
+.lobby-role-mark::after {
+  display: none !important;
+  content: none !important;
+}
+
+.lobby-role-img {
+  grid-area: 1 / 1;
+  width: 74%;
+  height: 74%;
+  opacity: 0;
+  filter: drop-shadow(0 0 15px rgba(186, 145, 255, 0.62));
+}
+
+.lobby-role-mark.survivor .lobby-role-runner-img,
+.lobby-role-mark.runner .lobby-role-runner-img {
+  opacity: 1;
+}
+
+.lobby-role-mark.killer .lobby-role-void-img,
+.lobby-role-mark.void .lobby-role-void-img {
+  opacity: 1;
+}
+
+.button-role-img {
+  width: 22px;
+  height: 22px;
+  margin-right: 8px;
+  flex: 0 0 auto;
+  filter: drop-shadow(0 0 8px rgba(190, 132, 255, 0.52));
+}
+
+.lobby-role-actions button,
+.lobby-bot-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+}
+
+.section-title-icon {
+  width: 28px;
+  height: 28px;
+  margin-right: 10px;
+  filter: drop-shadow(0 0 10px rgba(190, 132, 255, 0.58));
+}
+
+.section-heading h2 {
+  display: flex;
+  align-items: center;
+}
+
+/* In-match role HUD */
+.role-hud-icon {
+  overflow: hidden;
+  background: rgba(11, 7, 26, 0.70) !important;
+}
+
+.role-hud-icon::before,
+.role-hud-core {
+  display: none !important;
+  content: none !important;
+}
+
+.role-hud-img {
+  grid-area: 1 / 1;
+  width: 76%;
+  height: 76%;
+  opacity: 0;
+  filter: drop-shadow(0 0 12px rgba(186, 145, 255, 0.60));
+}
+
+.hud:not([data-role="killer"]):not([data-role="void"]) .role-hud-runner-img,
+.hud[data-role="survivor"] .role-hud-runner-img,
+.hud[data-role="runner"] .role-hud-runner-img {
+  opacity: 1;
+}
+
+.hud[data-role="killer"] .role-hud-void-img,
+.hud[data-role="void"] .role-hud-void-img {
+  opacity: 1;
+}
+
+/* Orb HUDs and any old span-based orb marks generated outside React. */
+.void-orb-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  background: var(--icon-orb) center / contain no-repeat !important;
+  box-shadow: none !important;
+  filter: drop-shadow(0 0 12px rgba(255, 199, 77, 0.56));
+}
+
+img.void-orb-icon {
+  background: none !important;
+  border-radius: 0;
+}
+
+.void-orb-bank span:not(.void-orb-icon),
+.void-orb-counter-corner span:not(.void-orb-icon) {
+  display: block;
+}
+
+.ability-wheel-center {
+  gap: 1px;
+}
+
+.ability-wheel-orb-icon {
+  width: 26px;
+  height: 26px;
+  margin-bottom: 2px;
+  filter: drop-shadow(0 0 11px rgba(255, 199, 77, 0.62));
+}
+
+.point-feed-item.is-orb,
+.point-feed-item[class*="orb"] {
+  grid-template-columns: 20px auto auto;
+  align-items: center;
+}
+
+.point-feed-orb-icon {
+  width: 18px;
+  height: 18px;
+  filter: drop-shadow(0 0 8px rgba(255, 199, 77, 0.62));
+}
+
+/* Bare runner / void icon pass: the PNG files already include their own design frame. */
+.side-option-icon,
+.skin-store-icon,
+.role-icon,
+.lobby-role-mark,
+.role-hud-icon {
+  overflow: visible !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  outline: 0 !important;
+}
+
+.side-option-icon::before,
+.side-option-icon::after,
+.skin-store-icon::before,
+.skin-store-icon::after,
+.role-icon::before,
+.role-icon::after,
+.lobby-role-mark::before,
+.lobby-role-mark::after,
+.role-hud-icon::before,
+.role-hud-icon::after {
+  display: none !important;
+  content: none !important;
+}
+
+.side-option-icon img,
+.skin-store-icon img,
+.role-icon img,
+.lobby-role-img,
+.section-title-icon,
+.role-hud-img {
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+  max-height: none !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  object-fit: contain !important;
+}
+
+.side-option-icon {
+  width: 64px !important;
+  height: 64px !important;
+}
+
+.skin-store-icon {
+  width: 62px !important;
+  height: 62px !important;
+  flex-basis: 62px !important;
+  transform: none !important;
+}
+
+.skin-store-icon > * {
+  transform: none !important;
+}
+
+#playScreen .play-role-select .role-icon,
+.role-icon {
+  width: 96px !important;
+  height: 96px !important;
+}
+
+#playScreen .play-role-select .runner-choice .role-icon,
+#playScreen .play-role-select .void-choice .role-icon {
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
+.lobby-role-mark {
+  width: 78px !important;
+  height: 78px !important;
+}
+
+.player-item .player-role-emblem.survivor,
+.player-item .player-role-emblem.killer {
+  width: 32px !important;
+  height: 32px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+.player-item .player-role-emblem.survivor {
+  background: var(--icon-runner) center / contain no-repeat !important;
+}
+
+.player-item .player-role-emblem.killer {
+  background: var(--icon-void) center / contain no-repeat !important;
+}
+
+.role-hud-icon {
+  width: 44px !important;
+  height: 44px !important;
+}
+
+.button-role-img,
+.section-title-icon {
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}

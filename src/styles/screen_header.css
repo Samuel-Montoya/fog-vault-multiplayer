@@ -1,0 +1,5 @@
+/* ScreenHeader.jsx: shared back button, eyebrow, title, and description rows. */
+.screen-topline,
+.section-heading {
+  position: relative;
+}

@@ -1,0 +1,1532 @@
+/* Final RiftRunner lobby + in-match HUD pass. Imported last on purpose, because CSS loves turning into a crime scene. */
+
+#lobbyScreen.lobby-screen-redesign {
+  align-items: stretch !important;
+  justify-content: flex-start !important;
+  min-height: 100vh;
+  padding: clamp(22px, 3.2vw, 48px) clamp(28px, 4.6vw, 86px) !important;
+  overflow: auto;
+  scrollbar-width: none;
+}
+
+#lobbyScreen.lobby-screen-redesign::-webkit-scrollbar,
+#lobbyScreen .lobby-control-column::-webkit-scrollbar,
+#lobbyScreen .players-list::-webkit-scrollbar,
+#lobbyScreen .lobby-skin-picker::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+#lobbyScreen .lobby-stage {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  align-content: start;
+  width: min(1540px, calc(100vw - clamp(56px, 9.2vw, 172px)));
+  min-height: min(845px, calc(100vh - clamp(44px, 6.4vw, 96px)));
+  max-height: calc(100vh - clamp(44px, 6.4vw, 96px));
+  margin: 0 auto;
+  padding: 0;
+  overflow: visible;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+#lobbyScreen .lobby-leave-btn {
+  justify-self: start;
+  min-width: 134px;
+  height: 42px;
+  margin: 0 0 28px;
+  padding: 0 24px;
+  border-radius: 0;
+  border-color: rgba(196, 181, 253, 0.46);
+  color: rgba(245, 243, 255, 0.94);
+  background: rgba(5, 4, 14, 0.60);
+  box-shadow: 0 0 28px rgba(124, 58, 237, 0.16), inset 0 0 0 1px rgba(255,255,255,0.035);
+  font-size: 13px;
+  font-weight: 1000;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+#lobbyScreen .lobby-leave-btn:hover,
+#lobbyScreen .lobby-leave-btn:focus-visible {
+  transform: translateY(-1px);
+  border-color: rgba(216, 180, 254, 0.82);
+  background: rgba(21, 12, 41, 0.72);
+}
+
+#lobbyScreen .lobby-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(118px, 8.6vw, 152px);
+  align-items: start;
+  gap: clamp(18px, 3vw, 46px);
+}
+
+#lobbyScreen .lobby-title-copy {
+  min-width: 0;
+}
+
+#lobbyScreen #lobbyTitle {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.98);
+  font-size: clamp(56px, 5.55vw, 86px);
+  line-height: 0.86;
+  font-style: italic;
+  font-weight: 1000;
+  letter-spacing: 0.095em;
+  text-transform: uppercase;
+  text-shadow: 0 0 30px rgba(167, 139, 250, 0.34), 0 0 9px rgba(255,255,255,0.18);
+}
+
+#lobbyScreen #lobbySubtitle {
+  max-width: min(920px, 72vw);
+  margin: 14px 0 0;
+  color: rgba(242, 245, 252, 0.82);
+  font-size: clamp(12px, 0.96vw, 15px);
+  font-weight: 950;
+  letter-spacing: 0.115em;
+  line-height: 1.35;
+  text-transform: uppercase;
+}
+
+#lobbyScreen .lobby-run-card {
+  justify-self: end;
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  min-width: 116px;
+  padding-top: 8px;
+  text-align: center;
+}
+
+#lobbyScreen .lobby-run-card > span {
+  color: rgba(245, 243, 255, 0.92);
+  font-size: 13px;
+  font-weight: 1000;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+}
+
+#lobbyScreen .lobby-run-card strong {
+  color: rgba(216, 180, 254, 0.96);
+  font-size: 12px;
+  font-weight: 1000;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+#lobbyScreen .lobby-run-card .lobby-role-mark {
+  position: relative;
+  width: clamp(82px, 5.8vw, 104px) !important;
+  height: clamp(82px, 5.8vw, 104px) !important;
+  display: grid !important;
+  place-items: center;
+  overflow: visible !important;
+}
+
+#lobbyScreen .lobby-run-card .lobby-role-img {
+  opacity: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+#lobbyScreen .lobby-run-card .lobby-selected-skin-preview {
+  grid-area: 1 / 1;
+  width: 72% !important;
+  height: 72% !important;
+  border-width: 3px;
+  border-color: rgba(245, 243, 255, 0.84);
+  box-shadow: 0 0 26px rgba(167, 139, 250, 0.46), inset 0 -10px 18px rgba(0,0,0,0.34);
+}
+
+#lobbyScreen .lobby-workspace {
+  display: grid !important;
+  grid-template-columns: clamp(330px, 24vw, 390px) minmax(0, 1fr) !important;
+  gap: clamp(18px, 1.65vw, 28px) !important;
+  align-items: stretch;
+  width: 100%;
+  min-height: 0;
+  margin-top: 28px !important;
+}
+
+#lobbyScreen .lobby-control-column,
+#lobbyScreen .lobby-roster-column {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid rgba(196, 181, 253, 0.42) !important;
+  border-radius: 0 !important;
+  background:
+    linear-gradient(180deg, rgba(10, 6, 25, 0.70), rgba(6, 5, 16, 0.47)),
+    radial-gradient(circle at 22% 0%, rgba(124, 58, 237, 0.18), transparent 42%) !important;
+  box-shadow: 0 0 46px rgba(124, 58, 237, 0.12), inset 0 0 0 1px rgba(255,255,255,0.035) !important;
+  backdrop-filter: blur(12px) saturate(1.1);
+}
+
+#lobbyScreen .lobby-control-column::before,
+#lobbyScreen .lobby-roster-column::before {
+  content: "";
+  position: absolute;
+  inset: 10px;
+  border: 1px solid rgba(196, 181, 253, 0.12);
+  pointer-events: none;
+}
+
+#lobbyScreen .lobby-control-column {
+  display: grid !important;
+  align-content: start;
+  gap: 10px !important;
+  max-height: calc(100vh - clamp(238px, 18.2vw, 270px));
+  padding: 18px 22px 16px !important;
+  overflow: auto;
+  scrollbar-width: none;
+}
+
+#lobbyScreen .lobby-roster-column {
+  display: grid !important;
+  grid-template-rows: auto minmax(0, 1fr);
+  max-height: calc(100vh - clamp(238px, 18.2vw, 270px));
+  padding: 22px 22px 18px !important;
+  overflow: hidden;
+}
+
+#lobbyScreen .lobby-column-heading {
+  position: relative;
+  z-index: 1;
+  display: flex !important;
+  align-items: center;
+  justify-content: space-between;
+  min-height: auto;
+  margin: 0 !important;
+  padding: 0 0 11px !important;
+  border-bottom: 1px solid rgba(196, 181, 253, 0.18) !important;
+}
+
+#lobbyScreen .lobby-subheading {
+  margin-top: 2px !important;
+}
+
+#lobbyScreen .lobby-column-heading span,
+#lobbyScreen .skin-title {
+  color: rgba(177, 113, 255, 0.96) !important;
+  font-size: 13px !important;
+  font-weight: 1000;
+  letter-spacing: 0.28em !important;
+  text-transform: uppercase;
+}
+
+#lobbyScreen .lobby-role-actions,
+#lobbyScreen .lobby-bot-actions,
+#lobbyScreen .lobby-actions {
+  position: relative;
+  z-index: 1;
+  display: grid !important;
+  grid-template-columns: 1fr !important;
+  gap: 10px !important;
+  margin: 0 !important;
+}
+
+#lobbyScreen .lobby-role-actions button,
+#lobbyScreen .lobby-bot-actions button,
+#lobbyScreen .lobby-actions button {
+  width: 100%;
+  min-height: 42px;
+  justify-content: center;
+  border-radius: 0 !important;
+  color: rgba(248, 250, 252, 0.95);
+  background: rgba(10, 8, 23, 0.66);
+  border-color: rgba(196, 181, 253, 0.26);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.025);
+  font-size: 13px;
+  font-weight: 1000;
+  letter-spacing: 0.115em;
+  text-transform: uppercase;
+}
+
+#lobbyScreen #beKillerBtn,
+#lobbyScreen #addBotKillerBtn {
+  border-color: rgba(177, 113, 255, 0.48) !important;
+  background: linear-gradient(90deg, rgba(95, 42, 193, 0.32), rgba(9, 6, 22, 0.72)) !important;
+}
+
+#lobbyScreen #beSurvivorBtn,
+#lobbyScreen #addBotSurvivorBtn {
+  border-color: rgba(34, 211, 238, 0.42) !important;
+  background: linear-gradient(90deg, rgba(8, 145, 178, 0.25), rgba(7, 11, 24, 0.74)) !important;
+}
+
+#lobbyScreen #beSpectatorBtn {
+  border-color: rgba(226, 232, 240, 0.22) !important;
+  background: rgba(10, 8, 23, 0.62) !important;
+}
+
+#lobbyScreen .lobby-role-actions button.selected,
+#lobbyScreen #beKillerBtn.selected,
+#lobbyScreen #beSurvivorBtn.selected,
+#lobbyScreen #beSpectatorBtn.selected {
+  border-color: rgba(177, 113, 255, 0.88) !important;
+  box-shadow: 0 0 30px rgba(124, 58, 237, 0.18), inset 0 0 22px rgba(167, 139, 250, 0.14) !important;
+}
+
+#lobbyScreen .button-role-img {
+  width: 25px !important;
+  height: 25px !important;
+  margin-right: 12px;
+  filter: drop-shadow(0 0 11px rgba(167, 139, 250, 0.68));
+}
+
+#lobbyScreen .lobby-skin-picker {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: 1fr !important;
+  gap: 7px;
+  max-height: min(30vh, 190px) !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: auto;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  scrollbar-width: none;
+}
+
+#lobbyScreen .lobby-skin-picker .skin-title {
+  margin: 0 0 3px !important;
+  padding: 0;
+  grid-column: 1 / -1;
+}
+
+#lobbyScreen .lobby-skin-picker .skin-btn {
+  min-height: 42px;
+  padding: 7px 12px;
+  border-radius: 0 !important;
+  border-color: rgba(196, 181, 253, 0.18);
+  background: rgba(8, 7, 20, 0.58);
+}
+
+#lobbyScreen .lobby-skin-picker .skin-preview {
+  width: 30px;
+  height: 30px;
+  border-width: 2px;
+}
+
+#lobbyScreen .lobby-skin-picker .skin-copy > span {
+  color: rgba(248, 250, 252, 0.92);
+  font-size: 12px;
+  font-weight: 1000;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+#lobbyScreen .lobby-skin-picker .skin-price {
+  color: rgba(255, 211, 106, 0.94);
+  font-size: 10px;
+  font-weight: 1000;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+#lobbyScreen #readyBtn,
+#lobbyScreen #startBtn {
+  min-height: 45px;
+}
+
+#lobbyScreen #readyBtn {
+  color: rgba(7, 42, 29, 0.98) !important;
+  border-color: rgba(45, 255, 190, 0.82) !important;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(255,255,255,0.35), transparent 50%),
+    linear-gradient(90deg, rgba(30, 210, 153, 0.86), rgba(16, 185, 129, 0.68)) !important;
+  box-shadow: 0 0 34px rgba(45, 255, 190, 0.30), inset 0 0 18px rgba(255,255,255,0.12) !important;
+}
+
+#lobbyScreen #readyBtn[data-ready-state="unready"] {
+  color: rgba(7, 42, 29, 0.98) !important;
+}
+
+#lobbyScreen #startBtn {
+  color: rgba(245, 243, 255, 0.92) !important;
+  border-color: rgba(196, 181, 253, 0.22) !important;
+  background: rgba(14, 12, 26, 0.72) !important;
+}
+
+#lobbyScreen .lobby-hint {
+  position: relative;
+  z-index: 1;
+  margin: 0;
+  padding: 0 10px;
+  border: 0;
+  background: transparent;
+  color: rgba(225, 231, 240, 0.72);
+  font-size: 12px;
+  line-height: 1.42;
+  letter-spacing: 0.025em;
+}
+
+#lobbyScreen .lobby-hint b {
+  color: rgba(216, 180, 254, 0.96);
+}
+
+#lobbyScreen .players-list {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  align-content: start;
+  gap: 13px;
+  min-height: 0 !important;
+  max-height: none !important;
+  height: 100%;
+  overflow: auto;
+  padding: 0 2px 0 0 !important;
+  scrollbar-width: none;
+}
+
+#lobbyScreen .player-group {
+  display: grid;
+  gap: 10px;
+  padding: 14px !important;
+  border-radius: 0 !important;
+  background: rgba(12, 8, 26, 0.42) !important;
+  border: 1px solid rgba(196, 181, 253, 0.20) !important;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.025);
+}
+
+#lobbyScreen .player-group.void-group {
+  border-color: rgba(177, 113, 255, 0.34) !important;
+  background: rgba(14, 8, 31, 0.44) !important;
+}
+
+#lobbyScreen .player-group.survivor-group {
+  border-color: rgba(34, 211, 238, 0.34) !important;
+  background: rgba(5, 18, 31, 0.38) !important;
+}
+
+#lobbyScreen .player-group-heading {
+  padding: 0 4px 9px !important;
+  margin: 0 !important;
+  border-bottom: 1px solid rgba(196, 181, 253, 0.14) !important;
+}
+
+#lobbyScreen .player-group-heading span {
+  color: rgba(245, 243, 255, 0.88) !important;
+  font-size: 12px !important;
+  font-weight: 1000;
+  letter-spacing: 0.18em !important;
+  text-transform: uppercase;
+}
+
+#lobbyScreen .player-group-heading small {
+  color: rgba(196, 181, 253, 0.80) !important;
+  font-size: 11px;
+  font-weight: 1000;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+#lobbyScreen .player-group.survivor-group .player-group-heading small,
+#lobbyScreen .player-ready.is-ready {
+  color: rgba(45, 255, 247, 0.96) !important;
+}
+
+#lobbyScreen .player-group-list {
+  display: grid;
+  gap: 10px;
+}
+
+#lobbyScreen .player-item,
+#lobbyScreen .lobby-panel .player-item,
+#lobbyScreen .lobby-panel .player-item:not(.is-bot) {
+  display: grid !important;
+  grid-template-columns: 44px minmax(0, 1fr) minmax(88px, auto) minmax(86px, auto) !important;
+  align-items: center;
+  gap: 16px;
+  min-height: 68px;
+  padding: 12px 18px !important;
+  border-radius: 10px !important;
+  border: 1px solid rgba(196, 181, 253, 0.22) !important;
+  background: rgba(9, 7, 22, 0.58) !important;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.025) !important;
+  overflow: hidden;
+}
+
+#lobbyScreen .player-item:not(.is-bot) {
+  grid-template-columns: 44px minmax(0, 1fr) minmax(88px, auto) !important;
+}
+
+#lobbyScreen .player-item:hover {
+  transform: none;
+  border-color: rgba(216, 180, 254, 0.46) !important;
+  background: rgba(18, 11, 38, 0.64) !important;
+}
+
+#lobbyScreen .player-item .player-role-emblem,
+#lobbyScreen .player-item .player-role-emblem.survivor,
+#lobbyScreen .player-item .player-role-emblem.killer,
+#lobbyScreen .player-item .lobby-player-skin-preview {
+  width: 38px !important;
+  height: 38px !important;
+  border: 2px solid rgba(230, 238, 255, 0.75) !important;
+  border-radius: 999px !important;
+  background-size: cover !important;
+  box-shadow: 0 0 18px rgba(103, 232, 249, 0.26), inset 0 -8px 14px rgba(0, 0, 0, 0.24) !important;
+}
+
+#lobbyScreen .player-summary strong {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  color: rgba(255, 255, 255, 0.96);
+  font-size: 14px !important;
+  font-weight: 1000;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+#lobbyScreen .player-summary strong em {
+  color: rgba(45, 255, 247, 0.96);
+  font-size: 0.86em;
+}
+
+#lobbyScreen .player-summary small {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 3px;
+  color: rgba(216, 226, 240, 0.76);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.025em;
+}
+
+#lobbyScreen .player-role-name,
+#lobbyScreen .player-skin-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#lobbyScreen .player-dot {
+  color: rgba(177, 113, 255, 0.95);
+}
+
+#lobbyScreen .player-ready {
+  justify-self: end;
+  font-size: 12px;
+  font-weight: 1000;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+#lobbyScreen .bot-kick-btn {
+  justify-self: end;
+  min-width: 86px;
+  height: 38px;
+  padding: 0 14px;
+  border-radius: 4px !important;
+  border-color: rgba(196, 181, 253, 0.36) !important;
+  color: rgba(245, 243, 255, 0.92);
+  background: rgba(35, 24, 62, 0.76) !important;
+  font-size: 12px;
+}
+
+#lobbyScreen .player-group-empty {
+  border-color: rgba(196, 181, 253, 0.18);
+  background: rgba(9, 7, 22, 0.38);
+  color: rgba(226, 232, 240, 0.60);
+}
+
+/* In-match HUD */
+#hud.hud {
+  top: max(22px, env(safe-area-inset-top)) !important;
+  right: max(22px, env(safe-area-inset-right)) !important;
+  left: auto !important;
+  z-index: 2120;
+  flex-direction: column;
+  align-items: flex-end !important;
+  gap: 0;
+  pointer-events: none;
+}
+
+#hud .hud-data-bucket,
+#hud .objective-card,
+#hud .hud-help-card {
+  display: none !important;
+}
+
+#roleHudCard.role-hud-card {
+  position: relative;
+  display: grid !important;
+  grid-template-columns: 54px minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+  min-width: 232px !important;
+  min-height: 100px;
+  padding: 18px 22px 16px !important;
+  border-radius: 0 !important;
+  border: 1px solid rgba(196, 181, 253, 0.56) !important;
+  background:
+    linear-gradient(180deg, rgba(9, 6, 23, 0.78), rgba(4, 5, 14, 0.62)),
+    radial-gradient(circle at 0% 0%, rgba(124, 58, 237, 0.20), transparent 48%) !important;
+  box-shadow: 0 0 36px rgba(124, 58, 237, 0.22), inset 0 0 0 1px rgba(255,255,255,0.04) !important;
+  backdrop-filter: blur(12px) saturate(1.05);
+}
+
+#roleHudCard.role-hud-card::before {
+  content: "";
+  position: absolute;
+  inset: 8px;
+  border: 1px solid rgba(196, 181, 253, 0.11);
+  pointer-events: none;
+}
+
+#roleHudIcon.role-hud-icon {
+  width: 54px !important;
+  height: 54px !important;
+  overflow: visible !important;
+}
+
+#roleHudIcon .role-hud-img {
+  width: 54px !important;
+  height: 54px !important;
+  filter: drop-shadow(0 0 13px rgba(34, 211, 238, 0.68));
+}
+
+#hud[data-role="killer"] #roleHudIcon .role-hud-img,
+#hud[data-role="void"] #roleHudIcon .role-hud-img {
+  filter: drop-shadow(0 0 15px rgba(177, 113, 255, 0.72));
+}
+
+#roleHudCard .role-hud-copy {
+  position: relative;
+  z-index: 1;
+}
+
+#roleHudCard .role-hud-copy span {
+  color: rgba(226, 232, 240, 0.80) !important;
+  font-size: 10px !important;
+  font-weight: 1000;
+  letter-spacing: 0.22em !important;
+  text-transform: uppercase;
+}
+
+#roleHudCard .role-hud-copy h2 {
+  margin: 5px 0 0;
+  color: rgba(255, 255, 255, 0.98) !important;
+  font-size: 20px !important;
+  font-weight: 1000;
+  letter-spacing: 0.15em !important;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+#fpsCounterRow.fps-counter-row {
+  display: flex !important;
+  align-items: center;
+  justify-content: space-between;
+  grid-column: 1 / -1;
+  gap: 18px;
+  margin-top: 15px !important;
+  padding-top: 10px !important;
+  border-top: 1px solid rgba(196, 181, 253, 0.24) !important;
+}
+
+#fpsCounterRow span {
+  color: rgba(226, 232, 240, 0.82) !important;
+  font-size: 10px !important;
+  font-weight: 1000;
+  letter-spacing: 0.22em !important;
+}
+
+#fpsCounterRow b {
+  color: rgba(45, 255, 247, 0.98) !important;
+  font-size: 14px !important;
+  font-weight: 1000;
+  letter-spacing: 0.11em;
+  text-shadow: 0 0 14px rgba(45, 255, 247, 0.24);
+}
+
+.void-ability-hud,
+.runner-ability-hud {
+  top: max(28px, env(safe-area-inset-top)) !important;
+  left: max(28px, env(safe-area-inset-left)) !important;
+  right: auto !important;
+  z-index: 2120;
+  display: grid;
+  gap: 8px;
+  min-width: 226px !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.void-orb-bank,
+.runner-orb-bank {
+  position: relative;
+  display: grid !important;
+  grid-template-columns: 54px minmax(0, 1fr) !important;
+  align-items: center;
+  gap: 14px !important;
+  min-height: 98px;
+  padding: 16px 20px !important;
+  border-radius: 0 !important;
+  border: 1px solid rgba(196, 181, 253, 0.52) !important;
+  background:
+    linear-gradient(180deg, rgba(9, 6, 23, 0.78), rgba(4, 5, 14, 0.62)),
+    radial-gradient(circle at 0% 0%, rgba(124, 58, 237, 0.22), transparent 48%) !important;
+  box-shadow: 0 0 36px rgba(124, 58, 237, 0.22), inset 0 0 0 1px rgba(255,255,255,0.04) !important;
+  backdrop-filter: blur(12px) saturate(1.05);
+}
+
+.void-orb-bank::before,
+.runner-orb-bank::before {
+  content: "";
+  position: absolute;
+  inset: 8px;
+  border: 1px solid rgba(196, 181, 253, 0.10);
+  pointer-events: none;
+}
+
+.void-orb-icon,
+.runner-orb-icon,
+img.void-orb-icon,
+img.runner-orb-icon {
+  position: relative;
+  z-index: 1;
+  width: 54px !important;
+  height: 54px !important;
+  border-radius: 0 !important;
+  filter: drop-shadow(0 0 14px rgba(34, 211, 238, 0.68));
+}
+
+.void-orb-bank > div,
+.runner-orb-bank > div {
+  position: relative;
+  z-index: 1;
+}
+
+.void-orb-bank span:not(.void-orb-icon),
+.runner-orb-bank span:not(.runner-orb-icon) {
+  color: rgba(226, 232, 240, 0.82) !important;
+  font-size: 11px !important;
+  font-weight: 1000;
+  letter-spacing: 0.20em !important;
+  text-transform: uppercase;
+}
+
+.void-orb-bank strong,
+.runner-orb-bank strong {
+  margin-top: 4px !important;
+  color: rgba(255,255,255,0.98) !important;
+  font-size: 33px !important;
+  font-weight: 1000;
+  line-height: 0.92;
+  letter-spacing: 0.02em;
+  text-shadow: 0 0 18px rgba(255,255,255,0.12);
+}
+
+.void-active-effects,
+.runner-active-effects {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.void-active-effects span,
+.runner-active-effects span {
+  border-radius: 0 !important;
+  border-color: rgba(45, 255, 247, 0.26) !important;
+  background: rgba(3, 12, 24, 0.76) !important;
+  color: rgba(210, 252, 255, 0.86) !important;
+}
+
+.void-ability-hud p,
+.runner-ability-hud p {
+  width: 200px !important;
+  min-height: 40px;
+  display: grid;
+  place-items: center;
+  margin: 0 !important;
+  padding: 0 18px !important;
+  border-radius: 0 !important;
+  border: 1px solid rgba(196, 181, 253, 0.56) !important;
+  color: rgba(245, 243, 255, 0.96) !important;
+  background: rgba(9, 6, 23, 0.76) !important;
+  box-shadow: 0 0 26px rgba(124, 58, 237, 0.18), inset 0 0 0 1px rgba(255,255,255,0.035) !important;
+  font-size: 11px !important;
+  font-weight: 1000;
+  letter-spacing: 0.16em !important;
+  text-transform: uppercase;
+  backdrop-filter: blur(12px);
+}
+
+.void-ability-hud p b,
+.runner-ability-hud p b {
+  color: rgba(255,255,255,0.98) !important;
+}
+
+#bigGenCounter.big-gen-counter {
+  right: max(24px, env(safe-area-inset-right)) !important;
+  bottom: max(24px, env(safe-area-inset-bottom)) !important;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 260px;
+  min-height: 106px;
+  padding: 18px 26px 18px 22px !important;
+  border-radius: 0 !important;
+  border: 1px solid rgba(196, 181, 253, 0.56) !important;
+  background:
+    linear-gradient(180deg, rgba(9, 6, 23, 0.80), rgba(4, 5, 14, 0.64)),
+    radial-gradient(circle at 0% 52%, rgba(34, 211, 238, 0.20), transparent 46%) !important;
+  box-shadow: 0 0 40px rgba(124, 58, 237, 0.24), inset 0 0 0 1px rgba(255,255,255,0.04) !important;
+  backdrop-filter: blur(12px) saturate(1.05);
+}
+
+#bigGenCounter.big-gen-counter::before {
+  content: "";
+  position: absolute;
+  inset: 8px;
+  border: 1px solid rgba(196, 181, 253, 0.10);
+  pointer-events: none;
+}
+
+.big-gen-icon.rift-counter-icon {
+  width: 58px !important;
+  height: 58px !important;
+  border-color: rgba(34, 211, 238, 0.56) !important;
+  box-shadow: 0 0 24px rgba(34, 211, 238, 0.26), inset 0 0 18px rgba(167, 139, 250, 0.14) !important;
+}
+
+.big-gen-copy span {
+  color: rgba(226, 232, 240, 0.86) !important;
+  font-size: 13px !important;
+  font-weight: 1000;
+  letter-spacing: 0.18em !important;
+  text-transform: uppercase;
+}
+
+.big-gen-copy strong {
+  color: rgba(255,255,255,0.99) !important;
+  font-size: clamp(42px, 4.4vw, 58px) !important;
+  line-height: 0.9;
+  letter-spacing: 0.015em !important;
+  text-shadow: 0 0 22px rgba(255,255,255,0.14) !important;
+}
+
+.survivor-status-list {
+  left: max(24px, env(safe-area-inset-left)) !important;
+  bottom: max(26px, env(safe-area-inset-bottom)) !important;
+  display: grid;
+  gap: 9px;
+  width: min(326px, calc(100vw - 48px)) !important;
+}
+
+.survivor-status-card {
+  display: grid !important;
+  grid-template-columns: 52px minmax(0, 1fr) auto !important;
+  align-items: center;
+  gap: 12px;
+  min-height: 72px !important;
+  padding: 10px 14px 10px 12px !important;
+  border-radius: 0 !important;
+  border: 1px solid rgba(196, 181, 253, 0.38) !important;
+  border-left: 1px solid rgba(196, 181, 253, 0.58) !important;
+  background:
+    linear-gradient(90deg, rgba(7, 6, 18, 0.84), rgba(5, 8, 18, 0.62)),
+    radial-gradient(circle at 0% 50%, color-mix(in srgb, var(--status-color), transparent 84%), transparent 46%) !important;
+  box-shadow: 0 0 30px rgba(124, 58, 237, 0.13), inset 0 0 0 1px rgba(255,255,255,0.035) !important;
+  backdrop-filter: blur(11px) saturate(1.05);
+}
+
+.survivor-status-card.self {
+  border-color: rgba(177, 113, 255, 0.60) !important;
+  box-shadow: 0 0 30px rgba(124, 58, 237, 0.22), inset 0 0 0 1px rgba(255,255,255,0.045) !important;
+}
+
+.survivor-portrait {
+  width: 46px !important;
+  height: 46px !important;
+  border-radius: 999px !important;
+  border-color: rgba(196, 181, 253, 0.56) !important;
+  background:
+    radial-gradient(circle at 36% 30%, rgba(255,255,255,0.82), transparent 18%),
+    radial-gradient(circle at center, rgba(120, 154, 255, 0.72), rgba(30, 18, 72, 0.84) 58%, rgba(4, 5, 14, 0.96) 100%) !important;
+  box-shadow: 0 0 20px rgba(167, 139, 250, 0.22), inset 0 0 15px rgba(0,0,0,0.34) !important;
+}
+
+.survivor-portrait::before {
+  display: none !important;
+  content: none !important;
+}
+
+.survivor-meta {
+  min-width: 0;
+}
+
+.survivor-name-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.survivor-name {
+  color: rgba(255,255,255,0.98) !important;
+  font-size: 13px !important;
+  font-weight: 1000;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+}
+
+.survivor-you {
+  color: rgba(45, 255, 247, 0.98) !important;
+  font-size: 10px !important;
+  letter-spacing: 0.12em;
+}
+
+.survivor-state {
+  margin-top: 4px !important;
+  color: rgba(226, 232, 240, 0.78) !important;
+  font-size: 10px !important;
+  font-weight: 1000;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.survivor-dots {
+  margin-top: 4px !important;
+  color: rgba(245, 243, 255, 0.86) !important;
+  font-size: 10px !important;
+  font-weight: 1000;
+  letter-spacing: 0.10em;
+}
+
+.survivor-action {
+  min-width: 48px;
+  min-height: 28px;
+  place-items: center;
+  padding: 0 8px;
+  border: 1px solid color-mix(in srgb, var(--status-color), transparent 55%);
+  border-radius: 5px;
+  color: color-mix(in srgb, var(--status-color), white 12%) !important;
+  background: color-mix(in srgb, var(--status-color), transparent 91%);
+  font-size: 10px !important;
+  font-weight: 1000;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+}
+
+.survivor-status-card.chased .survivor-action {
+  border-color: rgba(177, 113, 255, 0.60);
+  color: rgba(216, 180, 254, 0.96) !important;
+  background: rgba(124, 58, 237, 0.16);
+}
+
+@media (max-width: 1420px), (max-height: 840px) {
+  #lobbyScreen.lobby-screen-redesign {
+    padding: 24px 38px !important;
+  }
+
+  #lobbyScreen .lobby-stage {
+    width: min(1420px, calc(100vw - 76px));
+    min-height: calc(100vh - 48px);
+    max-height: calc(100vh - 48px);
+  }
+
+  #lobbyScreen .lobby-leave-btn {
+    margin-bottom: 22px;
+  }
+
+  #lobbyScreen #lobbyTitle {
+    font-size: clamp(50px, 5.1vw, 76px);
+  }
+
+  #lobbyScreen .lobby-workspace {
+    margin-top: 22px !important;
+    grid-template-columns: clamp(300px, 24vw, 368px) minmax(0, 1fr) !important;
+  }
+
+  #lobbyScreen .lobby-control-column,
+  #lobbyScreen .lobby-roster-column {
+    max-height: calc(100vh - 232px);
+  }
+
+  #lobbyScreen .lobby-control-column {
+    padding: 16px 20px 14px !important;
+    gap: 8px !important;
+  }
+
+  #lobbyScreen .lobby-role-actions button,
+  #lobbyScreen .lobby-bot-actions button,
+  #lobbyScreen .lobby-actions button {
+    min-height: 38px;
+  }
+
+  #lobbyScreen .player-item,
+  #lobbyScreen .lobby-panel .player-item,
+  #lobbyScreen .lobby-panel .player-item:not(.is-bot) {
+    min-height: 62px;
+    padding: 10px 16px !important;
+  }
+
+  .void-ability-hud,
+  .runner-ability-hud {
+    top: 22px !important;
+    left: 22px !important;
+    min-width: 220px !important;
+  }
+
+  .void-orb-bank,
+  .runner-orb-bank {
+    min-height: 86px;
+    padding: 14px 18px !important;
+  }
+
+  #roleHudCard.role-hud-card {
+    min-height: 92px;
+    min-width: 224px !important;
+  }
+
+  #bigGenCounter.big-gen-counter {
+    min-width: 240px;
+    min-height: 96px;
+  }
+}
+
+@media (max-width: 1120px) {
+  #lobbyScreen .lobby-stage {
+    width: calc(100vw - 48px);
+  }
+
+  #lobbyScreen .lobby-workspace {
+    grid-template-columns: minmax(280px, 340px) minmax(0, 1fr) !important;
+    gap: 18px !important;
+  }
+
+  #lobbyScreen #lobbyTitle {
+    font-size: clamp(44px, 5.5vw, 62px);
+  }
+
+  #lobbyScreen .lobby-run-card {
+    transform: scale(0.92);
+    transform-origin: top right;
+  }
+
+  #lobbyScreen .player-item,
+  #lobbyScreen .lobby-panel .player-item,
+  #lobbyScreen .lobby-panel .player-item:not(.is-bot) {
+    grid-template-columns: 40px minmax(0, 1fr) auto !important;
+  }
+
+  #lobbyScreen .bot-kick-btn {
+    display: none;
+  }
+}
+
+/* Final interaction + HUD polish pass: keep the React shell from stealing Phaser mouse input. */
+.rift-ui-shell {
+  pointer-events: none;
+}
+
+.rift-ui-shell .screen.screen-open {
+  pointer-events: auto;
+}
+
+body:not(.is-menu-screen) #gameWrap canvas,
+body.is-game-screen #gameWrap canvas {
+  cursor: crosshair !important;
+}
+
+/* Perks correction: icon_assets made these <img> tags expand to the whole title row. Tiny little disaster. */
+#perksScreen .section-title-icon {
+  flex: 0 0 clamp(42px, 3.15vw, 58px) !important;
+  width: clamp(42px, 3.15vw, 58px) !important;
+  height: clamp(42px, 3.15vw, 58px) !important;
+  max-width: clamp(42px, 3.15vw, 58px) !important;
+  max-height: clamp(42px, 3.15vw, 58px) !important;
+  object-fit: contain !important;
+  filter: drop-shadow(0 0 14px rgba(168, 89, 255, 0.44)) !important;
+}
+
+#perksScreen .perks-section-heading h2 {
+  gap: clamp(12px, 1vw, 18px) !important;
+}
+
+#perksScreen .perk-card {
+  grid-template-columns: clamp(64px, 4.7vw, 86px) minmax(0, 1fr) minmax(186px, 28%) !important;
+  min-height: clamp(104px, 12.2vh, 132px) !important;
+}
+
+#perksScreen .perk-icon {
+  width: clamp(54px, 4vw, 72px) !important;
+  height: clamp(54px, 4vw, 72px) !important;
+}
+
+#perksScreen .perk-card-top small {
+  right: clamp(166px, 25%, 236px) !important;
+}
+
+#perksScreen .perk-level-pips {
+  width: clamp(92px, 7vw, 124px) !important;
+  gap: clamp(7px, 0.58vw, 10px) !important;
+}
+
+#perksScreen .perk-level-pips span {
+  width: clamp(14px, 1vw, 20px) !important;
+  height: clamp(14px, 1vw, 20px) !important;
+}
+
+#perksScreen .perk-card > button,
+#perksScreen .perk-card .perk-action,
+#perksScreen .perk-card [data-perk-action] {
+  min-width: clamp(132px, 10.2vw, 168px) !important;
+  min-height: clamp(44px, 5vh, 56px) !important;
+}
+
+/* Lobby player emblems should show selected skins, not the generic role PNG shoved on top like a sticker. */
+#lobbyScreen .player-item .player-role-emblem.lobby-player-skin-preview {
+  width: 40px !important;
+  height: 40px !important;
+  border: 2px solid rgba(230, 238, 255, 0.68) !important;
+  border-radius: 999px !important;
+  background-size: auto !important;
+  background-position: initial !important;
+  background-repeat: initial !important;
+  box-shadow: 0 0 18px rgba(103, 232, 249, 0.26), inset 0 -8px 14px rgba(0, 0, 0, 0.24) !important;
+}
+
+#lobbyScreen .lobby-selected-skin-preview {
+  border-radius: 999px !important;
+}
+
+/* New HUD alignment: point feed sits beside the orb counter, not directly on its face. */
+.void-ability-hud,
+.runner-ability-hud {
+  width: clamp(226px, 13.8vw, 258px) !important;
+  min-width: clamp(226px, 13.8vw, 258px) !important;
+}
+
+.void-ability-hud p,
+.runner-ability-hud p {
+  width: 100% !important;
+  min-width: 100% !important;
+  box-sizing: border-box;
+}
+
+.point-feed {
+  top: max(28px, env(safe-area-inset-top)) !important;
+  left: calc(max(28px, env(safe-area-inset-left)) + clamp(244px, 15.3vw, 282px)) !important;
+  width: min(246px, calc(100vw - 330px)) !important;
+}
+
+.point-feed-item {
+  min-height: 32px !important;
+  padding: 7px 10px !important;
+}
+
+/* Status label: color only, no tiny mystery coupon around SAFE/HURT/CHASE. */
+.survivor-action {
+  min-width: auto !important;
+  min-height: auto !important;
+  display: block !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: color-mix(in srgb, var(--status-color), white 14%) !important;
+  text-shadow: 0 0 13px color-mix(in srgb, var(--status-color), transparent 55%);
+}
+
+.survivor-status-card.chased .survivor-action {
+  border: 0 !important;
+  background: transparent !important;
+  color: rgba(216, 180, 254, 0.98) !important;
+  text-shadow: 0 0 13px rgba(177, 113, 255, 0.45);
+}
+
+@media (max-width: 1420px), (max-height: 840px) {
+  .point-feed {
+    left: calc(22px + clamp(236px, 15.3vw, 270px)) !important;
+    width: min(230px, calc(100vw - 304px)) !important;
+  }
+}
+
+/* Lobby purchase lockout + HUD polish pass. Because apparently the lobby accidentally became a mall. */
+#lobbyScreen .lobby-skin-picker .skin-btn.lobby-skin-unowned,
+#lobbyScreen .lobby-skin-picker .skin-btn[hidden] {
+  display: none !important;
+}
+
+#lobbyScreen .lobby-skin-picker .skin-btn.lobby-skin-owned {
+  display: flex !important;
+}
+
+#lobbyScreen .lobby-skin-picker .skin-btn.lobby-skin-owned .skin-price {
+  color: rgba(45, 255, 190, 0.92) !important;
+}
+
+#lobbyScreen .lobby-skin-picker .skin-btn.lobby-skin-owned.selected .skin-price,
+#lobbyScreen .lobby-skin-picker .skin-btn.lobby-skin-owned[aria-pressed="true"] .skin-price {
+  color: rgba(45, 255, 247, 0.98) !important;
+}
+
+#lobbyScreen .lobby-skin-picker .skin-btn .skin-price {
+  white-space: nowrap;
+}
+
+#lobbyScreen .player-item .player-role-emblem img,
+#lobbyScreen .player-item .player-role-emblem svg,
+#lobbyScreen .player-item .lobby-player-skin-preview img,
+#lobbyScreen .player-item .lobby-player-skin-preview svg {
+  display: none !important;
+}
+
+#lobbyScreen .player-item .player-role-emblem.lobby-player-skin-preview {
+  display: block !important;
+  overflow: visible !important;
+}
+
+/* Let Phaser own the mouse during the run. Shocking that the game should receive game input. */
+body.is-game-screen .rift-ui-shell,
+body.is-game-screen .menu-bg,
+body.is-game-screen .rift-page-background {
+  pointer-events: none !important;
+}
+
+#gameWrap,
+#gameWrap canvas,
+body.is-game-screen #gameWrap,
+body.is-game-screen #gameWrap canvas {
+  pointer-events: auto !important;
+  cursor: crosshair !important;
+}
+
+body.is-game-screen,
+body.is-game-screen * {
+  cursor: crosshair;
+}
+
+body.is-game-screen button,
+body.is-game-screen [role="button"],
+body.is-game-screen .screen {
+  pointer-events: none !important;
+}
+
+/* In-match HUD should have rounded corners and stop looking like sheet metal. */
+#roleHudCard.role-hud-card,
+.void-orb-bank,
+.runner-orb-bank,
+.void-ability-hud p,
+.runner-ability-hud p,
+#bigGenCounter.big-gen-counter,
+.survivor-status-card,
+.point-feed-item,
+.void-active-effects span,
+.runner-active-effects span,
+.hud-card {
+  border-radius: 13px !important;
+}
+
+#roleHudCard.role-hud-card::before,
+.void-orb-bank::before,
+.runner-orb-bank::before,
+#bigGenCounter.big-gen-counter::before {
+  border-radius: 9px !important;
+}
+
+.void-ability-hud,
+.runner-ability-hud {
+  width: clamp(246px, 14vw, 270px) !important;
+  min-width: clamp(246px, 14vw, 270px) !important;
+}
+
+.void-ability-hud p,
+.runner-ability-hud p {
+  width: 100% !important;
+  min-width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: clip !important;
+  font-size: clamp(9px, 0.62vw, 11px) !important;
+  letter-spacing: clamp(0.10em, 0.8vw, 0.14em) !important;
+}
+
+.point-feed {
+  top: max(28px, env(safe-area-inset-top)) !important;
+  left: calc(max(28px, env(safe-area-inset-left)) + clamp(266px, 15.6vw, 294px)) !important;
+  width: min(260px, calc(100vw - 354px)) !important;
+  pointer-events: none !important;
+}
+
+.point-feed-item {
+  border: 1px solid rgba(196, 181, 253, 0.28) !important;
+  background: rgba(9, 6, 23, 0.78) !important;
+  backdrop-filter: blur(10px) saturate(1.05);
+}
+
+/* Status label: text color only. No coupon box, no tiny badge, no UI goblin square. */
+.survivor-action,
+.survivor-status-card.chased .survivor-action,
+.survivor-status-card.safe .survivor-action,
+.survivor-status-card.injured .survivor-action,
+.survivor-status-card.downed .survivor-action,
+.survivor-status-card.hooked .survivor-action,
+.survivor-status-card.dead .survivor-action {
+  min-width: 0 !important;
+  min-height: 0 !important;
+  display: block !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  white-space: nowrap !important;
+}
+
+@media (max-width: 1420px), (max-height: 840px) {
+  .void-ability-hud,
+  .runner-ability-hud {
+    width: clamp(236px, 15vw, 258px) !important;
+    min-width: clamp(236px, 15vw, 258px) !important;
+  }
+
+  .point-feed {
+    left: calc(22px + clamp(252px, 16vw, 276px)) !important;
+    width: min(238px, calc(100vw - 320px)) !important;
+  }
+}
+
+/* Survivor HUD portraits now use the same owned/selected skin blobs as the lobby.
+   Because apparently a runner being a cyan marble in one screen and a generic circle in another was not immersive. */
+.survivor-portrait.survivor-skin-portrait {
+  overflow: hidden !important;
+  border-radius: 999px !important;
+  border: 2px solid rgba(230, 238, 255, 0.68) !important;
+  background-size: auto !important;
+  background-position: initial !important;
+  background-repeat: initial !important;
+  box-shadow: 0 0 20px rgba(103, 232, 249, 0.24), inset 0 -8px 14px rgba(0, 0, 0, 0.26) !important;
+}
+
+.survivor-portrait.skin-square {
+  background: radial-gradient(circle at 35% 30%, #e0f2fe 0 18%, #38bdf8 19% 58%, #6366f1 59% 100%) !important;
+}
+
+.survivor-portrait.skin-star {
+  background: radial-gradient(circle at 35% 30%, #fffbeb 0 18%, #facc15 19% 58%, #fb7185 59% 100%) !important;
+  box-shadow: 0 0 20px rgba(250, 204, 21, 0.28), inset 0 -8px 14px rgba(0,0,0,0.26) !important;
+}
+
+.survivor-portrait.skin-pentagon {
+  background: radial-gradient(circle at 35% 30%, #f5f3ff 0 18%, #a78bfa 19% 58%, #22d3ee 59% 100%) !important;
+}
+
+.survivor-portrait.skin-nebula {
+  background: radial-gradient(circle at 42% 38%, #fff1f8 0 14%, #ec4899 15% 44%, #38bdf8 45% 68%, #4c1d95 69% 100%) !important;
+  box-shadow: 0 0 20px rgba(236, 72, 153, 0.26), inset 0 -8px 14px rgba(0,0,0,0.28) !important;
+}
+
+.survivor-portrait.skin-eclipse {
+  background: radial-gradient(circle at 32% 36%, #ccfbf1 0 13%, #14b8a6 14% 48%, #020617 49% 66%, #4c1d95 67% 100%) !important;
+  box-shadow: 0 0 20px rgba(20, 184, 166, 0.26), inset 0 -8px 14px rgba(0,0,0,0.30) !important;
+}
+
+.survivor-portrait.skin-moth {
+  background: radial-gradient(circle at 28% 36%, #eff6ff 0 13%, #60a5fa 14% 45%, #c084fc 46% 72%, #111827 73% 100%) !important;
+}
+
+.survivor-portrait.skin-drone {
+  background: radial-gradient(circle at 42% 32%, #ecfdf5 0 13%, #34d399 14% 48%, #fbbf24 49% 68%, #064e3b 69% 100%) !important;
+  box-shadow: 0 0 20px rgba(52, 211, 153, 0.24), inset 0 -8px 14px rgba(0,0,0,0.30) !important;
+}
+
+.survivor-portrait.skin-void-core {
+  background:
+    radial-gradient(circle at 32% 28%, #f5d0fe 0 10%, transparent 11%),
+    radial-gradient(circle at 50% 52%, #7c3aed 0 20%, #32105f 21% 54%, #020008 55% 100%) !important;
+  box-shadow: 0 0 20px rgba(168, 85, 247, 0.28), inset 0 -8px 14px rgba(0,0,0,0.34) !important;
+}
+
+.survivor-portrait.skin-void-solar {
+  background:
+    radial-gradient(circle at 34% 28%, #fff7ad 0 12%, transparent 13%),
+    radial-gradient(circle at 58% 56%, #facc15 0 20%, #b45309 21% 54%, #130900 55% 100%) !important;
+  box-shadow: 0 0 20px rgba(250, 204, 21, 0.30), inset 0 -8px 14px rgba(0,0,0,0.32) !important;
+}
+
+.survivor-portrait.skin-void-azure {
+  background:
+    linear-gradient(132deg, transparent 43%, rgba(224,242,254,0.92) 44% 49%, transparent 50%),
+    radial-gradient(circle at 42% 38%, #38bdf8 0 18%, #0e7490 19% 54%, #020617 55% 100%) !important;
+  box-shadow: 0 0 20px rgba(56, 189, 248, 0.30), inset 0 -8px 14px rgba(0,0,0,0.30) !important;
+}
+
+.survivor-portrait.skin-void-eclipse {
+  background:
+    radial-gradient(circle at 62% 42%, #070006 0 26%, transparent 27%),
+    radial-gradient(circle at 44% 42%, #ff3b6a 0 19%, #7f1d1d 20% 54%, #070006 55% 100%) !important;
+  box-shadow: 0 0 20px rgba(255, 59, 106, 0.30), inset 0 -8px 14px rgba(0,0,0,0.34) !important;
+}
+
+.survivor-portrait.skin-void-wyrm {
+  background:
+    radial-gradient(ellipse at 50% 42%, transparent 0 26%, rgba(34,211,238,0.9) 27% 31%, transparent 32%),
+    radial-gradient(circle at 42% 36%, #c4b5fd 0 12%, #4338ca 13% 46%, #02030a 47% 100%) !important;
+}
+
+.survivor-portrait.skin-void-lantern {
+  background:
+    linear-gradient(90deg, transparent 45%, rgba(255,247,173,0.72) 46% 54%, transparent 55%),
+    radial-gradient(ellipse at 50% 58%, #fff7ad 0 16%, #f59e0b 17% 35%, #3a1c05 36% 70%, #140b00 71% 100%) !important;
+  box-shadow: 0 0 20px rgba(245, 158, 11, 0.32), inset 0 -8px 14px rgba(0,0,0,0.34) !important;
+}
+
+.survivor-portrait.skin-void-siren {
+  background:
+    radial-gradient(ellipse at 18% 42%, rgba(125,211,252,0.88) 0 13%, transparent 14%),
+    radial-gradient(ellipse at 82% 42%, rgba(125,211,252,0.88) 0 13%, transparent 14%),
+    radial-gradient(circle at 48% 44%, #e0faff 0 9%, #38bdf8 10% 34%, #075985 35% 62%, #001018 63% 100%) !important;
+  box-shadow: 0 0 20px rgba(56, 189, 248, 0.30), inset 0 -8px 14px rgba(0,0,0,0.34) !important;
+}
+
+.survivor-portrait.skin-void-crowned {
+  background:
+    linear-gradient(160deg, transparent 34%, rgba(251,191,36,0.82) 35% 42%, transparent 43%),
+    linear-gradient(20deg, transparent 35%, rgba(251,191,36,0.82) 36% 43%, transparent 44%),
+    radial-gradient(circle at 50% 52%, #fef08a 0 10%, #4c1d95 11% 48%, #06030d 49% 100%) !important;
+  box-shadow: 0 0 20px rgba(251, 191, 36, 0.28), inset 0 -8px 14px rgba(0,0,0,0.34) !important;
+}
+
+.survivor-portrait.skin-void-static {
+  background:
+    linear-gradient(90deg, transparent 16%, rgba(248,250,252,0.82) 17% 20%, transparent 21% 46%, rgba(163,230,53,0.7) 47% 51%, transparent 52%),
+    linear-gradient(0deg, transparent 22%, rgba(163,230,53,0.7) 23% 27%, transparent 28% 71%, rgba(248,250,252,0.5) 72% 75%, transparent 76%),
+    radial-gradient(circle at 50% 48%, #d9f99d 0 9%, #475569 10% 42%, #020617 43% 100%) !important;
+  box-shadow: 0 0 20px rgba(163, 230, 53, 0.28), inset 0 -8px 14px rgba(0,0,0,0.34) !important;
+}
+
+.survivor-portrait.skin-void-seraph {
+  background:
+    radial-gradient(ellipse at 17% 50%, transparent 0 20%, rgba(103,232,249,0.86) 21% 27%, transparent 28%),
+    radial-gradient(ellipse at 83% 50%, transparent 0 20%, rgba(192,132,252,0.86) 21% 27%, transparent 28%),
+    radial-gradient(ellipse at 50% 19%, transparent 0 18%, rgba(245,208,254,0.86) 19% 25%, transparent 26%),
+    radial-gradient(circle at 50% 50%, #f5d0fe 0 9%, #7e22ce 10% 42%, #080316 43% 100%) !important;
+  box-shadow: 0 0 20px rgba(192, 132, 252, 0.32), inset 0 -8px 14px rgba(0,0,0,0.34) !important;
+}
+
+/* Final HUD/chat/end-screen repair pass. */
+#survivorStatusHud.survivor-status-list {
+  overflow: visible !important;
+  width: min(326px, calc(100vw - 430px)) !important;
+}
+
+#survivorStatusHud .survivor-status-card {
+  position: relative !important;
+  overflow: visible !important;
+  border-radius: 16px !important;
+}
+
+#roleHudCard.role-hud-card,
+.void-orb-bank,
+.runner-orb-bank,
+.void-ability-hud p,
+.runner-ability-hud p,
+#bigGenCounter.big-gen-counter {
+  border-radius: 16px !important;
+}
+
+#roleHudCard.role-hud-card::before,
+.void-orb-bank::before,
+.runner-orb-bank::before,
+#bigGenCounter.big-gen-counter::before {
+  border-radius: 12px !important;
+}
+
+#survivorStatusHud .survivor-status-card.has-chat {
+  min-height: 72px !important;
+}
+
+#survivorStatusHud .survivor-chat-bubble,
+#survivorStatusHud .survivor-chat.survivor-chat-bubble {
+  position: absolute !important;
+  left: calc(100% + 14px) !important;
+  top: 50% !important;
+  z-index: 5;
+  width: max-content;
+  min-width: 150px;
+  max-width: min(380px, calc(100vw - 410px));
+  margin: 0 !important;
+  padding: 10px 14px 11px !important;
+  transform: translateY(-50%);
+  border: 1px solid rgba(196, 181, 253, 0.46);
+  border-radius: 15px !important;
+  color: rgba(255, 246, 219, 0.98) !important;
+  background:
+    radial-gradient(circle at 0% 50%, rgba(124, 58, 237, 0.20), transparent 64%),
+    linear-gradient(180deg, rgba(13, 10, 28, 0.94), rgba(5, 7, 18, 0.90));
+  box-shadow: 0 0 28px rgba(124, 58, 237, 0.20), 0 14px 38px rgba(0, 0, 0, 0.38);
+  font-size: 12px !important;
+  line-height: 1.32 !important;
+  font-style: normal !important;
+  font-weight: 950 !important;
+  letter-spacing: 0.03em !important;
+  text-transform: none !important;
+  white-space: normal;
+  pointer-events: none;
+  backdrop-filter: blur(10px) saturate(1.06);
+}
+
+#survivorStatusHud .survivor-chat-bubble::before {
+  content: "";
+  position: absolute;
+  left: -7px;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  transform: translateY(-50%) rotate(45deg);
+  border-left: 1px solid rgba(196, 181, 253, 0.46);
+  border-bottom: 1px solid rgba(196, 181, 253, 0.46);
+  background: rgba(12, 9, 27, 0.94);
+}
+
+#survivorStatusHud .killer-chat-card .survivor-chat-bubble {
+  border-color: rgba(177, 113, 255, 0.55);
+  color: rgba(241, 226, 255, 0.98) !important;
+}
+
+#endScreen.screen-open {
+  z-index: 2240;
+  display: flex !important;
+}
+
+#endScreen .end-panel {
+  overflow: auto;
+  scrollbar-width: none;
+}
+
+#endScreen .end-panel::-webkit-scrollbar {
+  display: none;
+}
+
+#endScreen #endStats {
+  min-height: 1px;
+}
+
+@media (max-width: 1180px) {
+  #survivorStatusHud.survivor-status-list {
+    width: min(300px, calc(100vw - 380px)) !important;
+  }
+
+  #survivorStatusHud .survivor-chat-bubble,
+  #survivorStatusHud .survivor-chat.survivor-chat-bubble {
+    max-width: min(320px, calc(100vw - 360px));
+    font-size: 11px !important;
+  }
+}

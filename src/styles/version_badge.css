@@ -1,0 +1,4 @@
+/* VersionBadge.jsx: version corner badge used by the main menu. */
+.version-badge {
+  pointer-events: none;
+}

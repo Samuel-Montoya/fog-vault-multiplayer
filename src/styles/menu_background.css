@@ -1,0 +1,23 @@
+/* MenuBackground.jsx: shared image-only background for every menu/lobby/shop screen. */
+.menu-bg,
+.rift-page-background {
+  pointer-events: none;
+}
+
+.rift-page-background {
+  position: fixed;
+  inset: 0;
+  z-index: 1;
+  overflow: hidden;
+  background: var(--menu-bg-image) center / cover no-repeat, #03020a;
+}
+
+.is-game-screen .rift-page-background {
+  display: none !important;
+}
+
+@media (max-width: 860px) {
+  .rift-page-background {
+    background-position: center;
+  }
+}

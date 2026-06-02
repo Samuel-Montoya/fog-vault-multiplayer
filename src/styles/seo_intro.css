@@ -1,0 +1,4 @@
+/* SeoIntroBadge.jsx: visually tucked SEO content for crawlers without cluttering the menu. */
+.seo-intro-badge {
+  position: absolute;
+}

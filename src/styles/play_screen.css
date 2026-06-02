@@ -1,0 +1,740 @@
+/* PlayScreen.jsx: full-screen Choose Your Side page. */
+#playScreen.play-screen {
+  --play-purple: #b967ff;
+  --play-purple-soft: rgba(185, 103, 255, 0.42);
+  --play-purple-faint: rgba(185, 103, 255, 0.14);
+  --play-cyan: #12d9ff;
+  --play-cyan-soft: rgba(18, 217, 255, 0.45);
+  --play-gold: #ffd45f;
+  --play-panel: rgba(8, 5, 21, 0.58);
+  --play-panel-deep: rgba(6, 4, 18, 0.78);
+  --play-border: rgba(205, 178, 255, 0.22);
+  --play-border-strong: rgba(188, 108, 255, 0.58);
+  position: relative;
+  align-items: stretch !important;
+  justify-content: flex-start !important;
+  min-height: 100vh;
+  padding: clamp(22px, 3vw, 46px) clamp(26px, 4vw, 82px) clamp(72px, 7vh, 96px) !important;
+  overflow: hidden;
+  color: rgba(255, 255, 255, 0.94);
+  background: transparent !important;
+}
+
+#playScreen.play-screen::before,
+#playScreen.play-screen::after {
+  display: none !important;
+  content: none !important;
+}
+
+#playScreen .play-back-btn,
+#playScreen .play-account-wrap,
+#playScreen .play-page-frame,
+#playScreen .play-bottom-strip {
+  position: relative;
+  z-index: 3;
+}
+
+#playScreen .play-back-btn {
+  width: fit-content;
+  min-width: 132px;
+  height: 46px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  border: 1px solid rgba(191, 129, 255, 0.34);
+  border-radius: 4px;
+  background: linear-gradient(180deg, rgba(19, 12, 39, 0.84), rgba(10, 6, 24, 0.74));
+  color: rgba(255, 255, 255, 0.86);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04), 0 0 24px rgba(133, 59, 255, 0.16);
+  font-size: 0.76rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: transform 140ms ease, border-color 140ms ease, color 140ms ease, box-shadow 140ms ease, background 140ms ease;
+}
+
+#playScreen .play-back-btn:hover,
+#playScreen .play-back-btn:focus-visible {
+  transform: translateY(-1px);
+  border-color: rgba(217, 178, 255, 0.72);
+  color: #fff;
+  background: linear-gradient(180deg, rgba(45, 21, 82, 0.94), rgba(14, 7, 31, 0.88));
+  box-shadow: 0 0 28px rgba(160, 70, 255, 0.34), inset 0 0 20px rgba(185, 103, 255, 0.10);
+}
+
+#playScreen .play-account-wrap {
+  position: absolute;
+  top: clamp(20px, 3vw, 42px);
+  right: clamp(26px, 4vw, 82px);
+  width: min(720px, 42vw);
+  display: grid;
+  justify-items: end;
+  gap: 10px;
+}
+
+#playScreen .play-top-kicker {
+  padding-right: 6px;
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 0.68rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  text-shadow: 0 0 14px rgba(185, 103, 255, 0.48);
+}
+
+#playScreen .compact-account-panel {
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+  min-height: 112px;
+  margin: 0;
+  padding: 16px 18px;
+  border: 1px solid rgba(184, 109, 255, 0.34);
+  border-radius: 4px;
+  background:
+    linear-gradient(90deg, rgba(12, 7, 29, 0.86), rgba(16, 8, 37, 0.74)),
+    rgba(5, 3, 15, 0.76);
+  box-shadow: 0 0 30px rgba(118, 50, 255, 0.16), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(14px);
+}
+
+#playScreen .compact-account-panel::before {
+  content: "";
+  position: absolute;
+  inset: -1px auto -1px 0;
+  width: 3px;
+  background: linear-gradient(180deg, transparent, rgba(184, 109, 255, 0.95), transparent);
+  box-shadow: 0 0 22px rgba(184, 109, 255, 0.75);
+}
+
+#playScreen .compact-account-panel .account-panel-top {
+  min-height: 52px;
+}
+
+#playScreen .compact-account-panel .account-eyebrow {
+  color: rgba(255, 255, 255, 0.78);
+  font-size: 0.61rem;
+  letter-spacing: 0.23em;
+}
+
+#playScreen .compact-account-panel .account-panel-top strong {
+  font-size: 1.02rem;
+  letter-spacing: 0.04em;
+  text-transform: lowercase;
+}
+
+#playScreen .compact-account-panel .orb-wallet {
+  min-width: 132px;
+  padding: 8px 14px;
+  border-color: rgba(255, 214, 94, 0.34);
+  border-radius: 999px;
+  background: rgba(255, 214, 94, 0.07);
+  box-shadow: inset 0 0 18px rgba(255, 214, 94, 0.08), 0 0 18px rgba(255, 214, 94, 0.12);
+}
+
+#playScreen .compact-account-panel .orb-wallet b {
+  color: var(--play-gold);
+  font-size: 1.44rem;
+  letter-spacing: 0.08em;
+}
+
+#playScreen .compact-account-panel .account-actions {
+  margin-top: 12px;
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 0.66rem;
+  letter-spacing: 0.03em;
+}
+
+#playScreen .compact-account-panel .auth-form {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 8px;
+}
+
+#playScreen .compact-account-panel .auth-actions {
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+#playScreen .compact-account-panel input {
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 3px;
+  font-size: 0.68rem;
+}
+
+#playScreen .compact-account-panel button,
+#playScreen .compact-account-panel .account-actions button {
+  min-height: 34px;
+  padding: 8px 12px;
+  border-radius: 3px;
+  font-size: 0.62rem;
+  letter-spacing: 0.14em;
+}
+
+#playScreen .play-page-frame {
+  width: min(1760px, 100%);
+  margin-top: clamp(46px, 7vh, 92px);
+}
+
+#playScreen .play-hero-panel {
+  max-width: min(1060px, 62vw);
+  margin-bottom: 28px;
+}
+
+#playScreen .play-hero-panel h1 {
+  margin: 0;
+  color: #fff;
+  font-size: clamp(2.9rem, 5.6vw, 6.4rem);
+  line-height: 0.9;
+  letter-spacing: 0.17em;
+  text-transform: uppercase;
+  font-style: italic;
+  text-shadow: 0 0 22px rgba(255, 255, 255, 0.22), 0 0 38px rgba(128, 77, 255, 0.32);
+}
+
+#playScreen .play-hero-panel p {
+  width: min(780px, 100%);
+  margin: 12px 0 0;
+  color: rgba(255, 255, 255, 0.78);
+  font-family: inherit;
+  font-size: clamp(0.88rem, 1.05vw, 1.18rem);
+  line-height: 1.55;
+  letter-spacing: 0.04em;
+}
+
+#playScreen .play-title-line {
+  width: min(660px, 74vw);
+  height: 2px;
+  margin-top: 12px;
+  background: linear-gradient(90deg, rgba(185, 103, 255, 0.9), rgba(255, 255, 255, 0.42), transparent);
+  box-shadow: 0 0 18px rgba(185, 103, 255, 0.78);
+}
+
+#playScreen .play-step-panel {
+  width: min(1660px, 92vw);
+  margin-top: 20px;
+}
+
+#playScreen .play-step-label {
+  margin: 0 0 12px 4px;
+  color: #d56cff;
+  font-size: 0.82rem;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  text-shadow: 0 0 14px rgba(185, 103, 255, 0.46);
+}
+
+#playScreen .play-role-select {
+  display: grid;
+  grid-template-columns: minmax(320px, 0.52fr) minmax(320px, 0.45fr);
+  gap: 20px;
+  width: min(1500px, 100%);
+}
+
+#playScreen .play-role-select .role-btn {
+  position: relative;
+  min-height: 132px;
+  display: grid;
+  grid-template-columns: 118px minmax(0, 1fr) 44px;
+  align-items: center;
+  gap: 18px;
+  padding: 24px 28px;
+  overflow: hidden;
+  border: 1px solid rgba(205, 178, 255, 0.18);
+  border-radius: 4px;
+  background:
+    linear-gradient(90deg, rgba(10, 8, 24, 0.86), rgba(14, 9, 34, 0.55)),
+    rgba(5, 3, 15, 0.72);
+  color: rgba(255, 255, 255, 0.88);
+  text-align: left;
+  cursor: pointer;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03), 0 18px 34px rgba(0, 0, 0, 0.24);
+  transform: none !important;
+  transition: border-color 150ms ease, box-shadow 150ms ease, background 150ms ease, transform 150ms ease;
+}
+
+#playScreen .play-role-select .role-btn::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  background: linear-gradient(90deg, rgba(185, 103, 255, 0.22), transparent 64%);
+  transition: opacity 150ms ease;
+}
+
+#playScreen .play-role-select .role-btn::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  opacity: 0.48;
+  background: rgba(185, 103, 255, 0.76);
+  box-shadow: 0 0 22px rgba(185, 103, 255, 0.52);
+}
+
+#playScreen .play-role-select .runner-choice::after {
+  background: rgba(18, 217, 255, 0.82);
+  box-shadow: 0 0 24px rgba(18, 217, 255, 0.56);
+}
+
+#playScreen .play-role-select .role-btn:hover,
+#playScreen .play-role-select .role-btn:focus-visible {
+  transform: translateY(-2px) !important;
+  border-color: rgba(218, 182, 255, 0.45);
+  box-shadow: 0 0 30px rgba(151, 68, 255, 0.28), inset 0 0 22px rgba(185, 103, 255, 0.08);
+}
+
+#playScreen .play-role-select .role-btn:hover::before,
+#playScreen .play-role-select .role-btn:focus-visible::before,
+#playScreen .play-role-select .role-btn.selected::before {
+  opacity: 1;
+}
+
+#playScreen .play-role-select .role-btn.selected {
+  border-color: rgba(18, 217, 255, 0.64);
+  background:
+    linear-gradient(90deg, rgba(0, 63, 100, 0.26), rgba(12, 8, 28, 0.78)),
+    rgba(5, 3, 15, 0.78);
+  box-shadow: 0 0 34px rgba(18, 217, 255, 0.22), inset 0 0 26px rgba(18, 217, 255, 0.08);
+}
+
+#playScreen .play-role-select .void-choice.selected {
+  border-color: rgba(185, 103, 255, 0.68);
+  box-shadow: 0 0 34px rgba(185, 103, 255, 0.26), inset 0 0 26px rgba(185, 103, 255, 0.10);
+}
+
+#playScreen .play-role-select .role-icon {
+  width: 96px;
+  height: 96px;
+  border: 0;
+  border-radius: 0;
+  background: transparent !important;
+  box-shadow: none;
+}
+
+#playScreen .play-role-select .runner-choice .role-icon {
+  border-color: transparent;
+  box-shadow: none;
+}
+
+#playScreen .play-role-select .role-icon img {
+  width: 100%;
+  height: 100%;
+}
+
+#playScreen .role-copy {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 10px;
+}
+
+#playScreen .role-copy strong {
+  color: #fff;
+  font-size: clamp(1.1rem, 1.6vw, 1.78rem);
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  font-style: italic;
+  text-shadow: 0 0 12px rgba(255, 255, 255, 0.20);
+}
+
+#playScreen .role-copy small {
+  color: rgba(224, 209, 255, 0.78);
+  font-size: clamp(0.78rem, 0.92vw, 1.02rem);
+  letter-spacing: 0.07em;
+}
+
+#playScreen .runner-choice .role-copy small {
+  color: #20e6ff;
+}
+
+#playScreen .role-selected-mark {
+  position: relative;
+  z-index: 1;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  justify-self: end;
+  border-radius: 999px;
+  color: #06131c;
+  background: var(--play-cyan);
+  box-shadow: 0 0 22px rgba(18, 217, 255, 0.52);
+  opacity: 0;
+  transform: scale(0.82);
+  transition: opacity 140ms ease, transform 140ms ease;
+}
+
+#playScreen .role-btn.selected .role-selected-mark {
+  opacity: 1;
+  transform: scale(1);
+}
+
+#playScreen .play-join-grid {
+  display: grid;
+  grid-template-columns: minmax(240px, 320px) minmax(520px, 1fr);
+  gap: 16px;
+  align-items: stretch;
+  width: min(1030px, 100%);
+}
+
+#playScreen .play-name-field {
+  display: grid;
+  gap: 7px;
+}
+
+#playScreen .play-name-field label {
+  color: rgba(255, 255, 255, 0.56);
+  font-size: 0.62rem;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+}
+
+#playScreen .play-name-field input {
+  height: 56px;
+  border: 1px solid rgba(205, 178, 255, 0.18);
+  border-radius: 4px;
+  background: rgba(5, 3, 15, 0.66);
+  color: #fff;
+  box-shadow: inset 0 0 24px rgba(0, 0, 0, 0.34);
+}
+
+#playScreen .play-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(160px, 1fr));
+  gap: 14px;
+  margin: 0;
+}
+
+#playScreen .play-actions button {
+  min-height: 58px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  border: 1px solid rgba(205, 178, 255, 0.16);
+  border-radius: 4px;
+  background: linear-gradient(180deg, rgba(17, 11, 37, 0.78), rgba(8, 5, 20, 0.72));
+  color: rgba(255, 255, 255, 0.84);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.025), 0 0 22px rgba(102, 43, 199, 0.13);
+  font-size: 0.76rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: transform 140ms ease, border-color 140ms ease, box-shadow 140ms ease, color 140ms ease, background 140ms ease;
+}
+
+#playScreen .play-actions button:hover,
+#playScreen .play-actions button:focus-visible {
+  transform: translateY(-1px);
+  border-color: rgba(211, 171, 255, 0.52);
+  color: #fff;
+  box-shadow: 0 0 28px rgba(146, 66, 255, 0.28), inset 0 0 20px rgba(185, 103, 255, 0.08);
+}
+
+#playScreen .play-actions button.primary {
+  border-color: rgba(185, 103, 255, 0.58);
+  background: linear-gradient(180deg, rgba(78, 19, 128, 0.82), rgba(37, 10, 77, 0.76));
+  box-shadow: 0 0 30px rgba(163, 69, 255, 0.34), inset 0 0 24px rgba(185, 103, 255, 0.14);
+}
+
+#playScreen .play-lobbies-panel {
+  width: min(1660px, 92vw);
+  margin-top: 32px;
+}
+
+#playScreen .play-lobbies-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 10px;
+}
+
+#playScreen .play-lobbies-heading h2 {
+  margin: 0;
+  color: #fff;
+  font-size: clamp(1.2rem, 2vw, 2rem);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  font-style: italic;
+  text-shadow: 0 0 16px rgba(255, 255, 255, 0.16);
+}
+
+#playScreen .play-lobbies-heading span {
+  color: #d56cff;
+  font-size: 0.72rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+#playScreen .play-lobby-table-head {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) minmax(260px, 1.1fr) 140px 270px;
+  gap: 16px;
+  align-items: center;
+  min-height: 40px;
+  padding: 0 26px;
+  border: 1px solid rgba(205, 178, 255, 0.13);
+  border-bottom: 0;
+  border-radius: 4px 4px 0 0;
+  background: rgba(9, 5, 23, 0.58);
+  color: rgba(255, 255, 255, 0.64);
+  font-size: 0.62rem;
+  letter-spacing: 0.17em;
+  text-transform: uppercase;
+}
+
+#playScreen .lobby-list {
+  display: grid;
+  gap: 0;
+  min-height: 84px;
+  max-height: min(31vh, 330px);
+  overflow: auto;
+  border: 1px solid rgba(205, 178, 255, 0.15);
+  border-radius: 0 0 4px 4px;
+  background: rgba(5, 3, 15, 0.50);
+  box-shadow: 0 0 34px rgba(72, 28, 145, 0.20), inset 0 0 40px rgba(0, 0, 0, 0.30);
+}
+
+#playScreen .lobby-list.empty {
+  place-items: center;
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 0.82rem;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+}
+
+#playScreen .lobby-item {
+  display: grid;
+  grid-template-columns: minmax(440px, 1fr) auto;
+  gap: 18px;
+  align-items: center;
+  min-height: 68px;
+  padding: 12px 18px 12px 26px;
+  border-bottom: 1px solid rgba(205, 178, 255, 0.10);
+  background: linear-gradient(90deg, rgba(13, 8, 28, 0.62), rgba(8, 5, 19, 0.38));
+}
+
+#playScreen .lobby-item:last-child {
+  border-bottom: 0;
+}
+
+#playScreen .lobby-item > div:first-child {
+  display: grid;
+  grid-template-columns: minmax(210px, 0.8fr) minmax(280px, 1.2fr);
+  gap: 16px;
+  align-items: center;
+  min-width: 0;
+}
+
+#playScreen .lobby-item strong {
+  color: #fff;
+  font-size: 0.94rem;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#playScreen .lobby-item small {
+  color: rgba(227, 214, 255, 0.70);
+  font-size: 0.74rem;
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#playScreen .lobby-item-actions {
+  display: grid;
+  grid-template-columns: 140px 180px;
+  gap: 12px;
+}
+
+#playScreen .lobby-item-actions button {
+  min-height: 44px;
+  border: 1px solid rgba(205, 178, 255, 0.18);
+  border-radius: 4px;
+  background: rgba(9, 5, 23, 0.72);
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: border-color 140ms ease, box-shadow 140ms ease, background 140ms ease, color 140ms ease;
+}
+
+#playScreen .lobby-item-actions button:first-child {
+  border-color: rgba(185, 103, 255, 0.50);
+  background: linear-gradient(180deg, rgba(75, 18, 126, 0.74), rgba(32, 8, 67, 0.72));
+  box-shadow: 0 0 20px rgba(163, 69, 255, 0.24);
+}
+
+#playScreen .lobby-item-actions .spectate-lobby-btn {
+  border-color: rgba(185, 103, 255, 0.34);
+}
+
+#playScreen .lobby-item-actions button:hover:not(:disabled),
+#playScreen .lobby-item-actions button:focus-visible:not(:disabled) {
+  border-color: rgba(221, 191, 255, 0.72);
+  color: #fff;
+  background: rgba(47, 14, 91, 0.82);
+  box-shadow: 0 0 24px rgba(185, 103, 255, 0.34);
+}
+
+#playScreen .lobby-item-actions button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+#playScreen .play-bottom-strip {
+  position: absolute;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%);
+  width: min(1080px, 64vw);
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 22px;
+  padding: 0 26px;
+  border: 1px solid rgba(205, 178, 255, 0.17);
+  border-radius: 4px;
+  background: rgba(5, 3, 15, 0.66);
+  box-shadow: 0 0 26px rgba(124, 50, 230, 0.18), inset 0 0 24px rgba(0, 0, 0, 0.22);
+  color: rgba(255, 255, 255, 0.62);
+  font-size: 0.64rem;
+  letter-spacing: 0.17em;
+  text-transform: uppercase;
+}
+
+#playScreen .play-bottom-strip strong {
+  color: #d56cff;
+  font-weight: 400;
+}
+
+#playScreen .play-bottom-strip i {
+  width: 1px;
+  height: 18px;
+  background: rgba(255, 255, 255, 0.25);
+}
+
+#playScreen .strip-orb {
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  border: 1px solid rgba(185, 103, 255, 0.35);
+  box-shadow: 0 0 18px rgba(185, 103, 255, 0.30);
+}
+
+#playScreen .strip-orb img {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+  filter: drop-shadow(0 0 9px rgba(255, 214, 94, 0.55));
+}
+
+@media (max-width: 1320px) {
+  #playScreen.play-screen {
+    overflow: auto;
+    padding-bottom: 110px !important;
+  }
+
+  #playScreen .play-account-wrap {
+    position: relative;
+    top: auto;
+    right: auto;
+    width: min(760px, 100%);
+    margin: 22px 0 0 auto;
+  }
+
+  #playScreen .play-page-frame {
+    margin-top: 34px;
+  }
+
+  #playScreen .play-hero-panel {
+    max-width: 100%;
+  }
+
+  #playScreen .play-role-select,
+  #playScreen .play-join-grid {
+    grid-template-columns: 1fr;
+  }
+
+  #playScreen .play-actions {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  #playScreen .play-bottom-strip {
+    position: relative;
+    left: auto;
+    bottom: auto;
+    transform: none;
+    width: min(1080px, 100%);
+    margin: 34px auto 0;
+  }
+}
+
+@media (max-width: 860px) {
+  #playScreen.play-screen {
+    padding: 18px !important;
+  }
+
+  #playScreen .play-hero-panel h1 {
+    font-size: clamp(2.1rem, 12vw, 4rem);
+    letter-spacing: 0.10em;
+  }
+
+  #playScreen .compact-account-panel .auth-form,
+  #playScreen .play-actions,
+  #playScreen .play-lobby-table-head,
+  #playScreen .lobby-item,
+  #playScreen .lobby-item > div:first-child,
+  #playScreen .lobby-item-actions {
+    grid-template-columns: 1fr;
+  }
+
+  #playScreen .play-role-select .role-btn {
+    grid-template-columns: 82px minmax(0, 1fr) 34px;
+    min-height: 108px;
+    padding: 18px;
+  }
+
+  #playScreen .play-role-select .role-icon {
+    width: 70px;
+    height: 70px;
+  }
+
+  #playScreen .play-lobby-table-head {
+    display: none;
+  }
+
+  #playScreen .lobby-list {
+    border-radius: 4px;
+    max-height: none;
+  }
+
+  #playScreen .play-bottom-strip {
+    flex-wrap: wrap;
+    gap: 12px;
+    text-align: center;
+  }
+}
+
+/* Small account badge override. Main Menu keeps the full login/account panel. */
+#playScreen .play-account-wrap {
+  width: auto !important;
+  min-width: 0 !important;
+  justify-items: end;
+  gap: 0 !important;
+}
+
+#playScreen .play-account-wrap .account-badge {
+  max-width: min(360px, 28vw);
+}

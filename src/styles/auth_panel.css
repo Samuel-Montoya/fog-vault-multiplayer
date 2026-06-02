@@ -1,0 +1,158 @@
+/* AuthPanel.jsx: account status, login/register controls, and orb wallet. */
+/* Account + orb economy */
+.account-panel {
+  margin: 14px 0 16px;
+  padding: 14px;
+  border: 1px solid rgba(103, 232, 249, 0.18);
+  border-radius: 22px;
+  background:
+    radial-gradient(circle at 100% 0%, rgba(103,232,249,0.10), transparent 34%),
+    rgba(3, 7, 18, 0.48);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 16px 38px rgba(0,0,0,0.18);
+}
+
+.compact-account-panel {
+  margin: 12px 0 14px;
+}
+
+.account-panel-top,
+.account-actions,
+.auth-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.account-panel-top strong {
+  display: block;
+  color: #fff;
+  font-size: 15px;
+  letter-spacing: -0.01em;
+}
+
+.account-eyebrow {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--rift);
+  font-size: 10px;
+  font-weight: 1000;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.orb-wallet {
+  display: grid;
+  min-width: 92px;
+  padding: 8px 12px;
+  border: 1px solid rgba(255, 211, 106, 0.25);
+  border-radius: 16px;
+  text-align: right;
+  background: rgba(255, 211, 106, 0.06);
+}
+
+.orb-wallet span {
+  color: var(--muted);
+  font-size: 9px;
+  font-weight: 1000;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.orb-wallet b {
+  color: var(--gold);
+  font-size: 24px;
+  line-height: 1;
+}
+
+.auth-form {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.auth-actions {
+  flex-wrap: wrap;
+}
+
+.auth-actions button,
+.account-actions button {
+  padding: 10px 13px;
+  font-size: 12px;
+}
+
+.account-actions {
+  margin-top: 11px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.skin-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.skin-price {
+  color: var(--gold);
+  font-size: 10px;
+  font-weight: 1000;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.skin-btn.locked {
+  opacity: 0.78;
+  border-color: rgba(255, 211, 106, 0.20);
+}
+
+.skin-btn.locked .skin-preview {
+  filter: grayscale(0.28) brightness(0.78);
+}
+
+.skin-btn.locked::after {
+  content: "LOCKED";
+  margin-left: auto;
+  padding: 4px 7px;
+  border: 1px solid rgba(255, 211, 106, 0.24);
+  border-radius: 999px;
+  color: var(--gold);
+  font-size: 9px;
+  font-weight: 1000;
+  letter-spacing: 0.1em;
+}
+
+.skin-btn.locked.affordable::after {
+  content: "BUY";
+  color: #06111a;
+  background: linear-gradient(135deg, var(--gold), #fff1a8);
+}
+
+.skin-btn.owned .skin-price {
+  color: var(--safe);
+}
+
+.skin-shop-heading {
+  margin-top: 18px;
+}
+
+.void-shop-skin-picker {
+  margin-bottom: 4px;
+}
+
+
+
+@media (max-width: 720px) {
+  .account-panel-top,
+  .account-actions,
+  .auth-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .orb-wallet {
+    width: 100%;
+    text-align: left;
+  }
+}
