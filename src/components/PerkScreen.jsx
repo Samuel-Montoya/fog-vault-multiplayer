@@ -282,15 +282,6 @@ export default function PerkScreen() {
   return (
     <div id="perksScreen" className="screen io-screen perks-page-screen">
       <div className="perks-page-stage">
-        <div className="perks-void-bg" aria-hidden="true">
-          <div className="perks-rift perks-rift-large" />
-          <div className="perks-rift perks-rift-low" />
-          <div className="perks-stars" />
-          <div className="perks-spire perks-spire-left" />
-          <div className="perks-spire perks-spire-right" />
-          <div className="perks-floor" />
-        </div>
-
         <header className="perks-topbar">
           <button className="perks-back-btn" data-screen="menu" data-screen-nav="menu" type="button" onClick={() => showMenuScreen("menu")}>
             <span aria-hidden="true">←</span>
