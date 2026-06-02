@@ -5169,3 +5169,568 @@ body.ultra-low-power.survivor-hit-impact #gameWrap {
     text-align: left;
   }
 }
+
+/* Overwatch-inspired full-screen menu/shop pass. Because menus should not feel like filing cabinets. */
+.menu-bg {
+  background:
+    linear-gradient(90deg, rgba(3, 7, 16, 0.96) 0%, rgba(5, 10, 22, 0.78) 34%, rgba(6, 10, 20, 0.50) 61%, rgba(3, 6, 13, 0.88) 100%),
+    radial-gradient(circle at 68% 34%, rgba(103, 232, 249, 0.22), transparent 30%),
+    radial-gradient(circle at 82% 16%, rgba(255, 211, 106, 0.12), transparent 24%),
+    radial-gradient(circle at 74% 80%, rgba(167, 139, 250, 0.18), transparent 34%),
+    linear-gradient(135deg, #0b1420 0%, #050813 52%, #02030a 100%);
+}
+
+.menu-bg::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(115deg, transparent 0 42%, rgba(103, 232, 249, 0.16) 43% 45%, transparent 46% 100%),
+    linear-gradient(105deg, transparent 0 55%, rgba(77, 226, 131, 0.12) 56% 59%, transparent 60% 100%),
+    repeating-linear-gradient(90deg, rgba(255,255,255,0.025) 0 1px, transparent 1px 76px);
+  opacity: 0.78;
+}
+
+.menu-bg::after {
+  content: "";
+  position: absolute;
+  right: -8vw;
+  top: -5vh;
+  width: min(980px, 58vw);
+  height: 118vh;
+  background:
+    radial-gradient(ellipse at 52% 28%, rgba(255, 255, 255, 0.12), transparent 16%),
+    radial-gradient(ellipse at 48% 42%, rgba(103, 232, 249, 0.22), transparent 26%),
+    conic-gradient(from 210deg at 50% 50%, transparent, rgba(77,226,131,0.35), transparent 18%, rgba(103,232,249,0.24), transparent 38%, rgba(167,139,250,0.24), transparent 58%, rgba(255,59,106,0.15), transparent 72%);
+  filter: blur(1px) saturate(1.08);
+  opacity: 0.86;
+  mask-image: linear-gradient(90deg, transparent 0%, black 26%, black 78%, transparent 100%);
+}
+
+.menu-bg .void-grid,
+.menu-bg .rift-halo,
+.menu-bg .rift-sigil,
+.menu-bg .fog-layer {
+  opacity: 0.22;
+}
+
+.main-menu-stage {
+  min-height: 100vh;
+  padding: clamp(34px, 5.2vw, 64px) clamp(28px, 5vw, 78px) clamp(26px, 4vw, 46px);
+}
+
+.main-menu-logo {
+  position: absolute;
+  top: clamp(28px, 4.2vw, 58px);
+  left: clamp(32px, 5vw, 82px);
+  z-index: 3;
+}
+
+.main-menu-logo .portal-brand-lockup {
+  gap: 14px;
+}
+
+.main-menu-logo .portal-brand-lockup .brand-rift {
+  width: 48px;
+  height: 48px;
+  opacity: 0.96;
+  filter: drop-shadow(0 0 18px rgba(103,232,249,0.26));
+}
+
+.main-menu-logo .portal-brand-lockup h1 {
+  color: rgba(246, 250, 255, 0.94);
+  font-size: clamp(42px, 5vw, 76px);
+  font-style: italic;
+  font-weight: 1000;
+  letter-spacing: 0.015em;
+  line-height: 0.88;
+  text-transform: uppercase;
+}
+
+.main-menu-logo .portal-brand-lockup .eyebrow {
+  margin: 0 0 8px 3px;
+  color: rgba(226, 232, 240, 0.68);
+  font-size: 10px;
+  font-weight: 1000;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+.menu-build-label {
+  margin: 8px 0 0 64px;
+  color: rgba(226, 232, 240, 0.50);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.main-menu-account {
+  position: absolute;
+  top: clamp(24px, 3.2vw, 38px);
+  right: clamp(24px, 4vw, 64px);
+  z-index: 6;
+  width: min(410px, 34vw);
+}
+
+.main-menu-account .account-panel {
+  padding: 10px 12px;
+  border-radius: 0;
+  border: 0;
+  border-left: 3px solid rgba(103, 232, 249, 0.58);
+  background: linear-gradient(90deg, rgba(12, 18, 31, 0.78), rgba(12, 18, 31, 0.42));
+  box-shadow: 0 18px 42px rgba(0,0,0,0.20);
+  backdrop-filter: blur(12px);
+}
+
+.main-menu-account .account-panel-top {
+  margin-bottom: 8px;
+}
+
+.main-menu-account .account-eyebrow,
+.main-menu-account .account-panel-top strong,
+.main-menu-account .orb-wallet span {
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.main-menu-account .auth-form {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 7px;
+}
+
+.main-menu-account .auth-actions {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 7px;
+}
+
+.main-menu-account input,
+.main-menu-account button {
+  min-height: 30px;
+  padding: 7px 9px;
+  border-radius: 0;
+  font-size: 11px;
+}
+
+.floating-menu-actions {
+  position: absolute;
+  left: clamp(34px, 5.2vw, 86px);
+  top: clamp(210px, 28vh, 330px);
+  z-index: 4;
+  width: min(390px, 34vw);
+  margin: 0;
+  gap: 2px;
+}
+
+.floating-menu-actions .menu-action,
+.floating-menu-actions .coffee-link,
+.floating-menu-actions .menu-action.primary,
+.floating-menu-actions .coffee-link:visited {
+  min-height: clamp(40px, 5.8vh, 62px);
+  padding: 0 18px;
+  border: 0;
+  border-left: 0 solid transparent;
+  border-radius: 0;
+  color: rgba(246, 248, 253, 0.92);
+  background: transparent;
+  box-shadow: none;
+  font-size: clamp(28px, 3vw, 49px);
+  font-style: italic;
+  font-weight: 1000;
+  letter-spacing: 0.03em;
+  line-height: 0.92;
+  text-transform: uppercase;
+  text-shadow: 0 2px 12px rgba(0,0,0,0.62);
+}
+
+.floating-menu-actions .menu-action.primary {
+  color: rgba(255,255,255,0.98);
+  background: transparent;
+}
+
+.floating-menu-actions .menu-action::before,
+.floating-menu-actions .coffee-link::before {
+  background: linear-gradient(90deg, rgba(232, 238, 247, 0.92), rgba(232, 238, 247, 0.58));
+  transform: skewX(-11deg);
+  transform-origin: left center;
+}
+
+.floating-menu-actions .menu-action:hover,
+.floating-menu-actions .menu-action:focus-visible,
+.floating-menu-actions .coffee-link:hover,
+.floating-menu-actions .coffee-link:focus-visible {
+  padding-left: 28px;
+  color: rgba(5, 9, 16, 0.98);
+  background: transparent;
+  transform: translate3d(10px, 0, 0);
+}
+
+.floating-menu-actions .coffee-link,
+.floating-menu-actions .coffee-link:hover,
+.floating-menu-actions .coffee-link:focus-visible {
+  width: 100%;
+  min-height: 30px;
+  margin-top: 12px;
+  color: rgba(226, 232, 240, 0.58);
+  font-size: clamp(13px, 1vw, 16px);
+  font-style: normal;
+  letter-spacing: 0.15em;
+}
+
+.main-menu-hero-copy {
+  position: absolute;
+  right: clamp(34px, 5vw, 84px);
+  bottom: clamp(92px, 12vh, 150px);
+  z-index: 4;
+  max-width: min(470px, 34vw);
+  text-align: right;
+  text-transform: uppercase;
+  pointer-events: none;
+}
+
+.main-menu-hero-copy span {
+  display: block;
+  margin-bottom: 8px;
+  color: rgba(226, 232, 240, 0.66);
+  font-size: 13px;
+  font-weight: 1000;
+  letter-spacing: 0.18em;
+}
+
+.main-menu-hero-copy strong {
+  display: block;
+  color: rgba(255,255,255,0.94);
+  font-size: clamp(33px, 4.6vw, 74px);
+  font-style: italic;
+  font-weight: 1000;
+  letter-spacing: 0.02em;
+  line-height: 0.88;
+  text-shadow: 0 18px 36px rgba(0,0,0,0.42);
+}
+
+.main-menu-hero-copy p {
+  max-width: 400px;
+  margin: 12px 0 0 auto;
+  color: rgba(226, 232, 240, 0.56);
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+  line-height: 1.55;
+}
+
+.menu-footer-strip {
+  position: absolute;
+  left: clamp(32px, 5vw, 82px);
+  bottom: clamp(22px, 3vw, 42px);
+  z-index: 6;
+  margin: 0;
+}
+
+.version-badge {
+  right: clamp(24px, 4vw, 64px);
+  bottom: clamp(22px, 3vw, 42px);
+}
+
+.seo-intro-badge {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0 0 0 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
+/* Full-width pages: shops, perks, lobby. The tiny card era has ended, mourned by nobody. */
+.io-screen:not(.menu-screen) {
+  align-items: stretch;
+  justify-content: center;
+  padding: clamp(14px, 2vw, 26px);
+}
+
+.io-screen:not(.menu-screen)::before {
+  background:
+    linear-gradient(180deg, rgba(106, 126, 151, 0.60), rgba(32, 45, 64, 0.42)),
+    radial-gradient(circle at 78% 32%, rgba(103,232,249,0.11), transparent 28%),
+    linear-gradient(90deg, rgba(0,0,0,0.50), transparent 56%);
+}
+
+.io-screen:not(.menu-screen) .void-card,
+.full-menu-card,
+.shop-shell,
+.lobby-panel {
+  width: min(1640px, calc(100vw - clamp(28px, 4vw, 52px))) !important;
+  max-height: calc(100vh - clamp(28px, 4vw, 52px));
+  border-radius: 0;
+  border: 1px solid rgba(255,255,255,0.16);
+  border-left: 5px solid rgba(232, 238, 247, 0.72);
+  padding: clamp(18px, 2.2vw, 34px);
+  overflow: auto;
+  background:
+    linear-gradient(180deg, rgba(226,232,240,0.08), rgba(226,232,240,0.035)),
+    linear-gradient(135deg, rgba(8,13,24,0.90), rgba(8,13,24,0.68));
+  box-shadow: 0 28px 90px rgba(0,0,0,0.44);
+}
+
+.screen-topline {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  padding-bottom: 10px;
+  background: linear-gradient(180deg, rgba(8, 13, 24, 0.96), rgba(8, 13, 24, 0.70) 80%, transparent);
+  backdrop-filter: blur(10px);
+}
+
+.io-screen:not(.menu-screen) h1 {
+  margin-top: 8px;
+  font-size: clamp(46px, 5.4vw, 92px);
+  font-style: italic;
+  font-weight: 1000;
+  letter-spacing: -0.035em;
+  text-transform: uppercase;
+}
+
+.screen-copy {
+  max-width: 920px;
+  font-size: 14px;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.shop-shell .account-panel,
+.full-menu-card .account-panel {
+  max-width: 980px;
+  border-radius: 0;
+}
+
+.shop-shell .section-heading,
+.full-menu-card .section-heading {
+  align-items: end;
+  padding: 14px 0 8px;
+  border-bottom: 1px solid rgba(255,255,255,0.14);
+}
+
+.shop-shell .section-heading h2,
+.full-menu-card .section-heading h2 {
+  margin: 0;
+  color: rgba(246,248,253,0.92);
+  font-size: clamp(22px, 2.3vw, 36px);
+  font-style: italic;
+  font-weight: 1000;
+  text-transform: uppercase;
+}
+
+.shop-shell .big-skin-picker {
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 16px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.shop-shell .skin-btn {
+  min-height: 170px;
+  align-items: flex-end;
+  overflow: hidden;
+  padding: 16px;
+  border: 1px solid rgba(255,255,255,0.13);
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.11), rgba(255,255,255,0.035)),
+    radial-gradient(circle at 50% 28%, rgba(103,232,249,0.18), transparent 36%),
+    rgba(10, 16, 28, 0.68);
+}
+
+.shop-shell .skin-btn:hover,
+.shop-shell .skin-btn:focus-visible {
+  color: rgba(5, 8, 14, 0.95);
+  background:
+    linear-gradient(180deg, rgba(242,246,252,0.88), rgba(216,224,236,0.76)),
+    rgba(226,229,236,0.74);
+}
+
+.shop-shell .skin-preview {
+  position: absolute;
+  left: 50%;
+  top: 28%;
+  width: 76px;
+  height: 76px;
+  transform: translate(-50%, -50%);
+  border-width: 5px;
+  box-shadow: 0 18px 48px rgba(0,0,0,0.28), 0 0 42px rgba(103,232,249,0.18);
+}
+
+.shop-shell .skin-copy {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 4px;
+  width: 100%;
+}
+
+.shop-shell .skin-copy > span:first-child {
+  font-size: 16px;
+  font-weight: 1000;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.shop-shell .skin-price {
+  color: rgba(226,232,240,0.70);
+  font-size: 11px;
+  font-weight: 1000;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.shop-shell .skin-btn:hover .skin-price,
+.shop-shell .skin-btn:focus-visible .skin-price {
+  color: rgba(5,8,14,0.64);
+}
+
+.perks-card .perk-shop-layout {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: clamp(16px, 2vw, 28px);
+}
+
+.perks-card .perk-shop-section {
+  border-radius: 0;
+  background: rgba(226,232,240,0.055);
+}
+
+.perks-card .perk-shop-grid {
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px;
+}
+
+.perks-card .perk-card {
+  min-height: 220px;
+  border-radius: 0;
+}
+
+.play-card .role-select {
+  grid-template-columns: repeat(2, minmax(240px, 1fr));
+}
+
+.lobby-panel {
+  width: min(1720px, calc(100vw - 36px)) !important;
+  max-height: calc(100vh - 36px);
+  overflow: hidden !important;
+}
+
+.lobby-workspace {
+  grid-template-columns: minmax(460px, 0.9fr) minmax(520px, 1.1fr);
+  gap: clamp(16px, 2vw, 28px);
+}
+
+.lobby-control-column,
+.lobby-roster-column {
+  border-radius: 0;
+  background: rgba(226,232,240,0.06);
+}
+
+.lobby-panel .players-list {
+  min-height: 0;
+}
+
+.lobby-skin-picker {
+  max-height: min(30vh, 260px);
+}
+
+.lobby-skin-picker .skin-btn {
+  min-height: 48px;
+}
+
+@media (max-width: 1120px) {
+  .main-menu-account {
+    width: min(420px, 46vw);
+  }
+
+  .main-menu-hero-copy {
+    max-width: 42vw;
+  }
+
+  .perks-card .perk-shop-layout,
+  .lobby-workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .lobby-panel {
+    overflow: auto !important;
+  }
+}
+
+@media (max-width: 820px) {
+  .main-menu-stage {
+    overflow: auto;
+    min-height: 100vh;
+  }
+
+  .main-menu-logo,
+  .main-menu-account,
+  .floating-menu-actions,
+  .main-menu-hero-copy,
+  .menu-footer-strip,
+  .version-badge {
+    position: relative;
+    inset: auto;
+    left: auto;
+    right: auto;
+    top: auto;
+    bottom: auto;
+  }
+
+  .main-menu-account,
+  .floating-menu-actions,
+  .main-menu-hero-copy {
+    width: 100%;
+    max-width: none;
+  }
+
+  .main-menu-account {
+    order: 2;
+    margin-top: 18px;
+  }
+
+  .floating-menu-actions {
+    order: 3;
+    margin-top: 34px;
+  }
+
+  .main-menu-hero-copy {
+    order: 4;
+    margin-top: 32px;
+    text-align: left;
+  }
+
+  .menu-footer-strip {
+    order: 5;
+    margin-top: 28px;
+  }
+
+  .version-badge {
+    order: 6;
+    margin-top: 12px;
+  }
+
+  .floating-menu-actions .menu-action,
+  .floating-menu-actions .coffee-link,
+  .floating-menu-actions .menu-action.primary,
+  .floating-menu-actions .coffee-link:visited {
+    font-size: clamp(28px, 10vw, 48px);
+  }
+
+  .main-menu-account .auth-form,
+  .main-menu-account .auth-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .shop-shell .big-skin-picker,
+  .perks-card .perk-shop-grid {
+    grid-template-columns: 1fr;
+  }
+}

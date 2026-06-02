@@ -15,9 +15,9 @@ const LEGACY_SCRIPT_CHAIN = [
 
 const MENU_ACTIONS = [
   { id: "menuPlayBtn", label: "Play", className: "menu-action primary" },
-  { id: "menuSkinsBtn", label: "Skins Shop", className: "menu-action" },
+  { id: "menuSkinsBtn", label: "Skins", className: "menu-action" },
   { id: "menuPerksBtn", label: "Perks", className: "menu-action" },
-  { id: "menuOptionsBtn", label: "Settings", className: "menu-action" },
+  { id: "menuOptionsBtn", label: "Options", className: "menu-action" },
   { id: "menuHowBtn", label: "How To Play", className: "menu-action" }
 ]
 
@@ -243,22 +243,22 @@ function MainMenu() {
   return (
     <div id="menu" className="screen screen-open io-screen menu-screen">
       <div className="main-menu-stage">
-        <div className="main-title-block">
+        <header className="main-menu-logo" aria-label="RiftRunner">
           <div className="brand-lockup portal-brand-lockup">
             <div className="brand-rift" aria-hidden="true">
               <span />
             </div>
             <div>
-              <div className="eyebrow">asymmetric void chase</div>
-              <h1>riftrunner</h1>
+              <div className="eyebrow">free browser chase game</div>
+              <h1>RiftRunner</h1>
             </div>
           </div>
-          <p className="hero-copy">
-            Collect Orbs. Feed the Rifts. Keep your team moving and Escape before The Void consumes you.
-          </p>
-        </div>
+          <p className="menu-build-label">orb economy online · rifts unstable</p>
+        </header>
 
-        <AuthPanel />
+        <div className="main-menu-account">
+          <AuthPanel />
+        </div>
 
         <nav className="main-menu-actions floating-menu-actions" aria-label="Main menu">
           {MENU_ACTIONS.map((action) => (
@@ -274,16 +274,22 @@ function MainMenu() {
           </a>
         </nav>
 
+        <aside className="main-menu-hero-copy" aria-label="Game mode summary">
+          <span>1 Void · 4 Runners</span>
+          <strong>Collect. Rescue. Escape.</strong>
+          <p>Feed the rifts before the map becomes a very decorative grave.</p>
+        </aside>
+
         <div className="menu-footer-strip">
           <span className="enrichment-mark" aria-hidden="true" />
-          <span>rift signal stable</span>
+          <span>press enter to chat · shift to sprint · q for perks</span>
           <button id="menuMusicToggleBtn" className="menu-music-toggle" type="button" aria-pressed="false">
             Menu music on
           </button>
         </div>
 
         <VersionBadge />
-		 <SeoIntroBadge />
+        <SeoIntroBadge />
       </div>
     </div>
   )
@@ -292,7 +298,7 @@ function MainMenu() {
 function PlayScreen() {
   return (
     <div id="playScreen" className="screen io-screen">
-      <div className="void-card wide-menu-card play-card">
+      <div className="void-card wide-menu-card play-card full-menu-card">
         <ScreenHeader
           eyebrow="join a run"
           title="Choose your side"
@@ -335,7 +341,7 @@ function PlayScreen() {
 function SkinScreen() {
   return (
     <div id="skinScreen" className="screen io-screen">
-      <div className="void-card wide-menu-card">
+      <div className="void-card wide-menu-card shop-shell skin-shop-card">
         <ScreenHeader
           eyebrow="orb shop"
           title="Skins"
@@ -364,7 +370,7 @@ function SkinScreen() {
 function PerkScreen() {
   return (
     <div id="perksScreen" className="screen io-screen">
-      <div className="void-card wide-menu-card perks-card">
+      <div className="void-card wide-menu-card shop-shell perks-card">
         <ScreenHeader
           eyebrow="orb upgrades"
           title="Perks"
@@ -397,7 +403,7 @@ function PerkScreen() {
 function OptionsScreen() {
   return (
     <div id="optionsScreen" className="screen io-screen">
-      <div className="void-card wide-menu-card">
+      <div className="void-card wide-menu-card full-menu-card settings-card">
         <ScreenHeader
           eyebrow="calibration"
           title="Settings"
@@ -427,7 +433,7 @@ function OptionsScreen() {
 function HowScreen() {
   return (
     <div id="howScreen" className="screen io-screen">
-      <div className="void-card wide-menu-card">
+      <div className="void-card wide-menu-card full-menu-card how-shell">
         <ScreenHeader eyebrow="how to play" title="How to Run" />
         <div className="how-grid">
           {HOW_TO_PLAY.map((item) => (
@@ -1404,24 +1410,7 @@ function SeoIntroBadge() {
   return (
     <section
       aria-label="RiftRunner game description"
-      style={{
-        position: "fixed",
-        top: "18px",
-        right: "18px",
-        zIndex: 20,
-        width: "300px",
-        padding: "10px 12px",
-        borderRadius: "14px",
-        border: "1px solid rgba(160, 130, 255, 0.22)",
-        background: "rgba(6, 8, 18, 0.58)",
-        backdropFilter: "blur(10px)",
-        boxShadow: "0 12px 34px rgba(0, 0, 0, 0.28)",
-        color: "rgba(255, 255, 255, 0.72)",
-        fontSize: "11px",
-        lineHeight: 1.45,
-        textAlign: "right",
-        pointerEvents: "none"
-      }}
+      className="seo-intro-badge"
     >
       <h2
         style={{
