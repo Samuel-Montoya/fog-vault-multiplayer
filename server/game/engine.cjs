@@ -4112,6 +4112,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     hookInteractDistance: HOOK_INTERACT_DISTANCE,
     hookRescueDistance: HOOK_RESCUE_DISTANCE,
     healDistance: HEAL_DISTANCE,
+    applySurvivorAbility,
     getMapAnalysis: (game) => game?.mapAnalysis || null
   });
 

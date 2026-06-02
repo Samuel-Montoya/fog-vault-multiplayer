@@ -90,16 +90,16 @@ function queueSize(queue) {
 
 const PERSONALITY_ID = "orb-runner";
 const PERSONALITY_LABEL = "Orb Runner";
-const PATH_REPLAN_SECONDS = 1.55;
+const PATH_REPLAN_SECONDS = 1.05;
 const STUCK_SAMPLE_SECONDS = 0.42;
-const STUCK_REPATH_DISTANCE = 5.5;
-const STUCK_CLEAR_SECONDS = 1.25;
+const STUCK_REPATH_DISTANCE = 4.2;
+const STUCK_CLEAR_SECONDS = 0.82;
 const STUCK_ESCAPE_SECONDS = 1.45;
 const WAYPOINT_REACHED_DISTANCE = 24;
-const PATHFIND_LOOP_LIMIT = 2200;
+const PATHFIND_LOOP_LIMIT = 4200;
 const DEPOSIT_AFTER_ORBS = 6;
 const NEAR_RIFT_DEPOSIT_MULT = 2.15;
-const ORB_CANDIDATE_LIMIT = 12;
+const ORB_CANDIDATE_LIMIT = 48;
 
 // Team coordination is the difference between bots that look intentional and
 // bots that recreate a school hallway fire drill around one orb/window.
@@ -122,19 +122,19 @@ const HEAL_RESERVED_PENALTY = 1200;
 const TEAMMATE_SAFE_POINT_RADIUS = 250;
 const TEAMMATE_SAFE_POINT_PENALTY = 520;
 
-const RUNNER_THREAT_RADIUS = 660;
-const RUNNER_DANGER_RADIUS = 340;
-const RUNNER_SAFE_DISTANCE = 780;
+const RUNNER_THREAT_RADIUS = 760;
+const RUNNER_DANGER_RADIUS = 390;
+const RUNNER_SAFE_DISTANCE = 910;
 const RUNNER_FLEE_LOCK_SECONDS = 2.45;
 const RUNNER_FLEE_REPLAN_SECONDS = 1.25;
 const RUNNER_INTERACT_DISTANCE = 74;
 const RUNNER_PALLET_DROP_KILLER_RADIUS = 138;
 const RUNNER_PALLET_DROP_PANIC_RADIUS = 230;
-const RUNNER_SAFE_OBJECT_RADIUS = 760;
+const RUNNER_SAFE_OBJECT_RADIUS = 1020;
 const RUNNER_SAFE_SAMPLE_RINGS = [260, 430, 600];
 const RUNNER_SAFE_SAMPLE_STEPS = 10;
 const RUNNER_HOOK_RESCUE_DISTANCE = 108;
-const RUNNER_HOOK_TARGET_RADIUS = 1180;
+const RUNNER_HOOK_TARGET_RADIUS = 1800;
 const RUNNER_HOOK_KILLER_CAMP_DISTANCE = 315;
 const RUNNER_UNHOOK_COMMIT_SECONDS = 3.2;
 const RUNNER_HEAL_DISTANCE = 82;
@@ -161,14 +161,14 @@ const RUNNER_ESCAPE_COMMIT_SECONDS = 4.8;
 const RUNNER_ESCAPE_RESERVED_PENALTY = 720;
 const RUNNER_ESCAPE_KILLER_DANGER_DISTANCE = 420;
 const RUNNER_IDLE_PATROL_COMMIT_SECONDS = 2.6;
-const RUNNER_ESCAPE_ROUTE_TILE_RADIUS = 14;
-const RUNNER_ESCAPE_ROUTE_NODE_LIMIT = 280;
+const RUNNER_ESCAPE_ROUTE_TILE_RADIUS = 18;
+const RUNNER_ESCAPE_ROUTE_NODE_LIMIT = 520;
 const RUNNER_ESCAPE_LANE_SCAN_STEPS = 4;
 const RUNNER_ESCAPE_MIN_ROUTE_TILES = 4;
 const RUNNER_ESCAPE_TOWARD_KILLER_DOT_LIMIT = 0.30;
 const RUNNER_ESCAPE_HARD_TOWARD_KILLER_DOT = 0.58;
 const RUNNER_ESCAPE_ROUTE_COMMIT_SECONDS = 2.15;
-const RUNNER_ESCAPE_CANDIDATE_EVAL_LIMIT = 34;
+const RUNNER_ESCAPE_CANDIDATE_EVAL_LIMIT = 72;
 const NAV_MIN_CLEARANCE_TILES = 2;
 const NAV_GOOD_CLEARANCE_TILES = 4;
 const NAV_WALL_COST = 0.42;
@@ -325,6 +325,17 @@ const RUNNER_PALLET_FORCE_DROP_KILLER_DISTANCE = 270;
 const RUNNER_PALLET_FORCE_DROP_RECT_DISTANCE = 175;
 const RUNNER_PALLET_APPROACH_DISTANCE = 300;
 const RUNNER_PALLET_STUN_COMMIT_SECONDS = 1.18;
+const RUNNER_SPEED_BURST_ID = "speedBurst";
+const RUNNER_SPEED_BURST_COST = 10;
+const RUNNER_SPEED_BURST_TRIGGER_DISTANCE = 470;
+const RUNNER_SPEED_BURST_PANIC_DISTANCE = 330;
+const RUNNER_SPEED_BURST_RETRY_SECONDS = 0.65;
+const RUNNER_SPEED_BURST_TASK_CLEAR_DISTANCE = 540;
+const COLLISION_STEER_PROBE_DISTANCE = 46;
+const COLLISION_STEER_TARGET_DISTANCE = 150;
+const SAFE_OBJECT_MIN_ROUTE_SCORE = -1200;
+const SAFE_OBJECT_ROUTE_PATH_PENALTY = 12;
+
 
 
 function quantizeMoveVector(vx, vy, threshold) {
@@ -496,6 +507,135 @@ function stopAndFace(actor, target) {
   actor.input.down = false;
   actor.input.sprint = false;
   if (target) actor.input.angle = Math.atan2(target.y - actor.y, target.x - actor.x);
+}
+
+function chooseCollisionSafeMovePoint(game, actor, target, helpers, options = {}) {
+  if (!target || !Number.isFinite(target.x) || !Number.isFinite(target.y)) return null;
+  const desired = normalizeVector(target.x - actor.x, target.y - actor.y);
+  if (desired.len <= 0.001) return null;
+
+  const probe = Math.max(18, Number(options.probe || COLLISION_STEER_PROBE_DISTANCE));
+  const far = Math.max(probe * 2.3, Number(options.far || COLLISION_STEER_TARGET_DISTANCE));
+  const killer = options.killer || null;
+  const awayKiller = killer ? normalizeVector(actor.x - killer.x, actor.y - killer.y) : null;
+  const center = mapCenter(game);
+  const inward = normalizeVector(center.x - actor.x, center.y - actor.y);
+  const current = actorMoveVector(actor);
+  const oldDigital = actor.bot?.simpleAi?.lastIssuedDigitalMove || null;
+  const currentKillerD = killer ? helperDist(helpers, actor.x, actor.y, killer.x, killer.y) : Infinity;
+  const nearWall = cornerTrapSeverity(game, actor.x, actor.y) > 0.06 || edgeTrapSeverity(game, actor.x, actor.y) > 0.30;
+
+  const candidateVectors = [];
+  const addVec = (x, y) => {
+    const v = normalizeVector(x, y);
+    if (v.len <= 0.001) return;
+    if (candidateVectors.some((c) => c.x * v.x + c.y * v.y > 0.985)) return;
+    candidateVectors.push(v);
+  };
+
+  addVec(desired.x, desired.y);
+  addVec(desired.x, 0);
+  addVec(0, desired.y);
+  addVec(desired.x + inward.x * (nearWall ? 1.2 : 0.28), desired.y + inward.y * (nearWall ? 1.2 : 0.28));
+  if (awayKiller) {
+    addVec(awayKiller.x, awayKiller.y);
+    addVec(desired.x + awayKiller.x * 0.75, desired.y + awayKiller.y * 0.75);
+    addVec(awayKiller.x + inward.x * (nearWall ? 1.8 : 0.45), awayKiller.y + inward.y * (nearWall ? 1.8 : 0.45));
+  }
+  addVec(-desired.y, desired.x);
+  addVec(desired.y, -desired.x);
+  if (oldDigital) addVec(oldDigital.vx || oldDigital.x || 0, oldDigital.vy || oldDigital.y || 0);
+
+  let best = null;
+  let bestScore = -Infinity;
+  for (const v of candidateVectors) {
+    const probePoint = { x: actor.x + v.x * probe, y: actor.y + v.y * probe };
+    const farPoint = clampToMapInterior(game, actor.x + v.x * far, actor.y + v.y * far);
+    if (!actorCanStandAt(game, actor, probePoint.x, probePoint.y, helpers)) continue;
+    if (!movementClear(game, actor, probePoint.x, probePoint.y, helpers, { extra: BODY_SEGMENT_EXTRA_RADIUS * 0.3, step: 9 })) continue;
+    if (!actorCanStandAt(game, actor, farPoint.x, farPoint.y, helpers)) continue;
+
+    const targetGain = helperDist(helpers, actor.x, actor.y, target.x, target.y) - helperDist(helpers, farPoint.x, farPoint.y, target.x, target.y);
+    const dotDesired = v.x * desired.x + v.y * desired.y;
+    const dotCurrent = v.x * (current.x || 0) + v.y * (current.y || 0);
+    const edgeGain = edgeClearance(game, farPoint.x, farPoint.y) - edgeClearance(game, actor.x, actor.y);
+    const lineOpenBonus = bodySegmentClear(game, actor, probePoint.x, probePoint.y, farPoint.x, farPoint.y, helpers, { extra: BODY_SEGMENT_EXTRA_RADIUS * 0.2, step: 10 }) ? 120 : 0;
+    let score = targetGain * 2.1
+      + dotDesired * 420
+      + Math.max(0, dotCurrent) * 120
+      + Math.max(0, edgeGain) * (nearWall ? 3.2 : 0.7)
+      + lineOpenBonus
+      - Math.max(0, -dotCurrent) * 170
+      - edgePenalty(game, farPoint.x, farPoint.y) * 0.10
+      - localClearancePenalty(game, actor, farPoint.x, farPoint.y, helpers) * 0.18;
+
+    if (killer && awayKiller) {
+      const dotAway = v.x * awayKiller.x + v.y * awayKiller.y;
+      const killerGain = helperDist(helpers, farPoint.x, farPoint.y, killer.x, killer.y) - currentKillerD;
+      score += dotAway * (currentKillerD < RUNNER_DANGER_RADIUS ? 740 : 320) + killerGain * 1.55;
+      if (currentKillerD < RUNNER_DANGER_RADIUS && dotAway < -0.05) score -= 1800;
+    }
+
+    if (score > bestScore) {
+      bestScore = score;
+      best = farPoint;
+    }
+  }
+
+  return best;
+}
+
+function setCollisionAwareMoveToward(game, actor, tx, ty, helpers, sprint = true, options = {}) {
+  const target = { x: tx, y: ty };
+  const safe = chooseCollisionSafeMovePoint(game, actor, target, helpers, options);
+  const point = safe || target;
+  if (options.force) forceMoveToward(actor, point.x, point.y, sprint);
+  else setMoveToward(actor, point.x, point.y, sprint);
+  return !!safe;
+}
+
+function runnerCanUseSpeedBurst(actor) {
+  if (!actor || actor.role !== "survivor" || actor.dead || actor.escaped || actor.hooked || actor.downed || actor.vault || actor.actionLock > 0) return false;
+  if ((actor.speedBurst || 0) > 0) return false;
+  if (Math.floor(actor.dots || 0) < RUNNER_SPEED_BURST_COST) return false;
+  const remaining = Number(actor.survivorAbilityCooldowns?.[RUNNER_SPEED_BURST_ID] || 0);
+  return remaining <= 0;
+}
+
+function tryUseRunnerSpeedBurst(game, actor, threat, helpers, reason = "chase") {
+  if (!runnerCanUseSpeedBurst(actor)) return false;
+  const brain = ensureSurvivalBrain(actor);
+  const now = game.time || 0;
+  if (now < Number(brain.nextSpeedBurstTryAt || 0)) return false;
+
+  const killer = threat?.killer || getLivingKiller(game);
+  const d = Number.isFinite(threat?.distance) && threat.distance > 0
+    ? threat.distance
+    : killer ? helperDist(helpers, actor.x, actor.y, killer.x, killer.y) : Infinity;
+  const killerCharging = !!(killer && (killer.attackState === "charging" || killer.attackState === "lunge" || killer.input?.attackHeld));
+  const nearBadGeometry = cornerTrapSeverity(game, actor.x, actor.y) > 0.08 || edgeTrapSeverity(game, actor.x, actor.y) > 0.38;
+  const shouldUse = !!(
+    threat?.panic
+    || (threat?.chase && d <= RUNNER_SPEED_BURST_TRIGGER_DISTANCE)
+    || (killerCharging && d <= RUNNER_SPEED_BURST_TRIGGER_DISTANCE + 90)
+    || d <= RUNNER_SPEED_BURST_PANIC_DISTANCE
+    || (nearBadGeometry && d <= RUNNER_SPEED_BURST_TASK_CLEAR_DISTANCE)
+  );
+  if (!shouldUse) return false;
+
+  brain.nextSpeedBurstTryAt = now + RUNNER_SPEED_BURST_RETRY_SECONDS;
+  if (typeof helpers?.applySurvivorAbility !== "function") return false;
+  const result = helpers.applySurvivorAbility(game, actor, RUNNER_SPEED_BURST_ID);
+  if (!result?.ok) return false;
+
+  brain.threatUntil = Math.max(brain.threatUntil || 0, now + RUNNER_FLEE_LOCK_SECONDS + 1.4);
+  brain.speedBurstUsedAt = now;
+  brain.speedBurstReason = reason;
+  if (d <= RUNNER_SPEED_BURST_TASK_CLEAR_DISTANCE || threat?.panic) clearTask(actor, game);
+  clearPath(brain);
+  brain.nextStep = { kind: "speed-burst", targetId: null, reason };
+  brain.repathIn = 0;
+  return true;
 }
 
 function ensureBotBrain(actor) {
@@ -1476,7 +1616,7 @@ function fallbackMoveToward(game, actor, target, helpers, options = {}) {
   const now = Number(options.now ?? game.time ?? 0);
   const detour = chooseLocalDetourPoint(game, actor, target, helpers, options);
   if (detour) {
-    forceMoveToward(actor, detour.x, detour.y, options.sprint !== false);
+    setCollisionAwareMoveToward(game, actor, detour.x, detour.y, helpers, options.sprint !== false, { ...options, force: true });
     return;
   }
 
@@ -1527,7 +1667,7 @@ function fallbackMoveToward(game, actor, target, helpers, options = {}) {
   }
 
   const moveTarget = best || clampToMapInterior(game, target.x, target.y);
-  forceMoveToward(actor, moveTarget.x, moveTarget.y, options.sprint !== false);
+  setCollisionAwareMoveToward(game, actor, moveTarget.x, moveTarget.y, helpers, options.sprint !== false, { ...options, force: true });
 }
 
 function selectPathMoveTarget(game, actor, target, helpers, options = {}) {
@@ -1666,7 +1806,7 @@ function followPath(game, actor, target, helpers, options = {}) {
       const detour = chooseLocalDetourPoint(game, actor, target, helpers, { ...options, now: game.time || 0 });
       clearPath(brain);
       if (detour) {
-        forceMoveToward(actor, detour.x, detour.y, options.sprint !== false);
+        setCollisionAwareMoveToward(game, actor, detour.x, detour.y, helpers, options.sprint !== false, { ...options, force: true });
         return false;
       }
       fallbackMoveToward(game, actor, target, helpers, { ...options, now: game.time || 0, sprint: options.sprint !== false });
@@ -1678,7 +1818,7 @@ function followPath(game, actor, target, helpers, options = {}) {
   if (targetTrap > 0.52 && (brain.stuckFor || 0) >= STUCK_SAMPLE_SECONDS) {
     const detour = chooseLocalDetourPoint(game, actor, target, helpers, { ...options, now: game.time || 0 });
     if (detour) {
-      forceMoveToward(actor, detour.x, detour.y, options.sprint !== false);
+      setCollisionAwareMoveToward(game, actor, detour.x, detour.y, helpers, options.sprint !== false, { ...options, force: true });
       return false;
     }
   }
@@ -1696,7 +1836,7 @@ function followPath(game, actor, target, helpers, options = {}) {
   if ((brain.stuckFor || 0) >= STUCK_SAMPLE_SECONDS && tryUseNearbyTraversalObject(game, actor, target, helpers, { ...options, force: true })) {
     return false;
   }
-  setMoveToward(actor, next.x, next.y, !!options.sprint);
+  setCollisionAwareMoveToward(game, actor, next.x, next.y, helpers, !!options.sprint, { ...options, force: false });
 
   if ((brain.stuckFor || 0) >= STUCK_CLEAR_SECONDS) {
     clearPath(brain);
@@ -1733,6 +1873,8 @@ function chooseBestRift(game, actor, helpers, fromPoint = actor) {
 
   for (const rift of unfinishedRifts(game)) {
     if (isTargetTemporarilyUnreachable(actor, "rift", rift, game)) continue;
+    const route = reachablePathBonus(game, actor, rift, helpers);
+    if (!route.reachable) continue;
     const d = distance(fromPoint.x, fromPoint.y, rift.x, rift.y);
     const progress = riftProgress(rift);
     const canFinish = progress + carried / dotsPerRift >= 1;
@@ -1743,7 +1885,8 @@ function chooseBestRift(game, actor, helpers, fromPoint = actor) {
     const score = progress * 1800
       + (canFinish ? 420 : 0)
       + activeDepositBonus
-      - d * 0.42
+      - d * 0.30
+      - route.pathLength * 9.5
       - crowdPenalty
       - teammatePenalty;
     if (score > bestScore) {
@@ -1764,9 +1907,11 @@ function chooseNearbyRift(game, actor, helpers) {
     if (isTargetTemporarilyUnreachable(actor, "rift", rift, game)) continue;
     const d = helperDist(helpers, actor.x, actor.y, rift.x, rift.y);
     if (d > nearbyDistance) continue;
+    const route = reachablePathBonus(game, actor, rift, helpers);
+    if (!route.reachable) continue;
     const depositors = reservationCount(game, actor, "rift", rift.id);
     const crowdPenalty = Math.max(0, depositors + 1 - RIFT_SOFT_DEPOSITOR_CAP) * (RIFT_EXTRA_DEPOSITOR_PENALTY * 0.75);
-    const score = riftProgress(rift) * 1200 - d - crowdPenalty;
+    const score = riftProgress(rift) * 1200 - d - route.pathLength * 8 - crowdPenalty;
     if (score > bestScore) {
       best = rift;
       bestScore = score;
@@ -2255,7 +2400,7 @@ function applyPostTraversalMovement(game, actor, helpers, options = {}) {
   if (lineBlocked) {
     fallbackMoveToward(game, actor, target, helpers, { ...options, sprint: true, now, killer });
   } else {
-    setMoveToward(actor, target.x, target.y, true);
+    setCollisionAwareMoveToward(game, actor, target.x, target.y, helpers, true, { ...options, killer, force: false });
   }
 
   // If the stable movement governor still leaves us with no input, extend again and force
@@ -2267,7 +2412,7 @@ function applyPostTraversalMovement(game, actor, helpers, options = {}) {
       : chooseExtendedPostTraversalPoint(game, actor, helpers, target);
     brain.postTraversalTarget = target;
     brain.moveIntent = null;
-    forceMoveToward(actor, target.x, target.y, true);
+    setCollisionAwareMoveToward(game, actor, target.x, target.y, helpers, true, { ...options, killer: killerForEscape, force: true });
   }
 
   return true;
@@ -2314,7 +2459,7 @@ function tryUseNearbyTraversalObject(game, actor, target, helpers, options = {})
 
   const postPoint = choosePostTraversalPoint(game, actor, best.object, target, helpers);
   actor.input.action = true;
-  setMoveToward(actor, postPoint.x, postPoint.y, true);
+  setCollisionAwareMoveToward(game, actor, postPoint.x, postPoint.y, helpers, true, { ...options, force: false });
   actor.input.sprint = true;
   actor.input.angle = Math.atan2(best.center.y - actor.y, best.center.x - actor.x);
   reserveTarget(game, actor, "safeObject", best.object.id, RUNNER_POST_INTERACT_SECONDS, { kind: best.kind });
@@ -3589,10 +3734,20 @@ function chooseSafeObject(game, actor, killer, helpers) {
     if (approachD > RUNNER_SAFE_OBJECT_RADIUS) continue;
     const exit = oppositeSidePoint(game, actor, win, killer, actorSize);
     if (!actorCanStandAt(game, actor, exit.x, exit.y, helpers)) continue;
+    const route = reachablePathCheck(game, actor, c, helpers, { tolerance: RUNNER_INTERACT_DISTANCE + 36, killer });
+    if (!route.reachable) continue;
+    const lineToWindow = segmentClearFromPoint(game, actor.x, actor.y, c.x, c.y, helpers);
     const reservedPenalty = reservationPenalty(game, actor, "safeObject", win.id, SAFE_OBJECT_RESERVED_PENALTY);
     const clusterPenalty = teammateClusterPenalty(game, actor, c.x, c.y, SAFE_OBJECT_CLUSTER_RADIUS, SAFE_OBJECT_CLUSTER_PENALTY, "safeObject", win.id);
-    const score = safePointScore(game, actor, killer, exit, helpers) + 420 - approachD * 0.36 - reservedPenalty - clusterPenalty;
-    if (score > bestScore) {
+    const pathPenalty = (route.path?.length || 1) * SAFE_OBJECT_ROUTE_PATH_PENALTY;
+    const score = safePointScore(game, actor, killer, exit, helpers)
+      + 900
+      + (lineToWindow ? 180 : 0)
+      - approachD * 0.28
+      - pathPenalty
+      - reservedPenalty
+      - clusterPenalty;
+    if (score > bestScore && score > SAFE_OBJECT_MIN_ROUTE_SCORE) {
       best = { kind: "windowVault", object: win, point: c, exit, score };
       bestScore = score;
     }
@@ -3609,26 +3764,34 @@ function chooseSafeObject(game, actor, killer, helpers) {
       const killerRectD = pointRectDistance(killer.x, killer.y, pallet);
       const behind = killerBehindRunner(actor, killer, c);
       const exit = palletRunThroughPoint(game, actor, pallet, killer, helpers);
+      if (!actorCanStandAt(game, actor, exit.x, exit.y, helpers)) continue;
+      const route = reachablePathCheck(game, actor, exit, helpers, { tolerance: RUNNER_PALLET_EXIT_REACHED_DISTANCE + 28, killer });
+      if (!route.reachable) continue;
       const reservedPenalty = reservationPenalty(game, actor, "safeObject", pallet.id, SAFE_OBJECT_RESERVED_PENALTY);
       const clusterPenalty = teammateClusterPenalty(game, actor, c.x, c.y, SAFE_OBJECT_CLUSTER_RADIUS, SAFE_OBJECT_CLUSTER_PENALTY, "safeObject", pallet.id);
+      const pathPenalty = (route.path?.length || 1) * SAFE_OBJECT_ROUTE_PATH_PENALTY;
       const score = safePointScore(game, actor, killer, exit, helpers)
-        + 520
-        + (behind ? 280 : 0)
-        + (killerRectD < RUNNER_PALLET_DROP_PANIC_RADIUS ? 220 : 0)
-        - approachD * 0.28
+        + 980
+        + (behind ? 420 : 0)
+        + (killerRectD < RUNNER_PALLET_DROP_PANIC_RADIUS ? 520 : 0)
+        - approachD * 0.22
+        - pathPenalty
         - reservedPenalty
         - clusterPenalty;
-      if (score > bestScore) {
+      if (score > bestScore && score > SAFE_OBJECT_MIN_ROUTE_SCORE) {
         best = { kind: "palletDrop", object: pallet, point: exit, exit, score };
         bestScore = score;
       }
     } else if (pallet.state === "dropped") {
       const exit = oppositeSidePoint(game, actor, pallet, killer, actorSize);
       if (!actorCanStandAt(game, actor, exit.x, exit.y, helpers)) continue;
+      const route = reachablePathCheck(game, actor, c, helpers, { tolerance: RUNNER_INTERACT_DISTANCE + 36, killer });
+      if (!route.reachable) continue;
       const reservedPenalty = reservationPenalty(game, actor, "safeObject", pallet.id, SAFE_OBJECT_RESERVED_PENALTY);
       const clusterPenalty = teammateClusterPenalty(game, actor, c.x, c.y, SAFE_OBJECT_CLUSTER_RADIUS, SAFE_OBJECT_CLUSTER_PENALTY, "safeObject", pallet.id);
-      const score = safePointScore(game, actor, killer, exit, helpers) + 260 - approachD * 0.32 - reservedPenalty - clusterPenalty;
-      if (score > bestScore) {
+      const pathPenalty = (route.path?.length || 1) * SAFE_OBJECT_ROUTE_PATH_PENALTY;
+      const score = safePointScore(game, actor, killer, exit, helpers) + 680 - approachD * 0.26 - pathPenalty - reservedPenalty - clusterPenalty;
+      if (score > bestScore && score > SAFE_OBJECT_MIN_ROUTE_SCORE) {
         best = { kind: "palletVault", object: pallet, point: c, exit, score };
         bestScore = score;
       }
@@ -3746,7 +3909,7 @@ function forceSafePointMovement(game, actor, killer, helpers, dt, reason = "safe
     brain.survivalTask.x = next.x;
     brain.survivalTask.y = next.y;
     clearPath(brain);
-    forceMoveToward(actor, next.x, next.y, true);
+    setCollisionAwareMoveToward(game, actor, next.x, next.y, helpers, true, { killer, force: true });
   }
   actor.input.action = false;
   actor.input.repair = false;
@@ -3782,7 +3945,8 @@ function chooseSurvivalTask(game, actor, threat, helpers) {
     : safePointScore(game, actor, killer, point, helpers) + rawReach.score;
 
   const safeObject = chooseSafeObject(game, actor, killer, helpers);
-  if (safeObject && safeObject.score >= rawScore - 180 && edgeTrapSeverity(game, safeObject.exit?.x ?? safeObject.point.x, safeObject.exit?.y ?? safeObject.point.y) < 0.88) {
+  const loopBias = threat.panic || threat.distance <= RUNNER_DANGER_RADIUS ? 1100 : 650;
+  if (safeObject && safeObject.score + loopBias >= rawScore && edgeTrapSeverity(game, safeObject.exit?.x ?? safeObject.point.x, safeObject.exit?.y ?? safeObject.point.y) < 0.88) {
     return {
       kind: safeObject.kind,
       target: { ...safeObject.point, id: safeObject.object.id },
@@ -3819,6 +3983,8 @@ function runSurvivorSurvival(game, actor, helpers, dt) {
     brain.threatUntil = 0;
     return false;
   }
+
+  tryUseRunnerSpeedBurst(game, actor, threat, helpers, threat.panic ? "panic" : "killer-close");
 
   // Emergency pallet logic overrides normal chase routing. If the killer is right
   // behind / crossing the pallet lane, throw the pallet. Bots were being too
@@ -3938,7 +4104,7 @@ function runSurvivorSurvival(game, actor, helpers, dt) {
     // Stopping here was the tiny digital hesitation that got bots slapped.
     actor.input.action = true;
     task.actionUntil = Math.max(task.actionUntil || 0, now + RUNNER_INTERACT_ACTION_HOLD_SECONDS);
-    setMoveToward(actor, postPoint.x, postPoint.y, true);
+    setCollisionAwareMoveToward(game, actor, postPoint.x, postPoint.y, helpers, true, { killer: threat.killer, force: false });
     actor.input.sprint = true;
     actor.input.angle = Math.atan2(centerOf(currentObject).y - actor.y, centerOf(currentObject).x - actor.x);
     return true;
