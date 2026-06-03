@@ -3519,7 +3519,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     survivor.downed = true;
     survivor.hookId = hook.id;
     survivor.hookCount = (survivor.hookCount || 0) + 1;
-    awardStat(killer, "hooks", "Runner hooked", 1, "void");
+    awardStat(killer, "hooks", "Runner bound", 1, "void");
     survivor.hookProgress = 0;
     survivor.unhookProgress = 0;
     survivor.dotDepositTargetId = null;
@@ -3589,7 +3589,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     }
     for (const rescuerId of rescuerIds) {
       const rescuer = game.actors.get(rescuerId);
-      if (rescuer?.role === "survivor" && rescuer.id !== survivor.id) awardStat(rescuer, "unhooks", "Teammate unhooked", 1, "team");
+      if (rescuer?.role === "survivor" && rescuer.id !== survivor.id) awardStat(rescuer, "unhooks", "Teammate rescued", 1, "team");
     }
     addEvent(game, "unhooked", {
       x: survivor.x,

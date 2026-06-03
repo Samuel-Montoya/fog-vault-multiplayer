@@ -19,6 +19,7 @@ const VOID_HUNT_SWITCH_LOCK_SECONDS = 4.25;
 const VOID_CHASE_TARGET_REPATH_DISTANCE = 96;
 const VOID_LAST_KNOWN_REACHED_DISTANCE = 62;
 const VOID_HOOK_DISTANCE = 128;
+const VOID_HOOK_ACTION_MARGIN = 6;
 const VOID_ATTACK_QUICK_RANGE = 86;
 const VOID_ATTACK_LUNGE_RANGE = 122;
 const VOID_ATTACK_CLEAR_EXTRA = 18;
@@ -497,6 +498,32 @@ function riftProgress(rift) {
   return clamp(Number(rift?.progress || 0), 0, 1);
 }
 
+function runnerDepositActivity(runner) {
+  return !!(runner?.dotDepositTargetId || (runner?.dotDepositProgress || 0) > 0.001 || runner?.dotDepositing);
+}
+
+function runnerEscapeActivity(runner) {
+  return !!(runner?.escapeGateId || (runner?.escapeProgress || 0) > 0.001 || runner?.escaping);
+}
+
+function runnerObjectiveNoise(runner) {
+  let score = 0;
+  if (runnerDepositActivity(runner)) score += 1.5 + Math.max(0, Number(runner.dotDepositProgress || 0)) * 2.2;
+  if (runnerEscapeActivity(runner)) score += 2.0 + Math.max(0, Number(runner.escapeProgress || 0)) * 3.0;
+  return score;
+}
+
+function runnerPressureNearRift(game, rift) {
+  let pressure = 0;
+  for (const runner of activeSurvivors(game)) {
+    const d = distance(runner.x, runner.y, rift.x, rift.y);
+    if (runner.dotDepositTargetId === rift.id) pressure += 3.2 + Math.max(0, Number(runner.dotDepositProgress || 0)) * 4.0;
+    if (d <= VOID_EXIT_PRESSURE_DISTANCE) pressure += Math.max(0, 1 - d / VOID_EXIT_PRESSURE_DISTANCE);
+    if ((runner.dots || 0) > 0 && d <= VOID_EXIT_PRESSURE_DISTANCE * 0.7) pressure += Math.min(1.4, (runner.dots || 0) / 12);
+  }
+  return pressure;
+}
+
 function getRiftById(game, id) {
   return (game?.map?.generators || []).find((rift) => rift?.id === id) || null;
 }
@@ -513,10 +540,12 @@ function chooseBestKickableRift(game, actor, helpers) {
     if (!isKickableRift(rift)) continue;
     const d = helperDist(helpers, actor.x, actor.y, rift.x, rift.y);
     const progress = riftProgress(rift);
+    const pressure = runnerPressureNearRift(game, rift);
     const score = progress * 2400
       + (progress >= 0.75 ? 700 : 0)
       + (progress >= 0.5 ? 260 : 0)
       + (rift.dotDepositing ? 420 : 0)
+      + pressure * 360
       - d * 0.34;
     if (score > bestScore) {
       best = rift;
@@ -540,7 +569,8 @@ function chooseCheckRift(game, actor, helpers, brain) {
     const progress = riftProgress(rift);
     const recentPenalty = recent.has(rift.id) && rifts.length > recent.size ? 850 : 0;
     const lockedPenalty = rift.kickLocked ? 120 : 0;
-    const score = progress * 1000 - d * 0.28 - recentPenalty - lockedPenalty;
+    const pressure = runnerPressureNearRift(game, rift);
+    const score = progress * 1000 + pressure * 520 - d * 0.28 - recentPenalty - lockedPenalty;
     if (score > bestScore) {
       best = rift;
       bestScore = score;
@@ -559,7 +589,8 @@ function predictNextRift(game, actor, helpers, currentId) {
     if (rift.id === currentId || !isKickableRift(rift)) continue;
     const d = distance(from.x, from.y, rift.x, rift.y);
     const progress = riftProgress(rift);
-    const score = progress * 1700 + (rift.dotDepositing ? 300 : 0) - d * 0.3;
+    const pressure = runnerPressureNearRift(game, rift);
+    const score = progress * 1700 + pressure * 320 + (rift.dotDepositing ? 300 : 0) - d * 0.3;
     if (score > bestScore) {
       best = rift;
       bestScore = score;
@@ -757,6 +788,7 @@ function canSenseRunner(game, killer, runner, helpers) {
   if (!runner || runner.dead || runner.escaped || runner.hooked) return false;
   const d = helperDist(helpers, killer.x, killer.y, runner.x, runner.y);
   const los = typeof helpers?.segmentClear === "function" ? helpers.segmentClear(game, killer.x, killer.y, runner.x, runner.y) : true;
+  const noisyObjective = runnerObjectiveNoise(runner);
 
   // Objective knowledge is global. Runner knowledge is not.
   // The Void can notice very close runners, runners in its forward cone, or noisy objective actions.
@@ -764,7 +796,7 @@ function canSenseRunner(game, killer, runner, helpers) {
   if (los && d <= VOID_CLOSE_SENSE_RADIUS && isFacingPoint(killer, runner.x, runner.y, 0.12)) return true;
   if (los && d <= VOID_HUNT_RADIUS && isFacingPoint(killer, runner.x, runner.y, 0.42)) return true;
   if ((runner.chaseHold || 0) > 0 && d <= VOID_HUNT_RADIUS * 0.85) return true;
-  if (runner.dotDepositing && d <= VOID_HUNT_RADIUS * 0.72) return true;
+  if (noisyObjective > 0 && d <= VOID_HUNT_RADIUS * (los ? 0.92 : 0.68)) return true;
   return false;
 }
 
@@ -833,11 +865,12 @@ function chooseHuntTarget(game, killer, helpers, brain) {
     const remembered = current?.id === runner.id && brain.lastKnownRunner && now <= (brain.lastKnownRunner.until || 0);
     if (!sensed && !remembered) continue;
     const los = typeof helpers?.segmentClear === "function" ? helpers.segmentClear(game, killer.x, killer.y, runner.x, runner.y) : true;
+    const objectiveNoise = runnerObjectiveNoise(runner);
     const score = 1600
       - d * 0.82
       + (runner.injured ? 420 : 0)
       + ((runner.dots || 0) * 18)
-      + (runner.dotDepositing ? 620 : 0)
+      + objectiveNoise * 520
       + ((runner.chaseHold || 0) > 0 ? 260 : 0)
       + (los ? 180 : 0)
       + (current?.id === runner.id ? 520 : 0);
@@ -945,6 +978,37 @@ function tryVoidAttack(game, killer, target, helpers, dt = 0) {
   brain.lungeCommitTargetId = target.id;
   brain.lungeCommitUntil = Math.max(brain.lungeCommitUntil || 0, now + VOID_LUNGE_COMMIT_SECONDS);
   return true;
+}
+
+function runnerInputVector(runner) {
+  const input = runner?.input || {};
+  let dx = 0;
+  let dy = 0;
+  if (input.left) dx -= 1;
+  if (input.right) dx += 1;
+  if (input.up) dy -= 1;
+  if (input.down) dy += 1;
+  const len = Math.hypot(dx, dy);
+  if (len <= 0.01) return null;
+  return { x: dx / len, y: dy / len };
+}
+
+function predictRunnerChasePoint(game, killer, runner, helpers) {
+  const input = runnerInputVector(runner);
+  if (!input || !game?.map) return runner;
+  const tile = game.map.tile || 32;
+  const d = helperDist(helpers, killer.x, killer.y, runner.x, runner.y);
+  const lead = clamp(d * 0.22, tile * 0.75, tile * 2.7);
+  const point = {
+    x: clamp(runner.x + input.x * lead, 44, game.map.width - 44),
+    y: clamp(runner.y + input.y * lead, 44, game.map.height - 44)
+  };
+
+  if (!actorCanStandAt(game, killer, point.x, point.y, helpers)) return runner;
+  // Keep this conservative: predict only along reasonably reachable movement,
+  // not through a wall just because the runner is holding a key.
+  if (typeof helpers?.segmentClear === "function" && !helpers.segmentClear(game, runner.x, runner.y, point.x, point.y)) return runner;
+  return point;
 }
 
 function obstacleBetweenKillerAndTarget(game, killer, target, object) {
@@ -1104,6 +1168,43 @@ function obstacleStillValid(game, commit) {
   return object;
 }
 
+function pointInRect(x, y, rect, pad = 0) {
+  return !!rect
+    && x >= (rect.x || 0) - pad
+    && x <= (rect.x || 0) + (rect.w || 0) + pad
+    && y >= (rect.y || 0) - pad
+    && y <= (rect.y || 0) + (rect.h || 0) + pad;
+}
+
+function segmentTouchesRect(ax, ay, bx, by, rect, pad = 1.5) {
+  if (!rect) return false;
+  if (pointInRect(ax, ay, rect, pad) || pointInRect(bx, by, rect, pad)) return true;
+  const length = distance(ax, ay, bx, by);
+  const steps = Math.max(2, Math.ceil(length / 14));
+  for (let i = 1; i < steps; i++) {
+    const t = i / steps;
+    if (pointInRect(ax + (bx - ax) * t, ay + (by - ay) * t, rect, pad)) return true;
+  }
+  return false;
+}
+
+function hookPathBlockedByInteractable(game, killer, target) {
+  if (!game?.map || !killer || !target) return false;
+  for (const win of game.map.windows || []) {
+    if (segmentTouchesRect(killer.x, killer.y, target.x, target.y, win, 2)) return true;
+  }
+  for (const pallet of game.map.pallets || []) {
+    if (!pallet || pallet.broken || pallet.state !== "dropped") continue;
+    if (segmentTouchesRect(killer.x, killer.y, target.x, target.y, pallet, 2)) return true;
+  }
+  return false;
+}
+
+function hookLineClear(game, killer, target, helpers) {
+  if (!target || hookPathBlockedByInteractable(game, killer, target)) return false;
+  return typeof helpers?.segmentClear !== "function" || helpers.segmentClear(game, killer.x, killer.y, target.x, target.y);
+}
+
 function chooseKillerObstacle(game, killer, target, helpers) {
   let best = null;
   let bestScore = -Infinity;
@@ -1230,15 +1331,16 @@ function hookDownedRunner(game, killer, target, helpers, dt) {
   const now = game.time || 0;
   const d = helperDist(helpers, killer.x, killer.y, target.x, target.y);
   const hookDistance = Number(helpers?.hookInteractDistance || VOID_HOOK_DISTANCE);
-  const clear = typeof helpers?.segmentClear !== "function" || helpers.segmentClear(game, killer.x, killer.y, target.x, target.y);
+  const actionDistance = Math.max(24, hookDistance - VOID_HOOK_ACTION_MARGIN);
+  const clear = hookLineClear(game, killer, target, helpers);
 
-  if (brain.hookCommitTargetId === target.id && now <= (brain.hookCommitUntil || 0) && d <= hookDistance + 28 && clear) {
+  if (brain.hookCommitTargetId === target.id && now <= (brain.hookCommitUntil || 0) && d <= actionDistance && clear) {
     holdRepair(killer, target);
     brain.stuckFor = 0;
     return true;
   }
 
-  if (d <= hookDistance && clear) {
+  if (d <= actionDistance && clear) {
     brain.hookCommitTargetId = target.id;
     brain.hookCommitUntil = now + VOID_HOOK_COMMIT_SECONDS;
     holdRepair(killer, target);
@@ -1265,9 +1367,10 @@ function continueHookCommit(game, killer, helpers) {
     return false;
   }
   const hookDistance = Number(helpers?.hookInteractDistance || VOID_HOOK_DISTANCE);
+  const actionDistance = Math.max(24, hookDistance - VOID_HOOK_ACTION_MARGIN);
   const d = helperDist(helpers, killer.x, killer.y, target.x, target.y);
-  const clear = typeof helpers?.segmentClear !== "function" || helpers.segmentClear(game, killer.x, killer.y, target.x, target.y);
-  if (d > hookDistance + 34 || !clear) return false;
+  const clear = hookLineClear(game, killer, target, helpers);
+  if (d > actionDistance || !clear) return false;
   brain.hookCommitTargetId = target.id;
   brain.hookCommitUntil = Math.max(brain.hookCommitUntil || 0, (game.time || 0) + 0.35);
   holdRepair(killer, target);
@@ -1338,12 +1441,13 @@ function chaseRunner(game, killer, target, helpers, dt) {
 
   if (tryUseKillerObstacle(game, killer, target, helpers, dt)) return true;
 
+  const chasePoint = predictRunnerChasePoint(game, killer, target, helpers);
   const oldReplan = brain.repathIn;
   brain.repathIn = Math.min(oldReplan || 0, VOID_CHASE_REPATH_SECONDS);
-  followPath(game, killer, target, helpers, {
+  followPath(game, killer, chasePoint, helpers, {
     sprint: true,
     stopDistance: Math.max(18, Number(helpers?.quickAttackRange || VOID_ATTACK_QUICK_RANGE) * 0.48),
-    pathTargetKey: `chase:${target.id}`,
+    pathTargetKey: `chase:${target.id}:${Math.round((chasePoint.x || target.x) / 32)},${Math.round((chasePoint.y || target.y) / 32)}`,
     repathTargetMoveDistance: VOID_CHASE_TARGET_REPATH_DISTANCE,
     repathSeconds: VOID_CHASE_REPATH_SECONDS,
     dt

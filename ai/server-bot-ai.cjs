@@ -257,7 +257,7 @@ function setMoveToward(actor, target, sprint = true) {
   const dy = (stable.y || 0) - actor.y;
   const d = Math.hypot(dx, dy);
   actor.input.up = actor.input.down = actor.input.left = actor.input.right = false;
-  actor.input.sprint = true;
+  actor.input.sprint = !!sprint;
   actor.input.action = false;
   actor.input.repair = false;
   if (d <= 4) return false;
@@ -397,7 +397,16 @@ function findPathTiles(game, actor, helpers, targetX, targetY, options = {}) {
   const open = [{ x: start.x, y: start.y, g: 0, f: 0, parent: null }];
   const best = new Map([[cellKey(start.x, start.y), open[0]]]);
   const closed = new Set();
-  const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+  const dirs = [
+    [1, 0, 1],
+    [-1, 0, 1],
+    [0, 1, 1],
+    [0, -1, 1],
+    [1, 1, Math.SQRT2],
+    [-1, 1, Math.SQRT2],
+    [1, -1, Math.SQRT2],
+    [-1, -1, Math.SQRT2]
+  ];
   let nodes = 0;
   let found = null;
 
@@ -416,17 +425,20 @@ function findPathTiles(game, actor, helpers, targetX, targetY, options = {}) {
       break;
     }
 
-    for (const [dx, dy] of dirs) {
+    for (const [dx, dy, stepCost] of dirs) {
       const nx = current.x + dx;
       const ny = current.y + dy;
       if (!isPassable(grid, nx, ny)) continue;
+      if (dx !== 0 && dy !== 0 && (!isPassable(grid, current.x + dx, current.y) || !isPassable(grid, current.x, current.y + dy))) continue;
       const nk = cellKey(nx, ny);
       if (closed.has(nk)) continue;
-      const g = current.g + 1;
-      const h = Math.abs(goal.x - nx) + Math.abs(goal.y - ny);
+      const g = current.g + stepCost;
+      const hx = Math.abs(goal.x - nx);
+      const hy = Math.abs(goal.y - ny);
+      const h = (hx + hy) + (Math.SQRT2 - 2) * Math.min(hx, hy);
       const existing = best.get(nk);
       if (existing && existing.g <= g) continue;
-      const node = { x: nx, y: ny, g, f: g + h * 1.05, parent: current };
+      const node = { x: nx, y: ny, g, f: g + h * 1.08, parent: current };
       best.set(nk, node);
       open.push(node);
     }
@@ -1016,7 +1028,9 @@ function chooseHealTarget(game, actor, helpers, threat) {
     if (killer && helperDist(helpers, killer.x, killer.y, target.x, target.y) < KILLER_CHASE_RADIUS) continue;
     const approach = approachPointForTarget(game, actor, helpers, target, Number(helpers?.healDistance || 82) * 0.78, { nodeLimit: 600 });
     if (!approach) continue;
-    const score = d + approach.path.length * 35 - (target.downed ? 260 : 0);
+    const claimed = botTaskClaimCount(game, actor, "healTask", "heal", target.id);
+    const claimPenalty = target.downed ? claimed * 120 : claimed * 420;
+    const score = d + approach.path.length * 35 + claimPenalty - (target.downed ? 260 : 0);
     if (score < bestScore) {
       bestScore = score;
       best = { target, approach };
@@ -1108,7 +1122,41 @@ function unfinishedRifts(game) {
   return (game?.map?.generators || []).filter((g) => g && !g.done);
 }
 
-function chooseRift(game, actor, helpers) {
+function botTaskClaimCount(game, actor, slot, kind, id) {
+  if (!id || !game?.actors) return 0;
+  let count = 0;
+  const t = now(game);
+  for (const other of game.actors.values()) {
+    if (!other?.isBot || other.id === actor.id || other.role !== "survivor") continue;
+    if (other.dead || other.escaped || other.hooked || other.downed) continue;
+    const task = other.bot?.simpleAi?.[slot];
+    if (task?.kind === kind && task.id === id && (task.lockUntil || 0) > t) count++;
+  }
+  return count;
+}
+
+function killerDangerPenalty(game, x, y, helpers, threat = null) {
+  const killer = threat?.killer || null;
+  if (!killer || killer.dead || killer.escaped) return 0;
+  const d = helperDist(helpers, killer.x, killer.y, x, y);
+  if (d > KILLER_THREAT_RADIUS + 220) return 0;
+  const los = segmentClear(game, x, y, killer.x, killer.y, helpers);
+  const close = Math.max(0, KILLER_THREAT_RADIUS + 220 - d);
+  const panic = d <= KILLER_PANIC_RADIUS ? 950 : 0;
+  const chase = d <= KILLER_CHASE_RADIUS ? 520 : 0;
+  return close * (los ? 1.25 : 0.55) + panic + chase;
+}
+
+function nearestUnfinishedRiftDistance(game, helpers, x, y) {
+  let best = Infinity;
+  for (const rift of unfinishedRifts(game)) {
+    const d = helperDist(helpers, x, y, rift.x, rift.y);
+    if (d < best) best = d;
+  }
+  return best;
+}
+
+function chooseRift(game, actor, helpers, threat = null) {
   const carried = carriedOrbs(actor);
   let best = null;
   let bestScore = Infinity;
@@ -1117,7 +1165,14 @@ function chooseRift(game, actor, helpers) {
     if (!approach) continue;
     const d = helperDist(helpers, actor.x, actor.y, rift.x, rift.y);
     const progress = clamp(Number(rift.progress || 0), 0, 1);
-    const score = d + approach.path.length * 36 - progress * 520 - Math.min(carried, 12) * 18;
+    const claimed = botTaskClaimCount(game, actor, "task", "deposit", rift.id);
+    const danger = killerDangerPenalty(game, rift.x, rift.y, helpers, threat);
+    const score = d
+      + approach.path.length * 36
+      + claimed * 180
+      + danger * 0.62
+      - progress * 520
+      - Math.min(carried, 12) * 18;
     if (score < bestScore) {
       bestScore = score;
       best = { rift, approach };
@@ -1126,7 +1181,7 @@ function chooseRift(game, actor, helpers) {
   return best;
 }
 
-function chooseOrb(game, actor, helpers) {
+function chooseOrb(game, actor, helpers, threat = null) {
   const dots = (game?.collectibleDots || []).filter(Boolean);
   if (!dots.length) return null;
   const shortlist = dots
@@ -1140,7 +1195,14 @@ function chooseOrb(game, actor, helpers) {
   for (const item of shortlist) {
     const path = buildWorldPath(game, actor, helpers, item.dot, { nodeLimit: 800, goalRadius: 3 });
     if (!path) continue;
-    const score = item.d + path.length * 34;
+    const claimed = botTaskClaimCount(game, actor, "task", "orb", item.dot.id);
+    const danger = killerDangerPenalty(game, item.dot.x, item.dot.y, helpers, threat);
+    const riftDistance = nearestUnfinishedRiftDistance(game, helpers, item.dot.x, item.dot.y);
+    const score = item.d
+      + path.length * 34
+      + claimed * 420
+      + danger * 0.8
+      + (Number.isFinite(riftDistance) ? riftDistance * 0.08 : 0);
     if (score < bestScore) {
       bestScore = score;
       best = { dot: item.dot, path };
@@ -1173,7 +1235,7 @@ function shouldDeposit(game, actor, helpers) {
   return false;
 }
 
-function runDeposit(game, actor, helpers, dt) {
+function runDeposit(game, actor, helpers, dt, threat = null) {
   const brain = ensureBotBrain(actor);
   if (carriedOrbs(actor) <= 0) {
     clearZeroOrbDepositState(actor, brain);
@@ -1188,7 +1250,7 @@ function runDeposit(game, actor, helpers, dt) {
     const approach = approachPointForTarget(game, actor, helpers, lockedRift, Number(helpers?.dotDepositDistance || 96) * 0.76, { nodeLimit: 950 });
     if (approach) choice = { rift: lockedRift, approach };
   }
-  if (!choice) choice = chooseRift(game, actor, helpers);
+  if (!choice) choice = chooseRift(game, actor, helpers, threat);
   if (!choice) return false;
   if (carriedOrbs(actor) <= 0) {
     clearZeroOrbDepositState(actor, brain);
@@ -1212,7 +1274,7 @@ function runDeposit(game, actor, helpers, dt) {
   });
 }
 
-function runCollectOrb(game, actor, helpers, dt) {
+function runCollectOrb(game, actor, helpers, dt, threat = null) {
   const brain = ensureBotBrain(actor);
   if ((actor.dots || 0) >= Number(helpers?.survivorDotMax || 30)) return false;
 
@@ -1224,7 +1286,7 @@ function runCollectOrb(game, actor, helpers, dt) {
     const path = buildWorldPath(game, actor, helpers, lockedDot, { nodeLimit: 800, goalRadius: 3 });
     if (path) choice = { dot: lockedDot, path };
   }
-  if (!choice) choice = chooseOrb(game, actor, helpers);
+  if (!choice) choice = chooseOrb(game, actor, helpers, threat);
   if (!choice) return false;
 
   clearNonSlotTasks(brain, "task");
@@ -1370,15 +1432,15 @@ function runReceiveHeal(game, actor, helpers, dt, threat) {
   return true;
 }
 
-function runObjectives(game, actor, helpers, dt) {
+function runObjectives(game, actor, helpers, dt, threat = null) {
   if (!unfinishedRifts(game).length && !game.escapeOpen) return runIdle(game, actor, helpers, dt);
 
   const carried = carriedOrbs(actor);
   if (carried <= 0) clearZeroOrbDepositState(actor, ensureBotBrain(actor));
 
-  if (carried > 0 && shouldDeposit(game, actor, helpers) && runDeposit(game, actor, helpers, dt)) return true;
-  if (runCollectOrb(game, actor, helpers, dt)) return true;
-  if (carriedOrbs(actor) > 0 && runDeposit(game, actor, helpers, dt)) return true;
+  if (carried > 0 && shouldDeposit(game, actor, helpers) && runDeposit(game, actor, helpers, dt, threat)) return true;
+  if (runCollectOrb(game, actor, helpers, dt, threat)) return true;
+  if (carriedOrbs(actor) > 0 && runDeposit(game, actor, helpers, dt, threat)) return true;
   return runIdle(game, actor, helpers, dt);
 }
 
@@ -1415,7 +1477,7 @@ function updateRunner(game, actor, helpers, dt) {
     if (runEscape(game, actor, helpers, dt)) return;
   }
 
-  runObjectives(game, actor, helpers, dt);
+  runObjectives(game, actor, helpers, dt, threat);
 }
 
 function assignRunnerBotPersonalities(game) {
