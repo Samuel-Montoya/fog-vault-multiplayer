@@ -1530,3 +1530,62 @@ body.is-game-screen .screen {
     font-size: 11px !important;
   }
 }
+
+/* Final HUD polish: one radius token and one-line ability prompt. Tiny miracles. */
+:root {
+  --rr-hud-radius: 16px;
+}
+
+#roleHudCard.role-hud-card,
+.void-orb-bank,
+.runner-orb-bank,
+.void-ability-hud p,
+.runner-ability-hud p,
+#bigGenCounter.big-gen-counter,
+.survivor-status-card,
+#survivorStatusHud .survivor-status-card,
+.point-feed-item,
+.void-active-effects span,
+.runner-active-effects span,
+.hud-card,
+#survivorStatusHud .survivor-chat-bubble,
+#survivorStatusHud .survivor-chat.survivor-chat-bubble {
+  border-radius: var(--rr-hud-radius) !important;
+}
+
+#roleHudCard.role-hud-card::before,
+.void-orb-bank::before,
+.runner-orb-bank::before,
+#bigGenCounter.big-gen-counter::before {
+  border-radius: var(--rr-hud-radius) !important;
+}
+
+.void-ability-hud p,
+.runner-ability-hud p {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 100% !important;
+  min-width: 100% !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: clip !important;
+  font-size: clamp(9px, 0.58vw, 10px) !important;
+  letter-spacing: 0.08em !important;
+  line-height: 1 !important;
+}
+
+.void-ability-hud p span,
+.runner-ability-hud p span {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 0.34em !important;
+  min-width: 0 !important;
+  white-space: nowrap !important;
+}
+
+.void-ability-hud p br,
+.runner-ability-hud p br {
+  display: none !important;
+}

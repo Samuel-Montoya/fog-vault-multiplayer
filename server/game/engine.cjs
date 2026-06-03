@@ -3891,7 +3891,17 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
           actor.escapeChatAt = 0;
           addEvent(game, "escape", { x: actor.x, y: actor.y, survivorId: actor.id });
           const lobby = lobbyForGame(game);
-          if (lobby) awardAccountRewardForActor(lobby, game, actor, "escape");
+          if (lobby) {
+            const socket = io.sockets.sockets.get(actor.id);
+            if (socket) {
+              socket.emit("personalRunEnded", {
+                status: "escaped",
+                reason: "You slipped through the void. The run is still alive.",
+                finalActors: buildEndActorStats(game)
+              });
+            }
+            awardAccountRewardForActor(lobby, game, actor, "escape");
+          }
         }
       } else {
         actor.escapeProgress = 0;
@@ -4086,10 +4096,9 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     }
   }
 
-  function endGame(lobby, winner, reason) {
-    if (!lobby.game || lobby.game.phase === "ended") return;
-    const game = lobby.game;
-    const finalActors = [...game.actors.values()].filter((p) => p.role !== "spectator").map((p) => ({
+  function buildEndActorStats(game) {
+    if (!game?.actors) return [];
+    return [...game.actors.values()].filter((p) => p.role !== "spectator").map((p) => ({
       id: p.id,
       name: p.name,
       role: p.role,
@@ -4100,6 +4109,12 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       health: p.health,
       stats: serializeMatchStats(p)
     }));
+  }
+
+  function endGame(lobby, winner, reason) {
+    if (!lobby.game || lobby.game.phase === "ended") return;
+    const game = lobby.game;
+    const finalActors = buildEndActorStats(game);
     const finalSurvivors = finalActors.filter((p) => p.role === "survivor");
     const escapedCount = finalSurvivors.filter((p) => p.escaped).length;
 

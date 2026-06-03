@@ -1322,3 +1322,368 @@
   justify-self: end;
   margin-top: 3px;
 }
+
+/* Final shared title/back polish: match Perks scale and stop boxing role art. */
+#skinScreen.skin-page-screen .skins-page-stage .skins-back-btn {
+  min-width: clamp(120px, 8.4vw, 146px) !important;
+  min-height: clamp(40px, 4.5vh, 48px) !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 12px !important;
+  padding: 0 22px !important;
+  border: 1px solid rgba(195, 132, 255, 0.45) !important;
+  border-radius: 7px !important;
+  background:
+    linear-gradient(100deg, rgba(255,255,255,0.08), rgba(157, 83, 255,0.12) 56%, rgba(255,255,255,0.035)),
+    rgba(5, 3, 12, 0.58) !important;
+  color: rgba(255,255,255,0.86) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 0 28px rgba(143, 79, 255, 0.14) !important;
+  font-size: clamp(10px, 0.72vw, 13px) !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.18em !important;
+  line-height: 1 !important;
+  text-transform: uppercase !important;
+}
+
+#skinScreen.skin-page-screen .skins-page-stage .skins-back-btn:hover,
+#skinScreen.skin-page-screen .skins-page-stage .skins-back-btn:focus-visible {
+  transform: translateX(-3px) !important;
+  border-color: rgba(237, 223, 255, 0.80) !important;
+  color: #fff !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.12), 0 0 30px rgba(170, 87, 255, 0.28) !important;
+}
+
+#skinScreen.skin-page-screen .skins-page-stage .skins-title-block h1 {
+  font-size: clamp(46px, 4.45vw, 82px) !important;
+  letter-spacing: 0.055em !important;
+  line-height: 0.82 !important;
+}
+
+#skinScreen.skin-page-screen .skins-page-stage .skins-title-block h1::after {
+  width: min(330px, 30vw) !important;
+  margin-top: clamp(8px, 0.9vh, 12px) !important;
+}
+
+#skinScreen.skin-page-screen .skins-page-stage .skins-title-block p {
+  font-size: clamp(12px, 0.82vw, 15px) !important;
+  margin-top: clamp(7px, 0.9vh, 11px) !important;
+}
+
+#skinScreen.skin-page-screen .skin-store-icon,
+#skinScreen.skin-page-screen .skin-store-title-wrap .skin-store-icon {
+  width: clamp(42px, 3.2vw, 58px) !important;
+  height: clamp(42px, 3.2vw, 58px) !important;
+  flex: 0 0 clamp(42px, 3.2vw, 58px) !important;
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  clip-path: none !important;
+  padding: 0 !important;
+}
+
+#skinScreen.skin-page-screen .skin-store-icon img {
+  width: clamp(38px, 3vw, 56px) !important;
+  height: clamp(38px, 3vw, 56px) !important;
+  max-width: clamp(38px, 3vw, 56px) !important;
+  max-height: clamp(38px, 3vw, 56px) !important;
+  object-fit: contain !important;
+  filter: drop-shadow(0 0 14px rgba(188, 103, 255, 0.62)) !important;
+}
+
+#skinScreen.skin-page-screen .skin-store-section-head h2 {
+  font-size: clamp(19px, 1.45vw, 29px) !important;
+}
+
+/* Shared slim account panel and back button consistency. */
+#skinScreen.skin-page-screen .skins-page-stage .skins-back-btn.rr-back-btn {
+  clip-path: none !important;
+}
+
+#skinScreen.skin-page-screen .skins-page-hero .rr-account-panel-slim.account-badge {
+  justify-self: end !important;
+  width: min(420px, 34vw) !important;
+  max-width: 100% !important;
+}
+
+/* Skins full-width shop polish: wide like Perks, readable names, sane buy states. */
+#skinScreen.skin-page-screen {
+  width: 100vw !important;
+  min-width: 0 !important;
+  overflow: hidden !important;
+}
+
+#skinScreen.skin-page-screen .skins-page-stage {
+  width: 100vw !important;
+  height: 100dvh !important;
+  min-height: 0 !important;
+  display: grid !important;
+  grid-template-rows: auto auto minmax(0, 1fr) auto !important;
+  gap: clamp(10px, 1.3vh, 18px) !important;
+  padding: clamp(18px, 2.4vh, 32px) clamp(34px, 4.2vw, 78px) clamp(16px, 2.4vh, 30px) !important;
+  overflow: hidden !important;
+  scrollbar-width: none !important;
+}
+
+#skinScreen.skin-page-screen .skins-page-stage::-webkit-scrollbar,
+#skinScreen.skin-page-screen .skins-store-stack::-webkit-scrollbar,
+#skinScreen.skin-page-screen .skin-store-section::-webkit-scrollbar,
+#skinScreen.skin-page-screen .skin-store-grid::-webkit-scrollbar {
+  width: 0 !important;
+  height: 0 !important;
+}
+
+#skinScreen.skin-page-screen .skins-page-hero {
+  width: 100% !important;
+  grid-template-columns: minmax(360px, 1fr) auto !important;
+  align-items: start !important;
+  gap: clamp(18px, 3vw, 52px) !important;
+}
+
+#skinScreen.skin-page-screen .skins-page-hero .account-badge {
+  justify-self: end !important;
+  width: min(420px, 32vw) !important;
+  margin-top: 2px !important;
+}
+
+#skinScreen.skin-page-screen .skins-title-block h1 {
+  font-size: clamp(44px, 4.2vw, 78px) !important;
+  line-height: 0.84 !important;
+  letter-spacing: 0.055em !important;
+}
+
+#skinScreen.skin-page-screen .skins-title-block p {
+  max-width: 920px !important;
+  margin-top: clamp(7px, 0.85vh, 11px) !important;
+  font-size: clamp(12px, 0.78vw, 14px) !important;
+  line-height: 1.45 !important;
+}
+
+#skinScreen.skin-page-screen .skins-store-stack {
+  width: 100% !important;
+  min-height: 0 !important;
+  display: grid !important;
+  grid-template-columns: 1fr !important;
+  align-content: start !important;
+  gap: clamp(12px, 1.45vh, 20px) !important;
+  padding: 0 !important;
+  overflow: auto !important;
+  scrollbar-width: none !important;
+}
+
+#skinScreen.skin-page-screen .skin-store-section {
+  width: 100% !important;
+  min-width: 0 !important;
+  padding: clamp(12px, 1.45vh, 20px) clamp(14px, 1.5vw, 24px) clamp(14px, 1.6vh, 22px) !important;
+  overflow: visible !important;
+  clip-path: none !important;
+}
+
+#skinScreen.skin-page-screen .skin-store-section-head {
+  margin-bottom: clamp(10px, 1.1vh, 15px) !important;
+}
+
+#skinScreen.skin-page-screen .skin-store-title-wrap {
+  gap: clamp(12px, 1.1vw, 18px) !important;
+}
+
+#skinScreen.skin-page-screen .skin-store-section-head h2 {
+  font-size: clamp(18px, 1.35vw, 26px) !important;
+  letter-spacing: 0.14em !important;
+}
+
+#skinScreen.skin-page-screen .skin-store-section h2 + p {
+  margin-top: 5px !important;
+  font-size: clamp(9px, 0.62vw, 11px) !important;
+  line-height: 1.25 !important;
+}
+
+#skinScreen.skin-page-screen .skin-store-kicker {
+  color: rgba(213, 159, 255, 0.94) !important;
+  font-size: clamp(9px, 0.68vw, 12px) !important;
+  letter-spacing: 0.22em !important;
+}
+
+#skinScreen.skin-page-screen .skin-store-grid,
+#skinScreen.skin-page-screen .skin-picker.skin-store-grid {
+  width: 100% !important;
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(295px, 1fr)) !important;
+  gap: clamp(10px, 0.9vw, 15px) !important;
+  align-items: stretch !important;
+  padding: 0 !important;
+  overflow: visible !important;
+}
+
+#skinScreen.skin-page-screen .skin-store-grid .skin-btn {
+  min-width: 0 !important;
+  min-height: clamp(68px, 7vh, 84px) !important;
+  display: grid !important;
+  grid-template-columns: clamp(48px, 3.5vw, 60px) minmax(130px, 1fr) minmax(88px, auto) !important;
+  gap: clamp(10px, 0.8vw, 14px) !important;
+  align-items: center !important;
+  padding: clamp(9px, 0.9vh, 12px) clamp(10px, 0.9vw, 14px) !important;
+  overflow: hidden !important;
+}
+
+#skinScreen.skin-page-screen .skin-store-grid .skin-preview {
+  width: clamp(46px, 3.2vw, 56px) !important;
+  height: clamp(46px, 3.2vw, 56px) !important;
+  border-width: 4px !important;
+}
+
+#skinScreen.skin-page-screen .skin-store-grid .skin-copy {
+  min-width: 0 !important;
+  width: 100% !important;
+  gap: 5px !important;
+  overflow: visible !important;
+}
+
+#skinScreen.skin-page-screen .skin-store-grid .skin-copy > span:first-child {
+  display: block !important;
+  width: 100% !important;
+  overflow: visible !important;
+  color: rgba(255,255,255,0.94) !important;
+  font-size: clamp(12px, 0.76vw, 15px) !important;
+  font-weight: 650 !important;
+  letter-spacing: 0.075em !important;
+  line-height: 1.18 !important;
+  text-overflow: clip !important;
+  white-space: normal !important;
+  word-break: normal !important;
+  overflow-wrap: anywhere !important;
+}
+
+#skinScreen.skin-page-screen .skin-store-grid .skin-price {
+  justify-self: end !important;
+  min-width: 88px !important;
+  max-width: 108px !important;
+  padding: 7px 10px !important;
+  border-radius: 6px !important;
+  font-size: clamp(8px, 0.58vw, 10px) !important;
+  font-weight: 900 !important;
+  letter-spacing: 0.12em !important;
+  line-height: 1.05 !important;
+  white-space: normal !important;
+}
+
+#skinScreen.skin-page-screen .skin-store-grid .skin-btn[data-shop-state="buy"] .skin-price,
+#skinScreen.skin-page-screen .skin-store-grid .skin-btn.shop-can-buy .skin-price {
+  border-color: rgba(255, 210, 100, 0.58) !important;
+  background:
+    radial-gradient(circle at 50% 20%, rgba(255, 226, 148, 0.16), transparent 44%),
+    rgba(255, 171, 53, 0.075) !important;
+  color: rgba(255, 222, 125, 0.98) !important;
+  box-shadow: 0 0 18px rgba(255, 171, 53, 0.13), inset 0 0 0 1px rgba(255, 219, 119, 0.08) !important;
+}
+
+#skinScreen.skin-page-screen .skin-store-grid .skin-btn[data-shop-state="not-enough"] {
+  cursor: not-allowed !important;
+}
+
+#skinScreen.skin-page-screen .skin-store-grid .skin-btn[data-shop-state="not-enough"] .skin-price,
+#skinScreen.skin-page-screen .skin-store-grid .skin-btn.shop-not-enough .skin-price {
+  border-color: rgba(255, 91, 126, 0.46) !important;
+  background: rgba(255, 63, 105, 0.055) !important;
+  color: rgba(255, 126, 152, 0.92) !important;
+  box-shadow: none !important;
+}
+
+#skinScreen.skin-page-screen .skin-store-grid .skin-btn[data-shop-state="owned"] .skin-price,
+#skinScreen.skin-page-screen .skin-store-grid .skin-btn.owned .skin-price {
+  border-color: rgba(216, 158, 255, 0.50) !important;
+  background: rgba(152, 82, 255, 0.16) !important;
+  color: rgba(239, 221, 255, 0.96) !important;
+}
+
+#skinScreen.skin-page-screen .skin-store-grid .skin-btn[data-shop-state="equipped"] .skin-price,
+#skinScreen.skin-page-screen .skin-store-grid .skin-btn.selected .skin-price,
+#skinScreen.skin-page-screen .skin-store-grid .skin-btn[aria-pressed="true"] .skin-price {
+  border-color: rgba(98, 255, 206, 0.46) !important;
+  background: rgba(45, 255, 190, 0.10) !important;
+  color: rgba(128, 255, 216, 0.96) !important;
+}
+
+#skinScreen.skin-page-screen .skins-footer-strip {
+  min-height: clamp(36px, 4vh, 44px) !important;
+  max-width: min(980px, 78vw) !important;
+  padding: 0 clamp(18px, 1.8vw, 30px) !important;
+  gap: clamp(14px, 1.3vw, 24px) !important;
+  font-size: clamp(8px, 0.55vw, 10px) !important;
+}
+
+@media (max-height: 850px) and (min-width: 1181px) {
+  #skinScreen.skin-page-screen .skins-page-stage {
+    gap: 10px !important;
+    padding-top: 18px !important;
+    padding-bottom: 16px !important;
+  }
+
+  #skinScreen.skin-page-screen .skin-store-section {
+    padding-top: 12px !important;
+    padding-bottom: 12px !important;
+  }
+
+  #skinScreen.skin-page-screen .skin-store-grid .skin-btn {
+    min-height: 66px !important;
+  }
+
+  #skinScreen.skin-page-screen .skin-store-grid .skin-preview {
+    width: 46px !important;
+    height: 46px !important;
+  }
+
+  #skinScreen.skin-page-screen .skins-footer-strip {
+    min-height: 34px !important;
+  }
+}
+
+@media (max-width: 1180px) {
+  #skinScreen.skin-page-screen {
+    overflow: auto !important;
+  }
+
+  #skinScreen.skin-page-screen .skins-page-stage {
+    height: auto !important;
+    min-height: 100dvh !important;
+    overflow: auto !important;
+  }
+
+  #skinScreen.skin-page-screen .skins-page-hero {
+    grid-template-columns: 1fr !important;
+  }
+
+  #skinScreen.skin-page-screen .skins-page-hero .account-badge {
+    justify-self: stretch !important;
+    width: min(420px, 100%) !important;
+  }
+
+  #skinScreen.skin-page-screen .skins-store-stack {
+    overflow: visible !important;
+  }
+
+  #skinScreen.skin-page-screen .skin-store-grid,
+  #skinScreen.skin-page-screen .skin-picker.skin-store-grid {
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)) !important;
+  }
+}
+
+/* Final skin shop buy labels: always show the price, then color by affordability. */
+#skinScreen.skin-page-screen .skin-store-grid .skin-price {
+  min-width: clamp(108px, 7.8vw, 132px) !important;
+  max-width: none !important;
+  white-space: nowrap !important;
+  font-size: clamp(8px, 0.56vw, 10px) !important;
+  letter-spacing: 0.10em !important;
+}
+
+#skinScreen.skin-page-screen .skin-store-grid .skin-btn[data-shop-state="not-enough"] .skin-price,
+#skinScreen.skin-page-screen .skin-store-grid .skin-btn.shop-not-enough .skin-price {
+  border-color: rgba(255, 91, 126, 0.54) !important;
+  background:
+    radial-gradient(circle at 50% 20%, rgba(255, 91, 126, 0.12), transparent 44%),
+    rgba(255, 63, 105, 0.060) !important;
+  color: rgba(255, 116, 146, 0.98) !important;
+  box-shadow: 0 0 16px rgba(255, 63, 105, 0.12), inset 0 0 0 1px rgba(255, 125, 155, 0.08) !important;
+}

@@ -1,6 +1,9 @@
 import { useEffect } from "react"
 import { showMenuScreen } from "../utils/screenNavigation"
+import AccountBadge from "./AccountBadge"
+import { getPerkIconCandidates } from "../utils/perkIconPaths"
 import "../styles/perks.css"
+import "../styles/screen_header.css"
 
 const PERK_CONFIG_GLOBALS = [
   "PERK_CONFIG",
@@ -159,6 +162,67 @@ function levelToText(level, previousLevel = null) {
   return keys.map((key) => valueToText(key, level[key])).filter(Boolean).slice(0, 4).join(" · ")
 }
 
+
+function perkIconSourcesForCard(card) {
+  if (!card) return []
+
+  const title = card.querySelector(".perk-card-top strong, .perk-title, h3, strong")?.textContent?.trim()
+  const values = [
+    card.dataset.perkIcon,
+    card.dataset.perkId,
+    card.dataset.perk,
+    card.dataset.id,
+    card.querySelector("[data-perk-icon]")?.dataset.perkIcon,
+    card.querySelector("[data-perk-id]")?.dataset.perkId,
+    card.querySelector("[data-perk]")?.dataset.perk,
+    card.querySelector("button")?.dataset.perkIcon,
+    card.querySelector("button")?.dataset.perkId,
+    card.querySelector("button")?.dataset.perk,
+    title
+  ].filter(Boolean)
+
+  return getPerkIconCandidates(...values)
+}
+
+function setImageFallbackChain(img, sources) {
+  img.dataset.perkIconSources = JSON.stringify(sources)
+  img.dataset.perkIconIndex = "0"
+
+  img.onerror = () => {
+    const allSources = JSON.parse(img.dataset.perkIconSources || "[]")
+    const nextIndex = Number(img.dataset.perkIconIndex || 0) + 1
+    if (nextIndex < allSources.length) {
+      img.dataset.perkIconIndex = String(nextIndex)
+      img.src = allSources[nextIndex]
+      return
+    }
+
+    img.classList.add("perk-icon-image-missing")
+  }
+}
+
+function updatePerkCardIcon(card) {
+  const icon = card?.querySelector?.(".perk-icon")
+  if (!icon) return
+
+  const sources = perkIconSourcesForCard(card)
+  if (!sources.length) return
+
+  const current = icon.querySelector("img.perk-icon-image")
+  const currentSrc = current?.getAttribute("src")
+  if (current && currentSrc === sources[0]) return
+
+  const img = current || document.createElement("img")
+  img.className = "perk-icon-image"
+  img.alt = ""
+  img.setAttribute("aria-hidden", "true")
+  setImageFallbackChain(img, sources)
+  img.src = sources[0]
+
+  icon.replaceChildren(img)
+  icon.classList.add("uses-perk-image")
+}
+
 function existingNextText(card) {
   return card.dataset.nextLevelText
     || card.querySelector("[data-next-level-text]")?.textContent?.trim()
@@ -224,7 +288,10 @@ function usePerkUpgradePreviews() {
     const scheduleUpdate = () => {
       cancelAnimationFrame(frame)
       frame = requestAnimationFrame(() => {
-        screen.querySelectorAll(".perk-card").forEach(updatePerkCardPreview)
+        screen.querySelectorAll(".perk-card").forEach((card) => {
+          updatePerkCardIcon(card)
+          updatePerkCardPreview(card)
+        })
       })
     }
 
@@ -234,7 +301,7 @@ function usePerkUpgradePreviews() {
       subtree: true,
       attributes: true,
       characterData: true,
-      attributeFilter: ["class", "data-level", "data-perk-level", "data-current-level", "data-next-level-text"]
+      attributeFilter: ["class", "data-level", "data-perk-level", "data-current-level", "data-next-level-text", "data-perk-icon"]
     })
 
     window.addEventListener("riftrunner:screen-change", scheduleUpdate)
@@ -250,32 +317,6 @@ function usePerkUpgradePreviews() {
   }, [])
 }
 
-function PerksAccountSummary() {
-  return (
-    <section className="perks-account-panel" aria-label="Account summary" data-account-panel>
-      <span className="perks-account-tab">Account</span>
-      <div className="perks-account-core">
-        <span className="perks-account-avatar" aria-hidden="true"><i>R</i></span>
-        <div className="perks-account-copy">
-          <strong id="perksAuthStatusName" data-auth-status-name>Playing as guest</strong>
-          <span><b data-account-hint>Lifetime deposited orbs</b></span>
-        </div>
-      </div>
-      <div className="perks-wallet" title="Deposited orbs available to spend">
-        <img src="/images/orb.png" alt="" aria-hidden="true" />
-        <b id="perksAuthOrbBalance" data-auth-orb-balance>0</b>
-        <span>Orbs</span>
-      </div>
-      <div className="perks-account-actions hidden" data-account-actions>
-        <button className="perks-logout-btn" type="button" data-auth-logout aria-label="Logout">
-          <span aria-hidden="true">↪</span>
-          Logout
-        </button>
-      </div>
-    </section>
-  )
-}
-
 export default function PerkScreen() {
   usePerkUpgradePreviews()
 
@@ -283,11 +324,11 @@ export default function PerkScreen() {
     <div id="perksScreen" className="screen io-screen perks-page-screen">
       <div className="perks-page-stage">
         <header className="perks-topbar">
-          <button className="perks-back-btn" data-screen="menu" data-screen-nav="menu" type="button" onClick={() => showMenuScreen("menu")}>
+          <button className="perks-back-btn rr-back-btn" data-screen="menu" data-screen-nav="menu" type="button" onClick={() => showMenuScreen("menu")}>
             <span aria-hidden="true">←</span>
             Back
           </button>
-          <PerksAccountSummary />
+          <AccountBadge panelId="perks" showOrbs className="perks-slim-account" />
         </header>
 
         <section className="perks-page-hero" aria-labelledby="perksPageTitle">

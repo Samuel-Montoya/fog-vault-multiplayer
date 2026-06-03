@@ -3,3 +3,98 @@
 .section-heading {
   position: relative;
 }
+
+/* Shared ScreenHeader back button style aligned with Perks. */
+#optionsScreen .menu-back-btn,
+.screen-topline .menu-back-btn {
+  min-width: clamp(120px, 8.4vw, 146px) !important;
+  min-height: clamp(40px, 4.5vh, 48px) !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 12px !important;
+  padding: 0 22px !important;
+  border: 1px solid rgba(195, 132, 255, 0.45) !important;
+  border-radius: 7px !important;
+  background:
+    linear-gradient(100deg, rgba(255,255,255,0.08), rgba(157, 83, 255,0.12) 56%, rgba(255,255,255,0.035)),
+    rgba(5, 3, 12, 0.58) !important;
+  color: rgba(255,255,255,0.86) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 0 28px rgba(143, 79, 255, 0.14) !important;
+  font-size: clamp(10px, 0.72vw, 13px) !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.18em !important;
+  line-height: 1 !important;
+  text-transform: uppercase !important;
+}
+
+#optionsScreen .menu-back-btn:hover,
+#optionsScreen .menu-back-btn:focus-visible,
+.screen-topline .menu-back-btn:hover,
+.screen-topline .menu-back-btn:focus-visible {
+  transform: translateX(-3px) !important;
+  border-color: rgba(237, 223, 255, 0.80) !important;
+  color: #fff !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.12), 0 0 30px rgba(170, 87, 255, 0.28) !important;
+}
+
+/* Canonical RiftRunner back button. Every non-main menu back button uses this. */
+button.rr-back-btn,
+#perksScreen button.rr-back-btn,
+#skinScreen button.rr-back-btn,
+#playScreen button.rr-back-btn,
+#howScreen button.rr-back-btn,
+#optionsScreen button.rr-back-btn,
+.screen-topline button.rr-back-btn {
+  position: relative !important;
+  min-width: clamp(122px, 8.2vw, 146px) !important;
+  min-height: clamp(40px, 4.4vh, 48px) !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 12px !important;
+  padding: 0 clamp(18px, 1.35vw, 24px) !important;
+  border: 1px solid rgba(195, 132, 255, 0.46) !important;
+  border-radius: 7px !important;
+  clip-path: none !important;
+  background:
+    linear-gradient(100deg, rgba(255,255,255,0.08), rgba(157, 83, 255,0.12) 56%, rgba(255,255,255,0.035)),
+    rgba(5, 3, 12, 0.60) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.08),
+    0 0 28px rgba(143, 79, 255, 0.14) !important;
+  color: rgba(255,255,255,0.86) !important;
+  font-family: inherit !important;
+  font-size: clamp(10px, 0.72vw, 13px) !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.18em !important;
+  line-height: 1 !important;
+  text-transform: uppercase !important;
+  cursor: pointer !important;
+  transition: transform 140ms ease, border-color 140ms ease, color 140ms ease, box-shadow 140ms ease, background 140ms ease !important;
+}
+
+button.rr-back-btn:hover,
+button.rr-back-btn:focus-visible,
+#perksScreen button.rr-back-btn:hover,
+#perksScreen button.rr-back-btn:focus-visible,
+#skinScreen button.rr-back-btn:hover,
+#skinScreen button.rr-back-btn:focus-visible,
+#playScreen button.rr-back-btn:hover,
+#playScreen button.rr-back-btn:focus-visible,
+#howScreen button.rr-back-btn:hover,
+#howScreen button.rr-back-btn:focus-visible,
+#optionsScreen button.rr-back-btn:hover,
+#optionsScreen button.rr-back-btn:focus-visible,
+.screen-topline button.rr-back-btn:hover,
+.screen-topline button.rr-back-btn:focus-visible {
+  transform: translateX(-3px) !important;
+  border-color: rgba(237, 223, 255, 0.82) !important;
+  color: #fff !important;
+  background:
+    linear-gradient(100deg, rgba(255,255,255,0.14), rgba(166, 87, 255,0.24) 58%, rgba(255,255,255,0.06)),
+    rgba(14, 8, 27, 0.70) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,0.12),
+    0 0 30px rgba(170, 87, 255, 0.28) !important;
+}

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react"
-import { SKINS, VOID_SKINS } from "../data/menuData"
+import { cacheEndScreenSkin, findHudSkin } from "../utils/endScreenSkinCache"
+import { getPerkIconSrc } from "../utils/perkIconPaths"
 import "../styles/game_hud.css"
 
 const VOID_ABILITY_WHEEL_FALLBACK = [
@@ -40,6 +41,14 @@ function normalizeAbilities(abilities, role = "killer") {
     level: Math.max(0, Number.isFinite(Number(ability?.level)) ? Number(ability.level) : 0),
     maxLevel: Math.max(1, Number.isFinite(Number(ability?.maxLevel)) ? Number(ability.maxLevel) : 4)
   }))
+}
+
+
+function abilityIconSrc(ability) {
+  return getPerkIconSrc(ability?.id)
+    || getPerkIconSrc(ability?.key)
+    || getPerkIconSrc(ability?.name)
+    || getPerkIconSrc(ability?.shortName)
 }
 
 export function AbilityWheel() {
@@ -151,6 +160,7 @@ export function AbilityWheel() {
           const ready = cancel || ability.available !== false
           const cooldownRemaining = Math.max(0, Number(ability.cooldownRemaining || 0))
           const costLabel = ability.locked ? "LOCKED" : cooldownRemaining > 0 ? `${Math.ceil(cooldownRemaining)}s CD` : `${ability.cost} orbs`
+          const iconSrc = cancel ? "" : abilityIconSrc(ability)
           return (
             <div
               className={`ability-wheel-segment ability-wheel-${segment.className} ${selected ? "selected" : ""} ${ready ? "can-use" : "locked"} ${ability.active ? "is-active" : ""} ${cancel ? "is-cancel" : ""} accent-${ability.accent || "purple"}`}
@@ -158,6 +168,15 @@ export function AbilityWheel() {
               aria-label={cancel ? "Cancel ability wheel" : `${ability.name}, ${costLabel}`}
               key={`${wheel.role}-${ability.id}-${segment.index}`}
             >
+              {iconSrc && (
+                <img
+                  className="ability-icon-image"
+                  src={iconSrc}
+                  alt=""
+                  aria-hidden="true"
+                  draggable="false"
+                />
+              )}
               <span className="ability-name">{ability.shortName || ability.name}</span>
               {!cancel && <span className="ability-cost">{costLabel}</span>}
               <small>{ability.summary}</small>
@@ -252,64 +271,6 @@ export function RunnerAbilityHud() {
 const CHAT_WHEEL_FALLBACK_MESSAGES = ["Let's feed a rift.", "I'm so scared...", "Here he comes!", "What was that?!"]
 
 const SURVIVOR_DOT_MAX = Number(window.GAMEPLAY_CONFIG?.orbs?.survivorMax) || 30
-
-const DEFAULT_RUNNER_SKIN = SKINS[0]
-const DEFAULT_VOID_SKIN = VOID_SKINS[0]
-
-function normalizeSkinKey(value) {
-  return String(value || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim()
-}
-
-function skinPoolForHudRole(role) {
-  return role === "void" || role === "killer" ? VOID_SKINS : SKINS
-}
-
-function defaultHudSkinForRole(role) {
-  return role === "void" || role === "killer" ? DEFAULT_VOID_SKIN : DEFAULT_RUNNER_SKIN
-}
-
-function actorSkinSearchText(actor) {
-  const values = [
-    actor?.skin,
-    actor?.skinId,
-    actor?.skinName,
-    actor?.selectedSkin,
-    actor?.selectedSkinId,
-    actor?.selectedSkinName,
-    actor?.skinLabel,
-    actor?.skinClass,
-    actor?.skinClassName,
-    actor?.cosmeticSkin,
-    actor?.cosmeticSkinId,
-    actor?.playerSkin,
-    actor?.playerSkinId,
-    actor?.loadout?.skin,
-    actor?.loadout?.skinId,
-    actor?.cosmetics?.skin,
-    actor?.cosmetics?.skinId,
-    actor?.profile?.skin,
-    actor?.profile?.skinId,
-    actor?.appearance?.skin,
-    actor?.appearance?.skinId
-  ]
-
-  return values.filter(Boolean).join(" ")
-}
-
-function findHudSkin(actor, role = "runner") {
-  const skins = skinPoolForHudRole(role)
-  const fallback = defaultHudSkinForRole(role)
-  const raw = actorSkinSearchText(actor)
-  const normalized = normalizeSkinKey(raw)
-  if (!normalized) return fallback
-
-  return skins.find((skin) => [skin.id, skin.label, skin.className].some((value) => normalizeSkinKey(value) === normalized))
-    || skins.find((skin) => [skin.id, skin.label, skin.className].some((value) => normalized.includes(normalizeSkinKey(value))))
-    || fallback
-}
 
 const ORB_FULL_CHAT_MESSAGES = new Set([
   "I have too many orbs...",
@@ -522,6 +483,7 @@ export function SurvivorStatusHud() {
         })
         .map((actor) => {
           const skin = findHudSkin(actor, "runner")
+          cacheEndScreenSkin(actor, "runner", skin)
           return {
             id: actor.id,
             name: actor.name || "Runner",
@@ -546,6 +508,7 @@ export function SurvivorStatusHud() {
         killerChat: killer
           ? (() => {
               const skin = findHudSkin(killer, "void")
+              cacheEndScreenSkin(killer, "void", skin)
               return {
                 name: killer.name || "The Void",
                 chat: visibleChatTextForActor(killer),
@@ -888,6 +851,7 @@ export function BotDebugOverlay() {
   )
 }
 
+
 export function GameHud() {
   return (
     <>
@@ -939,23 +903,5 @@ export function GameHud() {
         <div className="fx-grain" />
       </div>
     </>
-  )
-}
-
-export function EndScreen() {
-  return (
-    <div id="endScreen" className="screen io-screen">
-      <div className="void-card end-panel">
-        <div className="eyebrow">run ended</div>
-        <h1 id="winnerText">Runners Escape</h1>
-        <p id="reasonText" className="screen-copy">The route is open.</p>
-        <div id="endStats" className="end-stats" aria-live="polite" />
-        <div className="button-row center">
-          <button id="backToLobbyBtn" className="primary" type="button">Back to Lobby</button>
-          <button id="spectateBtn" type="button" className="hidden">Spectate Match</button>
-          <button id="mainMenuBtn" type="button">Main Menu</button>
-        </div>
-      </div>
-    </div>
   )
 }

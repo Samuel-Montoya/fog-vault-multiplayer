@@ -111,23 +111,7 @@
   filter: grayscale(0.28) brightness(0.78);
 }
 
-.skin-btn.locked::after {
-  content: "LOCKED";
-  margin-left: auto;
-  padding: 4px 7px;
-  border: 1px solid rgba(255, 211, 106, 0.24);
-  border-radius: 999px;
-  color: var(--gold);
-  font-size: 9px;
-  font-weight: 1000;
-  letter-spacing: 0.1em;
-}
 
-.skin-btn.locked.affordable::after {
-  content: "BUY";
-  color: #06111a;
-  background: linear-gradient(135deg, var(--gold), #fff1a8);
-}
 
 .skin-btn.owned .skin-price {
   color: var(--safe);

@@ -1,6 +1,7 @@
 import AccountBadge from "./AccountBadge"
 import { showMenuScreen } from "../utils/screenNavigation"
 import "../styles/play_screen.css"
+import "../styles/screen_header.css"
 
 function triggerSpectateFromPlay() {
   const firstLobbySpectate = document.querySelector("#lobbyList .spectate-lobby-btn")
@@ -17,7 +18,7 @@ export default function PlayScreen() {
   return (
     <div id="playScreen" className="screen io-screen play-screen">
       <button
-        className="play-back-btn"
+        className="play-back-btn rr-back-btn"
         data-screen="menu"
         data-screen-nav="menu"
         type="button"
@@ -28,7 +29,7 @@ export default function PlayScreen() {
       </button>
 
       <div className="play-account-wrap">
-        <AccountBadge panelId="play" />
+        <AccountBadge panelId="play" showOrbs />
       </div>
 
       <div className="play-page-frame">

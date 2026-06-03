@@ -1,5 +1,6 @@
 import { showMenuScreen } from "../utils/screenNavigation"
 import "../styles/how_to_play.css"
+import "../styles/screen_header.css"
 
 const RUNNER_CONTROLS = [
   "WASD — Move",
@@ -83,7 +84,7 @@ export default function HowScreen() {
   return (
     <div id="howScreen" className="screen io-screen how-page-screen">
       <div className="how-page-stage">
-        <button className="how-back-btn" data-screen="menu" data-screen-nav="menu" type="button" onClick={() => showMenuScreen("menu")}>
+        <button className="how-back-btn rr-back-btn" data-screen="menu" data-screen-nav="menu" type="button" onClick={() => showMenuScreen("menu")}>
           <span aria-hidden="true">←</span>
           Back
         </button>

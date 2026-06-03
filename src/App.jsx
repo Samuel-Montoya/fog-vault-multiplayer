@@ -11,12 +11,12 @@ import SettingsScreen from "./components/SettingsScreen"
 import HowScreen from "./components/HowScreen"
 import LobbyScreen from "./components/LobbyScreen"
 import ShopConfirmDialog from "./components/ShopConfirmDialog"
+import EndScreen from "./components/EndScreen"
 import MobileKeyboardOnlyScreen from "./components/MobileKeyboardOnlyScreen"
 import {
   AbilityWheel,
   BotDebugOverlay,
   ChatWheel,
-  EndScreen,
   GameHud,
   HookEdgeIndicators,
   PointFeed,

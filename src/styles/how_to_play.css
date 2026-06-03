@@ -398,3 +398,46 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* Shared back-button style aligned with Perks. */
+#howScreen .how-back-btn {
+  min-width: clamp(120px, 8.4vw, 146px) !important;
+  min-height: clamp(40px, 4.5vh, 48px) !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 12px !important;
+  padding: 0 22px !important;
+  border: 1px solid rgba(195, 132, 255, 0.45) !important;
+  border-radius: 7px !important;
+  background:
+    linear-gradient(100deg, rgba(255,255,255,0.08), rgba(157, 83, 255,0.12) 56%, rgba(255,255,255,0.035)),
+    rgba(5, 3, 12, 0.58) !important;
+  color: rgba(255,255,255,0.86) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 0 28px rgba(143, 79, 255, 0.14) !important;
+  font-size: clamp(10px, 0.72vw, 13px) !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.18em !important;
+  line-height: 1 !important;
+  text-transform: uppercase !important;
+}
+
+#howScreen .how-back-btn:hover,
+#howScreen .how-back-btn:focus-visible {
+  transform: translateX(-3px) !important;
+  border-color: rgba(237, 223, 255, 0.80) !important;
+  color: #fff !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.12), 0 0 30px rgba(170, 87, 255, 0.28) !important;
+}
+
+#howScreen .how-role-icon {
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+}
+
+/* Shared back button consistency. */
+#howScreen.how-page-screen .how-back-btn.rr-back-btn {
+  clip-path: none !important;
+}

@@ -1212,6 +1212,8 @@
   let selectedVoidSkin = "voidCore";
   let currentLobbyState = null;
   let currentSnapshot = null;
+  let personalRunResult = null;
+  let finalMatchResult = null;
   const networkTiming = { lastSnapshotAt: 0, avgGapMs: 50, jitterMs: 0 };
   let phaserScene = null;
   let lastInputPayload = "";
@@ -5001,9 +5003,9 @@
       this.handleEvents(snapshot.events || []);
       this.updateHud(snapshot);
       const localActor = (snapshot.actors || []).find((a) => a.id === myId);
-      if (localActor?.role === "survivor" && localActor.escaped && !this.localEscapeScreenShown && activeScreenName === "game") {
+      if (!finalMatchResult && snapshot.phase === "game" && localActor?.role === "survivor" && localActor.escaped && !this.localEscapeScreenShown && activeScreenName === "game") {
         this.localEscapeScreenShown = true;
-        showEscapedScreen();
+        showEscapedScreen(personalRunResult);
       }
       this.lastSnapshotAt = performance.now();
     }
@@ -8135,9 +8137,17 @@
     ui.spectateBtn?.classList.toggle("hidden", !visible);
   }
 
-  function showEscapedScreen() {
+  function showEscapedScreen(result = null) {
+    if (finalMatchResult) {
+      showFinalMatchScreen(finalMatchResult);
+      return;
+    }
+
     const canSpectate = canSpectateLiveTeammate();
-    if (ui.endStats) ui.endStats.innerHTML = "";
+    const finalActors = Array.isArray(result?.finalActors) ? result.finalActors : [];
+    if (finalActors.length) renderFinalStats(finalActors);
+    else if (ui.endStats) ui.endStats.innerHTML = "";
+
     if (ui.winnerText) ui.winnerText.textContent = "You Escaped";
     if (ui.reasonText) ui.reasonText.textContent = canSpectate
       ? "You slipped through the void. The run is still alive."
@@ -8153,7 +8163,7 @@
     if (!isSurvivor) return false;
 
     if (me.escaped) {
-      showEscapedScreen();
+      showEscapedScreen(personalRunResult);
       return true;
     }
 
@@ -8746,6 +8756,8 @@
     socket.on("lobbyState", renderLobbyState);
     socket.on("gameStarted", (map) => {
       currentSnapshot = null;
+      personalRunResult = null;
+      finalMatchResult = null;
       updateMatchPauseOverlay(null);
       let lockSeconds = Number(map?.startFreezeSeconds || IMMERSION.MATCH_START_LOCK_SECONDS || 1.5);
       if (!Number.isFinite(lockSeconds) || lockSeconds < 0) lockSeconds = IMMERSION.MATCH_START_LOCK_SECONDS || 1.5;
@@ -8783,6 +8795,16 @@
       if (inProgressSpectate) enterGame();
       else runMatchStartTransition(enterGame);
     });
+    socket.on("personalRunEnded", (payload = {}) => {
+      if (payload?.status !== "escaped") return;
+      personalRunResult = {
+        status: "escaped",
+        reason: payload.reason || "You slipped through the void. The run is still alive.",
+        finalActors: Array.isArray(payload.finalActors) ? payload.finalActors : []
+      };
+      if (phaserScene) phaserScene.localEscapeScreenShown = true;
+      if (!finalMatchResult) showEscapedScreen(personalRunResult);
+    });
     socket.on("snapshot", (snapshot) => {
       const arrivedAt = performance.now();
       if (snapshot?.seq && currentSnapshot?.seq && snapshot.seq <= currentSnapshot.seq) return;
@@ -8802,6 +8824,8 @@
       if (phaserScene) phaserScene.applySnapshot(snapshot);
     });
     socket.on("matchEnded", ({ winner, reason, escapedCount = 0, totalSurvivors = 0, finalActors = [] }) => {
+      finalMatchResult = { winner, reason, escapedCount, totalSurvivors, finalActors };
+      if (phaserScene) phaserScene.localEscapeScreenShown = true;
       currentSnapshot = { ...(currentSnapshot || {}), paused: false, canPause: false };
       updateMatchPauseOverlay(currentSnapshot);
       if (phaserScene) {
@@ -8814,7 +8838,7 @@
         }
       }
       setMusicTargets({ layer1: 0, layer2: 0, layer3: 0 });
-      showFinalMatchScreen({ winner, reason, escapedCount, totalSurvivors, finalActors });
+      showFinalMatchScreen(finalMatchResult);
     });
   }
 

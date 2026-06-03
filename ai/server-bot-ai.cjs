@@ -1286,6 +1286,28 @@ function runIdle(game, actor, helpers, dt) {
   });
 }
 
+function healerCanStillHealMe(game, actor, healer, helpers, threat) {
+  if (!actor || !healer || healer.id === actor.id) return false;
+  if (actor.dead || actor.escaped || actor.hooked || actor.downed) return false;
+  if (!(actor.injured || actor.health === 1)) return false;
+  if (threat?.danger) return false;
+  if (healer.role !== "survivor" || healer.dead || healer.escaped || healer.hooked || healer.downed) return false;
+  if (healer.escapeGateId || healer.escaping || healer.escapeProgress > 0) return false;
+
+  const healDistance = Number(helpers?.healDistance || 82);
+  const d = helperDist(helpers, actor.x, actor.y, healer.x, healer.y);
+  if (d > healDistance + 70) return false;
+  if (!segmentClear(game, actor.x, actor.y, healer.x, healer.y, helpers)) return false;
+
+  const otherBrain = healer.bot?.simpleAi || null;
+  const assigned = otherBrain?.healTask?.id === actor.id && (otherBrain.healTask.lockUntil || 0) > now(game);
+  const alreadyHealing = healer.healingTargetId === actor.id || (actor.activeHealers || []).includes(healer.id);
+  const otherMoving = !!(healer.input?.up || healer.input?.down || healer.input?.left || healer.input?.right || healer.vault);
+  const closeStationary = d <= healDistance + 28 && !otherMoving;
+
+  return !!(assigned || alreadyHealing || closeStationary);
+}
+
 function healerTryingToHealMe(game, actor, helpers, threat) {
   if (!actor || actor.dead || actor.escaped || actor.hooked || actor.downed) return null;
   if (!(actor.injured || actor.health === 1)) return null;
@@ -1295,15 +1317,12 @@ function healerTryingToHealMe(game, actor, helpers, threat) {
   let best = null;
   let bestScore = Infinity;
   for (const other of game?.actors?.values?.() || []) {
-    if (!other || other.id === actor.id || other.role !== "survivor" || other.dead || other.escaped || other.hooked || other.downed) continue;
+    if (!healerCanStillHealMe(game, actor, other, helpers, threat)) continue;
     const d = helperDist(helpers, actor.x, actor.y, other.x, other.y);
     const otherBrain = other.bot?.simpleAi || null;
     const assigned = otherBrain?.healTask?.id === actor.id && (otherBrain.healTask.lockUntil || 0) > now(game);
     const alreadyHealing = other.healingTargetId === actor.id || (actor.activeHealers || []).includes(other.id);
-    const otherMoving = !!(other.input?.up || other.input?.down || other.input?.left || other.input?.right || other.vault);
-    const closeStationary = d <= healDistance + 28 && !otherMoving && segmentClear(game, actor.x, actor.y, other.x, other.y, helpers);
-    if (!assigned && !alreadyHealing && !closeStationary) continue;
-    const score = d - (assigned ? 220 : 0) - (alreadyHealing ? 420 : 0);
+    const score = d - (assigned ? 220 : 0) - (alreadyHealing ? 420 : 0) - (d <= healDistance + 28 ? 70 : 0);
     if (score < bestScore) {
       bestScore = score;
       best = other;
@@ -1312,18 +1331,29 @@ function healerTryingToHealMe(game, actor, helpers, threat) {
   return best;
 }
 
+function clearStaleReceiveHeal(brain) {
+  if (brain?.task?.kind !== "receive-heal") return;
+  brain.task = null;
+  if (brain.nextStep?.kind === "receive-heal") brain.nextStep = null;
+  clearPath(brain);
+}
+
 function runReceiveHeal(game, actor, helpers, dt, threat) {
   const brain = ensureBotBrain(actor);
+
   const lockedHealer = brain.task?.kind === "receive-heal" && brain.task.id
     ? getActorById(game, brain.task.id)
     : null;
   const lockedStillValid = lockedHealer
     && (brain.task.lockUntil || 0) > now(game)
     && !threat?.hardDanger
-    && helperDist(helpers, actor.x, actor.y, lockedHealer.x, lockedHealer.y) <= Number(helpers?.healDistance || 82) + 70;
+    && healerCanStillHealMe(game, actor, lockedHealer, helpers, threat);
 
   const healer = lockedStillValid ? lockedHealer : healerTryingToHealMe(game, actor, helpers, threat);
-  if (!healer) return false;
+  if (!healer) {
+    clearStaleReceiveHeal(brain);
+    return false;
+  }
 
   clearNonSlotTasks(brain, null);
   clearPath(brain);

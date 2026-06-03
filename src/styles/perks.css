@@ -72,132 +72,6 @@
   height: 0 !important;
 }
 
-/* Background layering. The app already has a RiftRunner background, this makes the Perks page read like the reference. */
-#perksScreen.perks-page-screen .perks-void-bg,
-#perksScreen.perks-page-screen .perks-void-bg::before,
-#perksScreen.perks-page-screen .perks-void-bg::after,
-#perksScreen.perks-page-screen .perks-stars,
-#perksScreen.perks-page-screen .perks-floor,
-#perksScreen.perks-page-screen .perks-rift,
-#perksScreen.perks-page-screen .perks-spire {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  z-index: -10;
-}
-
-#perksScreen.perks-page-screen .perks-void-bg {
-  background:
-    radial-gradient(circle at 82% 7%, rgba(172, 64, 255, 0.16), transparent 24%),
-    radial-gradient(circle at 18% 78%, rgba(116, 37, 255, 0.22), transparent 24%),
-    linear-gradient(180deg, rgba(2, 2, 9, 0.20), rgba(4, 2, 13, 0.45));
-}
-
-#perksScreen.perks-page-screen .perks-void-bg::before {
-  content: "";
-  background:
-    radial-gradient(circle at 86% 48%, rgba(147, 45, 255, 0.18), transparent 26%),
-    radial-gradient(circle at 10% 70%, rgba(168, 58, 255, 0.12), transparent 20%),
-    linear-gradient(90deg, rgba(0,0,0,0.30), transparent 18%, transparent 82%, rgba(0,0,0,0.32));
-}
-
-#perksScreen.perks-page-screen .perks-void-bg::after {
-  content: "";
-  opacity: 0.33;
-  background-image:
-    linear-gradient(rgba(255,255,255,0.028) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
-  background-size: 64px 64px;
-  mask-image: linear-gradient(to bottom, transparent, #000 11%, #000 68%, transparent);
-}
-
-#perksScreen.perks-page-screen .perks-stars {
-  opacity: 0.50;
-  background:
-    radial-gradient(circle at 9% 12%, rgba(255,255,255,0.85) 0 1px, transparent 2px),
-    radial-gradient(circle at 19% 46%, rgba(190,115,255,0.75) 0 1px, transparent 2px),
-    radial-gradient(circle at 38% 7%, rgba(255,255,255,0.55) 0 1px, transparent 2px),
-    radial-gradient(circle at 62% 20%, rgba(176,94,255,0.75) 0 1px, transparent 2px),
-    radial-gradient(circle at 88% 10%, rgba(255,255,255,0.72) 0 1px, transparent 2px),
-    radial-gradient(circle at 79% 62%, rgba(156,70,255,0.78) 0 1px, transparent 2px),
-    radial-gradient(circle at 33% 71%, rgba(255,255,255,0.50) 0 1px, transparent 2px);
-}
-
-#perksScreen.perks-page-screen .perks-rift-large {
-  width: min(23vw, 410px);
-  height: min(23vw, 410px);
-  inset: auto min(3.8vw, 76px) auto auto;
-  top: -8.2vw;
-  border-radius: 50%;
-  border: 7px solid rgba(170, 70, 255, 0.36);
-  background: radial-gradient(circle, rgba(0,0,0,0.42) 0 42%, rgba(151,55,255,0.28) 45%, transparent 68%);
-  box-shadow:
-    0 0 38px rgba(180, 78, 255, 0.72),
-    inset 0 0 50px rgba(127, 24, 255, 0.55);
-}
-
-#perksScreen.perks-page-screen .perks-rift-large::before,
-#perksScreen.perks-page-screen .perks-rift-large::after {
-  content: "";
-  position: absolute;
-  inset: -14px;
-  border-radius: inherit;
-  border: 2px solid rgba(213, 116, 255, 0.26);
-  transform: rotate(20deg);
-  box-shadow: 0 0 24px rgba(173, 55, 255, 0.55);
-}
-
-#perksScreen.perks-page-screen .perks-rift-large::after {
-  inset: 14px;
-  opacity: 0.48;
-  transform: rotate(-18deg);
-}
-
-#perksScreen.perks-page-screen .perks-rift-low {
-  width: 42vw;
-  height: 18vw;
-  left: 15vw;
-  bottom: -7vw;
-  border-radius: 50%;
-  background: radial-gradient(ellipse at center, rgba(147,44,255,0.34), transparent 65%);
-  filter: blur(18px);
-}
-
-#perksScreen.perks-page-screen .perks-spire-left {
-  inset: auto auto 12vh 0;
-  width: 13vw;
-  height: 56vh;
-  opacity: 0.56;
-  background:
-    linear-gradient(84deg, transparent 0 26%, rgba(105, 36, 160, 0.30) 27% 38%, transparent 39%),
-    linear-gradient(0deg, rgba(0,0,0,0.92), rgba(85,25,136,0.44));
-  clip-path: polygon(0 100%, 0 25%, 9% 0, 17% 62%, 31% 21%, 38% 74%, 54% 39%, 61% 89%, 84% 57%, 100% 100%);
-}
-
-#perksScreen.perks-page-screen .perks-spire-right {
-  inset: auto 0 10vh auto;
-  width: 16vw;
-  height: 60vh;
-  opacity: 0.66;
-  background:
-    linear-gradient(80deg, transparent 0 41%, rgba(176, 72, 255, 0.23) 42% 55%, transparent 56%),
-    linear-gradient(0deg, rgba(0,0,0,0.92), rgba(101,33,166,0.48));
-  clip-path: polygon(0 100%, 10% 71%, 22% 91%, 31% 42%, 42% 77%, 52% 15%, 64% 62%, 77% 0, 87% 55%, 100% 19%, 100% 100%);
-}
-
-#perksScreen.perks-page-screen .perks-floor {
-  top: auto;
-  height: 17vh;
-  opacity: 0.72;
-  background:
-    linear-gradient(180deg, rgba(135,45,255,0.12), rgba(31,4,65,0.56)),
-    repeating-linear-gradient(0deg, rgba(255,255,255,0.06) 0 1px, transparent 1px 22px),
-    repeating-linear-gradient(90deg, rgba(255,255,255,0.04) 0 1px, transparent 1px 86px);
-  box-shadow: inset 0 24px 90px rgba(148,42,255,0.32);
-  transform: perspective(460px) rotateX(54deg);
-  transform-origin: bottom center;
-}
-
 /* Top row */
 #perksScreen.perks-page-screen .perks-topbar {
   position: relative;
@@ -269,7 +143,6 @@
     inset 0 1px 0 rgba(255,255,255,0.09),
     0 0 36px rgba(137, 73, 255, 0.16) !important;
   backdrop-filter: blur(8px) saturate(1.05);
-  clip-path: polygon(2.4% 0, 100% 0, 100% 78%, 96.4% 100%, 0 100%, 0 18%);
 }
 
 #perksScreen.perks-page-screen .perks-account-panel::before,
@@ -532,7 +405,6 @@
     0 24px 58px rgba(0,0,0,0.27),
     0 0 30px rgba(147, 73, 255, 0.12) !important;
   backdrop-filter: blur(7px) saturate(1.08);
-  clip-path: polygon(2.5% 0, 100% 0, 100% 94%, 97.4% 100%, 0 100%, 0 6%);
 }
 
 #perksScreen.perks-page-screen .perk-shop-section::before,
@@ -1054,7 +926,6 @@
   text-align: center !important;
   text-transform: uppercase !important;
   cursor: pointer;
-  clip-path: polygon(9% 0, 91% 0, 100% 25%, 100% 75%, 91% 100%, 9% 100%, 0 75%, 0 25%);
 }
 
 #perksScreen.perks-page-screen .perk-card > button:hover,
@@ -1360,20 +1231,7 @@
   }
 }
 
-/* --------------------------------------------------------------------------
-   Final compact Perks pass.
-   The injected perk cards put the icon/title inside .perk-card-top, so this
-   uses display: contents to let the icon become the left column and the text
-   details occupy the right. Humanity almost survived the cascade.
---------------------------------------------------------------------------- */
-
-#perksScreen.perks-page-screen .perks-void-bg,
-#perksScreen.perks-page-screen .perks-void-bg *,
-#perksScreen.perks-page-screen .perks-void-bg::before,
-#perksScreen.perks-page-screen .perks-void-bg::after {
-  display: none !important;
-  content: none !important;
-}
+/* Final compact Perks pass. */
 
 #perksScreen.perks-page-screen .perks-page-stage {
   grid-template-rows: clamp(82px, 10vh, 116px) auto minmax(0, 1fr) auto !important;
@@ -1769,4 +1627,264 @@
   #perksScreen.perks-page-screen .perks-footer-strip {
     min-height: 32px !important;
   }
+}
+
+
+/* Final polish pass: compact desktop store layout, unboxed role icons, consistent page titles/back buttons. */
+#perksScreen.perks-page-screen .perks-back-btn {
+  min-width: clamp(120px, 8.4vw, 146px) !important;
+  min-height: clamp(40px, 4.5vh, 48px) !important;
+  padding: 0 22px !important;
+  border: 1px solid rgba(195, 132, 255, 0.45) !important;
+  border-radius: 7px !important;
+  background:
+    linear-gradient(100deg, rgba(255,255,255,0.08), rgba(157, 83, 255,0.12) 56%, rgba(255,255,255,0.035)),
+    rgba(5, 3, 12, 0.58) !important;
+  color: rgba(255,255,255,0.86) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 0 28px rgba(143, 79, 255, 0.14) !important;
+  font-size: clamp(10px, 0.72vw, 13px) !important;
+  font-weight: 800 !important;
+  letter-spacing: 0.18em !important;
+  text-transform: uppercase !important;
+}
+
+#perksScreen.perks-page-screen .perks-back-btn:hover,
+#perksScreen.perks-page-screen .perks-back-btn:focus-visible {
+  transform: translateX(-3px) !important;
+  border-color: rgba(237, 223, 255, 0.80) !important;
+  color: #fff !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.12), 0 0 30px rgba(170, 87, 255, 0.28) !important;
+}
+
+#perksScreen.perks-page-screen .perks-title-block h1 {
+  font-size: clamp(46px, 4.45vw, 82px) !important;
+  letter-spacing: 0.055em !important;
+}
+
+#perksScreen.perks-page-screen .perks-title-block h1::after {
+  width: min(330px, 30vw) !important;
+  margin-top: clamp(8px, 0.9vh, 12px) !important;
+}
+
+#perksScreen.perks-page-screen .perks-title-block p {
+  font-size: clamp(12px, 0.82vw, 15px) !important;
+  margin-top: clamp(7px, 0.9vh, 11px) !important;
+}
+
+#perksScreen.perks-page-screen .perks-page-stage {
+  grid-template-rows: clamp(92px, 10.8vh, 120px) auto minmax(0, 1fr) auto !important;
+  gap: clamp(9px, 1.1vh, 16px) !important;
+  padding: clamp(20px, 2.5vh, 32px) clamp(38px, 4.2vw, 78px) clamp(18px, 2.3vh, 28px) !important;
+}
+
+#perksScreen.perks-page-screen .perk-shop-layout.perks-shop-panels {
+  gap: clamp(12px, 1.2vw, 22px) !important;
+}
+
+#perksScreen.perks-page-screen .perk-shop-section {
+  padding: clamp(10px, 1vw, 16px) clamp(10px, 1vw, 16px) clamp(10px, 1.05vw, 18px) !important;
+  border-radius: 12px !important;
+  clip-path: none !important;
+}
+
+#perksScreen.perks-page-screen .perk-shop-section::before,
+#perksScreen.perks-page-screen .perk-shop-section::after {
+  left: 16px !important;
+  right: 16px !important;
+}
+
+#perksScreen.perks-page-screen .perks-section-heading {
+  min-height: clamp(42px, 5vh, 58px) !important;
+  margin-bottom: clamp(6px, 0.75vh, 10px) !important;
+}
+
+#perksScreen.perks-page-screen .perks-section-title-wrap {
+  gap: clamp(10px, 0.95vw, 16px) !important;
+}
+
+#perksScreen.perks-page-screen .section-title-emblem,
+#perksScreen.perks-page-screen .runner-title-emblem,
+#perksScreen.perks-page-screen .void-title-emblem {
+  flex: 0 0 clamp(42px, 3.2vw, 58px) !important;
+  width: clamp(42px, 3.2vw, 58px) !important;
+  height: clamp(42px, 3.2vw, 58px) !important;
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  clip-path: none !important;
+  padding: 0 !important;
+}
+
+#perksScreen.perks-page-screen .section-title-icon {
+  width: clamp(38px, 3vw, 56px) !important;
+  height: clamp(38px, 3vw, 56px) !important;
+  max-width: clamp(38px, 3vw, 56px) !important;
+  max-height: clamp(38px, 3vw, 56px) !important;
+  filter: drop-shadow(0 0 14px rgba(188, 103, 255, 0.62)) !important;
+}
+
+#perksScreen.perks-page-screen .perks-section-heading h2 {
+  font-size: clamp(19px, 1.45vw, 29px) !important;
+  letter-spacing: 0.14em !important;
+}
+
+#perksScreen.perks-page-screen .perks-section-heading small {
+  margin-top: 5px !important;
+  font-size: clamp(8px, 0.6vw, 10px) !important;
+}
+
+#perksScreen.perks-page-screen .perks-section-kicker,
+#perksScreen.perks-page-screen .perks-section-heading > span:last-child {
+  font-size: clamp(8px, 0.62vw, 10px) !important;
+}
+
+#perksScreen.perks-page-screen #runnerPerkShop.perk-shop-grid,
+#perksScreen.perks-page-screen #voidPerkShop.perk-shop-grid,
+#perksScreen.perks-page-screen .perk-shop-section > .perk-shop-grid {
+  gap: clamp(6px, 0.7vh, 10px) !important;
+}
+
+#perksScreen.perks-page-screen #runnerPerkShop > .perk-card,
+#perksScreen.perks-page-screen #voidPerkShop > .perk-card,
+#perksScreen.perks-page-screen .perk-shop-grid > .perk-card {
+  min-height: clamp(82px, 9.4vh, 108px) !important;
+  grid-template-columns: clamp(54px, 3.8vw, 70px) minmax(0, 1fr) minmax(126px, 9.5vw, 164px) !important;
+  gap: clamp(2px, 0.35vh, 5px) clamp(8px, 0.85vw, 14px) !important;
+  padding: clamp(7px, 0.75vh, 11px) clamp(8px, 0.8vw, 13px) !important;
+}
+
+#perksScreen.perks-page-screen .perk-card .perk-icon {
+  width: clamp(46px, 3.25vw, 60px) !important;
+  height: clamp(46px, 3.25vw, 60px) !important;
+}
+
+#perksScreen.perks-page-screen .perk-card .perk-card-top strong,
+#perksScreen.perks-page-screen .perk-card .perk-title,
+#perksScreen.perks-page-screen .perk-card h3 {
+  font-size: clamp(14px, 0.96vw, 18px) !important;
+}
+
+#perksScreen.perks-page-screen .perk-summary {
+  font-size: clamp(10px, 0.68vw, 12px) !important;
+  line-height: 1.25 !important;
+}
+
+#perksScreen.perks-page-screen .perk-effect,
+#perksScreen.perks-page-screen .perk-next-preview {
+  font-size: clamp(9px, 0.62vw, 11px) !important;
+  line-height: 1.18 !important;
+}
+
+#perksScreen.perks-page-screen .perk-card .perk-card-top small {
+  font-size: clamp(8px, 0.58vw, 10px) !important;
+}
+
+#perksScreen.perks-page-screen .perk-card .perk-level-pips {
+  width: clamp(76px, 5.6vw, 104px) !important;
+  gap: clamp(5px, 0.42vw, 8px) !important;
+}
+
+#perksScreen.perks-page-screen .perk-card .perk-level-pips span,
+#perksScreen.perks-page-screen .perk-card .perk-level-pips i {
+  width: clamp(13px, 0.88vw, 18px) !important;
+  height: clamp(13px, 0.88vw, 18px) !important;
+}
+
+#perksScreen.perks-page-screen .perk-card > button,
+#perksScreen.perks-page-screen .perk-card .perk-action,
+#perksScreen.perks-page-screen .perk-card [data-perk-action] {
+  width: clamp(126px, 8.8vw, 158px) !important;
+  min-width: clamp(126px, 8.8vw, 158px) !important;
+  min-height: clamp(44px, 4.7vh, 58px) !important;
+  padding: 6px 12px !important;
+  font-size: clamp(9px, 0.62vw, 12px) !important;
+}
+
+#perksScreen.perks-page-screen .perks-footer-strip {
+  min-height: clamp(34px, 3.8vh, 42px) !important;
+  font-size: clamp(8px, 0.58vw, 10px) !important;
+}
+
+/* Final cleanup: no clipped shop panels or clipped purchase buttons. Main menu buttons get the slant, nobody else. */
+#perksScreen.perks-page-screen .perk-shop-section,
+#perksScreen.perks-page-screen .perk-shop-section::before,
+#perksScreen.perks-page-screen .perk-shop-section::after,
+#perksScreen.perks-page-screen .perk-card,
+#perksScreen.perks-page-screen .perk-card > button,
+#perksScreen.perks-page-screen .perk-card .perk-action,
+#perksScreen.perks-page-screen .perk-card [data-perk-action] {
+  clip-path: none !important;
+}
+
+#perksScreen.perks-page-screen .perk-card > button,
+#perksScreen.perks-page-screen .perk-card .perk-action,
+#perksScreen.perks-page-screen .perk-card [data-perk-action] {
+  border-radius: 8px !important;
+  overflow: hidden !important;
+}
+
+/* Perks now uses the shared slim account panel instead of a one-off account slab. */
+#perksScreen.perks-page-screen .perks-topbar .perks-slim-account,
+#perksScreen.perks-page-screen .perks-topbar .account-badge {
+  justify-self: end !important;
+  width: min(420px, 34vw) !important;
+  max-width: 100% !important;
+}
+
+#perksScreen.perks-page-screen .perks-back-btn.rr-back-btn {
+  justify-self: start !important;
+}
+
+/* Stop legacy Perks account-panel rules from influencing future accidental markup. */
+#perksScreen.perks-page-screen .perks-account-panel,
+#perksScreen.perks-page-screen .perks-account-panel:has(.perks-account-actions.hidden) {
+  clip-path: none !important;
+}
+
+
+/* Real perk icon assets. The artwork already has its own frame, so no bonus CSS jewelry. */
+#perksScreen.perks-page-screen .perk-card .perk-icon,
+#perksScreen.perks-page-screen .perk-card[class*="accent-"] .perk-icon,
+#perksScreen.perks-page-screen .perk-card > .perk-icon,
+#perksScreen.perks-page-screen .perk-card .perk-card-top .perk-icon,
+#perksScreen.perks-page-screen .perk-card .perk-icon.uses-perk-image {
+  width: clamp(62px, 4.5vw, 82px) !important;
+  height: clamp(62px, 4.5vw, 82px) !important;
+  display: grid !important;
+  place-items: center !important;
+  overflow: visible !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  outline: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  filter: none !important;
+}
+
+#perksScreen.perks-page-screen .perk-card .perk-icon::before,
+#perksScreen.perks-page-screen .perk-card .perk-icon::after,
+#perksScreen.perks-page-screen .perk-card[class*="accent-"] .perk-icon::before,
+#perksScreen.perks-page-screen .perk-card[class*="accent-"] .perk-icon::after {
+  content: none !important;
+  display: none !important;
+}
+
+#perksScreen.perks-page-screen .perk-icon-image {
+  display: block !important;
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: contain !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  outline: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  filter: drop-shadow(0 0 15px rgba(174, 93, 255, 0.30)) !important;
+  pointer-events: none;
+  user-select: none;
+}
+
+#perksScreen.perks-page-screen .perk-icon-image-missing {
+  visibility: hidden;
 }

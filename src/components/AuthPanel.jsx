@@ -6,7 +6,7 @@ export default function AuthPanel({ compact = false, panelId = "menu" }) {
   return (
     <section
       id={compact ? `${prefix}AccountPanel` : "accountPanel"}
-      className={compact ? "account-panel compact-account-panel" : "account-panel"}
+      className={compact ? "rr-account-panel rr-account-panel-slim account-panel compact-account-panel" : "rr-account-panel rr-account-panel-full account-panel"}
       aria-label="RiftRunner account"
       data-account-panel
     >

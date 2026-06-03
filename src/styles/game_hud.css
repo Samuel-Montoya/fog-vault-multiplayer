@@ -2657,3 +2657,34 @@ body.ultra-low-power.survivor-hit-impact #gameWrap {
   box-shadow: 0 12px 34px rgba(0, 0, 0, 0.36), 0 0 22px rgba(124, 58, 237, 0.16);
   pointer-events: none;
 }
+
+
+/* Ability wheel perk artwork. These are raw images, not another CSS badge factory. */
+.ability-wheel-segment .ability-icon-image {
+  justify-self: center;
+  width: 34px;
+  height: 34px;
+  object-fit: contain;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  filter: drop-shadow(0 0 10px rgba(190, 135, 255, 0.34));
+  pointer-events: none;
+  user-select: none;
+}
+
+.ability-wheel-segment.is-cancel .ability-icon-image {
+  display: none;
+}
+
+.ability-wheel-segment .ability-name {
+  margin-top: 1px;
+}
+
+@media (max-width: 720px) {
+  .ability-wheel-segment .ability-icon-image {
+    width: 28px;
+    height: 28px;
+  }
+}

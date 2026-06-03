@@ -27,6 +27,9 @@ const VOID_LUNGE_COMMIT_SECONDS = 0.72;
 const VOID_LUNGE_POINT_BLANK_MULT = 0.82;
 const VOID_LUNGE_BRAKE_RANGE_MULT = 1.08;
 const VOID_EXIT_PATROL_REPATH_SECONDS = 0.65;
+const VOID_EXIT_PATROL_DWELL_SECONDS = 2.45;
+const VOID_EXIT_PATROL_REACH_DISTANCE = 118;
+const VOID_EXIT_PRESSURE_DISTANCE = 560;
 const VOID_OBSTACLE_ACTION_DISTANCE = 86;
 const VOID_OBSTACLE_SEEK_DISTANCE = 230;
 const VOID_OBSTACLE_PATH_WIDTH = 118;
@@ -166,7 +169,9 @@ function ensureVoidBrain(actor) {
     hookCommitUntil: 0,
     obstacleCommit: null,
     recentObstacle: null,
-    escapeSteer: null
+    escapeSteer: null,
+    exitPatrolGateId: null,
+    exitPatrolArrivedAt: 0
   };
 
   actor.bot.personalityId = PERSONALITY_ID;
@@ -594,6 +599,12 @@ function clearTask(actor) {
   brain.nextStep = null;
   brain.holdingKick = false;
   clearPath(brain);
+}
+
+function clearExitPatrolState(brain) {
+  if (!brain) return;
+  brain.exitPatrolGateId = null;
+  brain.exitPatrolArrivedAt = 0;
 }
 
 function clearObjectiveTaskOnly(actor) {
@@ -1377,27 +1388,95 @@ function runVoidHuntAi(game, actor, helpers = {}, dt = 0) {
   return false;
 }
 
-function chooseExitPatrolGate(game, killer, helpers) {
-  const gates = (game?.map?.gates || []).filter((gate) => gate && gate.open);
-  if (!gates.length) return null;
+function gatePressureScore(game, gate, helpers) {
+  let pressure = 0;
+  for (const runner of livingRunners(game)) {
+    const rd = distance(runner.x, runner.y, gate.x, gate.y);
+    if (rd < VOID_EXIT_PRESSURE_DISTANCE) pressure += 1 - rd / VOID_EXIT_PRESSURE_DISTANCE;
+    if (runner.escapeGateId === gate.id) pressure += 2.5 + Math.max(0, Number(runner.escapeProgress || 0)) * 4;
+  }
+  return pressure;
+}
+
+function choosePressuredExitGate(game, killer, helpers, gates) {
   let best = null;
   let bestScore = -Infinity;
   for (const gate of gates) {
+    const pressure = gatePressureScore(game, gate, helpers);
+    if (pressure <= 0) continue;
     const d = helperDist(helpers, killer.x, killer.y, gate.x, gate.y);
-    let runnerNear = 0;
-    let escapePressure = 0;
-    for (const runner of livingRunners(game)) {
-      const rd = distance(runner.x, runner.y, gate.x, gate.y);
-      if (rd < 520) runnerNear += 1 - rd / 520;
-      if (runner.escapeGateId === gate.id) escapePressure += 2 + Math.max(0, Number(runner.escapeProgress || 0)) * 3;
-    }
-    const score = 1200 + runnerNear * 520 + escapePressure * 420 - d * 0.72;
+    const score = pressure * 1200 - d * 0.35;
     if (score > bestScore) {
       best = gate;
       bestScore = score;
     }
   }
   return best;
+}
+
+function nextExitGateInRotation(game, killer, helpers, gates, currentGate) {
+  if (!currentGate) {
+    return gates
+      .slice()
+      .sort((a, b) => helperDist(helpers, killer.x, killer.y, a.x, a.y) - helperDist(helpers, killer.x, killer.y, b.x, b.y))[0] || null;
+  }
+
+  return gates
+    .filter((gate) => gate.id !== currentGate.id)
+    .sort((a, b) => helperDist(helpers, currentGate.x, currentGate.y, b.x, b.y) - helperDist(helpers, currentGate.x, currentGate.y, a.x, a.y))[0] || currentGate;
+}
+
+function chooseExitPatrolGate(game, killer, helpers) {
+  const brain = ensureVoidBrain(killer);
+  const gates = (game?.map?.gates || []).filter((gate) => gate && gate.open);
+  if (!gates.length) {
+    clearExitPatrolState(brain);
+    return null;
+  }
+
+  // If a Runner is actually near/using an exit, hard-prioritize that gate.
+  // Otherwise rotate between exits instead of camping the closest one forever,
+  // which is how the last Runner got a free vacation in the endgame.
+  const pressured = choosePressuredExitGate(game, killer, helpers, gates);
+  if (pressured) {
+    if (brain.exitPatrolGateId !== pressured.id) {
+      brain.exitPatrolGateId = pressured.id;
+      brain.exitPatrolArrivedAt = 0;
+      clearPath(brain);
+    }
+    return pressured;
+  }
+
+  const now = game.time || 0;
+  let current = brain.exitPatrolGateId ? gates.find((gate) => gate.id === brain.exitPatrolGateId) : null;
+  if (!current) {
+    current = nextExitGateInRotation(game, killer, helpers, gates, null);
+    brain.exitPatrolGateId = current?.id || null;
+    brain.exitPatrolArrivedAt = 0;
+    clearPath(brain);
+    return current;
+  }
+
+  const reached = helperDist(helpers, killer.x, killer.y, current.x, current.y) <= VOID_EXIT_PATROL_REACH_DISTANCE;
+  if (reached && !brain.exitPatrolArrivedAt) brain.exitPatrolArrivedAt = now;
+  if (!reached) brain.exitPatrolArrivedAt = 0;
+
+  const shouldRotate = gates.length > 1
+    && reached
+    && brain.exitPatrolArrivedAt
+    && now - brain.exitPatrolArrivedAt >= VOID_EXIT_PATROL_DWELL_SECONDS;
+
+  if (shouldRotate) {
+    const nextGate = nextExitGateInRotation(game, killer, helpers, gates, current);
+    if (nextGate && nextGate.id !== current.id) {
+      brain.exitPatrolGateId = nextGate.id;
+      brain.exitPatrolArrivedAt = 0;
+      clearPath(brain);
+      return nextGate;
+    }
+  }
+
+  return current;
 }
 
 function patrolExitGates(game, actor, helpers, dt) {
@@ -1413,6 +1492,8 @@ function patrolExitGates(game, actor, helpers, dt) {
   followPath(game, actor, gate, helpers, {
     sprint: true,
     stopDistance: Math.max(24, DEFAULT_RIFT_KICK_DISTANCE * 0.7),
+    pathTargetKey: `exitPatrol:${gate.id}`,
+    repathSeconds: VOID_EXIT_PATROL_REPATH_SECONDS,
     dt
   });
   actor.input.action = false;
@@ -1445,6 +1526,8 @@ function runVoidRiftAi(game, actor, helpers = {}, dt = 0) {
     patrolExitGates(game, actor, helpers, dt);
     return;
   }
+
+  clearExitPatrolState(brain);
 
   if (!unfinishedRifts(game).length) {
     clearTask(actor);
