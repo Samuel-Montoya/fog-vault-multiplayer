@@ -1,0 +1,68 @@
+Runner Classes
+
+Collector Class
+[ Passive ]
+- Orb Magnet (collects dots in a radius around the player)
+Level 1: 50% bigger
+Level 2: 75% bigger
+Level 3: 100% bigger
+
+Perk 1 - Collection Bolt (shoot a bolt to collect orbs in that AOE radius)
+Level 1: Small Size, 60s cooldown, no cost
+Level 2: Medium Size, 45s cooldown, no cost
+Level 3: Large Size, 30s cooldown, no cost
+
+
+Perk 2 - Double Orb (a chance to collect multiple orbs instead of one)
+Level 1: 25% chance to collect 2-4 extra orbs, 5s duration, 60s cooldown, cost 10 orbs
+Level 2: 50% chance to collect 3-5 extra orbs, 7s duration, 45s cooldown, cost 10 orbs
+Level 3: 75% chance to collect 4-6 extra orbs, 10s duration, 30s cooldown, cost 10 orbs
+
+
+Perk 3 - Orb Vision (all orbs around you are revealed)
+Level 1: Reveals in a small radius, 5s duration, 60s cooldown, cost no orbs
+Level 2: Reveals in a medium radius, 10s duration, 45s cooldown, cost no orbs
+Level 3: Reveals in a large radius, 15s duration, 30s cooldown, cost no orbs
+
+
+Nebulizer Class (creates gas / dust / void clouds, shows killer, etc...)
+[ Passive ]
+
+Perk 1 - Smoke Dart (shoots a dark that creates a vision cloud, hiding everything in it, unless you're inside it. Once inside, you can see everything in that smoke)
+Level 1: Small Radius, 5s duration, 60s cooldown, costs 10 orbs
+Level 2: Medium Radius, 7s duration, 45s cooldown, costs 10 orbs
+Level 3: Large Radius, 10s duration, 30s cooldown, costs 10 orbs
+
+
+Escapist Class (speed boosts, vaults faster, etc...)
+[ Passive ]
+- Vaults Windows & Pallets Faster
+Level 1: 5% faster
+Level 2: 7% faster
+Level 3: 9% faster
+
+Perk 1 - Dash Dart (gives speed boost to players hit with the dart)
+Level 1: 1.2x boost, 3s duration, 60s cooldown, costs 2 orbs
+Level 2: 1.4x boost, 4s duration, 45s cooldown, costs 2 orbs
+Level 3: 1.8x boost, 5s duration, 30s cooldown (special: hides scratch marks), , costs 2 orbs
+
+Perk 2 - Swift Vault (aka lithe from dbd, gives you a speed boost on your next window vault)
+Level 1: 1.2x boost, 2s duration, 60s cooldown, costs 5 orbs
+Level 2: 1.4x boost, 3s duration, 45s cooldown, costs 5 orbs
+Level 3: 1.8x boost, 4s duration, 30s cooldown, costs 5 orbs
+
+Healer Class (heals faster, un-binds quicker, saves teammates)
+[ Passive ]
+- Heals and un-binds teammates quicker
+Level 1: 5% faster
+Level 2: 7% faster
+Level 3: 9% faster
+
+Perk 1 - Healing Dart (heals teammates overtime, picks up downed teammates, un-binds, etc...)
+Level 1: Darts initiate a heal to hit teammates overtime, base heal speed, 60s cooldown, costs 2 orbs
+Level 2: Level 1 ability + Darts initiate un-binding to hit teammates overtime, base un-bind speed, 45s cooldown, costs 2 orbs
+Level 3: Level 1 & 2 abilities + Picks up downed runners, even when the void is trying to consume / bind, costs 10 orbs
+
+
+
+

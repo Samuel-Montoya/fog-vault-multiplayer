@@ -1,0 +1,13 @@
+Void Classes
+
+Dark Matter
+[ Passive ]
+- Reduces Runner Vision Cones overall
+Level 1: Reduces all runner vision cones by 5%
+Level 1: Reduces all runner vision cones by 7%
+Level 1: Reduces all runner vision cones by 9%
+
+Perk 1 - 
+
+
+Big Bang (could break pallets / block windows)
