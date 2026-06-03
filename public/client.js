@@ -726,6 +726,32 @@
     EDGE_ALPHA: 0.18
   };
 
+  const SPACE_VISUAL = {
+    BACKDROP_KEY: "riftMenuSpaceBackdrop",
+    BACKDROP_FILE: "/images/game_background.png",
+    STAR_FAR_KEY: "riftSpaceStarsFar",
+    STAR_NEAR_KEY: "riftSpaceStarsNear",
+    BACKDROP_ALPHA: LOW_POWER_MODE ? 0.28 : 0.34,
+    STAR_FAR_ALPHA: LOW_POWER_MODE ? 0.22 : 0.30,
+    STAR_NEAR_ALPHA: LOW_POWER_MODE ? 0.18 : 0.26,
+    FLOAT_SHADOW_ALPHA: LOW_POWER_MODE ? 0.28 : 0.38,
+    EDGE_GLOW_ALPHA: LOW_POWER_MODE ? 0.18 : 0.28,
+    // Barely-there parallax. Camera zoom already gives enough motion; no need to
+    // make the background look like it is trying to escape the monitor.
+    BACKDROP_PARALLAX_X: LOW_POWER_MODE ? 0.0012 : 0.0024,
+    BACKDROP_PARALLAX_Y: LOW_POWER_MODE ? 0.0008 : 0.0016,
+    BACKDROP_DRIFT_X: LOW_POWER_MODE ? 0.00004 : 0.00008,
+    BACKDROP_DRIFT_Y: LOW_POWER_MODE ? 0.00003 : 0.00006,
+    STAR_FAR_PARALLAX_X: LOW_POWER_MODE ? 0.003 : 0.006,
+    STAR_FAR_PARALLAX_Y: LOW_POWER_MODE ? 0.002 : 0.004,
+    STAR_FAR_DRIFT_X: LOW_POWER_MODE ? 0.00012 : 0.00024,
+    STAR_FAR_DRIFT_Y: LOW_POWER_MODE ? 0.00008 : 0.00016,
+    STAR_NEAR_PARALLAX_X: LOW_POWER_MODE ? 0.006 : 0.012,
+    STAR_NEAR_PARALLAX_Y: LOW_POWER_MODE ? 0.004 : 0.008,
+    STAR_NEAR_DRIFT_X: LOW_POWER_MODE ? 0.00022 : 0.00045,
+    STAR_NEAR_DRIFT_Y: LOW_POWER_MODE ? 0.00012 : 0.00024
+  };
+
   const WALL_VISUAL = {
     PLANK_HEIGHT: 18,
     PLANK_WIDTH: 44,
@@ -3602,6 +3628,9 @@
       super("GameScene");
       this.map = null;
       this.outOfBoundsGraphics = null;
+      this.spaceBackdrop = null;
+      this.spaceStarsFar = null;
+      this.spaceStarsNear = null;
       this.worldGraphics = null;
       this.wallVisuals = [];
       this.wallVisionTimer = 0;
@@ -3810,6 +3839,7 @@
     }
 
     preload() {
+      this.load.image(SPACE_VISUAL.BACKDROP_KEY, SPACE_VISUAL.BACKDROP_FILE);
       // No external rift/generator art is required. The original build tried to load /gen.svg,
       // and Vite helpfully returned index.html when the file was missing, which made Phaser
       // parse HTML as SVG and die with a useless XML error. Humanity marches on.
@@ -3824,6 +3854,8 @@
       this.currentCameraZoom = cameraZoomNow;
       this.targetCameraZoom = cameraZoomNow;
       this.cameras.main.setZoom(cameraZoomNow);
+      this.createSpaceTextures();
+      this.createSpaceBackdrop();
       // No fog RenderTexture anymore. Resize no longer allocates/rebuilds a GPU texture.
       this.grassLayer = null;
       this.worldGraphics = this.add.graphics().setDepth(1);
@@ -3936,6 +3968,84 @@
         context.lineTo(x, y + r);
         context.quadraticCurveTo(x, y, x + r, y);
         context.closePath();
+      }
+    }
+
+    createSpaceTextures() {
+      const makeStarTexture = (key, size, count, color) => {
+        if (this.textures.exists(key)) return;
+        const tex = this.textures.createCanvas(key, size, size);
+        const canvas = tex.getSourceImage();
+        const ctx = canvas.getContext("2d");
+        ctx.clearRect(0, 0, size, size);
+
+        for (let i = 0; i < count; i++) {
+          const x = hash2(i * 31 + size, i * 17 + 7) * size;
+          const y = hash2(i * 13 + 3, i * 43 + size) * size;
+          const radius = 0.7 + hash2(i * 19 + 11, i * 29 + 5) * (key === SPACE_VISUAL.STAR_NEAR_KEY ? 1.8 : 1.1);
+          const alpha = 0.28 + hash2(i * 23 + 2, i * 37 + 9) * 0.58;
+          ctx.fillStyle = `rgba(${color[0]}, ${color[1]}, ${color[2]}, ${alpha.toFixed(3)})`;
+          ctx.beginPath();
+          ctx.arc(x, y, radius, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        tex.refresh();
+      };
+
+      makeStarTexture(SPACE_VISUAL.STAR_FAR_KEY, 384, LOW_POWER_MODE ? 46 : 78, [171, 190, 255]);
+      makeStarTexture(SPACE_VISUAL.STAR_NEAR_KEY, 512, LOW_POWER_MODE ? 30 : 54, [230, 220, 255]);
+    }
+
+    createSpaceBackdrop() {
+      const width = Math.max(1, this.scale?.width || window.innerWidth || 1280);
+      const height = Math.max(1, this.scale?.height || window.innerHeight || 720);
+
+      if (this.textures.exists(SPACE_VISUAL.BACKDROP_KEY)) {
+        this.spaceBackdrop = this.add.tileSprite(0, 0, width, height, SPACE_VISUAL.BACKDROP_KEY)
+          .setOrigin(0, 0)
+          .setDepth(-70)
+          .setAlpha(SPACE_VISUAL.BACKDROP_ALPHA)
+          .setTint(0x9d84ff);
+      }
+
+      this.spaceStarsFar = this.add.tileSprite(0, 0, width, height, SPACE_VISUAL.STAR_FAR_KEY)
+        .setOrigin(0, 0)
+        .setDepth(-68)
+        .setAlpha(SPACE_VISUAL.STAR_FAR_ALPHA)
+        .setBlendMode(Phaser.BlendModes.SCREEN);
+
+      this.spaceStarsNear = this.add.tileSprite(0, 0, width, height, SPACE_VISUAL.STAR_NEAR_KEY)
+        .setOrigin(0, 0)
+        .setDepth(-66)
+        .setAlpha(SPACE_VISUAL.STAR_NEAR_ALPHA)
+        .setBlendMode(Phaser.BlendModes.SCREEN);
+
+      this.syncSpaceBackdrop(0);
+    }
+
+    syncSpaceBackdrop(time = 0) {
+      const cam = this.cameras?.main;
+      const view = cam?.worldView;
+      if (!cam || !view) return;
+
+      const layers = [this.spaceBackdrop, this.spaceStarsFar, this.spaceStarsNear].filter(Boolean);
+      for (const layer of layers) {
+        layer.setPosition(view.x, view.y);
+        layer.setSize(Math.max(1, view.width), Math.max(1, view.height));
+      }
+
+      if (this.spaceBackdrop) {
+        this.spaceBackdrop.tilePositionX = cam.scrollX * SPACE_VISUAL.BACKDROP_PARALLAX_X + time * SPACE_VISUAL.BACKDROP_DRIFT_X;
+        this.spaceBackdrop.tilePositionY = cam.scrollY * SPACE_VISUAL.BACKDROP_PARALLAX_Y + time * SPACE_VISUAL.BACKDROP_DRIFT_Y;
+      }
+      if (this.spaceStarsFar) {
+        this.spaceStarsFar.tilePositionX = cam.scrollX * SPACE_VISUAL.STAR_FAR_PARALLAX_X + time * SPACE_VISUAL.STAR_FAR_DRIFT_X;
+        this.spaceStarsFar.tilePositionY = cam.scrollY * SPACE_VISUAL.STAR_FAR_PARALLAX_Y + time * SPACE_VISUAL.STAR_FAR_DRIFT_Y;
+      }
+      if (this.spaceStarsNear) {
+        this.spaceStarsNear.tilePositionX = cam.scrollX * SPACE_VISUAL.STAR_NEAR_PARALLAX_X + time * SPACE_VISUAL.STAR_NEAR_DRIFT_X;
+        this.spaceStarsNear.tilePositionY = cam.scrollY * SPACE_VISUAL.STAR_NEAR_PARALLAX_Y + time * SPACE_VISUAL.STAR_NEAR_DRIFT_Y;
       }
     }
 
@@ -4075,7 +4185,8 @@
       }
       if (!this.map) return;
 
-      // Static menu-style horror grid. Drawn once at map load, not every frame.
+      // Static space coordinate marks around the arena. The moving backdrop is handled
+      // by tile sprites; this layer just gives the void outside the map a little scale.
       const pad = 5200;
       const x = -pad;
       const y = -pad;
@@ -4083,10 +4194,13 @@
       const h = this.map.height + pad * 2;
       const g = this.add.graphics().setDepth(-20).setScrollFactor(1, 1);
       this.outOfBoundsGraphics = g;
-      g.fillStyle(0x03040a, 1);
-      g.fillRect(x, y, w, h);
-      this.drawStaticArenaGrid(g, x, y, w, h, 96, 0x12203a, 0.24);
-      this.drawStaticArenaGrid(g, x, y, w, h, 384, 0x263c68, 0.16);
+      this.drawStaticArenaGrid(g, x, y, w, h, 384, 0x3b2a74, 0.055);
+      this.drawStaticArenaGrid(g, x, y, w, h, 1152, 0x6f58c9, 0.07);
+
+      g.lineStyle(3, 0x8d6dff, 0.11);
+      g.strokeRect(-32, -32, this.map.width + 64, this.map.height + 64);
+      g.lineStyle(1, 0xd9ccff, 0.14);
+      g.strokeRect(-9, -9, this.map.width + 18, this.map.height + 18);
     }
 
     drawStaticArenaGrid(g, x, y, w, h, step, color, alpha) {
@@ -4110,6 +4224,34 @@
       }
     }
 
+    drawFloatingArenaBase(g, endgame = false) {
+      if (!g || !this.map) return;
+      const w = this.map.width;
+      const h = this.map.height;
+      const edge = endgame ? 0xff3b6a : 0x9f7cff;
+      const inner = endgame ? 0xff9aac : 0x74ddff;
+
+      g.fillStyle(0x000000, SPACE_VISUAL.FLOAT_SHADOW_ALPHA);
+      g.fillRoundedRect(-76, 54, w + 152, h + 154, 42);
+      g.fillStyle(0x1b0d3a, SPACE_VISUAL.EDGE_GLOW_ALPHA * 0.48);
+      g.fillRoundedRect(-44, -44, w + 88, h + 88, 34);
+
+      g.lineStyle(12, edge, SPACE_VISUAL.EDGE_GLOW_ALPHA * (endgame ? 1.1 : 1));
+      g.strokeRoundedRect(-13, -13, w + 26, h + 26, 24);
+      g.lineStyle(3, inner, endgame ? 0.26 : 0.22);
+      g.strokeRoundedRect(4, 4, w - 8, h - 8, 18);
+
+      const notch = 28;
+      const pad = 22;
+      g.lineStyle(2.5, 0xf1e8ff, endgame ? 0.22 : 0.17);
+      g.beginPath();
+      g.moveTo(pad, pad + notch); g.lineTo(pad, pad); g.lineTo(pad + notch, pad);
+      g.moveTo(w - pad - notch, pad); g.lineTo(w - pad, pad); g.lineTo(w - pad, pad + notch);
+      g.moveTo(w - pad, h - pad - notch); g.lineTo(w - pad, h - pad); g.lineTo(w - pad - notch, h - pad);
+      g.moveTo(pad + notch, h - pad); g.lineTo(pad, h - pad); g.lineTo(pad, h - pad - notch);
+      g.strokePath();
+    }
+
     rebuildGrassLayer() {
       if (this.grassLayer) {
         this.grassLayer.destroy();
@@ -4124,7 +4266,8 @@
 
       this.grassLayer = g;
       const endgame = !!this.floorEndgameActive;
-      g.fillStyle(endgame ? 0x120611 : 0x070913, 1);
+      this.drawFloatingArenaBase(g, endgame);
+      g.fillStyle(endgame ? 0x120611 : 0x070913, 0.93);
       g.fillRect(0, 0, this.map.width, this.map.height);
       if (endgame) {
         // Endgame floor: darker, warmer, and cracked so completed rifts read instantly
@@ -4150,8 +4293,6 @@
           g.fillCircle(x, y, r);
         }
       } else {
-        g.fillStyle(0x070913, 1);
-        g.fillRect(0, 0, this.map.width, this.map.height);
         this.drawStaticArenaGrid(g, 0, 0, this.map.width, this.map.height, this.map.tile || 72, 0x172541, 0.32);
         this.drawStaticArenaGrid(g, 0, 0, this.map.width, this.map.height, (this.map.tile || 72) * 4, 0x315082, 0.18);
       }
@@ -6793,6 +6934,7 @@
       this.updateActorDisplays(dt);
       this.updateImmersion(dt);
       this.updateCamera(dt);
+      this.syncSpaceBackdrop(time);
       const overviewNow = this.isSpectatorOverviewMode();
       if (overviewNow !== this.lastSpectatorOverviewMode) {
         this.lastSpectatorOverviewMode = overviewNow;

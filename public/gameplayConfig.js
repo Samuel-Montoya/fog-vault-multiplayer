@@ -241,7 +241,7 @@ const GAMEPLAY_CONFIG = {
     kickTime: 1.0,
     kickRegression: 0.10,
     escapeTime: 4.0,
-    dotsPerRift: 5,
+    dotsPerRift: 25,
     depositDistance: 96,
     depositSecondsPerOrb: 0.5,
     maxDepositChain: 25
@@ -258,7 +258,7 @@ const GAMEPLAY_CONFIG = {
   },
 
   orbs: {
-    survivorMax: 30,
+    survivorMax: 25,
     voidMax: 999,
     survivorDropOnHitPercent: 1.0,
     survivorPickupRadius: 48,
