@@ -51,6 +51,44 @@ function abilityIconSrc(ability) {
     || getPerkIconSrc(ability?.shortName)
 }
 
+function abilityStatusMeta(ability) {
+  if (!ability) return { label: "", tone: "muted", detail: "" }
+  if (ability.cancel) return { label: "Close", tone: "muted", detail: "Release Q to close the wheel." }
+  if (ability.locked) return { label: "Locked", tone: "locked", detail: "Unlock this perk in the Perks screen before using it in a match." }
+
+  const cooldownRemaining = Math.max(0, Number(ability.cooldownRemaining || 0))
+  if (cooldownRemaining > 0) {
+    const seconds = Math.ceil(cooldownRemaining)
+    return {
+      label: `${seconds}s`,
+      tone: "cooldown",
+      detail: `Cooling down for ${seconds}s.`
+    }
+  }
+
+  if (ability.active) {
+    return {
+      label: "Active",
+      tone: "active",
+      detail: ability.duration > 0 ? `Active for about ${Math.ceil(ability.duration)}s.` : "Already active."
+    }
+  }
+
+  if (ability.available === false) {
+    return {
+      label: `Need ${ability.cost}`,
+      tone: "warning",
+      detail: `Needs ${ability.cost} orbs to use.`
+    }
+  }
+
+  return {
+    label: `${ability.cost} orbs`,
+    tone: "ready",
+    detail: `Ready to use for ${ability.cost} orbs.`
+  }
+}
+
 export function AbilityWheel() {
   const [wheel, setWheel] = useState({
     open: false,
@@ -143,6 +181,12 @@ export function AbilityWheel() {
     }
   }, [])
 
+  const selectedAbility = wheel.selected >= 0
+    ? (wheel.abilities[wheel.selected] || abilityFallbackForRole(wheel.role)[wheel.selected])
+    : null
+  const selectedMeta = abilityStatusMeta(selectedAbility)
+  const selectedIconSrc = selectedAbility && !selectedAbility.cancel ? abilityIconSrc(selectedAbility) : ""
+
   return (
     <div className={`ability-wheel-overlay ${wheel.open ? "is-open" : ""} is-${wheel.role === "survivor" ? "runner" : "void"}`} aria-hidden={!wheel.open}>
       <div className="ability-wheel-backdrop" />
@@ -158,31 +202,48 @@ export function AbilityWheel() {
           const selected = wheel.selected === segment.index
           const cancel = !!ability.cancel
           const ready = cancel || ability.available !== false
-          const cooldownRemaining = Math.max(0, Number(ability.cooldownRemaining || 0))
-          const costLabel = ability.locked ? "LOCKED" : cooldownRemaining > 0 ? `${Math.ceil(cooldownRemaining)}s CD` : `${ability.cost} orbs`
+          const meta = abilityStatusMeta(ability)
           const iconSrc = cancel ? "" : abilityIconSrc(ability)
           return (
             <div
               className={`ability-wheel-segment ability-wheel-${segment.className} ${selected ? "selected" : ""} ${ready ? "can-use" : "locked"} ${ability.active ? "is-active" : ""} ${cancel ? "is-cancel" : ""} accent-${ability.accent || "purple"}`}
               role="menuitem"
-              aria-label={cancel ? "Cancel ability wheel" : `${ability.name}, ${costLabel}`}
+              aria-label={cancel ? "Cancel ability wheel" : `${ability.name}, ${meta.label}`}
               key={`${wheel.role}-${ability.id}-${segment.index}`}
             >
-              {iconSrc && (
-                <img
-                  className="ability-icon-image"
-                  src={iconSrc}
-                  alt=""
-                  aria-hidden="true"
-                  draggable="false"
-                />
-              )}
-              <span className="ability-name">{ability.shortName || ability.name}</span>
-              {!cancel && <span className="ability-cost">{costLabel}</span>}
-              <small>{ability.summary}</small>
+              <div className="ability-wheel-segment-main">
+                {iconSrc ? (
+                  <img
+                    className="ability-icon-image"
+                    src={iconSrc}
+                    alt=""
+                    aria-hidden="true"
+                    draggable="false"
+                  />
+                ) : (
+                  <div className="ability-icon-fallback" aria-hidden="true">✕</div>
+                )}
+                <span className="ability-name">{ability.shortName || ability.name}</span>
+              </div>
+              <span className={`ability-status-pill tone-${meta.tone}`}>{meta.label}</span>
             </div>
           )
         })}
+        <div className={`ability-wheel-detail ${selectedAbility ? "has-selection" : ""}`} aria-live="polite">
+          <div className="ability-wheel-detail-head">
+            {selectedIconSrc ? (
+              <img className="ability-wheel-detail-icon" src={selectedIconSrc} alt="" aria-hidden="true" draggable="false" />
+            ) : (
+              <div className="ability-wheel-detail-icon ability-wheel-detail-icon-fallback" aria-hidden="true">Q</div>
+            )}
+            <div className="ability-wheel-detail-text">
+              <span className="ability-wheel-detail-name">{selectedAbility ? selectedAbility.name : wheel.title}</span>
+              <span className="ability-wheel-detail-summary">{selectedAbility ? (selectedMeta.detail || selectedAbility.summary) : "Hold Q, drag toward an ability, then release Q to use it."}</span>
+            </div>
+            {selectedAbility && <span className={`ability-wheel-detail-meta tone-${selectedMeta.tone}`}>{selectedMeta.label}</span>}
+          </div>
+          <div className="ability-wheel-hint">Hold <b>Q</b> · aim with mouse · release to confirm</div>
+        </div>
       </div>
     </div>
   )

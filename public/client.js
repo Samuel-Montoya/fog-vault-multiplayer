@@ -1232,6 +1232,30 @@
     }, heavy ? 640 : 460);
   }
 
+  function resetHorrorFxVisualState() {
+    fxState.redChase = 0;
+    fxState.tunnel = 0;
+    fxState.blood = 0;
+    fxState.lastDomKey = "";
+
+    const horrorFx = ui.horrorFx || document.getElementById("horrorFx");
+    if (horrorFx) {
+      horrorFx.style.setProperty("--terror", "0");
+      horrorFx.style.setProperty("--chase", "0");
+      horrorFx.style.setProperty("--red-chase", "0");
+      horrorFx.style.setProperty("--blood", "0");
+      horrorFx.style.setProperty("--void-stun", "0");
+      horrorFx.style.setProperty("--tunnel", "0");
+    }
+
+    document.body.classList.remove(
+      "is-looking-at-killer",
+      "is-injured",
+      "survivor-hit-impact",
+      "survivor-hit-heavy"
+    );
+  }
+
   let socket = null;
   let myId = null;
   let selectedRole = "survivor";
@@ -1387,11 +1411,16 @@
     const roleKey = normalizePerkRole(role || actor?.role);
     if (actor?.isBot) return Math.max(1, Math.floor(Number(SHARED_PERKS.botLevel || SHARED_PERKS.maxLevel || 4)));
     const perks = actor?.perkLevels || actor?.perks || {};
+    const accountPerks = actor?.id === myId ? (currentAccount?.perks || {}) : {};
     const sources = [
       perks[roleKey],
       roleKey === "killer" ? perks.void : perks.runner,
       perks.all,
-      perks
+      perks,
+      accountPerks[roleKey],
+      roleKey === "killer" ? accountPerks.void : accountPerks.runner,
+      accountPerks.all,
+      accountPerks
     ].filter(Boolean);
     for (const source of sources) {
       const value = Number(source?.[id] || 0);
@@ -1608,10 +1637,19 @@
     renderPerkShop();
   }
 
+  function syncLocalActorPerksFromAccount() {
+    if (!myId || !currentAccount?.perks || !currentSnapshot?.actors) return;
+    const localActor = currentSnapshot.actors.find((actor) => actor?.id === myId);
+    if (localActor && (localActor.role === "killer" || localActor.role === "survivor")) {
+      localActor.perkLevels = currentAccount.perks;
+    }
+  }
+
   function applyAccountPayload(payload = {}) {
     if (Array.isArray(payload.skins)) shopSkins = payload.skins;
     if (Array.isArray(payload.perks)) shopPerks = payload.perks;
     currentAccount = payload.account || null;
+    syncLocalActorPerksFromAccount();
     syncAccountUi();
     if (payload.reward?.orbsDeposited) {
       const rewardLabel = String(payload.reward.label || "deposited orbs");
@@ -2063,7 +2101,8 @@
     ui.horrorFx?.classList.toggle("hidden", name !== "game");
     if (name !== "game") {
       clearTimeout(survivorHitImpactTimer);
-      document.body.classList.remove("survivor-hit-impact", "survivor-hit-heavy");
+      resetHorrorFxVisualState();
+      phaserScene?.resetArenaFloorVisuals?.();
     }
     if (name !== "game") {
       dispatchAbilityHuds(null);
@@ -4168,6 +4207,7 @@
 
     loadMap(map) {
       this.map = map;
+      this.floorEndgameActive = false;
       // Let the camera center on the local player even near map edges.
       // Showing a little outside the map is better than letting the player stick to a screen edge.
       this.cameras.main.setBounds(-100000, -100000, map.width + 200000, map.height + 200000);
@@ -4192,7 +4232,14 @@
       this.spectateTargetId = null;
       this.lastSpectateEmitId = "";
       this.introCameraPrimed = false;
+    }
+
+    resetArenaFloorVisuals() {
       this.floorEndgameActive = false;
+      if (!this.map) return;
+      this.rebuildGrassLayer();
+      this.needsDynamicRedraw = true;
+      this.lastDynamicKey = "";
     }
 
     rebuildOutOfBoundsBackdrop() {
@@ -9027,6 +9074,7 @@
       currentSnapshot = null;
       personalRunResult = null;
       finalMatchResult = null;
+      resetHorrorFxVisualState();
       updateMatchPauseOverlay(null);
       let lockSeconds = Number(map?.startFreezeSeconds || IMMERSION.MATCH_START_LOCK_SECONDS || 1.5);
       if (!Number.isFinite(lockSeconds) || lockSeconds < 0) lockSeconds = IMMERSION.MATCH_START_LOCK_SECONDS || 1.5;
@@ -9100,12 +9148,9 @@
       if (phaserScene) {
         phaserScene.spectateTargetId = null;
         phaserScene.lastSpectateEmitId = "";
-        if (phaserScene.floorEndgameActive) {
-          phaserScene.floorEndgameActive = false;
-          phaserScene.rebuildGrassLayer?.();
-          phaserScene.needsDynamicRedraw = true;
-        }
+        phaserScene.resetArenaFloorVisuals?.();
       }
+      resetHorrorFxVisualState();
       setMusicTargets({ layer1: 0, layer2: 0, layer3: 0 });
       showFinalMatchScreen(finalMatchResult);
     });

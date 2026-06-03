@@ -75,6 +75,36 @@ function registerSocketHandlers(context) {
     return accountService.sanitizeOwnedSkin(socket.data.account, roleKey, sanitized);
   }
 
+  async function refreshLobbyAccountState(lobby) {
+    if (!lobby || !accountService?.authAvailable?.()) return;
+    const tasks = [];
+
+    for (const player of lobby.players.values()) {
+      if (!player || player.isBot || player.role === "spectator") continue;
+      const playerSocket = io.sockets?.sockets?.get?.(player.id);
+      if (!playerSocket) continue;
+
+      tasks.push(loadSocketAccount(playerSocket).then((account) => {
+        player.accountId = account?.id || null;
+        player.perkLevels = account?.perks || null;
+        player.skin = skinForSocket(playerSocket, player.role, player.skin);
+
+        const liveActor = lobby.game?.actors?.get?.(player.id);
+        if (liveActor && !liveActor.isBot) {
+          liveActor.accountId = player.accountId;
+          liveActor.perkLevels = player.perkLevels;
+          liveActor.skin = player.skin;
+        }
+
+        playerSocket.emit("accountState", accountPayload(account));
+      }).catch((error) => {
+        console.warn("[auth] lobby account refresh failed", player.id, error.message || error);
+      }));
+    }
+
+    await Promise.all(tasks);
+  }
+
   io.use((socket, next) => {
     loadSocketAccount(socket).then(() => next()).catch((error) => {
       console.warn("[auth] socket account load failed", error.message || error);
@@ -265,10 +295,12 @@ function registerSocketHandlers(context) {
       broadcastLobbyList();
     });
 
-    socket.on("startGame", () => {
+    socket.on("startGame", async () => {
       if (!allowSocketEvent(socket, "lobby")) return;
       const lobby = lobbies.get(socketToLobby.get(socket.id));
-      if (!lobby) return;
+      if (!lobby || lobby.phase !== "lobby") return;
+      await refreshLobbyAccountState(lobby);
+      if (lobby.phase !== "lobby") return;
       startGame(lobby);
     });
 
