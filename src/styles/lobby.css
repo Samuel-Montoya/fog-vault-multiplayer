@@ -1169,10 +1169,10 @@
 }
 
 #readyBtn.ready-action[data-ready-state="ready"] {
-  color: #052e16;
-  border-color: rgba(134, 239, 172, 0.72);
-  background: linear-gradient(135deg, #86efac, #22c55e);
-  box-shadow: 0 16px 34px rgba(34, 197, 94, 0.20);
+  color: #eff6ff;
+  border-color: rgba(96, 165, 250, 0.76);
+  background: linear-gradient(135deg, #3b82f6, #0ea5e9);
+  box-shadow: 0 16px 34px rgba(59, 130, 246, 0.22);
 }
 
 #readyBtn.ready-action[data-ready-state="unready"] {
@@ -1200,12 +1200,25 @@
 
 #readyBtn.ready-action[data-ready-state="ready"]:hover,
 #readyBtn.ready-action[data-ready-state="ready"]:focus-visible {
-  background: linear-gradient(135deg, #bbf7d0, #22c55e);
+  background: linear-gradient(135deg, #60a5fa, #0284c7);
 }
 
 #readyBtn.ready-action[data-ready-state="unready"]:hover,
 #readyBtn.ready-action[data-ready-state="unready"]:focus-visible {
   background: linear-gradient(135deg, #fef08a, #f59e0b);
+}
+
+#lobbyScreen #startBtn:not(:disabled) {
+  color: #052e16;
+  border-color: rgba(134, 239, 172, 0.78);
+  background: linear-gradient(135deg, #86efac, #22c55e);
+  box-shadow: 0 16px 34px rgba(34, 197, 94, 0.22);
+}
+
+#lobbyScreen #startBtn:not(:disabled):hover,
+#lobbyScreen #startBtn:not(:disabled):focus-visible {
+  border-color: rgba(187, 247, 208, 0.90);
+  background: linear-gradient(135deg, #bbf7d0, #22c55e);
 }
 
 .ability-wheel-segment.is-cancel {
