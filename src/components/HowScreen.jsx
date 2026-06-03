@@ -41,21 +41,21 @@ const ROLE_GUIDES = [
     role: "void",
     iconSrc: "/images/void.png",
     title: "The Void",
-    subtitle: "Hunt • Hook • Consume",
+    subtitle: "Hunt • Bind • Consume",
     summary: "Track down the Runners, steal the orbs they are carrying, and stop the escape. The Void wins by consuming as many Runners as possible before the final Rifts are finished.",
     controls: [
       "WASD — Move",
       "Mouse — Look around",
       "Space — Vault",
       "Press or Hold M1 — Attack",
-      "Hold E — Hook / consume Runners",
+      "Hold E — Bind / consume Runners",
       "Hold Q — Use your unlocked abilities",
       "Hold R — Open the speed chat wheel"
     ],
     objectives: [
       "Hit Runners to consume the orbs they are carrying",
       "Consumed orbs go into your bank and are awarded after the match",
-      "Hook and consume Runners before they complete all Rifts",
+      "Bind and consume Runners before they complete all Rifts",
       "Pressure active Rifts and force Runners out of safe routes",
       "Stop as many Runners as possible from escaping"
     ],

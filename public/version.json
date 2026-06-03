@@ -1,17 +1,17 @@
 {
   "latest": {
     "version": "0.1.66",
-    "title": "Teammate-Aware Hook Spawns",
-    "summary": "Hook spawns now favor rescueable spots near active teammates while staying far from The Void",
-    "description": "Reworked hook placement so newly hooked Runners are placed on valid floor tiles near an active teammate who can rescue, while the scorer still chooses the safest available candidate far from The Void. Hook candidates now reject pallets, windows, objectives, existing hooks, collision spots, and cramped edge/corner locations, with fallback behavior for lone survivors or dead/downed teams.",
+    "title": "Teammate-Aware Bind Spawns",
+    "summary": "Bind spawns now favor rescueable spots near active teammates while staying far from The Void",
+    "description": "Reworked bind placement so newly bound Runners are placed on valid floor tiles near an active teammate who can rescue, while the scorer still chooses the safest available candidate far from The Void. Bind candidates now reject pallets, windows, objectives, existing binds, collision spots, and cramped edge/corner locations, with fallback behavior for lone survivors or dead/downed teams.",
     "date": "2026-05-23"
   },
   "history": [
     {
       "version": "0.1.66",
-      "title": "Teammate-Aware Hook Spawns",
-      "summary": "Hook spawns now favor rescueable spots near active teammates while staying far from The Void",
-      "description": "Reworked hook placement so newly hooked Runners are placed on valid floor tiles near an active teammate who can rescue, while the scorer still chooses the safest available candidate far from The Void. Hook candidates now reject pallets, windows, objectives, existing hooks, collision spots, and cramped edge/corner locations, with fallback behavior for lone survivors or dead/downed teams.",
+      "title": "Teammate-Aware Bind Spawns",
+      "summary": "Bind spawns now favor rescueable spots near active teammates while staying far from The Void",
+      "description": "Reworked bind placement so newly bound Runners are placed on valid floor tiles near an active teammate who can rescue, while the scorer still chooses the safest available candidate far from The Void. Bind candidates now reject pallets, windows, objectives, existing binds, collision spots, and cramped edge/corner locations, with fallback behavior for lone survivors or dead/downed teams.",
       "date": "2026-05-23"
     },
     {
@@ -39,7 +39,7 @@
       "version": "0.1.62",
       "title": "Spectator Overview Camera",
       "summary": "Spectators can Tab into a full-map overview with everything revealed",
-      "description": "Added a dedicated spectator Overview target after cycling through all live players with Tab. Overview mode centers the camera on the full map, computes a fit-to-screen zoom with configurable padding, reveals all actors, walls, hooks, rifts, dots, and scratch marks, and keeps normal player-target spectating unchanged for Runners and The Void.",
+      "description": "Added a dedicated spectator Overview target after cycling through all live players with Tab. Overview mode centers the camera on the full map, computes a fit-to-screen zoom with configurable padding, reveals all actors, walls, bind points, rifts, dots, and scratch marks, and keeps normal player-target spectating unchanged for Runners and The Void.",
       "date": "2026-05-23"
     },
     {
@@ -116,14 +116,14 @@
       "version": "0.1.51",
       "title": "Ability Wheel and Camera Smoothing",
       "summary": "Hourglass moved left, Cancel moved bottom, and camera zoom blends slower",
-      "description": "Reordered the Runner ability wheel so Hourglass sits on the left segment and Cancel sits on the bottom segment, then slowed the camera zoom interpolation and tightened the snap threshold so chase, sprint, action, hook, and ability zoom changes feel smoother instead of jarring.",
+      "description": "Reordered the Runner ability wheel so Hourglass sits on the left segment and Cancel sits on the bottom segment, then slowed the camera zoom interpolation and tightened the snap threshold so chase, sprint, action, bind, and ability zoom changes feel smoother instead of jarring.",
       "date": "2026-05-23"
     },
     {
       "version": "0.1.50",
-      "title": "Hook Camera and Walking Vision Tuning",
-      "summary": "Hooked camera is closer and walking gives Runners a wider cone",
-      "description": "Raised the hooked-unrescued camera zoom from the extreme 0.3 view to a slightly-above-default focused view, added configurable walking-only Runner vision cone multipliers, and mirrored the walking vision math on both client visuals and server visibility so sprinting keeps the base cone while walking grants more awareness.",
+      "title": "Bound Camera and Walking Vision Tuning",
+      "summary": "Bound camera is closer and walking gives Runners a wider cone",
+      "description": "Raised the bound-unrescued camera zoom from the extreme 0.3 view to a slightly-above-default focused view, added configurable walking-only Runner vision cone multipliers, and mirrored the walking vision math on both client visuals and server visibility so sprinting keeps the base cone while walking grants more awareness.",
       "date": "2026-05-23"
     },
     {
@@ -142,9 +142,9 @@
     },
     {
       "version": "0.1.47",
-      "title": "Hooked Camera Zoom Out",
-      "summary": "Hooked Runners zoom out to 0.3 when no rescue is active",
-      "description": "Added a dedicated hooked camera state. When the camera subject is a hooked Runner and unhook progress has not started, the camera uses the configured absolute hookedUnrescuedZoom value of 0.3. Once a rescue begins, normal additive camera rules resume so action and chase modifiers can behave predictably.",
+      "title": "Bound Camera Zoom Out",
+      "summary": "Bound Runners zoom out to 0.3 when no rescue is active",
+      "description": "Added a dedicated bound camera state. When the camera subject is a bound Runner and rescue progress has not started, the camera uses the configured absolute bound-unrescued zoom value of 0.3. Once a rescue begins, normal additive camera rules resume so action and chase modifiers can behave predictably.",
       "date": "2026-05-23"
     },
     {
@@ -298,7 +298,7 @@
       "version": "0.1.25",
       "title": "End Match Stats",
       "summary": "Post-run scorecards for Runners and The Void",
-      "description": "Added server-tracked end-game stats for each Runner and The Void, including orbs collected/deposited, heals, unhooks, escape status, chase time, rift kicks, injures, hooks, deaths, and Void abilities used. The run ended screen now renders a scorecard for every player.",
+      "description": "Added server-tracked end-game stats for each Runner and The Void, including orbs collected/deposited, heals, rescues, escape status, chase time, rift kicks, injures, binds, deaths, and Void abilities used. The run ended screen now renders a scorecard for every player.",
       "date": "2026-05-21"
     },
     {
@@ -333,7 +333,7 @@
       "version": "0.1.20",
       "title": "Shared Chat Polish",
       "summary": "Shared chat lines, full orb drops, and lobby polish",
-      "description": "Added a shared chats.js file used by both the client and server so quick-chat wheel labels match the lines that actually appear in game. Runners now drop all carried orbs when hit, spectating can target hooked runners, the open lobby is vertically centered, lobby skins list top-to-bottom, Void player grouping uses purple styling, and bot button order was swapped.",
+      "description": "Added a shared chats.js file used by both the client and server so quick-chat wheel labels match the lines that actually appear in game. Runners now drop all carried orbs when hit, spectating can target bound Runners, the open lobby is vertically centered, lobby skins list top-to-bottom, Void player grouping uses purple styling, and bot button order was swapped.",
       "date": "2026-05-21"
     },
     {
@@ -347,7 +347,7 @@
       "version": "0.1.18",
       "title": "Runner Polish",
       "summary": "Runners renamed, wider lobby, smoother intro",
-      "description": "Player-facing Rift role wording was renamed to Runners while objective Rifts remain unchanged. The open lobby panel now uses the full available width more reliably, Audio and How to Play copy was cleaned up, The Void instructions mention holding E for hooks and rift kicks, and the match intro now primes the camera and locks movement input until the startup zoom finishes.",
+      "description": "Player-facing Rift role wording was renamed to Runners while objective Rifts remain unchanged. The open lobby panel now uses the full available width more reliably, Audio and How to Play copy was cleaned up, The Void instructions mention holding E for binds and rift kicks, and the match intro now primes the camera and locks movement input until the startup zoom finishes.",
       "date": "2026-05-21"
     },
     {
@@ -361,7 +361,7 @@
       "version": "0.1.16",
       "title": "Run Polish",
       "summary": "Cleaner lobby, HUD, rescues, and audio",
-      "description": "Unhook audio now plays only when the rescue finishes and only for involved players. The open lobby is wider, Settings and How to Play are cleaner, Bot wording is restored, the match HUD keeps only the role card and FPS, speech text is larger, and injured/healing/unhook volumes were reduced.",
+      "description": "Rescue audio now plays only when the rescue finishes and only for involved players. The open lobby is wider, Settings and How to Play are cleaner, Bot wording is restored, the match HUD keeps only the role card and FPS, speech text is larger, and injured/healing/rescue volumes were reduced.",
       "date": "2026-05-21"
     },
     {
@@ -396,7 +396,7 @@
       "version": "0.1.11",
       "title": "Healing Forgiveness",
       "summary": "Interrupted heals decay and rescues get audio",
-      "description": "Healing progress now drains slowly after an interrupted heal instead of snapping to zero when movement breaks the assist, and unhooking now plays a private rescue loop for the rescuer and the hooked survivor only.",
+      "description": "Healing progress now drains slowly after an interrupted heal instead of snapping to zero when movement breaks the assist, and rescue now plays a private rescue loop for the rescuer and the bound survivor only.",
       "date": "2026-05-20"
     },
     {
@@ -451,20 +451,20 @@
     {
       "version": "0.1.3",
       "title": "Pallet Control",
-      "summary": "Cleaner pallet drops and hooked visibility",
-      "description": "Fixed stale pallet action direction so standing still beside an upright pallet drops it instead of moving/vaulting across. Hooked survivors now remain visible to survivor teammates anywhere on the map, independent of cone and line of sight."
+      "summary": "Cleaner pallet drops and bound visibility",
+      "description": "Fixed stale pallet action direction so standing still beside an upright pallet drops it instead of moving/vaulting across. Bound survivors now remain visible to survivor teammates anywhere on the map, independent of cone and line of sight."
     },
     {
       "version": "0.1.2",
       "title": "Auto Rescue",
       "summary": "Proximity healing and rescues",
-      "description": "Survivors now heal and rescue hooked teammates by standing still very close to them instead of holding E. Nearby stationary allies can contribute at the same time, and moving cancels the assist progress."
+      "description": "Survivors now heal and rescue bound teammates by standing still very close to them instead of holding E. Nearby stationary allies can contribute at the same time, and moving cancels the assist progress."
     },
     {
       "version": "0.1.1",
       "title": "Action Bars Restored",
       "summary": "Under-player action bars restored",
-      "description": "Restored scene-level healing, rescue, hook, and execute progress bars underneath players so they stay fixed below actors instead of rotating or disappearing."
+      "description": "Restored scene-level healing, rescue, bind, and execute progress bars underneath players so they stay fixed below actors instead of rotating or disappearing."
     },
     {
       "version": "0.1.0",

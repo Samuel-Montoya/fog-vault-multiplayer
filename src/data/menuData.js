@@ -36,10 +36,10 @@ export const HOW_TO_PLAY = [
   },
   {
     title: "The Void",
-    text: "Track the Runners, charge lunges with M1, break pallets, and hold E to hook downed Runners, execute, or kick active Rifts."
+    text: "Track the Runners, charge lunges with M1, break pallets, and hold E to bind downed Runners, execute, or kick active Rifts."
   },
   {
     title: "Controls",
-    text: "WASD move, mouse aim, Shift sprint, Space vault/drop/break, hold Q for abilities, R quick chat. Stand still near injured or hooked teammates to heal or rescue them."
+    text: "WASD move, mouse aim, Shift sprint, Space vault/drop/break, hold Q for abilities, R quick chat. Stand still near injured or bound teammates to heal or rescue them."
   }
 ]

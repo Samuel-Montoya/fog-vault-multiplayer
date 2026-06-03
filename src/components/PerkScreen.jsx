@@ -24,7 +24,7 @@ const PERK_SECTIONS = [
     shopId: "voidPerkShop",
     iconSrc: "/images/void.png",
     title: "Void perks",
-    subtitle: "Hunt • Hook • Consume",
+    subtitle: "Hunt • Bind • Consume",
     kicker: "Hunting tools"
   }
 ]

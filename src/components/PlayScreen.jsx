@@ -18,7 +18,7 @@ const ROLE_OPTIONS = [
     iconClassName: "void-role-icon",
     icon: "/images/void.png",
     title: "The Void",
-    summary: "Hunt, hook, consume."
+    summary: "Hunt, bind, consume."
   }
 ]
 

@@ -286,10 +286,10 @@ function survivorStateLabel(actor) {
   if (actor.dead) return "Dead"
   if (actor.escaped) return "Escaped"
   if (actor.escapeProgress > 0) return `Escaping ${Math.round((actor.escapeProgress || 0) * 100)}%`
-  if (actor.hooked) return actor.unhookProgress > 0 ? "Being Rescued" : `Hooked ${actor.hookCount || 1}/2`
+  if (actor.hooked) return actor.unhookProgress > 0 ? "Being Rescued" : `Bound ${actor.hookCount || 1}/2`
   if (actor.downed) {
     if (actor.healProgress > 0) return "Being Healed"
-    return actor.hookProgress > 0 ? ((actor.hookCount || 0) >= 2 ? "Being Executed" : "Being Hooked") : "Downed"
+    return actor.hookProgress > 0 ? ((actor.hookCount || 0) >= 2 ? "Being Executed" : "Being Bound") : "Downed"
   }
   if (actor.dotDepositTargetId) return `Depositing ${Math.round((actor.dotDepositProgress || 0) * 100)}%`
   if (actor.health <= 1 || actor.injured) return actor.healProgress > 0 ? "Being Healed" : "Injured"
@@ -313,7 +313,7 @@ function survivorCardClass(actor, myId, spectateTargetId, spectating) {
 function actionLabel(actor) {
   if (actor.dead) return "skull"
   if (actor.escaped) return "out"
-  if (actor.hooked) return actor.unhookProgress > 0 ? "rescue" : "hook"
+  if (actor.hooked) return actor.unhookProgress > 0 ? "rescue" : "bound"
   if (actor.downed) {
     if (actor.healProgress > 0) return "heal"
     return actor.hookProgress > 0 ? ((actor.hookCount || 0) >= 2 ? "execute" : "capture") : "down"
@@ -646,7 +646,7 @@ export function HookEdgeIndicators() {
             top: `${Number(indicator.y) || 0}px`,
             "--hook-angle": `${Number(indicator.angle) || 0}rad`
           }}
-          title={`${indicator.name || "Runner"} is hooked`}
+          title={`${indicator.name || "Runner"} is bound`}
           key={indicator.id}
         >
           <span className="hook-edge-arrow" aria-hidden="true" />

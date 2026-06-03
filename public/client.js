@@ -2165,8 +2165,8 @@
       const name = actorNameFromSnapshot(event.survivorId, "A Runner");
       pushMatchAnnouncement({
         kind: "hook",
-        title: `${name} was hooked`,
-        detail: "The hook is set."
+        title: `${name} was bound`,
+        detail: "They need a rescue."
       });
       return;
     }
@@ -3331,10 +3331,10 @@
     if (actor.dead) return "Dead";
     if (actor.escaped) return "Escaped";
     if (actor.escapeProgress > 0) return `Escaping ${Math.round((actor.escapeProgress || 0) * 100)}%`;
-    if (actor.hooked) return actor.unhookProgress > 0 ? "Being Rescued" : `Hooked ${actor.hookCount || 1}/2`;
+    if (actor.hooked) return actor.unhookProgress > 0 ? "Being Rescued" : `Bound ${actor.hookCount || 1}/2`;
     if (actor.downed) {
       if (actor.healProgress > 0) return "Being Healed";
-      return actor.hookProgress > 0 ? ((actor.hookCount || 0) >= 2 ? "Being Executed" : "Being Hooked") : "Downed";
+      return actor.hookProgress > 0 ? ((actor.hookCount || 0) >= 2 ? "Being Executed" : "Being Bound") : "Downed";
     }
     if (actor.dotDepositTargetId) return `Depositing ${Math.round((actor.dotDepositProgress || 0) * 100)}%`;
     if (actor.health <= 1 || actor.injured) return actor.healProgress > 0 ? "Being Healed" : "Injured";
@@ -3358,7 +3358,7 @@
   function actionLabel(actor) {
     if (actor.dead) return "skull";
     if (actor.escaped) return "out";
-    if (actor.hooked) return actor.unhookProgress > 0 ? "rescue" : "hook";
+    if (actor.hooked) return actor.unhookProgress > 0 ? "rescue" : "bound";
     if (actor.downed) {
       if (actor.healProgress > 0) return "heal";
       return actor.hookProgress > 0 ? ((actor.hookCount || 0) >= 2 ? "execute" : "capture") : "down";
@@ -5038,7 +5038,7 @@
       ui.hud.dataset.role = hudRole;
       ui.roleLabel.textContent = hudRole === "killer" ? "The Void" : hudRole === "spectator" ? "Spectator" : "Runner";
       ui.controlsLabel.textContent = hudRole === "killer"
-        ? "WASD move • Mouse aim • M1 attack/lunge • Space vault/break • hold E hook/execute/kick Rift • hold Q abilities • hold R chat"
+        ? "WASD move • Mouse aim • M1 attack/lunge • Space vault/break • hold E bind/execute/kick Rift • hold Q abilities • hold R chat"
         : hudRole === "spectator"
           ? "Tab / Shift+Tab — switch camera • overview after players"
           : "WASD move • Shift sprint • Mouse flashlight • Space vault/drop • hold Q abilities • collect orbs, stand near active Rifts to deposit • stand still near teammates to heal/rescue • hold R chat";
@@ -5055,10 +5055,10 @@
           ui.healthText.textContent = `Stunned ${Math.ceil(me.voidStun || 0)}s`;
         } else if (hookingTarget) {
           const executing = me.hookActionType === "execute" || (hookingTarget.hookCount || 0) >= 2;
-          ui.healthText.textContent = `${executing ? "Executing" : "Hooking"} ${hookingTarget.name || "runner"} ${Math.round((hookingTarget.hookProgress || 0) * 100)}%`;
+          ui.healthText.textContent = `${executing ? "Executing" : "Binding"} ${hookingTarget.name || "runner"} ${Math.round((hookingTarget.hookProgress || 0) * 100)}%`;
         } else if (readyTarget) {
           const executeReady = (readyTarget.hookCount || 0) >= 2;
-          ui.healthText.textContent = `Hold E: ${executeReady ? "Execute" : "hook"} ${readyTarget.name || "Runner"}`;
+          ui.healthText.textContent = `Hold E: ${executeReady ? "Execute" : "bind"} ${readyTarget.name || "Runner"}`;
         } else if (me.generatorKickTargetId) {
           ui.healthText.textContent = `Kicking rift ${Math.round((me.generatorKickProgress || 0) * 100)}%`;
         } else {
@@ -8219,7 +8219,7 @@
           : actor.dead
             ? "Dead"
             : actor.hooked
-              ? "Hooked"
+              ? "Bound"
               : actor.downed
                 ? "Downed"
                 : "Lost";
@@ -8229,7 +8229,7 @@
             statItem("Orbs collected", stats.orbsCollected || 0),
             statItem("Orbs stolen", stats.orbsStolen || 0),
             statItem("Injures", stats.injures || 0),
-            statItem("Hooks", stats.hooks || 0),
+            statItem("Binds", stats.hooks || 0),
             statItem("Runners consumed", stats.deaths || 0),
             statItem("Abilities used", stats.abilitiesUsed || 0)
           ].join("")
@@ -8238,7 +8238,7 @@
             statItem("Orbs deposited", stats.orbsDeposited || 0),
             statItem("Void stuns", stats.voidStuns || 0),
             statItem("Heals", stats.teammatesHealed || 0),
-            statItem("Unhooks", stats.unhooks || 0),
+            statItem("Rescues", stats.unhooks || 0),
             statItem("Escaped", (stats.escaped || actor.escaped) ? "Yes" : "No"),
             statItem("Chase total", formatStatSeconds(stats.chaseSeconds)),
             statItem("Longest chase", formatStatSeconds(stats.longestChase))

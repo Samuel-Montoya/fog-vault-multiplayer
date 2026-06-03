@@ -14,7 +14,7 @@ const FALLBACK_VOID_STATS = [
   "Orbs Collected",
   "Orbs Stolen",
   "Injuries",
-  "Hooks",
+  "Binds",
   "Runners Consumed",
   "Abilities Used"
 ]
@@ -24,7 +24,7 @@ const FALLBACK_RUNNER_STATS = [
   "Orbs Deposited",
   "Void Stuns",
   "Heals",
-  "Unhooks",
+  "Rescues",
   "Escaped",
   "Chase Total",
   "Longest Chase"
