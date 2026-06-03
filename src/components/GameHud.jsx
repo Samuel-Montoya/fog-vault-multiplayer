@@ -181,12 +181,6 @@ export function AbilityWheel() {
     }
   }, [])
 
-  const selectedAbility = wheel.selected >= 0
-    ? (wheel.abilities[wheel.selected] || abilityFallbackForRole(wheel.role)[wheel.selected])
-    : null
-  const selectedMeta = abilityStatusMeta(selectedAbility)
-  const selectedIconSrc = selectedAbility && !selectedAbility.cancel ? abilityIconSrc(selectedAbility) : ""
-
   return (
     <div className={`ability-wheel-overlay ${wheel.open ? "is-open" : ""} is-${wheel.role === "survivor" ? "runner" : "void"}`} aria-hidden={!wheel.open}>
       <div className="ability-wheel-backdrop" />
@@ -229,21 +223,6 @@ export function AbilityWheel() {
             </div>
           )
         })}
-        <div className={`ability-wheel-detail ${selectedAbility ? "has-selection" : ""}`} aria-live="polite">
-          <div className="ability-wheel-detail-head">
-            {selectedIconSrc ? (
-              <img className="ability-wheel-detail-icon" src={selectedIconSrc} alt="" aria-hidden="true" draggable="false" />
-            ) : (
-              <div className="ability-wheel-detail-icon ability-wheel-detail-icon-fallback" aria-hidden="true">Q</div>
-            )}
-            <div className="ability-wheel-detail-text">
-              <span className="ability-wheel-detail-name">{selectedAbility ? selectedAbility.name : wheel.title}</span>
-              <span className="ability-wheel-detail-summary">{selectedAbility ? (selectedMeta.detail || selectedAbility.summary) : "Hold Q, drag toward an ability, then release Q to use it."}</span>
-            </div>
-            {selectedAbility && <span className={`ability-wheel-detail-meta tone-${selectedMeta.tone}`}>{selectedMeta.label}</span>}
-          </div>
-          <div className="ability-wheel-hint">Hold <b>Q</b> · aim with mouse · release to confirm</div>
-        </div>
       </div>
     </div>
   )

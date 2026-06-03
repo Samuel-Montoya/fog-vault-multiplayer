@@ -9,6 +9,7 @@ const LEGACY_SCRIPT_CHAIN = [
   "/chats.js",
   "/perkConfig.js",
   "/abilities.js",
+  "/levelConfig.js",
   "/client.js"
 ]
 

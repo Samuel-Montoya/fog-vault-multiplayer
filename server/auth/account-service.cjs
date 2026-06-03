@@ -4,6 +4,12 @@ const { query, withTransaction, isDatabaseReady } = require("../db/pool.cjs");
 const skinCatalog = require("../economy/skin-catalog.cjs");
 const { loadPublicScriptGlobal } = require("../config/load-public-script.cjs");
 const perkCatalog = loadPublicScriptGlobal(path.resolve(__dirname, "../.."), "public/perkConfig.js", "RIFTRUNNER_PERK_CONFIG");
+const levelConfig = loadPublicScriptGlobal(path.resolve(__dirname, "../.."), "public/levelConfig.js", "RIFTRUNNER_LEVEL_CONFIG");
+const {
+  applyXpToTrack,
+  rowToProgression,
+  xpNeededForLevel
+} = require("../progression/leveling.cjs");
 
 let bcrypt = null;
 let jwt = null;
@@ -53,6 +59,89 @@ function assertPassword(password) {
   const value = String(password || "");
   if (value.length < 6 || value.length > 72) throw new Error("Password must be 6-72 characters.");
   return value;
+}
+
+let progressionSchemaPromise = null;
+
+function progressionColumnSql() {
+  return `
+    ALTER TABLE accounts
+      ADD COLUMN IF NOT EXISTS account_level INTEGER NOT NULL DEFAULT 1 CHECK (account_level >= 1),
+      ADD COLUMN IF NOT EXISTS account_xp INTEGER NOT NULL DEFAULT 0 CHECK (account_xp >= 0),
+      ADD COLUMN IF NOT EXISTS account_total_xp INTEGER NOT NULL DEFAULT 0 CHECK (account_total_xp >= 0),
+      ADD COLUMN IF NOT EXISTS runner_level INTEGER NOT NULL DEFAULT 1 CHECK (runner_level >= 1),
+      ADD COLUMN IF NOT EXISTS runner_xp INTEGER NOT NULL DEFAULT 0 CHECK (runner_xp >= 0),
+      ADD COLUMN IF NOT EXISTS runner_total_xp INTEGER NOT NULL DEFAULT 0 CHECK (runner_total_xp >= 0),
+      ADD COLUMN IF NOT EXISTS void_level INTEGER NOT NULL DEFAULT 1 CHECK (void_level >= 1),
+      ADD COLUMN IF NOT EXISTS void_xp INTEGER NOT NULL DEFAULT 0 CHECK (void_xp >= 0),
+      ADD COLUMN IF NOT EXISTS void_total_xp INTEGER NOT NULL DEFAULT 0 CHECK (void_total_xp >= 0);
+
+    CREATE TABLE IF NOT EXISTS match_progression_awards (
+      id BIGSERIAL PRIMARY KEY,
+      account_id UUID REFERENCES accounts(id) ON DELETE SET NULL,
+      lobby_id TEXT NOT NULL,
+      match_id TEXT NOT NULL,
+      player_id TEXT NOT NULL,
+      player_name TEXT NOT NULL,
+      player_role TEXT NOT NULL CHECK (player_role IN ('runner', 'void')),
+      reason TEXT NOT NULL DEFAULT 'match',
+      match_seconds NUMERIC NOT NULL DEFAULT 0,
+      base_score INTEGER NOT NULL DEFAULT 0 CHECK (base_score >= 0),
+      match_score INTEGER NOT NULL DEFAULT 0 CHECK (match_score >= 0),
+      account_xp INTEGER NOT NULL DEFAULT 0 CHECK (account_xp >= 0),
+      role_xp INTEGER NOT NULL DEFAULT 0 CHECK (role_xp >= 0),
+      orbs_deposited INTEGER NOT NULL DEFAULT 0 CHECK (orbs_deposited >= 0),
+      level_reward_orbs INTEGER NOT NULL DEFAULT 0 CHECK (level_reward_orbs >= 0),
+      breakdown JSONB NOT NULL DEFAULT '[]'::jsonb,
+      progression_result JSONB NOT NULL DEFAULT '{}'::jsonb,
+      awarded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (match_id, player_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_match_progression_awards_account_id ON match_progression_awards (account_id);
+    CREATE INDEX IF NOT EXISTS idx_match_progression_awards_match_id ON match_progression_awards (match_id);
+  `;
+}
+
+async function ensureProgressionSchema() {
+  if (!isDatabaseReady()) return;
+  if (!progressionSchemaPromise) {
+    progressionSchemaPromise = query(progressionColumnSql()).catch((error) => {
+      progressionSchemaPromise = null;
+      throw error;
+    });
+  }
+  await progressionSchemaPromise;
+}
+
+function progressionStateFromAccountRow(row) {
+  return rowToProgression(row || {}, levelConfig);
+}
+
+function progressionTrackState(row, track) {
+  const key = track === "void" ? "void" : track === "runner" ? "runner" : "account";
+  return {
+    level: Number(row?.[`${key}_level`] || 1),
+    xp: Number(row?.[`${key}_xp`] || 0),
+    totalXp: Number(row?.[`${key}_total_xp`] || 0)
+  };
+}
+
+function summarizeProgressionAward({ accountAward, roleAward, role, score, baseScore, orbsDeposited, levelRewardOrbs, breakdown, matchSeconds }) {
+  return {
+    score: Math.max(0, Math.floor(Number(score || 0))),
+    baseScore: Math.max(0, Math.floor(Number(baseScore || 0))),
+    accountXp: Math.max(0, Math.floor(Number(accountAward?.xpGained || 0))),
+    roleXp: Math.max(0, Math.floor(Number(roleAward?.xpGained || 0))),
+    role,
+    matchSeconds: Math.max(0, Number(matchSeconds || 0)),
+    orbsDeposited: Math.max(0, Math.floor(Number(orbsDeposited || 0))),
+    levelRewardOrbs: Math.max(0, Math.floor(Number(levelRewardOrbs || 0))),
+    totalOrbReward: Math.max(0, Math.floor(Number(orbsDeposited || 0))) + Math.max(0, Math.floor(Number(levelRewardOrbs || 0))),
+    account: accountAward,
+    roleTrack: roleAward,
+    breakdown: Array.isArray(breakdown) ? breakdown : []
+  };
 }
 
 
@@ -162,6 +251,7 @@ function tokenFromRequest(req) {
 
 function rowToAccount(row) {
   if (!row) return null;
+  const progression = progressionStateFromAccountRow(row);
   return {
     id: row.id,
     username: row.username,
@@ -169,6 +259,10 @@ function rowToAccount(row) {
     isGuest: !!row.is_guest,
     orbBalance: Math.max(0, Number(row.orb_balance || 0)),
     totalOrbsDeposited: Math.max(0, Number(row.total_orbs_deposited || 0)),
+    progression,
+    level: progression.account.level,
+    runnerLevel: progression.runner.level,
+    voidLevel: progression.void.level,
     createdAt: row.created_at
   };
 }
@@ -221,6 +315,7 @@ async function getOwnedPerks(accountId, client = null) {
 
 async function accountSummary(accountId) {
   assertAuthReady();
+  await ensureProgressionSchema();
   const result = await query(`SELECT * FROM accounts WHERE id = $1`, [accountId]);
   const account = rowToAccount(result.rows[0]);
   if (!account) return null;
@@ -406,6 +501,7 @@ function sanitizeOwnedSkin(account, role, skinId) {
 
 async function awardMatchOrbs({ accountId, lobbyId, matchId, playerId, playerName, orbsDeposited }) {
   assertAuthReady();
+  await ensureProgressionSchema();
   const amount = Math.max(0, Math.floor(Number(orbsDeposited) || 0));
   if (!accountId || amount <= 0) return null;
 
@@ -433,6 +529,147 @@ async function awardMatchOrbs({ accountId, lobbyId, matchId, playerId, playerNam
   return accountSummary(accountId);
 }
 
+async function awardMatchProgression({
+  accountId,
+  lobbyId,
+  matchId,
+  playerId,
+  playerName,
+  role,
+  reason = "match",
+  matchSeconds = 0,
+  baseScore = 0,
+  score = 0,
+  accountXp = 0,
+  roleXp = 0,
+  orbsDeposited = 0,
+  breakdown = []
+}) {
+  assertAuthReady();
+  await ensureProgressionSchema();
+
+  const safeAccountId = String(accountId || "");
+  const safeMatchId = String(matchId || "");
+  const safePlayerId = String(playerId || "");
+  const roleTrack = role === "void" || role === "killer" ? "void" : "runner";
+  const deposited = Math.max(0, Math.floor(Number(orbsDeposited) || 0));
+  const safeScore = Math.max(0, Math.floor(Number(score) || 0));
+  const safeBaseScore = Math.max(0, Math.floor(Number(baseScore) || 0));
+  const safeAccountXp = Math.max(0, Math.floor(Number(accountXp) || 0));
+  const safeRoleXp = Math.max(0, Math.floor(Number(roleXp) || 0));
+  const safeBreakdown = Array.isArray(breakdown) ? breakdown.slice(0, 32) : [];
+
+  if (!safeAccountId || !safeMatchId || !safePlayerId) return null;
+  if (deposited <= 0 && safeScore <= 0 && safeAccountXp <= 0 && safeRoleXp <= 0) return null;
+
+  const award = await withTransaction(async (client) => {
+    const inserted = await client.query(
+      `INSERT INTO match_progression_awards
+         (account_id, lobby_id, match_id, player_id, player_name, player_role, reason, match_seconds,
+          base_score, match_score, account_xp, role_xp, orbs_deposited, breakdown)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::jsonb)
+       ON CONFLICT (match_id, player_id) DO NOTHING
+       RETURNING id`,
+      [
+        safeAccountId,
+        String(lobbyId || ""),
+        safeMatchId,
+        safePlayerId,
+        String(playerName || "Player").slice(0, 24),
+        roleTrack,
+        String(reason || "match").slice(0, 32),
+        Math.max(0, Number(matchSeconds) || 0),
+        safeBaseScore,
+        safeScore,
+        safeAccountXp,
+        safeRoleXp,
+        deposited,
+        JSON.stringify(safeBreakdown)
+      ]
+    );
+    if (!inserted.rows.length) return null;
+
+    const accountResult = await client.query(
+      `SELECT * FROM accounts WHERE id = $1 FOR UPDATE`,
+      [safeAccountId]
+    );
+    const row = accountResult.rows[0];
+    if (!row) throw new Error("Account not found.");
+
+    let creditedDepositedOrbs = 0;
+    if (deposited > 0) {
+      const orbInsert = await client.query(
+        `INSERT INTO match_rewards (account_id, lobby_id, match_id, player_id, player_name, orbs_deposited)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (match_id, player_id) DO NOTHING
+         RETURNING orbs_deposited`,
+        [safeAccountId, String(lobbyId || ""), safeMatchId, safePlayerId, String(playerName || "Player").slice(0, 24), deposited]
+      );
+      creditedDepositedOrbs = orbInsert.rows.length ? deposited : 0;
+    }
+
+    const accountAward = applyXpToTrack(progressionTrackState(row, "account"), safeAccountXp, levelConfig, "account");
+    const roleAward = applyXpToTrack(progressionTrackState(row, roleTrack), safeRoleXp, levelConfig, roleTrack);
+    const levelRewardOrbs = Math.max(0, Math.floor(Number(accountAward.rewardOrbs || 0) + Number(roleAward.rewardOrbs || 0)));
+    const resultSummary = summarizeProgressionAward({
+      accountAward,
+      roleAward,
+      role: roleTrack,
+      score: safeScore,
+      baseScore: safeBaseScore,
+      orbsDeposited: creditedDepositedOrbs,
+      levelRewardOrbs,
+      breakdown: safeBreakdown,
+      matchSeconds
+    });
+
+    const totalOrbGain = creditedDepositedOrbs + levelRewardOrbs;
+    await client.query(
+      `UPDATE accounts
+       SET account_level = $2,
+           account_xp = $3,
+           account_total_xp = $4,
+           runner_level = CASE WHEN $5 = 'runner' THEN $6 ELSE runner_level END,
+           runner_xp = CASE WHEN $5 = 'runner' THEN $7 ELSE runner_xp END,
+           runner_total_xp = CASE WHEN $5 = 'runner' THEN $8 ELSE runner_total_xp END,
+           void_level = CASE WHEN $5 = 'void' THEN $6 ELSE void_level END,
+           void_xp = CASE WHEN $5 = 'void' THEN $7 ELSE void_xp END,
+           void_total_xp = CASE WHEN $5 = 'void' THEN $8 ELSE void_total_xp END,
+           orb_balance = orb_balance + $9,
+           total_orbs_deposited = total_orbs_deposited + $10,
+           updated_at = NOW()
+       WHERE id = $1`,
+      [
+        safeAccountId,
+        accountAward.after.level,
+        accountAward.after.xp,
+        accountAward.after.totalXp,
+        roleTrack,
+        roleAward.after.level,
+        roleAward.after.xp,
+        roleAward.after.totalXp,
+        totalOrbGain,
+        creditedDepositedOrbs
+      ]
+    );
+
+    await client.query(
+      `UPDATE match_progression_awards
+       SET level_reward_orbs = $2,
+           orbs_deposited = $3,
+           progression_result = $4::jsonb
+       WHERE id = $1`,
+      [inserted.rows[0].id, levelRewardOrbs, creditedDepositedOrbs, JSON.stringify(resultSummary)]
+    );
+
+    return resultSummary;
+  });
+
+  if (!award) return null;
+  const account = await accountSummary(safeAccountId);
+  return { account, award };
+}
+
 module.exports = {
   authAvailable,
   accountSummary,
@@ -444,10 +681,12 @@ module.exports = {
   purchaseSkin,
   purchasePerk,
   awardMatchOrbs,
+  awardMatchProgression,
   ownsSkinSync,
   sanitizeOwnedSkin,
   publicCatalog: skinCatalog.publicCatalog,
   publicPerkCatalog,
   getSkin: skinCatalog.getSkin,
-  getPerkDef
+  getPerkDef,
+  xpNeededForLevel
 };

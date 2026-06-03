@@ -1299,6 +1299,29 @@
     return `${account.displayName || account.username || "Runner"}${account.isGuest ? " · guest" : ""}`;
   }
 
+  function formatWholeNumber(value) {
+    return Math.max(0, Math.floor(Number(value || 0))).toLocaleString();
+  }
+
+  function accountProgressionTrack(track = "account") {
+    const key = track === "void" ? "void" : track === "runner" ? "runner" : "account";
+    const progression = currentAccount?.progression || {};
+    const fallbackLevel = key === "runner" ? currentAccount?.runnerLevel : key === "void" ? currentAccount?.voidLevel : currentAccount?.level;
+    const item = progression[key] || {};
+    const level = Math.max(1, Math.floor(Number(item.level || fallbackLevel || 1)));
+    const xp = Math.max(0, Math.floor(Number(item.xp || 0)));
+    const nextXp = Math.max(0, Math.floor(Number(item.nextXp || 0)));
+    const progress = Number.isFinite(Number(item.progress)) ? clamp(Number(item.progress), 0, 1) : (nextXp > 0 ? clamp(xp / nextXp, 0, 1) : 0);
+    return { key, level, xp, nextXp, progress };
+  }
+
+  function progressionXpLabel(track) {
+    if (!currentAccount) return "Login to save XP";
+    const item = accountProgressionTrack(track);
+    if (!item.nextXp) return "MAX LEVEL";
+    return `${formatWholeNumber(item.xp)} / ${formatWholeNumber(item.nextXp)} XP`;
+  }
+
   function accountOwnedSet(role = null) {
     const owned = currentAccount?.ownedSkins || {};
     const ids = role === "runner" ? owned.runner : role === "void" ? owned.void : owned.all;
@@ -1619,12 +1642,27 @@
 
       if (name) name.textContent = accountDisplayName();
       if (balanceEl) balanceEl.textContent = balance;
+
+      for (const track of ["account", "runner", "void"]) {
+        const item = accountProgressionTrack(track);
+        const levelNodes = panel.querySelectorAll(`[data-account-level="${track}"]`);
+        const xpNodes = panel.querySelectorAll(`[data-account-xp="${track}"]`);
+        const progressNodes = panel.querySelectorAll(`[data-account-progress="${track}"]`);
+        for (const node of levelNodes) node.textContent = String(item.level);
+        for (const node of xpNodes) node.textContent = progressionXpLabel(track);
+        for (const node of progressNodes) {
+          node.style.setProperty("--account-level-progress", String(item.progress));
+          node.title = progressionXpLabel(track);
+        }
+      }
+
       form?.classList.toggle("hidden", !!currentAccount);
       actions?.classList.toggle("hidden", !currentAccount);
       if (hint) {
+        const accountTrack = accountProgressionTrack("account");
         hint.textContent = currentAccount
-          ? `${lifetime} lifetime deposited orbs.`
-          : "Login or Play as Guest to save orbs.";
+          ? `${lifetime} lifetime deposited orbs · Rift Level ${accountTrack.level}.`
+          : "Login or Play as Guest to save orbs and XP.";
       }
     }
 
@@ -1651,7 +1689,16 @@
     currentAccount = payload.account || null;
     syncLocalActorPerksFromAccount();
     syncAccountUi();
-    if (payload.reward?.orbsDeposited) {
+
+    const progression = payload.reward?.progression || null;
+    if (progression?.score > 0) {
+      const parts = [];
+      if (progression.accountXp > 0) parts.push(`+${formatWholeNumber(progression.accountXp)} Rift XP`);
+      if (progression.roleXp > 0) parts.push(`+${formatWholeNumber(progression.roleXp)} ${progression.role === "void" ? "Void" : "Runner"} XP`);
+      const levelReward = Math.max(0, Math.floor(Number(progression.levelRewardOrbs || 0)));
+      if (levelReward > 0) parts.push(`+${formatWholeNumber(levelReward)} level orbs`);
+      if (parts.length) toast(parts.join(" · "), 3200);
+    } else if (payload.reward?.orbsDeposited) {
       const rewardLabel = String(payload.reward.label || "deposited orbs");
       toast(`Banked ${payload.reward.orbsDeposited} ${rewardLabel}.`, 2400);
     }
@@ -8510,6 +8557,16 @@
     return `<div class="end-stat"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`;
   }
 
+  function progressionStatItems(actor) {
+    const progression = actor?.progression || null;
+    if (!progression || Number(progression.score || 0) <= 0) return [];
+    const roleLabel = progression.role === "void" || actor?.role === "killer" ? "Void XP" : "Runner XP";
+    return [
+      statItem("Rift XP", `+${formatWholeNumber(progression.accountXp || 0)}`),
+      statItem(roleLabel, `+${formatWholeNumber(progression.roleXp || 0)}`)
+    ];
+  }
+
   function renderFinalStats(finalActors = []) {
     if (!ui.endStats) return;
     const actors = Array.isArray(finalActors) ? finalActors : [];
@@ -8539,17 +8596,20 @@
               : actor.downed
                 ? "Downed"
                 : "Lost";
+      const progressionItems = progressionStatItems(actor);
       const statHtml = isVoid
         ? [
-            statItem("Rifts kicked", stats.riftsKicked || 0),
-            statItem("Orbs collected", stats.orbsCollected || 0),
-            statItem("Orbs stolen", stats.orbsStolen || 0),
-            statItem("Injures", stats.injures || 0),
-            statItem("Binds", stats.hooks || 0),
             statItem("Runners consumed", stats.deaths || 0),
-            statItem("Abilities used", stats.abilitiesUsed || 0)
+            statItem("Binds", stats.hooks || 0),
+            statItem("Downs", stats.downs || 0),
+            statItem("Injures", stats.injures || 0),
+            statItem("Rifts kicked", stats.riftsKicked || 0),
+            statItem("Orbs stolen", stats.orbsStolen || 0),
+            statItem("Orbs collected", stats.orbsCollected || 0),
+            ...progressionItems
           ].join("")
         : [
+            ...progressionItems,
             statItem("Orbs collected", stats.orbsCollected || 0),
             statItem("Orbs deposited", stats.orbsDeposited || 0),
             statItem("Void stuns", stats.voidStuns || 0),

@@ -12,6 +12,7 @@ const { registerSocketHandlers } = require("../net/socket-handlers.cjs");
 const { startGameLoops } = require("./tick-loop.cjs");
 const accountService = require("../auth/account-service.cjs");
 const { createAuthRoutes } = require("../auth/routes.cjs");
+const { computeMatchProgression } = require("../progression/leveling.cjs");
 
 async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") } = {}) {
   const ROOT_DIR = rootDir;
@@ -22,6 +23,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
   const RIFTRUNNER_CHATS = loadPublicScriptGlobal(ROOT_DIR, "public/chats.js", "RIFTRUNNER_CHATS");
   const RIFTRUNNER_ABILITIES = loadPublicScriptGlobal(ROOT_DIR, "public/abilities.js", "RIFTRUNNER_ABILITIES");
   const RIFTRUNNER_PERKS = loadPublicScriptGlobal(ROOT_DIR, "public/perkConfig.js", "RIFTRUNNER_PERK_CONFIG");
+  const RIFTRUNNER_LEVELS = loadPublicScriptGlobal(ROOT_DIR, "public/levelConfig.js", "RIFTRUNNER_LEVEL_CONFIG");
 
   const app = express();
   const server = http.createServer(app);
@@ -1518,6 +1520,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
         orbsCollected: 0,
         orbsStolen: 0,
         injures: 0,
+        downs: 0,
         hooks: 0,
         deaths: 0,
         abilitiesUsed: 0
@@ -1571,6 +1574,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
         orbsCollected: Math.floor(stats.orbsCollected || 0),
         orbsStolen: Math.floor(stats.orbsStolen || 0),
         injures: Math.floor(stats.injures || 0),
+        downs: Math.floor(stats.downs || 0),
         hooks: Math.floor(stats.hooks || 0),
         deaths: Math.floor(stats.deaths || 0),
         abilitiesUsed: Math.floor(stats.abilitiesUsed || 0)
@@ -2629,6 +2633,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     awardStat(killer, "injures", "Runner injured", 1, "void");
 
     if (willBeDowned) {
+      awardStat(killer, "downs", "Runner downed", 1, "void");
       survivor.health = 0;
       survivor.injured = true;
       survivor.downed = true;
@@ -4042,6 +4047,33 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     return { amount: 0, source: "none", toastLabel: "orbs" };
   }
 
+  function matchProgressionContext(lobby, game, actor, reason = "match", winnerOverride = null) {
+    const survivors = [...(game?.actors?.values?.() || [])].filter((p) => p.role === "survivor");
+    const escapedCount = survivors.filter((p) => p.escaped).length;
+    const endedAt = game?.endedAt || nowMs();
+    const startedAt = game?.startedAt || endedAt;
+    return {
+      reason,
+      winner: winnerOverride || game?.winner || null,
+      escapedCount,
+      totalSurvivors: survivors.length,
+      matchSeconds: Math.max(0, (endedAt - startedAt) / 1000),
+      lobbyId: lobby?.id || "",
+      matchId: game?.matchId || `${lobby?.id || "lobby"}:${startedAt}`,
+      role: actor?.role
+    };
+  }
+
+  function progressionForActor(lobby, game, actor, reason = "match", winnerOverride = null) {
+    if (!actor || (actor.role !== "survivor" && actor.role !== "killer")) return null;
+    return computeMatchProgression({
+      actor,
+      stats: serializeMatchStats(actor),
+      context: matchProgressionContext(lobby, game, actor, reason, winnerOverride),
+      config: RIFTRUNNER_LEVELS
+    });
+  }
+
   function awardAccountRewardForActor(lobby, game, actor, reason = "match") {
     if (!accountService.authAvailable()) return;
     if (!lobby || !game || !actor || actor.isBot || !actor.accountId) return;
@@ -4049,43 +4081,56 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     if (actor.accountRewardAwarded || actor.accountRewardPending) return;
 
     const reward = accountRewardForActor(actor);
+    const progression = progressionForActor(lobby, game, actor, reason);
     const orbsDeposited = reward.amount;
-    if (orbsDeposited <= 0) return;
+    if (orbsDeposited <= 0 && (!progression || progression.score <= 0)) return;
 
     const matchId = game.matchId || `${lobby.id}:${game.startedAt || nowMs()}`;
     actor.accountRewardPending = true;
-    accountService.awardMatchOrbs({
+    accountService.awardMatchProgression({
       accountId: actor.accountId,
       lobbyId: lobby.id,
       matchId,
       playerId: actor.id,
       playerName: actor.name,
-      orbsDeposited
-    }).then((account) => {
+      role: progression?.role || (actor.role === "killer" ? "void" : "runner"),
+      reason,
+      matchSeconds: progression?.matchSeconds || 0,
+      baseScore: progression?.baseScore || 0,
+      score: progression?.score || 0,
+      accountXp: progression?.accountXp || 0,
+      roleXp: progression?.roleXp || 0,
+      orbsDeposited,
+      breakdown: progression?.breakdown || []
+    }).then((result) => {
       actor.accountRewardPending = false;
-      if (!account) return;
+      if (!result?.account) return;
       actor.accountRewardAwarded = true;
       actor.accountRewardAwardReason = reason;
       actor.accountRewardSource = reward.source;
+      actor.progressionAward = result.award || progression || null;
       const socket = io.sockets.sockets.get(actor.id);
       if (socket) {
-        socket.data.account = account;
+        socket.data.account = result.account;
         socket.emit("accountState", {
           ok: true,
-          account,
+          account: result.account,
           skins: accountService.publicCatalog(),
+          perks: accountService.publicPerkCatalog(),
           reward: {
-            orbsDeposited,
+            orbsDeposited: result.award?.orbsDeposited ?? orbsDeposited,
+            levelRewardOrbs: result.award?.levelRewardOrbs || 0,
             reason,
             role: actor.role,
             source: reward.source,
-            label: reward.toastLabel
+            label: reward.toastLabel,
+            progression: result.award || progression || null
           }
         });
       }
     }).catch((error) => {
       actor.accountRewardPending = false;
-      console.error(`Failed to award ${reason} orbs`, error.message || error);
+      console.error(`Failed to award ${reason} progression`, error.message || error);
     });
   }
 
@@ -4096,8 +4141,9 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     }
   }
 
-  function buildEndActorStats(game) {
+  function buildEndActorStats(game, winnerOverride = null, reason = "match") {
     if (!game?.actors) return [];
+    const lobby = lobbyForGame(game);
     return [...game.actors.values()].filter((p) => p.role !== "spectator").map((p) => ({
       id: p.id,
       name: p.name,
@@ -4107,14 +4153,15 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       downed: !!p.downed,
       hooked: !!p.hooked,
       health: p.health,
-      stats: serializeMatchStats(p)
+      stats: serializeMatchStats(p),
+      progression: p.progressionAward || progressionForActor(lobby, game, p, reason, winnerOverride)
     }));
   }
 
   function endGame(lobby, winner, reason) {
     if (!lobby.game || lobby.game.phase === "ended") return;
     const game = lobby.game;
-    const finalActors = buildEndActorStats(game);
+    const finalActors = buildEndActorStats(game, winner, reason);
     const finalSurvivors = finalActors.filter((p) => p.role === "survivor");
     const escapedCount = finalSurvivors.filter((p) => p.escaped).length;
 

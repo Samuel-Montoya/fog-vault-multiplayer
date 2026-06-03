@@ -139,3 +139,30 @@
     max-width: 170px;
   }
 }
+
+.account-badge-level {
+  flex: 0 0 auto;
+  display: grid;
+  gap: 2px;
+  min-width: 54px;
+  padding: 7px 10px;
+  border-left: 1px solid rgba(255,255,255,0.10);
+  color: rgba(220, 194, 255, 0.88);
+  text-align: center;
+}
+
+.account-badge-level span {
+  font-size: 7px;
+  font-weight: 1000;
+  letter-spacing: 0.18em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.account-badge-level b {
+  color: #ffffff;
+  font-size: clamp(17px, 1.1vw, 23px);
+  font-weight: 950;
+  line-height: 0.95;
+  text-shadow: 0 0 13px rgba(196, 181, 253, 0.28);
+}

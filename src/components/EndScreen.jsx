@@ -10,16 +10,20 @@ const DEFAULT_END_STATE = {
 }
 
 const FALLBACK_VOID_STATS = [
-  "Rifts Kicked",
-  "Orbs Collected",
-  "Orbs Stolen",
-  "Injuries",
-  "Binds",
   "Runners Consumed",
-  "Abilities Used"
+  "Binds",
+  "Downs",
+  "Injures",
+  "Rifts Kicked",
+  "Orbs Stolen",
+  "Orbs Collected",
+  "Rift XP",
+  "Void XP"
 ]
 
 const FALLBACK_RUNNER_STATS = [
+  "Rift XP",
+  "Runner XP",
   "Orbs Collected",
   "Orbs Deposited",
   "Void Stuns",
@@ -29,6 +33,7 @@ const FALLBACK_RUNNER_STATS = [
   "Chase Total",
   "Longest Chase"
 ]
+
 
 function normalizeText(value) {
   return String(value || "")
@@ -42,6 +47,10 @@ function normalizeKey(value) {
     .replace(/[^a-z0-9]+/g, " ")
     .trim()
 }
+
+const HIDDEN_END_STATS = new Set(["echo score"])
+const HIDDEN_VOID_STATS = new Set(["abilities used"])
+const VOID_STAT_ORDER = FALLBACK_VOID_STATS.map(normalizeKey)
 
 function valueLooksTrue(value) {
   const normalized = normalizeKey(value)
@@ -88,6 +97,29 @@ function findStatValue(stats, labelCandidates) {
   return match?.value || ""
 }
 
+function voidStatSortIndex(stat) {
+  const label = normalizeKey(stat?.label)
+  const index = VOID_STAT_ORDER.findIndex((wanted) => label === wanted || label.includes(wanted))
+  return index >= 0 ? index : VOID_STAT_ORDER.length + 1
+}
+
+function normalizeEndStatsForRole(role, stats) {
+  const filtered = (Array.isArray(stats) ? stats : []).filter((stat) => {
+    const label = normalizeKey(stat?.label)
+    if (HIDDEN_END_STATS.has(label)) return false
+    if (role === "void" && HIDDEN_VOID_STATS.has(label)) return false
+    return true
+  })
+
+  if (role !== "void") return filtered
+
+  return [...filtered].sort((a, b) => {
+    const orderDiff = voidStatSortIndex(a) - voidStatSortIndex(b)
+    if (orderDiff !== 0) return orderDiff
+    return normalizeText(a.label).localeCompare(normalizeText(b.label))
+  })
+}
+
 function readLegacyName(card, role) {
   const rawName = getTextFromSelector(card, ".end-stat-head strong", role === "void" ? "The Void" : "Runner")
   const normalized = normalizeKey(rawName)
@@ -125,7 +157,7 @@ function getRowEscaped(row) {
 
 function parseLegacyEndRow(card, index) {
   const role = card.classList.contains("is-void") ? "void" : "runner"
-  const stats = readLegacyStatItems(card)
+  const stats = normalizeEndStatsForRole(role, readLegacyStatItems(card))
   const status = getRowStatus(card, role, stats)
   const skin = findCachedEndScreenSkin(card, role)
 

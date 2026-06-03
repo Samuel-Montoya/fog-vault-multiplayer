@@ -20,6 +20,15 @@ function OrbBalance({ prefix }) {
   )
 }
 
+function SlimLevelBadge() {
+  return (
+    <div className="account-badge-level" title="Account Rift Level">
+      <span>LVL</span>
+      <b data-account-level="account">1</b>
+    </div>
+  )
+}
+
 export default function AccountBadge({ panelId = "page", showOrbs = true, className = "" }) {
   const prefix = `${panelId}Badge`
 
@@ -29,6 +38,7 @@ export default function AccountBadge({ panelId = "page", showOrbs = true, classN
         <span className="account-badge-label rr-account-slim-label">Account</span>
         <strong id={`${prefix}AuthStatusName`} data-auth-status-name>Playing as guest</strong>
       </div>
+      <SlimLevelBadge />
       {showOrbs ? <OrbBalance prefix={prefix} /> : null}
     </section>
   )

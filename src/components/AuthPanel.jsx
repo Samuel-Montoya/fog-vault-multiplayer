@@ -47,6 +47,27 @@ function AuthActions({ compact, prefix }) {
   )
 }
 
+const LEVEL_TRACKS = [
+  { key: "account", label: "Rift Level" },
+  { key: "runner", label: "Runner" },
+  { key: "void", label: "Void" }
+]
+
+function AccountLevelStrip() {
+  return (
+    <div className="account-level-strip" aria-label="Account levels">
+      {LEVEL_TRACKS.map((track) => (
+        <div className={`account-level-chip account-level-${track.key}`} data-account-track={track.key} key={track.key}>
+          <span>{track.label}</span>
+          <strong data-account-level={track.key}>1</strong>
+          <small data-account-xp={track.key}>0 / 1,037 XP</small>
+          <i data-account-progress={track.key} aria-hidden="true" />
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export default function AuthPanel({ compact = false, panelId = "menu" }) {
   const prefix = compact ? `${panelId}Compact` : panelId
   const panelClassName = compact
@@ -71,6 +92,8 @@ export default function AuthPanel({ compact = false, panelId = "menu" }) {
           <b id={panelIdFor(compact, prefix, "AuthOrbBalance", "authOrbBalance")} data-auth-orb-balance>0</b>
         </div>
       </div>
+
+      {!compact ? <AccountLevelStrip /> : null}
 
       <div id={panelIdFor(compact, prefix, "AuthForm", "authForm")} className="auth-form" data-auth-form>
         {AUTH_FIELDS.map((field) => (
