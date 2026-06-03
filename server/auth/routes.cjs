@@ -7,42 +7,49 @@ function asyncRoute(fn) {
 
 function createAuthRoutes({ app, accountService }) {
   app.get("/api/shop", (req, res) => {
-    res.json({ ok: true, skins: accountService.publicCatalog(), perks: accountService.publicPerkCatalog() });
+    res.json({ ok: true, skins: accountService.publicCatalog(), perks: accountService.publicPerkCatalog(), runnerClasses: accountService.publicRunnerClassCatalog?.() || [] });
   });
 
   app.post("/api/auth/register", asyncRoute(async (req, res) => {
     const result = await accountService.register(req.body || {});
-    res.json({ ok: true, ...result, skins: accountService.publicCatalog(), perks: accountService.publicPerkCatalog() });
+    res.json({ ok: true, ...result, skins: accountService.publicCatalog(), perks: accountService.publicPerkCatalog(), runnerClasses: accountService.publicRunnerClassCatalog?.() || [] });
   }));
 
   app.post("/api/auth/login", asyncRoute(async (req, res) => {
     const result = await accountService.login(req.body || {});
-    res.json({ ok: true, ...result, skins: accountService.publicCatalog(), perks: accountService.publicPerkCatalog() });
+    res.json({ ok: true, ...result, skins: accountService.publicCatalog(), perks: accountService.publicPerkCatalog(), runnerClasses: accountService.publicRunnerClassCatalog?.() || [] });
   }));
 
   app.post("/api/auth/guest", asyncRoute(async (req, res) => {
     const result = await accountService.createGuest(req.body || {});
-    res.json({ ok: true, ...result, skins: accountService.publicCatalog(), perks: accountService.publicPerkCatalog() });
+    res.json({ ok: true, ...result, skins: accountService.publicCatalog(), perks: accountService.publicPerkCatalog(), runnerClasses: accountService.publicRunnerClassCatalog?.() || [] });
   }));
 
   app.get("/api/account", asyncRoute(async (req, res) => {
     const account = await accountService.accountFromRequest(req);
     if (!account) return res.status(401).json({ ok: false, error: "Not signed in." });
-    res.json({ ok: true, account, skins: accountService.publicCatalog(), perks: accountService.publicPerkCatalog() });
+    res.json({ ok: true, account, skins: accountService.publicCatalog(), perks: accountService.publicPerkCatalog(), runnerClasses: accountService.publicRunnerClassCatalog?.() || [] });
   }));
 
   app.post("/api/shop/buy", asyncRoute(async (req, res) => {
     const account = await accountService.accountFromRequest(req);
     if (!account) return res.status(401).json({ ok: false, error: "Sign in or play as guest first." });
     const nextAccount = await accountService.purchaseSkin(account.id, req.body?.skinId);
-    res.json({ ok: true, account: nextAccount, skins: accountService.publicCatalog(), perks: accountService.publicPerkCatalog() });
+    res.json({ ok: true, account: nextAccount, skins: accountService.publicCatalog(), perks: accountService.publicPerkCatalog(), runnerClasses: accountService.publicRunnerClassCatalog?.() || [] });
   }));
 
   app.post("/api/perks/buy", asyncRoute(async (req, res) => {
     const account = await accountService.accountFromRequest(req);
     if (!account) return res.status(401).json({ ok: false, error: "Sign in or play as guest first." });
     const result = await accountService.purchasePerk(account.id, req.body?.perkId);
-    res.json({ ok: true, ...result, skins: accountService.publicCatalog(), perks: accountService.publicPerkCatalog() });
+    res.json({ ok: true, ...result, skins: accountService.publicCatalog(), perks: accountService.publicPerkCatalog(), runnerClasses: accountService.publicRunnerClassCatalog?.() || [] });
+  }));
+
+  app.post("/api/runner-class/select", asyncRoute(async (req, res) => {
+    const account = await accountService.accountFromRequest(req);
+    if (!account) return res.status(401).json({ ok: false, error: "Sign in or play as guest first." });
+    const nextAccount = await accountService.updateSelectedRunnerClass(account.id, req.body?.runnerClass || req.body?.runnerClassId);
+    res.json({ ok: true, account: nextAccount, skins: accountService.publicCatalog(), perks: accountService.publicPerkCatalog(), runnerClasses: accountService.publicRunnerClassCatalog?.() || [] });
   }));
 }
 

@@ -84,7 +84,9 @@ window.GAME_AUDIO_CONFIG = {
       playerSpeak: "/sfx/player_speak.mp3",
       healing: "/sfx/healing.mp3",
       unhooking: ["/sfx/unhooking.mp3", "/sfx/unhook.mp3"],
-      speedBoost: "/sfx/speed_boost.mp3"
+      speedBoost: "/sfx/speed_boost.mp3",
+      dash: "/sfx/dash.mp3",
+      shootDart: "/sfx/shoot_dart.mp3"
     },
 
     // Per-sound volume before the global SFX master multiplier is applied.
@@ -106,7 +108,9 @@ window.GAME_AUDIO_CONFIG = {
       playerSpeak: 0.18,
       healing: 0.22,
       unhooking: 0.26,
-      speedBoost: 0.40
+      speedBoost: 0.40,
+      dash: 0.2,
+      shootDart: 0.22
     },
 
     // Pitch variation lists. Used only when enablePitchVariation is true.
@@ -127,7 +131,9 @@ window.GAME_AUDIO_CONFIG = {
       healing: [1.0],
       unhooking: [0.96, 1.0, 1.04],
       speedBoost: [0.96, 1.0, 1.04],
-	  gen: [0.92, 0.97, 1.0, 1.05, 1.11, 1.18]
+      dash: [0.88, 0.94, 1.0, 1.07, 1.15, 1.24],
+      shootDart: [0.92, 0.97, 1.0, 1.06, 1.12],
+      gen: [0.92, 0.97, 1.0, 1.05, 1.11, 1.18]
     },
 
     // Distance in world pixels for nearby-only sounds.
@@ -137,7 +143,14 @@ window.GAME_AUDIO_CONFIG = {
       palletStun: 300,
       voidStun: 360,
       healing: 340,
-      unhooking: 0
+      unhooking: 0,
+      dash: 900,
+      rallyDartExplosion: 650,
+	rallyDartExplosionVisible: 1000,
+rallyDartExplosionMinVolumeScale: 0.05,
+rallyDartExplosionShooterMinVolumeScale: 0.05,
+      // Shooter-only cue. This stays 0 so other nearby players do not hear dart firing.
+      shootDart: 0
     }
   }
 };

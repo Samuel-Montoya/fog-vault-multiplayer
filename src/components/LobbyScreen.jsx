@@ -15,6 +15,13 @@ const LOBBY_ROLE_ACTIONS = [
   { id: "beSpectatorBtn", className: "spectator-choice-btn", label: "Join as Spectator" }
 ]
 
+
+const RUNNER_CLASSES = [
+  { id: "orbCollector", icon: "⊙", name: "Orb Collector", aria: "Orb Collector class" },
+  { id: "healer", icon: "+", name: "Healer", aria: "Healer class" },
+  { id: "chase", icon: "»", name: "Chase", aria: "Chase class" }
+]
+
 const LOBBY_BOT_ACTIONS = [
   { id: "addBotKillerBtn", image: "/images/void.png", label: "Add Void Bot" },
   { id: "addBotSurvivorBtn", image: "/images/runner.png", label: "Add Runner Bot" }
@@ -344,6 +351,46 @@ function RoleActionButton({ action }) {
   )
 }
 
+function RunnerClassName({ name }) {
+  return (
+    <span className="runner-class-name">
+      {String(name || "Runner").split(" ").map((part) => (
+        <span key={part}>{part}</span>
+      ))}
+    </span>
+  )
+}
+
+function RunnerClassPicker() {
+  return (
+    <section id="runnerClassPanel" className="runner-class-panel hidden" aria-label="Runner class selector" aria-hidden="true">
+      <div className="runner-class-heading">
+        <span>Runner Class</span>
+        <small>Choose a class. It affects your abilities and playstyle.</small>
+      </div>
+      <div className="runner-class-grid">
+        {RUNNER_CLASSES.map((runnerClass) => {
+          const selected = runnerClass.id === "orbCollector"
+          return (
+            <button
+              type="button"
+              className={`runner-class-btn runner-class-${runnerClass.id}${selected ? " selected" : ""}`}
+              data-runner-class={runnerClass.id}
+              aria-label={runnerClass.aria}
+              aria-pressed={selected ? "true" : "false"}
+              key={runnerClass.id}
+            >
+              <span className="runner-class-check" aria-hidden="true">✓</span>
+              <b className="runner-class-icon" aria-hidden="true">{runnerClass.icon}</b>
+              <RunnerClassName name={runnerClass.name} />
+            </button>
+          )
+        })}
+      </div>
+    </section>
+  )
+}
+
 function BotActionButton({ action }) {
   return (
     <button id={action.id} type="button">
@@ -398,6 +445,7 @@ export default function LobbyScreen() {
               <i id="lobbySelectedSkinPreview" className="skin-preview lobby-selected-skin-preview skin-void-core" />
             </div>
             <strong id="lobbySelectedSkinLabel">Void Core</strong>
+            <small id="lobbySelectedClassLabel" className="lobby-selected-class-label">Orb Collector</small>
           </aside>
         </header>
 
@@ -412,6 +460,8 @@ export default function LobbyScreen() {
                 <RoleActionButton action={action} key={action.id} />
               ))}
             </div>
+
+            <RunnerClassPicker />
 
             <div className="lobby-column-heading lobby-subheading">
               <span>Bots</span>

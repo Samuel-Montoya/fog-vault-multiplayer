@@ -64,6 +64,24 @@ const RIFTRUNNER_ABILITIES = {
       detail: "A controlled burst of speed. Fast enough to reposition, not fast enough to become a caffeinated mosquito.",
       accent: "green"
     },
+    rallyDart: {
+      id: "rallyDart",
+      name: "Rally Dart",
+      shortName: "Dart",
+      cost: 15,
+      duration: 1.25,
+      cooldown: 55,
+      radius: 112,
+      projectileSpeed: 560,
+      range: 620,
+      aimWindow: 5,
+      speedMultiplier: 1.10,
+      summary: "Press M1 when ready to fire an orange support dart at your cursor or feet.",
+      detail: "No Q activation needed. If you have enough orbs and the cooldown is ready, M1 fires the dart toward the cursor, through windows and pallets, and into an orange boost ring.",
+      accent: "orange",
+      inputType: "m1",
+      shootAbility: true
+    },
     riftLens: {
       id: "riftLens",
       name: "Rift Lens",

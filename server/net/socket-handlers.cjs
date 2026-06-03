@@ -18,6 +18,7 @@ function registerSocketHandlers(context) {
     canChangeRole,
     sanitizeSkin,
     sanitizeVoidSkin,
+    normalizeRunnerClassId,
     accountService,
     touchLobby,
     broadcastLobbyState,
@@ -33,6 +34,7 @@ function registerSocketHandlers(context) {
     resetInput,
     applyVoidAbility,
     applySurvivorAbility,
+    fireRallyDart,
     getChatWheelMessagesForActor,
     setActorChat,
     nowMs
@@ -63,6 +65,7 @@ function registerSocketHandlers(context) {
       account: account || null,
       skins: accountService?.publicCatalog ? accountService.publicCatalog() : [],
       perks: accountService?.publicPerkCatalog ? accountService.publicPerkCatalog() : [],
+      runnerClasses: accountService?.publicRunnerClassCatalog ? accountService.publicRunnerClassCatalog() : [],
       ...extra
     };
   }
@@ -87,12 +90,16 @@ function registerSocketHandlers(context) {
       tasks.push(loadSocketAccount(playerSocket).then((account) => {
         player.accountId = account?.id || null;
         player.perkLevels = account?.perks || null;
+        player.runnerClass = player.role === "survivor" ? normalizeRunnerClassId?.(player.runnerClass || account?.selectedRunnerClass) : null;
+        player.runnerLevel = account?.runnerLevel || account?.progression?.runner?.level || player.runnerLevel || 1;
         player.skin = skinForSocket(playerSocket, player.role, player.skin);
 
         const liveActor = lobby.game?.actors?.get?.(player.id);
         if (liveActor && !liveActor.isBot) {
           liveActor.accountId = player.accountId;
           liveActor.perkLevels = player.perkLevels;
+          liveActor.runnerClass = player.runnerClass;
+          liveActor.runnerLevel = player.runnerLevel;
           liveActor.skin = player.skin;
         }
 
@@ -144,9 +151,15 @@ function registerSocketHandlers(context) {
         if (player && !player.isBot) {
           player.accountId = account?.id || null;
           player.perkLevels = account?.perks || null;
+          player.runnerClass = player.role === "survivor" ? normalizeRunnerClassId?.(player.runnerClass || account?.selectedRunnerClass) : null;
+          player.runnerLevel = account?.runnerLevel || account?.progression?.runner?.level || player.runnerLevel || 1;
           player.skin = skinForSocket(socket, player.role, player.skin);
           const liveActor = lobby?.game?.actors?.get?.(socket.id);
-          if (liveActor && !liveActor.isBot) liveActor.perkLevels = account?.perks || null;
+          if (liveActor && !liveActor.isBot) {
+            liveActor.perkLevels = account?.perks || null;
+            liveActor.runnerClass = player.runnerClass;
+            liveActor.runnerLevel = player.runnerLevel;
+          }
           if (lobby.phase === "lobby") broadcastLobbyState(lobby);
         }
         socket.emit("accountState", accountPayload(account));
@@ -155,25 +168,25 @@ function registerSocketHandlers(context) {
       });
     });
 
-    socket.on("createLobby", ({ name, role, playerName, skin, mapId } = {}) => {
+    socket.on("createLobby", ({ name, role, playerName, skin, mapId, runnerClass } = {}) => {
       if (!allowSocketEvent(socket, "lobby")) return;
       try {
         const lobby = createLobby(name, mapId);
-        joinLobby(socket, lobby, role, playerName, skinForSocket(socket, role, skin));
+        joinLobby(socket, lobby, role, playerName, skinForSocket(socket, role, skin), runnerClass || socket.data.account?.selectedRunnerClass);
       } catch (error) {
         console.error("Failed to create lobby", error);
         socket.emit("toast", { type: "error", message: error.message || "Failed to create lobby." });
       }
     });
 
-    socket.on("joinLobby", ({ lobbyId, role, playerName, skin } = {}) => {
+    socket.on("joinLobby", ({ lobbyId, role, playerName, skin, runnerClass } = {}) => {
       if (!allowSocketEvent(socket, "lobby")) return;
       const lobby = lobbies.get(String(lobbyId || ""));
       if (!lobby) {
         socket.emit("toast", { type: "error", message: "Lobby not found." });
         return;
       }
-      joinLobby(socket, lobby, role, playerName, skinForSocket(socket, role, skin));
+      joinLobby(socket, lobby, role, playerName, skinForSocket(socket, role, skin), runnerClass || socket.data.account?.selectedRunnerClass);
     });
 
     socket.on("spectateLobby", ({ lobbyId, playerName } = {}) => {
@@ -186,7 +199,7 @@ function registerSocketHandlers(context) {
       joinSpectatorLobby(socket, lobby, playerName);
     });
 
-    socket.on("quickJoin", ({ role, playerName, skin, mapId } = {}) => {
+    socket.on("quickJoin", ({ role, playerName, skin, mapId, runnerClass } = {}) => {
       if (!allowSocketEvent(socket, "lobby")) return;
       try {
         const available = [...lobbies.values()].filter((l) => l.phase === "lobby");
@@ -196,7 +209,7 @@ function registerSocketHandlers(context) {
           if (roleValue === "killer") return true;
           return players.filter((p) => p.role === "survivor").length < MAX_SURVIVORS;
         }) || createLobby("Open Lobby", mapId);
-        joinLobby(socket, lobby, roleValue, playerName, skinForSocket(socket, roleValue, skin));
+        joinLobby(socket, lobby, roleValue, playerName, skinForSocket(socket, roleValue, skin), runnerClass || socket.data.account?.selectedRunnerClass);
       } catch (error) {
         console.error("Failed to quick join", error);
         socket.emit("toast", { type: "error", message: error.message || "Failed to quick join." });
@@ -208,7 +221,7 @@ function registerSocketHandlers(context) {
       leaveCurrentLobby(socket);
     });
 
-    socket.on("setRole", ({ role, skin } = {}) => {
+    socket.on("setRole", ({ role, skin, runnerClass } = {}) => {
       if (!allowSocketEvent(socket, "lobby")) return;
       const lobby = lobbies.get(socketToLobby.get(socket.id));
       if (!lobby || lobby.phase !== "lobby") return;
@@ -228,6 +241,8 @@ function registerSocketHandlers(context) {
       }
 
       player.role = nextRole;
+      player.runnerClass = nextRole === "survivor" ? normalizeRunnerClassId?.(runnerClass || player.runnerClass || socket.data.account?.selectedRunnerClass) : null;
+      player.runnerLevel = socket.data.account?.runnerLevel || socket.data.account?.progression?.runner?.level || player.runnerLevel || 1;
       // If the player picked a survivor skin before switching back from killer,
       // preserve that choice instead of silently resetting them to blue square.
       player.skin = skinForSocket(socket, nextRole, skin || player.skin);
@@ -238,6 +253,18 @@ function registerSocketHandlers(context) {
       touchLobby(lobby);
       broadcastLobbyState(lobby);
       broadcastLobbyList();
+    });
+
+    socket.on("setRunnerClass", ({ runnerClass } = {}) => {
+      if (!allowSocketEvent(socket, "lobby")) return;
+      const lobby = lobbies.get(socketToLobby.get(socket.id));
+      if (!lobby || lobby.phase !== "lobby") return;
+      const player = lobby.players.get(socket.id);
+      if (!player || player.role !== "survivor") return;
+      player.runnerClass = normalizeRunnerClassId?.(runnerClass || socket.data.account?.selectedRunnerClass);
+      player.ready = false;
+      touchLobby(lobby);
+      broadcastLobbyState(lobby);
     });
 
     socket.on("setSkin", ({ skin } = {}) => {
@@ -392,13 +419,30 @@ function registerSocketHandlers(context) {
       if (Number.isFinite(input.angle)) actor.input.angle = input.angle;
     });
 
+    const emitDashAbilityAudio = (lobby, actor, abilityId) => {
+      const id = String(abilityId || "");
+      if (id !== "nullRush" && id !== "speedBurst") return;
+      if (!lobby?.id || !actor) return;
+      io.to(lobby.id).emit("abilityAudio", {
+        type: "dash",
+        x: actor.x,
+        y: actor.y,
+        actorId: actor.id,
+        survivorId: actor.role === "survivor" ? actor.id : null,
+        killerId: actor.role === "killer" ? actor.id : null,
+        abilityId: id,
+        createdAt: lobby.game?.time || 0
+      });
+    };
+
     socket.on("voidAbility", (payload = {}) => {
       if (!allowSocketEvent(socket, "action")) return;
       const lobby = lobbies.get(socketToLobby.get(socket.id));
       if (!lobby || !lobby.game || lobby.game.phase !== "game") return;
       const actor = lobby.game.actors.get(socket.id);
       const result = applyVoidAbility(lobby.game, actor, payload.id);
-      if (!result.ok) socket.emit("toast", { type: "error", message: result.message || "The Void cannot use that." });
+      if (result.ok) emitDashAbilityAudio(lobby, actor, payload.id);
+      else socket.emit("toast", { type: "error", message: result.message || "The Void cannot use that." });
     });
 
     socket.on("survivorAbility", (payload = {}) => {
@@ -407,7 +451,19 @@ function registerSocketHandlers(context) {
       if (!lobby || !lobby.game || lobby.game.phase !== "game") return;
       const actor = lobby.game.actors.get(socket.id);
       const result = applySurvivorAbility(lobby.game, actor, payload.id);
-      if (!result.ok) socket.emit("toast", { type: "error", message: result.message || "Runner ability cannot be used." });
+      if (result.ok) emitDashAbilityAudio(lobby, actor, payload.id);
+      else socket.emit("toast", { type: "error", message: result.message || "Runner ability cannot be used." });
+    });
+
+    socket.on("rallyDartFire", (payload = {}) => {
+      if (!allowSocketEvent(socket, "action")) return;
+      const lobby = lobbies.get(socketToLobby.get(socket.id));
+      if (!lobby || !lobby.game || lobby.game.phase !== "game") return;
+      const actor = lobby.game.actors.get(socket.id);
+      const result = typeof fireRallyDart === "function"
+        ? fireRallyDart(lobby.game, actor, payload)
+        : { ok: false, message: "Rally Dart is not ready." };
+      if (!result.ok) socket.emit("toast", { type: "error", message: result.message || "Rally Dart cannot be fired." });
     });
 
     socket.on("chatWheel", (payload = {}) => {

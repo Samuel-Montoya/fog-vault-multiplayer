@@ -3,6 +3,7 @@ const SCREEN_IDS = {
   play: "playScreen",
   skins: "skinScreen",
   perks: "perksScreen",
+  classes: "classesScreen",
   options: "optionsScreen",
   how: "howScreen",
   lobby: "lobbyScreen",
@@ -18,6 +19,10 @@ const SCREEN_ALIASES = {
   skinsScreen: "skins",
   perkScreen: "perks",
   perksScreen: "perks",
+  classScreen: "classes",
+  classesScreen: "classes",
+  runnerClasses: "classes",
+  runnerClassScreen: "classes",
   optionsScreen: "options",
   settings: "options",
   settingsScreen: "options",
@@ -258,6 +263,8 @@ export function getScreenNameFromMenuButton(id) {
       return "skins"
     case "menuPerksBtn":
       return "perks"
+    case "menuClassesBtn":
+      return "classes"
     case "menuOptionsBtn":
       return "options"
     case "menuHowBtn":

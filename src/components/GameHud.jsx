@@ -25,35 +25,54 @@ function normalizeAbilities(abilities, role = "killer") {
   const fallback = abilityFallbackForRole(role)
   const safe = Array.isArray(abilities) ? abilities.slice(0, 4) : []
   while (safe.length < 4) safe.push(fallback[safe.length])
-  return safe.map((ability, index) => ({
-    id: String(ability?.id || fallback[index]?.id || `ability-${index}`),
-    name: String(ability?.name || fallback[index]?.name || "Ability"),
-    shortName: String(ability?.shortName || ability?.name || fallback[index]?.shortName || "Ability"),
-    cost: Number.isFinite(Number(ability?.cost)) ? Number(ability.cost) : Number(fallback[index]?.cost || 0),
-    summary: String(ability?.summary || fallback[index]?.summary || "Spend orbs to bend the run."),
-    accent: String(ability?.accent || (role === "survivor" ? "cyan" : "purple")),
-    cancel: !!ability?.cancel || String(ability?.id || "") === "cancel" || String(ability?.id || "") === "moreSoon" || !!ability?.disabled,
-    available: ability?.available !== false && !ability?.disabled,
-    active: !!ability?.active,
-    cooldown: Number.isFinite(Number(ability?.cooldown)) ? Number(ability.cooldown) : Number(fallback[index]?.cooldown || (role === "survivor" ? 30 : 20)),
-    cooldownRemaining: Math.max(0, Number.isFinite(Number(ability?.cooldownRemaining)) ? Number(ability.cooldownRemaining) : 0),
-    locked: !!ability?.locked,
-    level: Math.max(0, Number.isFinite(Number(ability?.level)) ? Number(ability.level) : 0),
-    maxLevel: Math.max(1, Number.isFinite(Number(ability?.maxLevel)) ? Number(ability.maxLevel) : 4)
-  }))
+  return safe.map((ability, index) => {
+    const id = String(ability?.id || fallback[index]?.id || `ability-${index}`)
+    const isCancel = !!ability?.cancel || id === "cancel" || id === "moreSoon"
+    const disabled = !!ability?.disabled || !!ability?.passive
+    return {
+      id,
+      name: String(ability?.name || fallback[index]?.name || "Ability"),
+      shortName: String(ability?.shortName || ability?.name || fallback[index]?.shortName || "Ability"),
+      cost: Number.isFinite(Number(ability?.cost)) ? Number(ability.cost) : Number(fallback[index]?.cost || 0),
+      summary: String(ability?.summary || fallback[index]?.summary || "Spend orbs to bend the run."),
+      accent: String(ability?.accent || (role === "survivor" ? "cyan" : "purple")),
+      cancel: isCancel,
+      disabled,
+      passive: !!ability?.passive,
+      available: isCancel || (ability?.available !== false && !disabled),
+      active: !!ability?.active,
+      cooldown: Number.isFinite(Number(ability?.cooldown)) ? Number(ability.cooldown) : Number(fallback[index]?.cooldown || (role === "survivor" ? 30 : 20)),
+      cooldownRemaining: Math.max(0, Number.isFinite(Number(ability?.cooldownRemaining)) ? Number(ability.cooldownRemaining) : 0),
+      locked: !!ability?.locked,
+      level: Math.max(0, Number.isFinite(Number(ability?.level)) ? Number(ability.level) : 0),
+      maxLevel: Math.max(1, Number.isFinite(Number(ability?.maxLevel)) ? Number(ability.maxLevel) : 4)
+    }
+  })
 }
 
 
 function abilityIconSrc(ability) {
+  const id = String(ability?.id || ability?.key || "")
+  if (["healingPulse", "medicAura", "orbMagnet", "cleanFooting"].includes(id)) return ""
   return getPerkIconSrc(ability?.id)
     || getPerkIconSrc(ability?.key)
     || getPerkIconSrc(ability?.name)
     || getPerkIconSrc(ability?.shortName)
 }
 
+function abilityFallbackGlyph(ability) {
+  const id = String(ability?.id || ability?.key || "")
+  if (id === "healingPulse" || id === "medicAura") return "+"
+  if (id === "orbMagnet") return "◆"
+  if (id === "cleanFooting") return "➤"
+  if (id === "moreSoon") return "…"
+  return "✕"
+}
+
 function abilityStatusMeta(ability) {
   if (!ability) return { label: "", tone: "muted", detail: "" }
   if (ability.cancel) return { label: "Close", tone: "muted", detail: "Release Q to close the wheel." }
+  if (ability.passive || ability.disabled) return { label: "Passive", tone: "active", detail: ability.summary || "Passive class bonus." }
   if (ability.locked) return { label: "Locked", tone: "locked", detail: "Unlock this perk in the Perks screen before using it in a match." }
 
   const cooldownRemaining = Math.max(0, Number(ability.cooldownRemaining || 0))
@@ -195,7 +214,7 @@ export function AbilityWheel() {
           const ability = wheel.abilities[segment.index] || fallback
           const selected = wheel.selected === segment.index
           const cancel = !!ability.cancel
-          const ready = cancel || ability.available !== false
+          const ready = cancel || ability.passive || ability.available !== false
           const meta = abilityStatusMeta(ability)
           const iconSrc = cancel ? "" : abilityIconSrc(ability)
           return (
@@ -215,7 +234,7 @@ export function AbilityWheel() {
                     draggable="false"
                   />
                 ) : (
-                  <div className="ability-icon-fallback" aria-hidden="true">✕</div>
+                  <div className="ability-icon-fallback" aria-hidden="true">{abilityFallbackGlyph(ability)}</div>
                 )}
                 <span className="ability-name">{ability.shortName || ability.name}</span>
               </div>
@@ -248,7 +267,7 @@ const ABILITY_HUD_CONFIG = {
 }
 
 function useAbilityHud(eventName) {
-  const [hud, setHud] = useState({ visible: false, orbs: 0, effects: [] })
+  const [hud, setHud] = useState({ visible: false, orbs: 0, effects: [], abilities: [] })
 
   useEffect(() => {
     const handleHud = (event) => {
@@ -256,7 +275,8 @@ function useAbilityHud(eventName) {
       setHud({
         visible: !!detail.visible,
         orbs: Number(detail.orbs || 0),
-        effects: Array.isArray(detail.effects) ? detail.effects : []
+        effects: Array.isArray(detail.effects) ? detail.effects : [],
+        abilities: Array.isArray(detail.abilities) ? detail.abilities : []
       })
     }
 
@@ -277,22 +297,75 @@ function ActiveAbilityEffects({ effects, className }) {
   ) : null
 }
 
+function abilityReadinessLabel(ability) {
+  if (!ability) return ""
+  if (ability.locked) return "Locked"
+  const cooldown = Math.max(0, Number(ability.cooldownRemaining || 0))
+  if (cooldown > 0) return `${Math.ceil(cooldown)}s`
+  if (ability.available === false) return `Need ${Math.max(0, Number(ability.cost || 0))}`
+  if (ability.active) return "Active"
+  return "Ready"
+}
+
+function AbilityReadinessStrip({ abilities = [], role = "runner" }) {
+  const visibleAbilities = abilities.filter((ability) => ability && !ability.cancel && !ability.passive && !ability.disabled)
+  if (!visibleAbilities.length) return null
+
+  return (
+    <div className={`ability-ready-strip is-${role}`} aria-label="Ability readiness">
+      {visibleAbilities.map((ability) => {
+        const ready = ability.available !== false && !ability.locked && Math.max(0, Number(ability.cooldownRemaining || 0)) <= 0
+        const iconSrc = abilityIconSrc(ability)
+        const isShoot = ability.inputType === "m1" || ability.shootAbility
+        return (
+          <div
+            className={`ability-ready-entry ${isShoot ? "has-input" : ""} ${ready ? "is-ready" : "is-unavailable"}`}
+            key={ability.id}
+          >
+            {isShoot && (
+              <img className="ability-ready-input-icon" src="/images/mouse_click.png" alt="M1" draggable="false" />
+            )}
+            <div
+              className={`ability-ready-item ${ready ? "is-ready" : "is-unavailable"} ${ability.active ? "is-active" : ""} accent-${ability.accent || "cyan"}`}
+            >
+              <div className="ability-ready-icon-wrap">
+                {iconSrc ? (
+                  <img className="ability-ready-icon" src={iconSrc} alt="" aria-hidden="true" draggable="false" />
+                ) : (
+                  <span className="ability-ready-glyph" aria-hidden="true">{abilityFallbackGlyph(ability)}</span>
+                )}
+              </div>
+              <div className="ability-ready-copy">
+                <strong>{ability.shortName || ability.name}</strong>
+                <span>{abilityReadinessLabel(ability)}</span>
+              </div>
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 function AbilityHudShell({ type }) {
   const config = ABILITY_HUD_CONFIG[type]
   const hud = useAbilityHud(config.eventName)
 
   return hud.visible ? (
-    <div className={config.wrapperClassName} aria-live="polite">
-      <div className={config.bankClassName}>
-        <img className={config.iconClassName} src="/images/orb.png" alt="" aria-hidden="true" />
-        <div>
-          <span>{config.label}</span>
-          <strong>{hud.orbs}</strong>
+    <>
+      <div className={config.wrapperClassName} aria-live="polite">
+        <div className={config.bankClassName}>
+          <img className={config.iconClassName} src="/images/orb.png" alt="" aria-hidden="true" />
+          <div>
+            <span>{config.label}</span>
+            <strong>{hud.orbs}</strong>
+          </div>
         </div>
+        <ActiveAbilityEffects effects={hud.effects} className={config.effectsClassName} />
+        <p>Hold <b>Q</b> for abilities</p>
       </div>
-      <ActiveAbilityEffects effects={hud.effects} className={config.effectsClassName} />
-      <p>Hold <b>Q</b> for abilities</p>
-    </div>
+      <AbilityReadinessStrip abilities={hud.abilities} role={type === "void" ? "void" : "runner"} />
+    </>
   ) : null
 }
 
@@ -936,6 +1009,7 @@ export function GameHud() {
         <div className="fx-hit" />
         <div className="fx-terror" />
         <div className="fx-focus" />
+        <div className="fx-speed-boost" />
         <div className="fx-grain" />
       </div>
     </>

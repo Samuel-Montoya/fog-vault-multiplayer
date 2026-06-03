@@ -5,6 +5,7 @@ const skinCatalog = require("../economy/skin-catalog.cjs");
 const { loadPublicScriptGlobal } = require("../config/load-public-script.cjs");
 const perkCatalog = loadPublicScriptGlobal(path.resolve(__dirname, "../.."), "public/perkConfig.js", "RIFTRUNNER_PERK_CONFIG");
 const levelConfig = loadPublicScriptGlobal(path.resolve(__dirname, "../.."), "public/levelConfig.js", "RIFTRUNNER_LEVEL_CONFIG");
+const runnerClassConfig = loadPublicScriptGlobal(path.resolve(__dirname, "../.."), "public/runnerClassConfig.js", "RIFTRUNNER_RUNNER_CLASS_CONFIG");
 const {
   applyXpToTrack,
   rowToProgression,
@@ -74,7 +75,8 @@ function progressionColumnSql() {
       ADD COLUMN IF NOT EXISTS runner_total_xp INTEGER NOT NULL DEFAULT 0 CHECK (runner_total_xp >= 0),
       ADD COLUMN IF NOT EXISTS void_level INTEGER NOT NULL DEFAULT 1 CHECK (void_level >= 1),
       ADD COLUMN IF NOT EXISTS void_xp INTEGER NOT NULL DEFAULT 0 CHECK (void_xp >= 0),
-      ADD COLUMN IF NOT EXISTS void_total_xp INTEGER NOT NULL DEFAULT 0 CHECK (void_total_xp >= 0);
+      ADD COLUMN IF NOT EXISTS void_total_xp INTEGER NOT NULL DEFAULT 0 CHECK (void_total_xp >= 0),
+      ADD COLUMN IF NOT EXISTS selected_runner_class TEXT NOT NULL DEFAULT 'orbCollector';
 
     CREATE TABLE IF NOT EXISTS match_progression_awards (
       id BIGSERIAL PRIMARY KEY,
@@ -112,6 +114,28 @@ async function ensureProgressionSchema() {
     });
   }
   await progressionSchemaPromise;
+}
+
+
+function normalizeRunnerClassId(value) {
+  const classes = runnerClassConfig.classes || {};
+  const fallback = String(runnerClassConfig.defaultClass || "orbCollector");
+  const id = String(value || fallback);
+  return classes[id] ? id : (classes[fallback] ? fallback : Object.keys(classes)[0] || "orbCollector");
+}
+
+function publicRunnerClassCatalog() {
+  return Object.values(runnerClassConfig.classes || {}).map((runnerClass) => ({
+    id: normalizeRunnerClassId(runnerClass.id),
+    name: runnerClass.name || runnerClass.id,
+    shortName: runnerClass.shortName || runnerClass.name || runnerClass.id,
+    accent: runnerClass.accent || "cyan",
+    icon: runnerClass.icon || "◆",
+    summary: runnerClass.summary || "Runner class.",
+    detail: runnerClass.detail || runnerClass.summary || "Runner class.",
+    grantedPerks: runnerClass.grantedPerks || {},
+    passive: runnerClass.passive || null
+  }));
 }
 
 function progressionStateFromAccountRow(row) {
@@ -263,6 +287,7 @@ function rowToAccount(row) {
     level: progression.account.level,
     runnerLevel: progression.runner.level,
     voidLevel: progression.void.level,
+    selectedRunnerClass: normalizeRunnerClassId(row.selected_runner_class),
     createdAt: row.created_at
   };
 }
@@ -481,6 +506,17 @@ async function purchasePerk(accountId, perkId) {
   return { account, perk: { id: perk.id, role: perk.role, level: nextLevel, maxLevel } };
 }
 
+async function updateSelectedRunnerClass(accountId, runnerClassId) {
+  assertAuthReady();
+  await ensureProgressionSchema();
+  const selectedRunnerClass = normalizeRunnerClassId(runnerClassId);
+  await query(
+    `UPDATE accounts SET selected_runner_class = $2, updated_at = NOW() WHERE id = $1`,
+    [accountId, selectedRunnerClass]
+  );
+  return accountSummary(accountId);
+}
+
 function ownsSkinSync(account, skinId) {
   if (!skinCatalog.hasSkin(skinId)) return false;
   if (skinCatalog.isDefaultSkin(skinId)) return true;
@@ -680,12 +716,15 @@ module.exports = {
   createGuest,
   purchaseSkin,
   purchasePerk,
+  updateSelectedRunnerClass,
   awardMatchOrbs,
   awardMatchProgression,
   ownsSkinSync,
   sanitizeOwnedSkin,
   publicCatalog: skinCatalog.publicCatalog,
   publicPerkCatalog,
+  publicRunnerClassCatalog,
+  normalizeRunnerClassId,
   getSkin: skinCatalog.getSkin,
   getPerkDef,
   xpNeededForLevel

@@ -343,7 +343,9 @@
         playerSpeak: "/sfx/player_speak.mp3",
         healing: "/sfx/healing.mp3",
         unhooking: ["/sfx/unhooking.mp3", "/sfx/unhook.mp3"],
-        speedBoost: "/sfx/speed_boost.mp3"
+        speedBoost: "/sfx/speed_boost.mp3",
+        dash: "/sfx/dash.mp3",
+        shootDart: "/sfx/shoot_dart.mp3"
       },
       volumes: {
         hooked: 0.82,
@@ -363,7 +365,9 @@
         playerSpeak: 0.62,
         healing: 0.34,
         unhooking: 0.44,
-        speedBoost: 0.40
+        speedBoost: 0.40,
+        dash: 0.64,
+        shootDart: 0.48
       },
       pitchSteps: {
         hooked: [0.84, 0.92, 1.0, 1.09, 1.18, 1.28],
@@ -377,7 +381,9 @@
         playerSpeak: [0.88, 0.94, 1.0, 1.07, 1.15, 1.24],
         healing: [1.0],
         unhooking: [0.96, 1.0, 1.04],
-        speedBoost: [0.96, 1.0, 1.04]
+        speedBoost: [0.96, 1.0, 1.04],
+        dash: [0.88, 0.94, 1.0, 1.07, 1.15, 1.24],
+        shootDart: [0.92, 0.97, 1.0, 1.06, 1.12]
       },
       localRange: {
         swing: 315,
@@ -385,7 +391,10 @@
         palletStun: 300,
         voidStun: 360,
         healing: 340,
-        unhooking: 0
+        unhooking: 0,
+        dash: 900,
+        // Shooter-only cue. Kept at 0 so config clearly does not localize it to nearby players.
+        shootDart: 0
       }
     }
   };
@@ -658,7 +667,9 @@
     TUNNEL_RISE_PER_SECOND: 4.5,
     TUNNEL_FALL_PER_SECOND: 3.0,
     BLOOD_RISE_PER_SECOND: 5.0,
-    BLOOD_FALL_PER_SECOND: 2.2
+    BLOOD_FALL_PER_SECOND: 2.2,
+    SPEED_BOOST_RISE_PER_SECOND: 7.5,
+    SPEED_BOOST_FALL_PER_SECOND: 3.0
   };
 
   // Keep this matched with server.js. Client uses it only for local prediction
@@ -849,6 +860,7 @@
   };
 
   const SURVIVOR_DOT_MAX = cfgNumber(GAMEPLAY_CONFIG.orbs?.survivorMax, 30);
+  const SURVIVOR_DOT_PICKUP_RADIUS = cfgNumber(GAMEPLAY_CONFIG.orbs?.survivorPickupRadius, 48);
 
   const DOT_ORBIT_VISUAL = {
     RADIUS_BASE: 22,
@@ -875,9 +887,13 @@
   const SHARED_CHATS = window.RIFTRUNNER_CHATS || {};
   const SHARED_ABILITIES = window.RIFTRUNNER_ABILITIES || {};
   const SHARED_PERKS = window.RIFTRUNNER_PERK_CONFIG || {};
+  const SHARED_RUNNER_CLASSES = window.RIFTRUNNER_RUNNER_CLASS_CONFIG || {};
   const VOID_ABILITIES = SHARED_ABILITIES.abilities || {};
   const VOID_ABILITY_ORDER = Array.isArray(SHARED_ABILITIES.wheelOrder) ? SHARED_ABILITIES.wheelOrder : Object.keys(VOID_ABILITIES);
-  const SURVIVOR_ABILITIES = SHARED_ABILITIES.survivorAbilities || {};
+  const RUNNER_CLASS_DEFS = SHARED_RUNNER_CLASSES.classes || {};
+  const RUNNER_CLASS_ABILITY_DEFS = SHARED_RUNNER_CLASSES.abilities || {};
+  const RUNNER_CLASS_DEFAULT_ID = String(SHARED_RUNNER_CLASSES.defaultClass || "orbCollector");
+  const SURVIVOR_ABILITIES = { ...(SHARED_ABILITIES.survivorAbilities || {}), ...RUNNER_CLASS_ABILITY_DEFS };
   const SURVIVOR_ABILITY_ORDER = Array.isArray(SHARED_ABILITIES.survivorWheelOrder) ? SHARED_ABILITIES.survivorWheelOrder : Object.keys(SURVIVOR_ABILITIES);
   const CHAT_AUTOMATIC = SHARED_CHATS.automatic || {};
   const ORB_FULL_CHAT_MESSAGES = new Set(CHAT_AUTOMATIC.orbFull || [
@@ -1141,6 +1157,9 @@
     beSurvivorBtn: document.getElementById("beSurvivorBtn"),
     beKillerBtn: document.getElementById("beKillerBtn"),
     beSpectatorBtn: document.getElementById("beSpectatorBtn"),
+    runnerClassPanel: document.getElementById("runnerClassPanel"),
+    runnerClassBtns: [...document.querySelectorAll("[data-runner-class]")],
+    lobbySelectedClassLabel: document.getElementById("lobbySelectedClassLabel"),
     readyBtn: document.getElementById("readyBtn"),
     addBotSurvivorBtn: document.getElementById("addBotSurvivorBtn"),
     addBotKillerBtn: document.getElementById("addBotKillerBtn"),
@@ -1206,6 +1225,7 @@
     redChase: 0,
     tunnel: 0,
     blood: 0,
+    speedBoost: 0,
     lastUpdate: performance.now(),
     lastDomUpdate: 0,
     lastDomKey: ""
@@ -1236,6 +1256,7 @@
     fxState.redChase = 0;
     fxState.tunnel = 0;
     fxState.blood = 0;
+    fxState.speedBoost = 0;
     fxState.lastDomKey = "";
 
     const horrorFx = ui.horrorFx || document.getElementById("horrorFx");
@@ -1246,6 +1267,7 @@
       horrorFx.style.setProperty("--blood", "0");
       horrorFx.style.setProperty("--void-stun", "0");
       horrorFx.style.setProperty("--tunnel", "0");
+      horrorFx.style.setProperty("--speed-boost", "0");
     }
 
     document.body.classList.remove(
@@ -1261,6 +1283,10 @@
   let selectedRole = "survivor";
   let selectedSkin = "blueSquare";
   let selectedVoidSkin = "voidCore";
+  let selectedRunnerClass = (() => {
+    try { return String(localStorage.getItem("riftrunnerRunnerClass") || RUNNER_CLASS_DEFAULT_ID); }
+    catch { return RUNNER_CLASS_DEFAULT_ID; }
+  })();
   let currentLobbyState = null;
   let currentSnapshot = null;
   let personalRunResult = null;
@@ -1361,6 +1387,111 @@
   }
 
 
+  function normalizeRunnerClassId(value) {
+    const id = String(value || RUNNER_CLASS_DEFAULT_ID);
+    if (RUNNER_CLASS_DEFS[id]) return id;
+    if (RUNNER_CLASS_DEFS[RUNNER_CLASS_DEFAULT_ID]) return RUNNER_CLASS_DEFAULT_ID;
+    return Object.keys(RUNNER_CLASS_DEFS)[0] || "orbCollector";
+  }
+
+  function runnerClassDef(value = selectedRunnerClass) {
+    return RUNNER_CLASS_DEFS[normalizeRunnerClassId(value)] || null;
+  }
+
+  function runnerClassLabel(value = selectedRunnerClass) {
+    return runnerClassDef(value)?.name || "Orb Collector";
+  }
+
+  function runnerClassPassive(actor) {
+    if (!actor || actor.role !== "survivor") return {};
+    const classDef = runnerClassDef(actor.runnerClass || currentAccount?.selectedRunnerClass || selectedRunnerClass);
+    return classDef?.passive || {};
+  }
+
+  function orbPickupAuraForActor(actor) {
+    if (!actor || actor.role !== "survivor") return null;
+    const passive = runnerClassPassive(actor);
+    const multiplier = Math.max(0, Number(passive?.orbPickupRadiusMultiplier || 1));
+    if (multiplier <= 1.001) return null;
+    const visual = passive.pickupRadiusRing || {};
+    return {
+      radius: SURVIVOR_DOT_PICKUP_RADIUS * multiplier,
+      baseRadius: SURVIVOR_DOT_PICKUP_RADIUS,
+      color: Number(visual.color ?? 0xff9f1c),
+      lineAlpha: clamp(Number(visual.lineAlpha ?? 0.82), 0, 1),
+      lineWidth: clamp(Number(visual.lineWidth ?? 2.2), 0.5, 8)
+    };
+  }
+
+  function runnerClassWheelOrder(actor) {
+    const classDef = runnerClassDef(actor?.runnerClass || currentAccount?.selectedRunnerClass || selectedRunnerClass);
+    return Array.isArray(classDef?.wheelOrder) && classDef.wheelOrder.length
+      ? classDef.wheelOrder
+      : SURVIVOR_ABILITY_ORDER;
+  }
+
+  function classGrantedPerkLevel(actor, perkId) {
+    if (!actor || actor.role !== "survivor") return 0;
+    const classDef = runnerClassDef(actor.runnerClass || currentAccount?.selectedRunnerClass || selectedRunnerClass);
+    return Math.max(0, Math.floor(Number(classDef?.grantedPerks?.[String(perkId || "")] || 0)));
+  }
+
+  function runnerClassAbilityLevelConfig(ability, actor) {
+    const levels = Array.isArray(ability?.levels) ? ability.levels : [];
+    if (!levels.length) return { level: 1 };
+    const accountRunnerLevel = currentAccount?.progression?.runner?.level || currentAccount?.runnerLevel || 1;
+    const runnerLevel = Math.max(1, Math.floor(Number(actor?.runnerLevel || accountRunnerLevel || 1)));
+    let best = levels[0];
+    for (const level of levels) {
+      const minRunnerLevel = Math.max(1, Math.floor(Number(level.minRunnerLevel || 1)));
+      if (runnerLevel >= minRunnerLevel) best = level;
+    }
+    return best || levels[0];
+  }
+
+  function syncRunnerClassUi({ preferAccount = true } = {}) {
+    const accountClass = preferAccount ? currentAccount?.selectedRunnerClass : null;
+    selectedRunnerClass = normalizeRunnerClassId(accountClass || selectedRunnerClass);
+    try { localStorage.setItem("riftrunnerRunnerClass", selectedRunnerClass); } catch {}
+    for (const button of ui.runnerClassBtns || []) {
+      const selected = normalizeRunnerClassId(button.dataset.runnerClass) === selectedRunnerClass;
+      button.classList.toggle("selected", selected);
+      button.setAttribute("aria-pressed", selected ? "true" : "false");
+    }
+    if (ui.lobbySelectedClassLabel) ui.lobbySelectedClassLabel.textContent = runnerClassLabel(selectedRunnerClass);
+  }
+
+  function setSelectedRunnerClass(value, { emit = true, save = true } = {}) {
+    const previousRunnerClass = selectedRunnerClass;
+    selectedRunnerClass = normalizeRunnerClassId(value);
+    try { localStorage.setItem("riftrunnerRunnerClass", selectedRunnerClass); } catch {}
+
+    // Make the click feel instant. Without this, syncRunnerClassUi() can pull the
+    // old account value back over the new selection before the API/socket round trip lands.
+    if (currentAccount) {
+      currentAccount = { ...currentAccount, selectedRunnerClass };
+    }
+
+    syncRunnerClassUi({ preferAccount: false });
+    const mine = currentLobbyState?.players?.find((p) => p.id === myId);
+    if (emit && socket && mine?.role === "survivor") {
+      socket.emit("setRunnerClass", { runnerClass: selectedRunnerClass });
+    }
+    if (save && authToken && currentAccount) {
+      authFetch("/api/runner-class/select", { method: "POST", body: JSON.stringify({ runnerClass: selectedRunnerClass }) })
+        .then((payload) => {
+          applyAccountPayload(payload);
+          socket?.emit("refreshAccount", { token: authToken || "" });
+        })
+        .catch((error) => {
+          selectedRunnerClass = normalizeRunnerClassId(previousRunnerClass);
+          if (currentAccount) currentAccount = { ...currentAccount, selectedRunnerClass };
+          syncRunnerClassUi({ preferAccount: false });
+          toast(error.message || "Could not save Runner class.", 2600);
+        });
+    }
+  }
+
   function normalizePerkRole(role) {
     const value = String(role || "").toLowerCase();
     if (value === "killer" || value === "void") return "killer";
@@ -1445,11 +1576,12 @@
       accountPerks.all,
       accountPerks
     ].filter(Boolean);
+    let best = roleKey === "survivor" ? classGrantedPerkLevel(actor, id) : 0;
     for (const source of sources) {
       const value = Number(source?.[id] || 0);
-      if (value > 0) return Math.max(0, Math.floor(value));
+      if (value > best) best = value;
     }
-    return 0;
+    return Math.max(0, Math.floor(best));
   }
 
   function perkEffectForActor(actor, perkId, role = null) {
@@ -1671,6 +1803,7 @@
     for (const el of fallbackNames) el.textContent = accountDisplayName();
 
     document.body.classList.toggle("has-riftrunner-account", !!currentAccount);
+    syncRunnerClassUi();
     refreshSkinLockUi();
     renderPerkShop();
   }
@@ -1680,12 +1813,17 @@
     const localActor = currentSnapshot.actors.find((actor) => actor?.id === myId);
     if (localActor && (localActor.role === "killer" || localActor.role === "survivor")) {
       localActor.perkLevels = currentAccount.perks;
+      if (localActor.role === "survivor") {
+        localActor.runnerClass = normalizeRunnerClassId(currentAccount.selectedRunnerClass || selectedRunnerClass);
+        localActor.runnerLevel = currentAccount.runnerLevel || currentAccount.progression?.runner?.level || localActor.runnerLevel || 1;
+      }
     }
   }
 
   function applyAccountPayload(payload = {}) {
     if (Array.isArray(payload.skins)) shopSkins = payload.skins;
     if (Array.isArray(payload.perks)) shopPerks = payload.perks;
+    if (payload.account?.selectedRunnerClass) selectedRunnerClass = normalizeRunnerClassId(payload.account.selectedRunnerClass);
     currentAccount = payload.account || null;
     syncLocalActorPerksFromAccount();
     syncAccountUi();
@@ -1804,6 +1942,9 @@
     ui.lobbySkinPicker?.setAttribute("aria-hidden", showRunner ? "false" : "true");
     ui.voidLobbySkinPicker?.classList.toggle("hidden", !showVoid);
     ui.voidLobbySkinPicker?.setAttribute("aria-hidden", showVoid ? "false" : "true");
+    ui.runnerClassPanel?.classList.toggle("hidden", !showRunner);
+    ui.runnerClassPanel?.setAttribute("aria-hidden", showRunner ? "false" : "true");
+    syncRunnerClassUi();
   }
 
   function syncLobbyRoleButtons(role = selectedRole) {
@@ -2541,6 +2682,31 @@
       || null;
   }
 
+  function rallyDartCanFireNow(actor = getLocalPlayerData()) {
+    if (!actor || actor.role !== "survivor" || actor.dead || actor.escaped || actor.hooked || actor.downed) return false;
+    if (Number(actor.rallyDartArmed || 0) > 0) return true;
+    const dart = getAbilityListForActor(actor).find((ability) => ability.id === "rallyDart");
+    return !!dart && dart.available !== false && !dart.locked && !dart.disabled && !dart.passive;
+  }
+
+  function tryFireRallyDartFromPointer(pointer, scene = phaserScene) {
+    const me = getLocalPlayerData();
+    if (!socket || !pointer || !scene || currentSnapshot?.phase !== "game") return false;
+    if (!rallyDartCanFireNow(me)) return false;
+    const cam = scene.cameras?.main;
+    const worldPoint = cam?.getWorldPoint
+      ? cam.getWorldPoint(pointer.x, pointer.y)
+      : { x: pointer.worldX, y: pointer.worldY };
+    const targetX = Number(worldPoint?.x);
+    const targetY = Number(worldPoint?.y);
+    const hasTarget = Number.isFinite(targetX) && Number.isFinite(targetY);
+    const angle = hasTarget
+      ? Math.atan2(targetY - me.y, targetX - me.x)
+      : input.angle;
+    socket.emit("rallyDartFire", hasTarget ? { angle, targetX, targetY } : { angle });
+    return true;
+  }
+
   function isDedicatedSpectator(snapshot = currentSnapshot) {
     return snapshot?.viewer?.id === myId && snapshot.viewer.role === "spectator";
   }
@@ -2635,10 +2801,44 @@
   function configuredAbilityForActor(id, defs, actor, role) {
     const fallbackName = role === "survivor" ? "Runner Ability" : "Void Ability";
     const base = defs[id] || { id, name: fallbackName, shortName: "Ability", cost: 0, summary: "Spend orbs to bend the run.", cooldown: role === "survivor" ? 30 : 20 };
-    const isCancel = !!base.cancel || id === "cancel" || !!base.disabled;
+    const isCancel = !!base.cancel || id === "cancel" || id === "moreSoon";
     if (isCancel) return { ...base, cancel: true, locked: false, level: 0, maxLevel: 1 };
+    if (base.disabled || base.passive) {
+      return {
+        ...base,
+        disabled: true,
+        passive: !!base.passive,
+        locked: false,
+        level: 0,
+        maxLevel: 1,
+        cost: 0,
+        cooldown: 0,
+        summary: base.summary || "Passive class bonus. No button press needed."
+      };
+    }
 
     const roleKey = normalizePerkRole(role);
+
+    if (roleKey === "survivor" && base.classAbility) {
+      const effect = runnerClassAbilityLevelConfig(base, actor);
+      const maxLevel = Math.max(1, Array.isArray(base.levels) ? base.levels.length : 1);
+      const level = Math.max(1, Math.floor(Number(effect?.level || 1)));
+      const duration = Number(effect?.duration ?? base.duration ?? 0);
+      const abilityCost = Number(effect?.cost ?? base.cost ?? 0);
+      const cooldown = Number(effect?.cooldown ?? base.cooldown ?? 30);
+      const healPct = effect?.healProgress ? `${Math.round(Number(effect.healProgress) * 100)}% heal` : "class ability";
+      return {
+        ...base,
+        cost: abilityCost,
+        cooldown,
+        duration,
+        level,
+        maxLevel,
+        locked: false,
+        summary: `Class Lv ${level}/${maxLevel} · ${healPct}. ${base.summary || "Class ability."}`
+      };
+    }
+
     const perk = perkConfigById(base.id || id, roleKey) || publicPerkById(base.id || id, roleKey);
     const level = actorPerkLevel(actor, base.id || id, roleKey);
     const maxLevel = perkMaxLevel(perk || {});
@@ -2646,8 +2846,9 @@
     const duration = Number(effect?.duration ?? base.duration ?? 0);
     const abilityCost = Number(perk?.abilityCost ?? base.cost ?? 0);
     const cooldown = Number(perk?.cooldown ?? base.cooldown ?? (role === "survivor" ? 30 : 20));
+    const classGranted = roleKey === "survivor" && classGrantedPerkLevel(actor, base.id || id) > 0;
     const levelLabel = level > 0
-      ? `Lv ${level}/${maxLevel} · ${formatSeconds(duration)}`
+      ? `${classGranted ? "Class" : "Lv"} ${level}/${maxLevel} · ${formatSeconds(duration)}`
       : "Locked · buy in Perks";
     return {
       ...base,
@@ -2666,16 +2867,18 @@
     return order.slice(0, 4).map((id) => {
       const fallbackName = role === "survivor" ? "Runner Ability" : "Void Ability";
       const ability = configuredAbilityForActor(id, defs, actor, role);
-      const isCancel = !!ability.cancel || id === "cancel" || !!ability.disabled;
+      const isCancel = !!ability.cancel || id === "cancel" || id === "moreSoon";
+      const disabled = !!ability.disabled || !!ability.passive;
       const cooldowns = role === "survivor" ? actor?.survivorAbilityCooldowns : actor?.voidAbilityCooldowns;
-      const cooldownRemaining = isCancel ? 0 : Math.max(0, Number(cooldowns?.[ability.id || id] || 0));
+      const cooldownRemaining = (isCancel || disabled) ? 0 : Math.max(0, Number(cooldowns?.[ability.id || id] || 0));
       const active = !!(actor && !isCancel && (
         (role === "killer" && ability.id === "nullRush" && (actor.voidSpeedBoost || 0) > 0) ||
         (role === "killer" && ability.id === "redshiftOrbs" && (currentSnapshot?.voidEffects?.redOrbs || 0) > 0) ||
         (role === "killer" && ability.id === "voidReveal" && (currentSnapshot?.voidEffects?.runnerReveal || 0) > 0) ||
         (role === "survivor" && ability.id === "riftLens" && (actor.riftLens || 0) > 0) ||
         (role === "survivor" && ability.id === "hourglass" && (actor.hourglass || 0) > 0) ||
-        (role === "survivor" && ability.id === "speedBurst" && (actor.speedBurst || 0) > 0)
+        (role === "survivor" && ability.id === "speedBurst" && (actor.speedBurst || 0) > 0) ||
+        (role === "survivor" && ability.id === "rallyDart" && (actor.rallyDartArmed || 0) > 0)
       ));
       return {
         id: ability.id || id,
@@ -2685,20 +2888,24 @@
         summary: ability.summary || (isCancel ? "Close the wheel." : "Spend orbs to bend the run."),
         accent: ability.accent || (isCancel ? "muted" : role === "survivor" ? "cyan" : "purple"),
         cancel: isCancel,
+        disabled,
+        passive: !!ability.passive,
         cooldown: Number(ability.cooldown || (role === "survivor" ? 30 : 20)),
         cooldownRemaining,
-        available: isCancel || (!ability.locked && orbs >= Number(ability.cost || 0) && cooldownRemaining <= 0),
+        available: isCancel || (!disabled && !ability.locked && orbs >= Number(ability.cost || 0) && cooldownRemaining <= 0),
         locked: !!ability.locked,
         level: Math.max(0, Math.floor(Number(ability.level || 0))),
         maxLevel: Math.max(1, Math.floor(Number(ability.maxLevel || 4))),
         duration: Number(ability.duration || 0),
+        inputType: ability.inputType || (ability.id === "rallyDart" ? "m1" : "q"),
+        shootAbility: !!ability.shootAbility || ability.id === "rallyDart",
         active
       };
     });
   }
 
   function getAbilityListForActor(actor = getLocalPlayerData()) {
-    if (actor?.role === "survivor") return normalizeAbilityList(SURVIVOR_ABILITY_ORDER, SURVIVOR_ABILITIES, actor, "survivor");
+    if (actor?.role === "survivor") return normalizeAbilityList(runnerClassWheelOrder(actor), SURVIVOR_ABILITIES, actor, "survivor");
     return normalizeAbilityList(VOID_ABILITY_ORDER, VOID_ABILITIES, actor, "killer");
   }
 
@@ -2750,7 +2957,12 @@
     if (Number.isInteger(selection?.index)) {
       abilityId = getAbilityListForActor(me)[selection.index]?.id || "";
     }
-    if (!abilityId || abilityId === "cancel" || abilityId === "moreSoon" || !socket || currentSnapshot?.phase !== "game") return;
+    const ability = getAbilityListForActor(me).find((item) => item.id === abilityId);
+    if (!abilityId || abilityId === "cancel" || abilityId === "moreSoon" || ability?.disabled || ability?.passive || ability?.available === false || !socket || currentSnapshot?.phase !== "game") return;
+    if (ability?.inputType === "m1" || ability?.shootAbility) {
+      toast(`${ability.name || "Ability"} fires with M1 when ready.`, 1700);
+      return;
+    }
     if (me?.role === "survivor") socket.emit("survivorAbility", { id: abilityId });
     else if (me?.role === "killer") socket.emit("voidAbility", { id: abilityId });
   }
@@ -2773,7 +2985,8 @@
       detail: {
         visible: isVoid,
         orbs: isVoid ? Math.max(0, Math.floor(me.dots || 0)) : 0,
-        effects: voidEffects
+        effects: voidEffects,
+        abilities: isVoid ? getAbilityListForActor(me).filter((ability) => ability && !ability.cancel && !ability.passive && !ability.disabled) : []
       }
     }));
 
@@ -2781,11 +2994,14 @@
     if (isRunner && (me.riftLens || 0) > 0) runnerEffects.push({ id: "riftLens", label: "lens", time: me.riftLens });
     if (isRunner && (me.hourglass || 0) > 0) runnerEffects.push({ id: "hourglass", label: "hourglass", time: me.hourglass });
     if (isRunner && (me.speedBurst || 0) > 0) runnerEffects.push({ id: "speedBurst", label: "burst", time: me.speedBurst });
+    if (isRunner && (me.rallyDartArmed || 0) > 0) runnerEffects.push({ id: "rallyDart", label: "dart armed", time: me.rallyDartArmed });
+    if (isRunner && (me.rallyBoost || 0) > 0) runnerEffects.push({ id: "rallyBoost", label: "rally boost", time: me.rallyBoost });
     window.dispatchEvent(new CustomEvent("riftrunner:runner-ability-hud", {
       detail: {
         visible: isRunner,
         orbs: isRunner ? Math.max(0, Math.floor(me.dots || 0)) : 0,
-        effects: runnerEffects
+        effects: runnerEffects,
+        abilities: isRunner ? getAbilityListForActor(me).filter((ability) => ability && !ability.cancel && !ability.passive && !ability.disabled) : []
       }
     }));
 
@@ -3264,7 +3480,25 @@
 
   function playSfx(name, options = {}) {
     const base = audio.sfx?.[name];
-    if (!hasManagedAudioSource(base)) return;
+    if (!hasManagedAudioSource(base)) {
+      const fallbackName = options.fallbackName && options.fallbackName !== name ? String(options.fallbackName) : "";
+      if (base?._voidriftPending && !base._voidriftMissing && options.retryWhenReady !== false) {
+        const requestedAt = performance.now();
+        base._voidriftPending.finally(() => {
+          // SFX should feel immediate. A short retry catches sounds that are still
+          // resolving from disk/network without playing ancient delayed footsteps later.
+          if (performance.now() - requestedAt > 900) return;
+          if (hasManagedAudioSource(base)) {
+            playSfx(name, { ...options, retryWhenReady: false, fallbackName: "" });
+          } else if (fallbackName) {
+            playSfx(fallbackName, { ...options, retryWhenReady: false, fallbackName: "" });
+          }
+        });
+      } else if (fallbackName) {
+        playSfx(fallbackName, { ...options, retryWhenReady: false, fallbackName: "" });
+      }
+      return;
+    }
     const clip = base.cloneNode(true);
     clip.loop = false;
 
@@ -3282,7 +3516,8 @@
       clip.playbackRate = clamp(playbackRate, 0.5, 2.25);
     }
 
-    clip.volume = clamp((SFX.VOLUMES[name] || 0.75) * SFX.MASTER, 0, 1);
+    const volumeScale = Number.isFinite(Number(options.volumeScale)) ? clamp(Number(options.volumeScale), 0, 1.5) : 1;
+    clip.volume = clamp((SFX.VOLUMES[name] || 0.75) * SFX.MASTER * volumeScale, 0, 1);
     clip.play().catch(() => {
       // Browser autoplay rules can still block if the user has not interacted yet.
       // Once they click or press a key, future effects will play. Naturally, browsers need consent to scream.
@@ -3510,10 +3745,103 @@
     }
   }
 
-  function playLocalSpeedBoostAbilitySfx(event) {
+  const DASH_SFX_ABILITY_IDS = new Set(["nullRush", "speedBurst"]);
+  const recentDashSfx = new Map();
+
+  function eventBoostedIds(event) {
+    return Array.isArray(event?.boostedIds)
+      ? event.boostedIds.map((id) => String(id || "")).filter(Boolean)
+      : [];
+  }
+
+  function dashSfxActorId(event) {
+    return String(event?.actorId || event?.survivorId || event?.killerId || "");
+  }
+
+  function dashSfxAbilityId(event) {
+    const abilityId = String(event?.abilityId || "");
+    return DASH_SFX_ABILITY_IDS.has(abilityId) ? abilityId : "";
+  }
+
+  function shouldSkipDuplicateDashSfx(actorId, abilityId, windowMs = 320) {
+    if (!actorId || !abilityId) return false;
+    const key = `${actorId}:${abilityId}`;
+    const now = performance.now();
+    const last = Number(recentDashSfx.get(key) || 0);
+    recentDashSfx.set(key, now);
+    return now - last < windowMs;
+  }
+
+  function playLocalizedDashAbilitySfx(event) {
+    if (!event) return;
+    const abilityId = dashSfxAbilityId(event);
+    if (!abilityId) return;
+
+    const actorId = dashSfxActorId(event);
+    const isDasher = actorId === myId;
+    const d = distanceToLocalEvent(event);
+    const range = Math.max(180, Number(LOCAL_SFX_RANGE.dash || 900));
+    // The dasher always hears their own dash. Other players only hear it nearby.
+    if (!isDasher && d > range) return;
+    if (shouldSkipDuplicateDashSfx(actorId, abilityId)) return;
+
+    playSfx("dash", { fallbackName: "speedBoost" });
+  }
+
+  function localEventHasWallLineOfSight(event) {
+    const me = getLocalVisualActor();
+    const x = Number(event?.x);
+    const y = Number(event?.y);
+    if (!me?.current || !Number.isFinite(x) || !Number.isFinite(y)) return false;
+    const scene = phaserScene;
+    if (!scene || typeof scene.hasClearWallLineOfSight !== "function") return true;
+    return scene.hasClearWallLineOfSight(me.current.x, me.current.y, x, y);
+  }
+
+  function distanceVolumeScale(distance, range, minScale = 0.18) {
+    if (!Number.isFinite(distance)) return minScale;
+    if (!Number.isFinite(range) || range <= 0) return 1;
+    const t = clamp(1 - (distance / range), 0, 1);
+    return clamp(minScale + (1 - minScale) * Math.pow(t, 1.18), minScale, 1);
+  }
+
+  function playLocalizedRallyDartBoostSfx(event) {
+    if (!event) return;
+
+    const actorId = String(event.actorId || event.survivorId || "rallyDart");
+    const boostedIds = eventBoostedIds(event);
+    const isShooter = actorId === String(myId || "");
+    const isBoosted = boostedIds.includes(String(myId || ""));
+    const d = distanceToLocalEvent(event);
+    const range = Math.max(520, Number(LOCAL_SFX_RANGE.rallyDartExplosion || LOCAL_SFX_RANGE.dash || 1500));
+    const visibleRange = Math.max(range, Number(LOCAL_SFX_RANGE.rallyDartExplosionVisible || range * 1.25));
+    const canSeeLanding = d <= visibleRange && localEventHasWallLineOfSight(event);
+
+    // This is the landing/explosion cue, not just the buff cue.
+    // Shooter always hears confirmation, boosted players always hear it,
+    // and anyone close enough or with a clear view hears a distance-faded version.
+    if (!isShooter && !isBoosted && d > range && !canSeeLanding) return;
+
+    const keyId = `${actorId}:rallyDart:${Math.round(Number(event.x) || 0)}:${Math.round(Number(event.y) || 0)}`;
+    if (shouldSkipDuplicateDashSfx(keyId, "rallyDartBoost", 260)) return;
+
+    const minScale = clamp(Number(LOCAL_SFX_RANGE.rallyDartExplosionMinVolumeScale || 0.18), 0.02, 0.65);
+    const shooterMinScale = clamp(Number(LOCAL_SFX_RANGE.rallyDartExplosionShooterMinVolumeScale || 0.46), 0.02, 0.85);
+    const shooterFalloffRange = Math.max(range, visibleRange);
+    let volumeScale = isShooter
+      ? distanceVolumeScale(d, shooterFalloffRange, shooterMinScale)
+      : distanceVolumeScale(d, range, minScale);
+
+    // Boosted players need clear feedback, but the shooter should still hear the landing fade by distance.
+    if (isBoosted && !isShooter) volumeScale = Math.max(volumeScale, 0.72);
+    if (!isShooter && !isBoosted && d > range && canSeeLanding) volumeScale = Math.max(minScale, 0.16);
+
+    playSfx("dash", { fallbackName: "speedBoost", volumeScale });
+  }
+
+  function playShooterOnlyDartSfx(event) {
     if (!event || event.actorId !== myId) return;
-    if (event.abilityId !== "nullRush" && event.abilityId !== "speedBurst") return;
-    playSfx("speedBoost", { disablePitchVariation: true });
+    playSfx("shootDart");
   }
 
   function getOrbPickupPitch(event) {
@@ -3625,7 +3953,10 @@
     const injured = me?.role === "survivor" && !me.dead && !me.escaped && (me.health <= 1 || me.injured || me.downed || me.hooked);
     const voidStun = me?.role === "killer" ? clamp(Number(me.voidStun || 0) / Math.max(0.001, VOID_STUN_SECONDS), 0, 1) : 0;
     const blood = me?.hooked ? 0.95 : me?.downed ? 1 : injured ? 0.82 : me?.dead ? 1 : 0;
-    return { terror, chase, blood, injured, voidStun };
+    const speedBoost = me?.role === "survivor" && !me.dead && !me.escaped && !me.downed && !me.hooked
+      ? ((Number(me.speedBurst || 0) > 0 || Number(me.rallyBoost || 0) > 0) ? 1 : 0)
+      : 0;
+    return { terror, chase, blood, injured, voidStun, speedBoost };
   }
 
   function isLookingAtKiller(snapshot, me) {
@@ -3678,6 +4009,13 @@
       FX_SMOOTHING.BLOOD_RISE_PER_SECOND,
       FX_SMOOTHING.BLOOD_FALL_PER_SECOND
     );
+    fxState.speedBoost = approachValue(
+      fxState.speedBoost,
+      raw.speedBoost || 0,
+      dt,
+      FX_SMOOTHING.SPEED_BOOST_RISE_PER_SECOND,
+      FX_SMOOTHING.SPEED_BOOST_FALL_PER_SECOND
+    );
 
     const pulseSpeed = `${Math.round(980 - terror * 300 - chase * 170)}ms`;
     const domInterval = adaptivePerformance.mode === "ultra" ? 90 : adaptivePerformance.mode === "low" ? 50 : HIGH_END_EFFECTS ? 16 : 32;
@@ -3691,6 +4029,7 @@
       fxState.blood.toFixed(2),
       (raw.voidStun || 0).toFixed(2),
       fxState.tunnel.toFixed(2),
+      fxState.speedBoost.toFixed(2),
       pulseSpeed,
       raw.chase > 0 ? 1 : 0,
       raw.injured ? 1 : 0
@@ -3704,6 +4043,7 @@
     ui.horrorFx.style.setProperty("--blood", fxState.blood.toFixed(3));
     ui.horrorFx.style.setProperty("--void-stun", (raw.voidStun || 0).toFixed(3));
     ui.horrorFx.style.setProperty("--tunnel", fxState.tunnel.toFixed(3));
+    ui.horrorFx.style.setProperty("--speed-boost", fxState.speedBoost.toFixed(3));
     ui.horrorFx.style.setProperty("--pulse-speed", pulseSpeed);
     document.body.classList.toggle("is-void-stunned", (raw.voidStun || 0) > 0.02);
     document.body.classList.toggle("in-chase", raw.chase > 0);
@@ -3737,6 +4077,7 @@
       this.localServerTarget = null;
       this.particles = [];
       this.shockwaves = [];
+      this.runnerProjectileVisuals = new Map();
       this.inputTimer = 0;
       this.dynamicRedrawTimer = 0;
       this.generatorRedrawTimer = 0;
@@ -3981,6 +4322,11 @@
           return;
         }
         if (pointer.leftButtonDown()) {
+          if (tryFireRallyDartFromPointer(pointer, this)) {
+            input.attackHeld = false;
+            sendInput({}, true);
+            return;
+          }
           input.attackHeld = true;
           sendInput({}, true);
         }
@@ -4434,6 +4780,8 @@
       item.nameText?.destroy();
       item.chatText?.destroy();
       item.healAura?.destroy();
+      item.pickupAura?.destroy();
+      item.boostAura?.destroy();
       item.healBarBg?.destroy();
       item.healBar?.destroy();
     }
@@ -5383,7 +5731,7 @@
       const total = objective.totalGenerators ?? objective.total ?? required;
       const escapeOpen = objective.escapeOpen ?? objective.gatesPowered ?? false;
       const hudKey = JSON.stringify({
-        self: [me.id, me.role, me.health, me.dots, me.injured, me.downed, me.hooked, me.dead, me.escaped, me.escapeProgress, me.escapeGateId, me.chase, me.hookProgress, me.healProgress, me.generatorKickTargetId, me.generatorKickProgress, me.voidStun, me.voidSpeedBoost],
+        self: [me.id, me.role, me.runnerClass, me.runnerLevel, me.health, me.dots, me.injured, me.downed, me.hooked, me.dead, me.escaped, me.escapeProgress, me.escapeGateId, me.chase, me.hookProgress, me.healProgress, me.generatorKickTargetId, me.generatorKickProgress, me.voidStun, me.voidSpeedBoost],
         objective: [done, required, total, escapeOpen],
         survivors: (snapshot.actors || []).filter((a) => a.role === "survivor").map((a) => [a.id, a.health, a.dots, a.injured, a.downed, a.hooked, a.dead, a.escaped, a.escapeProgress, a.escapeGateId, a.chase, a.hookProgress, a.healProgress, a.hookCount, a.chatText]),
         killerChat: (snapshot.actors || []).find((a) => a.role === "killer")?.chatText || null,
@@ -5398,7 +5746,7 @@
       renderSurvivorStatusHud(snapshot);
       const hudRole = me.role === "killer" ? "killer" : me.role === "spectator" ? "spectator" : "survivor";
       ui.hud.dataset.role = hudRole;
-      ui.roleLabel.textContent = hudRole === "killer" ? "The Void" : hudRole === "spectator" ? "Spectator" : "Runner";
+      ui.roleLabel.textContent = hudRole === "killer" ? "The Void" : hudRole === "spectator" ? "Spectator" : `${runnerClassLabel(me.runnerClass)} Runner`;
       ui.controlsLabel.textContent = hudRole === "killer"
         ? "WASD move • Mouse aim • M1 attack/lunge • Space vault/break • hold E bind/execute/kick Rift • hold Q abilities • hold R chat"
         : hudRole === "spectator"
@@ -5642,6 +5990,16 @@
         .setDepth(isKiller ? 14 : 11)
         .setScrollFactor(1, 1)
         .setVisible(false);
+      const pickupAura = this.add.graphics()
+        .setDepth(isKiller ? 13.5 : 10.8)
+        .setScrollFactor(1, 1)
+        .setBlendMode(Phaser.BlendModes.SCREEN)
+        .setVisible(false);
+      const boostAura = this.add.graphics()
+        .setDepth(isKiller ? 16 : 13.35)
+        .setScrollFactor(1, 1)
+        .setBlendMode(Phaser.BlendModes.SCREEN)
+        .setVisible(false);
       // Action bars are scene-level objects, not children of the rotating actor
       // container. Keeping them separate makes healing / rescue / hook / execute
       // bars stay fixed underneath the player instead of rotating or drifting away
@@ -5685,6 +6043,8 @@
         outline,
         facing,
         healAura,
+        pickupAura,
+        boostAura,
         healBarBg,
         healBar,
         nameText,
@@ -6397,6 +6757,110 @@
       item.healAura.strokeCircle(0, 0, radius + 7 + slowPulse * 3);
     }
 
+    drawOrbPickupAura(item, data) {
+      if (!item?.pickupAura || data?.role !== "survivor") return;
+      const alphaBase = clamp(item.visionAlpha ?? 0, 0, 1);
+      const aura = orbPickupAuraForActor(data);
+      const active = !!aura
+        && !data.dead
+        && !data.escaped
+        && !data.hooked
+        && !data.downed
+        && alphaBase > ACTOR_VISION.MIN_VISIBLE_ALPHA;
+
+      item.pickupAura.clear();
+      item.pickupAura.setVisible(active);
+      if (!active) return;
+
+      const radius = Math.max(aura.baseRadius + 3, aura.radius);
+      const ringWidth = adaptivePerformance.mode === "ultra" ? Math.max(1.2, aura.lineWidth * 0.75) : aura.lineWidth;
+
+      item.pickupAura.setPosition(item.current.x, item.current.y);
+      item.pickupAura.setRotation(0);
+      item.pickupAura.lineStyle(ringWidth, aura.color, alphaBase * aura.lineAlpha);
+      item.pickupAura.strokeCircle(0, 0, radius);
+    }
+
+    drawRallyBoostAura(item, data) {
+      if (!item?.boostAura || data?.role !== "survivor") return;
+
+      const alphaBase = clamp(item.visionAlpha ?? 0, 0, 1);
+      const active = (data.rallyBoost || 0) > 0
+        && !data.dead
+        && !data.escaped
+        && !data.hooked
+        && !data.downed
+        && alphaBase > ACTOR_VISION.MIN_VISIBLE_ALPHA;
+
+      item.boostAura.clear();
+      item.boostAura.setVisible(active);
+      if (!active) return;
+
+      const now = performance.now();
+      const seed = hash2((data.id || "rally").length, (data.id || "r").charCodeAt(0) || 0);
+      const ultra = adaptivePerformance.mode === "ultra" || LOW_POWER_MODE;
+      const points = ultra ? 8 : 12;
+      const radius = ultra ? 29 : 33;
+      const wobble = ultra ? 3.2 : 5.4;
+      const rotation = now / (ultra ? 240 : 170) + seed * Math.PI * 2;
+      const flicker = 0.72 + Math.sin(now / 58 + seed * 8) * 0.18;
+      const outerAlpha = alphaBase * (ultra ? 0.34 : 0.48) * flicker;
+      const coreAlpha = alphaBase * (ultra ? 0.48 : 0.70) * flicker;
+
+      item.boostAura.setPosition(item.current.x, item.current.y);
+      item.boostAura.setRotation(0);
+
+      item.boostAura.lineStyle(ultra ? 2 : 2.6, 0xff9f1c, coreAlpha);
+      item.boostAura.beginPath();
+      for (let i = 0; i <= points; i += 1) {
+        const t = i / points;
+        const angle = rotation + t * Math.PI * 2;
+        const jag = Math.sin(i * 2.45 + now / 72 + seed * 10) * wobble + (i % 2 ? wobble * 0.62 : -wobble * 0.36);
+        const r = radius + jag;
+        const x = Math.cos(angle) * r;
+        const y = Math.sin(angle) * r;
+        if (i === 0) item.boostAura.moveTo(x, y);
+        else item.boostAura.lineTo(x, y);
+      }
+      item.boostAura.strokePath();
+
+      if (!ultra) {
+        item.boostAura.lineStyle(1.1, 0xffd27a, outerAlpha * 0.72);
+        item.boostAura.beginPath();
+        for (let i = 0; i <= points; i += 1) {
+          const t = i / points;
+          const angle = -rotation * 0.72 + t * Math.PI * 2;
+          const jag = Math.cos(i * 2.15 + now / 94 + seed * 7) * (wobble * 0.62) + (i % 2 ? wobble * 0.32 : -wobble * 0.25);
+          const r = radius + 7 + jag;
+          const x = Math.cos(angle) * r;
+          const y = Math.sin(angle) * r;
+          if (i === 0) item.boostAura.moveTo(x, y);
+          else item.boostAura.lineTo(x, y);
+        }
+        item.boostAura.strokePath();
+      }
+
+      const sparkCount = ultra ? 2 : 4;
+      for (let i = 0; i < sparkCount; i += 1) {
+        const angle = rotation * 1.35 + seed * 4 + i * (Math.PI * 2 / sparkCount) + Math.sin(now / 105 + i) * 0.22;
+        const inner = radius - 7 + (i % 2) * 2;
+        const outer = radius + 9 + ((i + 1) % 2) * 3;
+        const kink = radius + (i % 2 ? 1 : -2);
+        const ix = Math.cos(angle) * inner;
+        const iy = Math.sin(angle) * inner;
+        const kx = Math.cos(angle + 0.14) * kink;
+        const ky = Math.sin(angle + 0.14) * kink;
+        const ox = Math.cos(angle - 0.08) * outer;
+        const oy = Math.sin(angle - 0.08) * outer;
+        item.boostAura.lineStyle(ultra ? 1.3 : 1.7, i % 2 ? 0xffb347 : 0xff6b00, outerAlpha * (0.78 + (i % 2) * 0.22));
+        item.boostAura.beginPath();
+        item.boostAura.moveTo(ix, iy);
+        item.boostAura.lineTo(kx, ky);
+        item.boostAura.lineTo(ox, oy);
+        item.boostAura.strokePath();
+      }
+    }
+
     drawDownedSurvivorPulse(item, data) {
       if (!item?.outline || !data?.downed || data?.hooked) return;
       const now = performance.now();
@@ -6521,6 +6985,14 @@
           item.healAura.clear();
           item.healAura.setVisible(false);
         }
+        if (item.pickupAura) {
+          item.pickupAura.clear();
+          item.pickupAura.setVisible(false);
+        }
+        if (item.boostAura) {
+          item.boostAura.clear();
+          item.boostAura.setVisible(false);
+        }
         const charging = data.attackState === "charging";
         const attacking = data.attacking || data.attackState === "quick" || data.attackState === "lunge";
         const voidSkin = getVoidSkin(data.skin);
@@ -6567,6 +7039,7 @@
             this.drawHookedSurvivorPulse(item, data);
           }
         }
+        this.drawOrbPickupAura(item, data);
         item.facing.setFillStyle(0xffffff, disabled || data.hooked ? 0.15 : 0.42);
         if (item.healBarBg && item.healBar) {
           const barVisible = showProgress && (item.visionAlpha ?? 0) > ACTOR_VISION.MIN_VISIBLE_ALPHA;
@@ -6680,16 +7153,26 @@
           }
         }
         if (event.type === "voidAbility") {
-          playLocalSpeedBoostAbilitySfx(event);
+          playLocalizedDashAbilitySfx(event);
           const color = event.abilityId === "redshiftOrbs" ? 0xff3048 : event.abilityId === "voidReveal" ? 0xa78bfa : 0xcbd5e1;
           this.burst(event.x, event.y, color, adaptivePerformance.mode === "ultra" ? 0 : LOW_POWER_MODE ? 6 : 34, LOW_POWER_MODE ? 130 : 210);
           if (adaptivePerformance.mode === "normal") this.addShockwave(event.x, event.y, color, 0.55, event.radius || 155);
         }
         if (event.type === "survivorAbility") {
-          playLocalSpeedBoostAbilitySfx(event);
-          const color = event.abilityId === "riftLens" ? 0xfbbf24 : event.abilityId === "hourglass" ? 0x67e8f9 : event.abilityId === "speedBurst" ? 0x86efac : 0x7dd3fc;
+          playLocalizedDashAbilitySfx(event);
+          const color = event.abilityId === "rallyDart" ? 0xff9f1c : event.abilityId === "riftLens" ? 0xfbbf24 : event.abilityId === "hourglass" ? 0x67e8f9 : event.abilityId === "speedBurst" ? 0x86efac : event.abilityId === "healingPulse" ? 0x34d399 : 0x7dd3fc;
           this.burst(event.x, event.y, color, adaptivePerformance.mode === "ultra" ? 0 : LOW_POWER_MODE ? 5 : 28, LOW_POWER_MODE ? 110 : 180);
-          if (adaptivePerformance.mode === "normal") this.addShockwave(event.x, event.y, color, 0.42, event.abilityId === "hourglass" ? 176 : 138);
+          if (adaptivePerformance.mode === "normal") this.addShockwave(event.x, event.y, color, 0.42, event.abilityId === "healingPulse" ? (event.radius || 150) : event.abilityId === "rallyDart" ? 92 : event.abilityId === "hourglass" ? 176 : 138);
+        }
+        if (event.type === "rallyDartFire") {
+          playShooterOnlyDartSfx(event);
+          this.burst(event.x, event.y, 0xff9f1c, adaptivePerformance.mode === "ultra" ? 0 : LOW_POWER_MODE ? 5 : 16, LOW_POWER_MODE ? 95 : 135);
+        }
+        if (event.type === "rallyDartExplode") {
+          playLocalizedRallyDartBoostSfx(event);
+          this.burst(event.x, event.y, 0xff9f1c, adaptivePerformance.mode === "ultra" ? 0 : LOW_POWER_MODE ? 12 : 34, LOW_POWER_MODE ? 125 : 175);
+          this.addShockwave(event.x, event.y, 0xff9f1c, 0.74, event.radius || 116);
+          this.addShockwave(event.x, event.y, 0xffd089, 0.34, (event.radius || 116) * 0.68);
         }
         if (event.type === "redOrbSlow" && adaptivePerformance.mode !== "ultra") {
           this.burst(event.x, event.y, 0xff3048, LOW_POWER_MODE ? 4 : 18, 95);
@@ -7089,7 +7572,10 @@
     }
 
     syncVaultPlayback(playback, data, dt) {
-      const duration = vaultDurationForRole(data.role);
+      const serverVaultDuration = Number(data.vaultDuration || 0);
+      const duration = Number.isFinite(serverVaultDuration) && serverVaultDuration > 0
+        ? serverVaultDuration
+        : vaultDurationForRole(data.role);
       const hasEndpoints = Number.isFinite(data.vaultFromX)
         && Number.isFinite(data.vaultFromY)
         && Number.isFinite(data.vaultToX)
@@ -7107,6 +7593,8 @@
           t: 0,
           duration
         };
+      } else if (Math.abs((playback.duration || duration) - duration) > 0.001) {
+        playback.duration = duration;
       }
 
       playback.t = Math.min(playback.duration, playback.t + dt);
@@ -7191,6 +7679,7 @@
       if (data.role === "survivor" && data.downed) speed = LOCAL_SPEEDS.downedCrawl;
       else if (data.role === "survivor" && data.hitBoost > 0) speed = LOCAL_SPEEDS.survivorBoost;
       if (data.role === "survivor" && (data.speedBurst || 0) > 0 && !data.downed) speed *= cfgNumber(perkEffectForActor(data, "speedBurst", "survivor")?.speedMultiplier, LOCAL_SPEEDS.survivorSpeedBurstMult);
+      if (data.role === "survivor" && (data.rallyBoost || 0) > 0 && !data.downed) speed *= Math.max(1, cfgNumber(data.rallyBoostMultiplier, 1.10));
       if (data.role === "survivor" && (data.orbSlow || data.voidSlow || 0) > 0) speed *= 0.58;
       if (data.role === "killer" && currentSnapshot?.objective?.voidBuffed) speed *= LOCAL_SPEEDS.killerEndgameMult;
       if (data.role === "killer" && (data.voidSpeedBoost || 0) > 0) speed *= cfgNumber(perkEffectForActor(data, "nullRush", "killer")?.speedMultiplier, 1.28);
@@ -7661,6 +8150,8 @@
           item.chatText.setAlpha(id === myId ? 1 : alpha);
         }
         if (item.healAura) item.healAura.setAlpha(alpha);
+        if (item.pickupAura) item.pickupAura.setAlpha(alpha);
+        if (item.boostAura) item.boostAura.setAlpha(alpha);
         if (item.healBarBg && item.healBar) {
           item.healBarBg.setAlpha(alpha);
           item.healBar.setAlpha(alpha);
@@ -7837,7 +8328,7 @@
         if (item.data?.role === "killer" && (item.data?.voidSpeedBoost || 0) > 0) {
           this.emitVoidRushTrail(item, item.data);
         }
-        if (item.data?.role === "survivor" && (item.data?.speedBurst || 0) > 0) {
+        if (item.data?.role === "survivor" && ((item.data?.speedBurst || 0) > 0 || (item.data?.rallyBoost || 0) > 0)) {
           this.emitSurvivorSpeedBurstTrail(item, item.data);
         }
         if (item.spawnScalePulse && item.spawnScalePulse > 0.001) {
@@ -7885,6 +8376,7 @@
           item.forceStyleRefresh = false;
           this.styleActor(item, item.data);
         }
+        this.drawRallyBoostAura(item, item.data);
         if (item.nameText) {
           const isKiller = item.data?.role === "killer";
           item.nameText.setPosition(item.current.x, item.current.y + (isKiller ? 36 : 34));
@@ -8380,10 +8872,172 @@
       }
     }
 
+    updateRunnerProjectileVisuals(rawProjectiles, dt) {
+      const visuals = this.runnerProjectileVisuals || (this.runnerProjectileVisuals = new Map());
+      const seen = new Set();
+      const rawList = Array.isArray(rawProjectiles) ? rawProjectiles : [];
+      const safeDt = Math.max(0, Math.min(0.05, Number(dt) || 0));
+
+      for (const raw of rawList) {
+        if (!raw || !Number.isFinite(raw.x) || !Number.isFinite(raw.y)) continue;
+        const id = String(raw.id || `${Math.round(raw.x)}:${Math.round(raw.y)}:${Math.round(raw.angle || 0)}`);
+        seen.add(id);
+
+        const angle = Number(raw.angle || 0);
+        const vx = Math.cos(angle);
+        const vy = Math.sin(angle);
+        const speed = Math.max(900, Number(raw.speed || 1500));
+        const rawX = Number(raw.x);
+        const rawY = Number(raw.y);
+        let visual = visuals.get(id);
+
+        if (!visual) {
+          visual = {
+            id,
+            x: rawX,
+            y: rawY,
+            angle,
+            vx,
+            vy,
+            speed,
+            radius: raw.radius,
+            trail: [{ x: rawX, y: rawY }]
+          };
+          visuals.set(id, visual);
+        }
+
+        const distanceToServer = Math.hypot(rawX - visual.x, rawY - visual.y);
+        if (distanceToServer > 210) {
+          visual.x = rawX;
+          visual.y = rawY;
+          visual.trail = [{ x: rawX, y: rawY }];
+        } else {
+          const correction = 1 - Math.exp(-safeDt * 24);
+          visual.x += (rawX - visual.x) * correction;
+          visual.y += (rawY - visual.y) * correction;
+        }
+
+        visual.angle = angle;
+        visual.vx = Number.isFinite(vx) ? vx : 1;
+        visual.vy = Number.isFinite(vy) ? vy : 0;
+        visual.speed = speed;
+        visual.radius = raw.radius;
+
+        const maxLead = Math.max(36, Math.min(120, speed * 0.075));
+        const currentLead = (visual.x - rawX) * visual.vx + (visual.y - rawY) * visual.vy;
+        const travelStep = Math.min(speed * safeDt, Math.max(0, maxLead - currentLead));
+        if (travelStep > 0) {
+          visual.x += visual.vx * travelStep;
+          visual.y += visual.vy * travelStep;
+        }
+
+        const trail = visual.trail || (visual.trail = []);
+        const last = trail[trail.length - 1];
+        if (!last || Math.hypot(visual.x - last.x, visual.y - last.y) >= 7) {
+          trail.push({ x: visual.x, y: visual.y });
+          const maxTrail = LOW_POWER_MODE ? 5 : 10;
+          while (trail.length > maxTrail) trail.shift();
+        }
+      }
+
+      for (const id of [...visuals.keys()]) {
+        if (!seen.has(id)) visuals.delete(id);
+      }
+
+      return [...visuals.values()];
+    }
+
+    drawRunnerProjectileStar(g, x, y, size, color = 0xfff1b0, alpha = 0.72, rotation = 0) {
+      if (!g || !Number.isFinite(x) || !Number.isFinite(y) || !(size > 0)) return;
+      const outer = size;
+      const inner = size * 0.42;
+      g.fillStyle(color, alpha);
+      g.beginPath();
+      for (let i = 0; i < 8; i += 1) {
+        const angle = rotation + (Math.PI / 4) * i;
+        const radius = i % 2 === 0 ? outer : inner;
+        const px = x + Math.cos(angle) * radius;
+        const py = y + Math.sin(angle) * radius;
+        if (i === 0) g.moveTo(px, py);
+        else g.lineTo(px, py);
+      }
+      g.closePath();
+      g.fillPath();
+    }
+
+    drawRunnerProjectileBubbleTrail(g, projectile, ultra) {
+      if (!g || !projectile) return;
+      const trail = Array.isArray(projectile.trail) ? projectile.trail : [];
+      if (!trail.length) return;
+      const trailCount = trail.length;
+      const headBias = ultra ? 0.72 : 0.58;
+      for (let i = 0; i < trailCount; i += 1) {
+        const node = trail[i];
+        if (!node || !Number.isFinite(node.x) || !Number.isFinite(node.y)) continue;
+        const t = (i + 1) / Math.max(1, trailCount);
+        const fade = Math.max(0.08, t * headBias);
+        const bubbleRadius = ultra ? (1.8 + t * 3.2) : LOW_POWER_MODE ? (2.2 + t * 4.2) : (2.8 + t * 5.4);
+
+        g.fillStyle(0xff8b2b, 0.08 + fade * 0.16);
+        g.fillCircle(node.x, node.y, bubbleRadius * 1.65);
+        g.fillStyle(0xffb347, 0.12 + fade * 0.28);
+        g.fillCircle(node.x, node.y, bubbleRadius);
+        g.fillStyle(0xfff4c4, 0.18 + fade * 0.34);
+        g.fillCircle(node.x - bubbleRadius * 0.24, node.y - bubbleRadius * 0.24, Math.max(0.8, bubbleRadius * 0.34));
+
+        if (!ultra && (!LOW_POWER_MODE || i === trailCount - 1 || i % 2 === 0)) {
+          const starAlpha = LOW_POWER_MODE ? (0.12 + fade * 0.16) : (0.18 + fade * 0.24);
+          const starSize = LOW_POWER_MODE ? (1.6 + t * 1.4) : (2 + t * 1.9);
+          const rotation = performance.now() / 320 + i * 0.7;
+          this.drawRunnerProjectileStar(g, node.x + bubbleRadius * 0.42, node.y - bubbleRadius * 0.34, starSize, 0xfff0b2, starAlpha, rotation);
+        }
+      }
+    }
+
+    drawRunnerProjectile(g, projectile) {
+      if (!g || !projectile || !Number.isFinite(projectile.x) || !Number.isFinite(projectile.y)) return;
+      const angle = Number(projectile.angle || 0);
+      const vx = Number.isFinite(projectile.vx) ? projectile.vx : Math.cos(angle);
+      const vy = Number.isFinite(projectile.vy) ? projectile.vy : Math.sin(angle);
+      const ultra = adaptivePerformance.mode === "ultra";
+      const tail = ultra ? 42 : LOW_POWER_MODE ? 56 : 84;
+      const tx = projectile.x - vx * tail;
+      const ty = projectile.y - vy * tail;
+      const midX = projectile.x - vx * (tail * 0.52);
+      const midY = projectile.y - vy * (tail * 0.52);
+
+      this.drawRunnerProjectileBubbleTrail(g, projectile, ultra);
+
+      g.lineStyle(LOW_POWER_MODE ? 4 : 6, 0xff7d20, ultra ? 0.12 : 0.18);
+      g.lineBetween(tx, ty, projectile.x, projectile.y);
+      g.lineStyle(LOW_POWER_MODE ? 2.4 : 3.4, 0xffd18a, ultra ? 0.28 : 0.42);
+      g.lineBetween(midX, midY, projectile.x, projectile.y);
+
+      const flicker = 0.82 + Math.sin(performance.now() / 42 + projectile.x * 0.01) * 0.16;
+      const coreRadius = ultra ? 4.5 : LOW_POWER_MODE ? 5.5 : 7;
+      const shellRadius = ultra ? 8 : LOW_POWER_MODE ? 10 : 13;
+      const ringRadius = ultra ? 11 : LOW_POWER_MODE ? 14 : 18;
+
+      g.fillStyle(0xff5d1a, 0.22 * flicker);
+      g.fillCircle(projectile.x - vx * 4, projectile.y - vy * 4, shellRadius);
+      g.fillStyle(0xff9f1c, 0.68 * flicker);
+      g.fillCircle(projectile.x, projectile.y, shellRadius * 0.82);
+      g.fillStyle(0xfff7d1, 0.98);
+      g.fillCircle(projectile.x, projectile.y, coreRadius);
+      g.fillStyle(0xffffff, 0.72);
+      g.fillCircle(projectile.x - vx * 1.4, projectile.y - vy * 1.4, Math.max(1.2, coreRadius * 0.36));
+      g.lineStyle(ultra ? 1.4 : 2.1, 0xffc05a, 0.84 * flicker);
+      g.strokeCircle(projectile.x, projectile.y, ringRadius);
+      if (!ultra) {
+        this.drawRunnerProjectileStar(g, projectile.x + vx * 2.8, projectile.y + vy * 2.8, LOW_POWER_MODE ? 3.1 : 3.8, 0xffefb0, 0.34 + flicker * 0.18, performance.now() / 260);
+      }
+    }
+
     updateParticles(dt) {
       const g = this.particleGraphics;
       if (!g) return;
-      const hasFx = this.shockwaves.length > 0 || this.particles.length > 0;
+      const visibleProjectiles = currentSnapshot?.runnerProjectiles || [];
+      const hasFx = this.shockwaves.length > 0 || this.particles.length > 0 || visibleProjectiles.length > 0 || (this.runnerProjectileVisuals?.size || 0) > 0;
       if (!hasFx) {
         if (this.particleLayerDirty) {
           g.clear();
@@ -8399,6 +9053,10 @@
       this.particleRedrawTimer = 0;
       this.particleLayerDirty = true;
       g.clear();
+      const projectileVisuals = this.updateRunnerProjectileVisuals(visibleProjectiles, stepDt);
+      for (const projectile of projectileVisuals) {
+        this.drawRunnerProjectile(g, projectile);
+      }
       for (let i = this.shockwaves.length - 1; i >= 0; i--) {
         const wave = this.shockwaves[i];
         wave.life += stepDt;
@@ -8707,6 +9365,12 @@
       });
     });
 
+    ui.runnerClassBtns?.forEach((btn) => {
+      btn.addEventListener("click", () => {
+        setSelectedRunnerClass(btn.dataset.runnerClass || RUNNER_CLASS_DEFAULT_ID);
+      });
+    });
+
     ui.skinBtns.forEach((btn) => {
       btn.addEventListener("click", async () => {
         try {
@@ -8745,9 +9409,9 @@
       buyPerkFromButton(button).catch((error) => toast(error.message || "Could not buy perk.", 2600));
     });
 
-    ui.quickJoinBtn.addEventListener("click", () => socket.emit("quickJoin", { role: selectedRole, playerName: getName(), skin: skinForSelectedRole() }));
-    ui.createLobbyBtn.addEventListener("click", () => socket.emit("createLobby", { role: selectedRole, playerName: getName(), skin: skinForSelectedRole() }));
-    ui.beSurvivorBtn.addEventListener("click", () => socket.emit("setRole", { role: "survivor", skin: selectedSkin }));
+    ui.quickJoinBtn.addEventListener("click", () => socket.emit("quickJoin", { role: selectedRole, playerName: getName(), skin: skinForSelectedRole(), runnerClass: selectedRunnerClass }));
+    ui.createLobbyBtn.addEventListener("click", () => socket.emit("createLobby", { role: selectedRole, playerName: getName(), skin: skinForSelectedRole(), runnerClass: selectedRunnerClass }));
+    ui.beSurvivorBtn.addEventListener("click", () => socket.emit("setRole", { role: "survivor", skin: selectedSkin, runnerClass: selectedRunnerClass }));
     ui.beKillerBtn.addEventListener("click", () => socket.emit("setRole", { role: "killer", skin: selectedVoidSkin }));
     ui.beSpectatorBtn?.addEventListener("click", () => socket.emit("setRole", { role: "spectator" }));
     ui.readyBtn.addEventListener("click", () => {
@@ -8810,7 +9474,7 @@
       const button = document.createElement("button");
       button.textContent = lobby.phase === "lobby" ? "Join" : "In Run";
       button.disabled = lobby.phase !== "lobby";
-      button.addEventListener("click", () => socket.emit("joinLobby", { lobbyId: lobby.id, role: selectedRole, playerName: getName(), skin: skinForSelectedRole() }));
+      button.addEventListener("click", () => socket.emit("joinLobby", { lobbyId: lobby.id, role: selectedRole, playerName: getName(), skin: skinForSelectedRole(), runnerClass: selectedRunnerClass }));
       const spectateButton = document.createElement("button");
       spectateButton.type = "button";
       spectateButton.className = "spectate-lobby-btn";
@@ -8884,7 +9548,18 @@
       skin.title = skinName;
       skin.textContent = skinName;
 
-      meta.append(roleName, dot, skin);
+      if (!isKiller && !isSpectator) {
+        const classDot = document.createElement("span");
+        classDot.className = "player-dot";
+        classDot.textContent = "•";
+        const runnerClass = document.createElement("span");
+        runnerClass.className = `player-class-name class-${normalizeRunnerClassId(player.runnerClass)}`;
+        runnerClass.textContent = runnerClassLabel(player.runnerClass);
+        runnerClass.title = `${runnerClassLabel(player.runnerClass)} class`;
+        meta.append(roleName, dot, skin, classDot, runnerClass);
+      } else {
+        meta.append(roleName, dot, skin);
+      }
       summary.append(name, meta);
 
       const ready = document.createElement("small");
@@ -8951,6 +9626,8 @@
     else if (iAmSpectator) syncLobbyRoleButtons("spectator");
     if (mine?.role === "survivor" && SURVIVOR_SKINS[mine.skin]) {
       setSelectedSkin(mine.skin);
+      selectedRunnerClass = normalizeRunnerClassId(mine.runnerClass || selectedRunnerClass);
+      syncRunnerClassUi({ preferAccount: false });
     } else if (mine?.role === "killer") {
       setSelectedVoidSkin(mine.skin);
     }
@@ -9182,6 +9859,11 @@
       if (phaserScene) phaserScene.localEscapeScreenShown = true;
       if (!finalMatchResult) showEscapedScreen(personalRunResult);
     });
+    socket.on("abilityAudio", (event = {}) => {
+      if (!event || event.type !== "dash") return;
+      playLocalizedDashAbilitySfx(event);
+    });
+
     socket.on("snapshot", (snapshot) => {
       const arrivedAt = performance.now();
       if (snapshot?.seq && currentSnapshot?.seq && snapshot.seq <= currentSnapshot.seq) return;
@@ -9195,6 +9877,7 @@
       if (currentSnapshot) {
         snapshot.map = { ...(currentSnapshot.map || {}), ...(snapshot.map || {}) };
         if (!("collectibleDots" in snapshot)) snapshot.collectibleDots = currentSnapshot.collectibleDots || [];
+        if (!("runnerProjectiles" in snapshot)) snapshot.runnerProjectiles = currentSnapshot.runnerProjectiles || [];
       }
       currentSnapshot = snapshot;
       updateMatchPauseOverlay(snapshot);

@@ -7,6 +7,7 @@ import MainMenu from "./components/MainMenu"
 import PlayScreen from "./components/PlayScreen"
 import SkinScreen from "./components/SkinScreen"
 import PerkScreen from "./components/PerkScreen"
+import ClassesScreen from "./components/ClassesScreen"
 import SettingsScreen from "./components/SettingsScreen"
 import HowScreen from "./components/HowScreen"
 import LobbyScreen from "./components/LobbyScreen"
@@ -34,6 +35,7 @@ const MENU_SCREENS = [
   { key: "play", Component: PlayScreen },
   { key: "skins", Component: SkinScreen },
   { key: "perks", Component: PerkScreen },
+  { key: "classes", Component: ClassesScreen },
   { key: "settings", Component: SettingsScreen },
   { key: "how", Component: HowScreen },
   { key: "lobby", Component: LobbyScreen }

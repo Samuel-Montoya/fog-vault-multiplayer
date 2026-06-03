@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS accounts (
   void_level INTEGER NOT NULL DEFAULT 1 CHECK (void_level >= 1),
   void_xp INTEGER NOT NULL DEFAULT 0 CHECK (void_xp >= 0),
   void_total_xp INTEGER NOT NULL DEFAULT 0 CHECK (void_total_xp >= 0),
+  selected_runner_class TEXT NOT NULL DEFAULT 'orbCollector', 
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

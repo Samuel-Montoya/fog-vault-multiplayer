@@ -2,6 +2,7 @@ export const MENU_ACTIONS = [
   { id: "menuPlayBtn", label: "Start Playing", screen: "play", className: "menu-action primary" },
   { id: "menuSkinsBtn", label: "Skins", screen: "skins", className: "menu-action" },
   { id: "menuPerksBtn", label: "Perks", screen: "perks", className: "menu-action" },
+  { id: "menuClassesBtn", label: "Classes", screen: "classes", className: "menu-action" },
   { id: "menuOptionsBtn", label: "Options", screen: "options", className: "menu-action" },
   { id: "menuHowBtn", label: "How To Play", screen: "how", className: "menu-action" }
 ]

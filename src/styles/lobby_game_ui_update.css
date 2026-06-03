@@ -1611,3 +1611,11 @@ body.is-game-screen .screen {
 .runner-ability-hud p br {
   display: none !important;
 }
+
+#lobbyScreen .runner-class-panel {
+  margin-top: 2px;
+}
+
+#lobbyScreen .runner-class-btn {
+  font-family: inherit;
+}

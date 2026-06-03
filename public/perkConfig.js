@@ -27,6 +27,25 @@ const RIFTRUNNER_PERK_CONFIG = {
             { level: 4, upgradeCost: 200, duration: 5, speedMultiplier: 1.14 }
           ]
         },
+        rallyDart: {
+          id: "rallyDart",
+          role: "survivor",
+          name: "Rally Dart",
+          shortName: "Dart",
+          accent: "orange",
+          abilityCost: 1,
+          cooldown: 1,
+          summary: "Fire a fast orange support dart that bursts into a Runner speed-boost ring.",
+          detail: "Press M1 when the perk is ready to fire a fast, smooth support shot at your cursor or at your feet for a self boost. No Q activation needed. It explodes on walls, travels through windows and pallets, and boosts Runners in the blast.",
+          inputType: "m1",
+          shootAbility: true,
+          levels: [
+            { level: 1, unlockCost: 50, duration: 1.25, speedMultiplier: 1.10, radius: 108, projectileSpeed: 1450, range: 600, aimWindow: 5 },
+            { level: 2, upgradeCost: 100, duration: 1.55, speedMultiplier: 1.12, radius: 112, projectileSpeed: 1550, range: 620, aimWindow: 5 },
+            { level: 3, upgradeCost: 150, duration: 1.85, speedMultiplier: 1.14, radius: 116, projectileSpeed: 1660, range: 640, aimWindow: 5.5 },
+            { level: 4, upgradeCost: 200, duration: 2.20, speedMultiplier: 1.16, radius: 122, projectileSpeed: 1780, range: 665, aimWindow: 6 }
+          ]
+        },
         riftLens: {
           id: "riftLens",
           role: "survivor",
