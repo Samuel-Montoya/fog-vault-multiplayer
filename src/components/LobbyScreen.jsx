@@ -17,9 +17,10 @@ const LOBBY_ROLE_ACTIONS = [
 
 
 const RUNNER_CLASSES = [
-  { id: "orbCollector", icon: "⊙", name: "Orb Collector", aria: "Orb Collector class" },
-  { id: "healer", icon: "+", name: "Healer", aria: "Healer class" },
-  { id: "chase", icon: "»", name: "Chase", aria: "Chase class" }
+  { id: "orbCollector", icon: "✦", name: "Collector", aria: "Collector class" },
+  { id: "nebulizer", icon: "☁", name: "Nebulizer", aria: "Nebulizer class" },
+  { id: "escapist", icon: "➟", name: "Escapist", aria: "Escapist class" },
+  { id: "healer", icon: "+", name: "Healer", aria: "Healer class" }
 ]
 
 const LOBBY_BOT_ACTIONS = [

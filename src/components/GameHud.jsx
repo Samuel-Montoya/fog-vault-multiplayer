@@ -11,8 +11,8 @@ const VOID_ABILITY_WHEEL_FALLBACK = [
 ]
 
 const RUNNER_ABILITY_WHEEL_FALLBACK = [
-  { id: "speedBurst", name: "Speed Burst", shortName: "Burst", cost: 10, summary: "Small speed boost.", accent: "green", cooldown: 60 },
-  { id: "riftLens", name: "Rift Lens", shortName: "Lens", cost: 10, summary: "Widen your vision cone.", accent: "gold", cooldown: 30 },
+  { id: "speedBurst", name: "Speed Burst", shortName: "Burst", cost: 10, summary: "Small speed boost.", accent: "orange", cooldown: 60 },
+  { id: "riftLens", name: "Rift Lens", shortName: "Lens", cost: 10, summary: "Widen your vision cone.", accent: "yellow", cooldown: 30 },
   { id: "cancel", name: "Cancel", shortName: "Cancel", cost: 0, summary: "Close the wheel.", accent: "muted", cancel: true },
   { id: "hourglass", name: "Hourglass", shortName: "Hourglass", cost: 10, summary: "Rear cone + no trails.", accent: "cyan", cooldown: 30 }
 ]
@@ -44,6 +44,7 @@ function normalizeAbilities(abilities, role = "killer") {
       cooldown: Number.isFinite(Number(ability?.cooldown)) ? Number(ability.cooldown) : Number(fallback[index]?.cooldown || (role === "survivor" ? 30 : 20)),
       cooldownRemaining: Math.max(0, Number.isFinite(Number(ability?.cooldownRemaining)) ? Number(ability.cooldownRemaining) : 0),
       locked: !!ability?.locked,
+      testMode: !!ability?.testMode,
       level: Math.max(0, Number.isFinite(Number(ability?.level)) ? Number(ability.level) : 0),
       maxLevel: Math.max(1, Number.isFinite(Number(ability?.maxLevel)) ? Number(ability.maxLevel) : 4)
     }
@@ -74,6 +75,10 @@ function abilityStatusMeta(ability) {
   if (ability.cancel) return { label: "Close", tone: "muted", detail: "Release Q to close the wheel." }
   if (ability.passive || ability.disabled) return { label: "Passive", tone: "active", detail: ability.summary || "Passive class bonus." }
   if (ability.locked) return { label: "Locked", tone: "locked", detail: "Unlock this perk in the Perks screen before using it in a match." }
+  if (ability.testMode) {
+    const level = Math.max(1, Math.floor(Number(ability.testLevel || ability.level || 1)))
+    return { label: `Test Lv ${level}`, tone: "ready", detail: `Ability testing is forcing this perk to level ${level}; cost and cooldown are zero.` }
+  }
 
   const cooldownRemaining = Math.max(0, Number(ability.cooldownRemaining || 0))
   if (cooldownRemaining > 0) {
@@ -304,6 +309,7 @@ function abilityReadinessLabel(ability) {
   if (cooldown > 0) return `${Math.ceil(cooldown)}s`
   if (ability.available === false) return `Need ${Math.max(0, Number(ability.cost || 0))}`
   if (ability.active) return "Active"
+  if (ability.testMode) return "Test"
   return "Ready"
 }
 

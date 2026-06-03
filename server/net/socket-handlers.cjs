@@ -28,12 +28,14 @@ function registerSocketHandlers(context) {
     startGame,
     canSocketControlPause,
     setMatchPaused,
+    toggleAbilityTestMode,
     isSpectateOverviewId,
     spectateOverviewId: SPECTATE_OVERVIEW_ID,
     isSpectatableActorForViewer,
     resetInput,
     applyVoidAbility,
     applySurvivorAbility,
+    fireRunnerShootAbility,
     fireRallyDart,
     getChatWheelMessagesForActor,
     setActorChat,
@@ -453,6 +455,26 @@ function registerSocketHandlers(context) {
       const result = applySurvivorAbility(lobby.game, actor, payload.id);
       if (result.ok) emitDashAbilityAudio(lobby, actor, payload.id);
       else socket.emit("toast", { type: "error", message: result.message || "Runner ability cannot be used." });
+    });
+
+    socket.on("toggleAbilityTestMode", () => {
+      if (!allowSocketEvent(socket, "action")) return;
+      const lobby = lobbies.get(socketToLobby.get(socket.id));
+      const result = typeof toggleAbilityTestMode === "function"
+        ? toggleAbilityTestMode(lobby, socket.id)
+        : { ok: false, message: "Ability test mode is not wired in." };
+      if (!result.ok) socket.emit("toast", { type: "error", message: result.message || "Ability test mode could not be changed." });
+    });
+
+    socket.on("runnerShootAbilityFire", (payload = {}) => {
+      if (!allowSocketEvent(socket, "action")) return;
+      const lobby = lobbies.get(socketToLobby.get(socket.id));
+      if (!lobby || !lobby.game || lobby.game.phase !== "game") return;
+      const actor = lobby.game.actors.get(socket.id);
+      const result = typeof fireRunnerShootAbility === "function"
+        ? fireRunnerShootAbility(lobby.game, actor, payload)
+        : { ok: false, message: "Runner projectile ability is not ready." };
+      if (!result.ok) socket.emit("toast", { type: "error", message: result.message || "Runner projectile ability cannot be fired." });
     });
 
     socket.on("rallyDartFire", (payload = {}) => {

@@ -1,135 +1,274 @@
 // public/runnerClassConfig.js
-// Shared Runner class tuning. Change class abilities, granted perks, level scaling, and wheel layouts here.
+// Shared Runner class tuning. Change class abilities, passives, level scaling, and wheel layouts here.
 
 const RIFTRUNNER_RUNNER_CLASS_CONFIG = {
   defaultClass: "orbCollector",
+  passiveLevelThresholds: [1, 6, 14],
   classes: {
-    healer: {
-      id: "healer",
-      name: "Healer",
-      shortName: "Healer",
-      accent: "cyan",
-      icon: "+",
-      summary: "Support Runner that keeps teammates alive and moving through pressure.",
-      detail: "Built around recovery, rescue momentum, and quick healing windows during danger.",
-      wheelOrder: ["healingPulse", "medicAura", "cancel", "moreSoon"],
-      grantedPerks: {},
-      passive: {
-        label: "Medic Aura",
-        healActionSpeedMultiplier: 1.08
-      }
-    },
     orbCollector: {
       id: "orbCollector",
-      name: "Orb Collector",
-      shortName: "Orb",
-      accent: "gold",
+      name: "Collector",
+      shortName: "Collector",
+      accent: "yellow",
       icon: "✦",
-      summary: "Objective-focused Runner that controls routing, vision, and orb economy.",
-      detail: "Built for banking orbs safely, scouting routes, and using a doubled orange-ring pickup radius.",
-      wheelOrder: ["riftLens", "hourglass", "cancel", "orbMagnet"],
-      grantedPerks: {
-        riftLens: 1,
-        hourglass: 1
-      },
+      summary: "Objective Runner built around orb control, fast collection bursts, and greedy-but-safe economy.",
+      detail: "Collector vacuums nearby orbs, fires rapid pickup bolts, and briefly multiplies pickups for aggressive rift progress.",
+      wheelOrder: ["collectionBolt", "doubleOrb", "cancel", "orbMagnet"],
+      grantedPerks: {},
       passive: {
         label: "Orb Magnet",
-        orbPickupRadiusMultiplier: 2,
+        detail: "Collects loose orbs in a larger radius around the Runner.",
+        levels: [
+          { level: 1, minRunnerLevel: 1, orbPickupRadiusMultiplier: 1.50, label: "50% larger pickup radius" },
+          { level: 2, minRunnerLevel: 6, orbPickupRadiusMultiplier: 1.75, label: "75% larger pickup radius" },
+          { level: 3, minRunnerLevel: 14, orbPickupRadiusMultiplier: 2.00, label: "100% larger pickup radius" }
+        ],
         pickupRadiusRing: {
-          color: 0xff9f1c,
+          color: 0xffb84d,
           lineAlpha: 0.82,
           lineWidth: 2.2
         }
       }
     },
-    chase: {
-      id: "chase",
-      name: "Chase",
-      shortName: "Chase",
+    nebulizer: {
+      id: "nebulizer",
+      name: "Nebulizer",
+      shortName: "Nebula",
       accent: "purple",
-      icon: "➟",
-      summary: "Distraction Runner built to create space, absorb pressure, and escape.",
-      detail: "Built for stretching chase, pulling attention, and creating breathing room for the team.",
-      wheelOrder: ["rallyDart", "speedBurst", "cancel", "cleanFooting"],
-      grantedPerks: {
-        rallyDart: 1,
-        speedBurst: 1
-      },
+      icon: "☁",
+      summary: "Control Runner that creates void-smoke cover and turns fog into team safety.",
+      detail: "Nebulizer fires smoke darts that hide anything inside from outsiders. Runners standing inside smoke can read the cloud and spot The Void through it.",
+      wheelOrder: ["smokeDart", "voidTrace", "cancel", "moreSoon"],
+      grantedPerks: {},
       passive: {
-        label: "Clean Footing",
-        injuredVaultSpeedMultiplier: 1.08,
-        detail: "While injured, window and pallet vaults are 8% faster."
+        label: "Void Trace",
+        detail: "While standing inside any smoke cloud, you can see The Void through the haze in a wider radius.",
+        levels: [
+          { level: 1, minRunnerLevel: 1, smokeKillerRevealRadius: 440, label: "Reveal The Void inside smoke within 440px" },
+          { level: 2, minRunnerLevel: 6, smokeKillerRevealRadius: 540, label: "Reveal The Void inside smoke within 540px" },
+          { level: 3, minRunnerLevel: 14, smokeKillerRevealRadius: 660, label: "Reveal The Void inside smoke within 660px" }
+        ]
+      }
+    },
+    escapist: {
+      id: "escapist",
+      aliases: ["chase"],
+      name: "Escapist",
+      shortName: "Escapist",
+      accent: "orange",
+      icon: "➟",
+      summary: "Chase Runner built for distance, fast vaults, and team speed saves.",
+      detail: "Escapist vaults faster, shoots Dash Darts to boost teammates, and primes a Swift Vault burst for escapes.",
+      wheelOrder: ["dashDart", "swiftVault", "cancel", "flowState"],
+      grantedPerks: {},
+      passive: {
+        label: "Flow State",
+        detail: "Vaults windows and pallets faster.",
+        levels: [
+          { level: 1, minRunnerLevel: 1, vaultSpeedMultiplier: 1.05, label: "5% faster vaults" },
+          { level: 2, minRunnerLevel: 6, vaultSpeedMultiplier: 1.07, label: "7% faster vaults" },
+          { level: 3, minRunnerLevel: 14, vaultSpeedMultiplier: 1.09, label: "9% faster vaults" }
+        ]
+      }
+    },
+    healer: {
+      id: "healer",
+      name: "Healer",
+      shortName: "Healer",
+      accent: "green",
+      icon: "+",
+      summary: "Support Runner that heals, unbinds, and saves teammates through pressure.",
+      detail: "Healer works faster on normal heals and rescues, then uses Healing Dart to recover teammates from range.",
+      wheelOrder: ["healingDart", "fieldMedic", "cancel", "moreSoon"],
+      grantedPerks: {},
+      passive: {
+        label: "Field Medic",
+        detail: "Heals and unbinds teammates faster.",
+        levels: [
+          { level: 1, minRunnerLevel: 1, healActionSpeedMultiplier: 1.05, unhookActionSpeedMultiplier: 1.05, label: "5% faster heals and unbinds" },
+          { level: 2, minRunnerLevel: 6, healActionSpeedMultiplier: 1.07, unhookActionSpeedMultiplier: 1.07, label: "7% faster heals and unbinds" },
+          { level: 3, minRunnerLevel: 14, healActionSpeedMultiplier: 1.09, unhookActionSpeedMultiplier: 1.09, label: "9% faster heals and unbinds" }
+        ]
       }
     }
   },
   abilities: {
-    healingPulse: {
-      id: "healingPulse",
+    collectionBolt: {
+      id: "collectionBolt",
       classAbility: true,
-      classId: "healer",
-      name: "Healing Pulse",
-      shortName: "Pulse",
-      accent: "cyan",
-      cost: 12,
-      cooldown: 50,
-      radius: 140,
-      duration: 0,
-      summary: "Pulse nearby wounded Runners with quick healing progress.",
-      detail: "Can be used while moving and during chase. Higher Runner levels make the pulse stronger.",
+      classId: "orbCollector",
+      name: "Collection Bolt",
+      shortName: "Bolt",
+      accent: "yellow",
+      cost: 0,
+      cooldown: 3,
+      radius: 96,
+      projectileSpeed: 1500,
+      range: 660,
+      summary: "M1 fires a bolt that collects loose orbs inside its burst radius.",
+      detail: "Explodes on walls or at max range and pulls every clear-line orb in the burst into your inventory.",
+      inputType: "m1",
+      shootAbility: true,
+      projectileKind: "collect",
       levels: [
-        { level: 1, minRunnerLevel: 1, healProgress: 0.15, radius: 130, cost: 12, cooldown: 52 },
-        { level: 2, minRunnerLevel: 6, healProgress: 0.20, radius: 140, cost: 12, cooldown: 50 },
-        { level: 3, minRunnerLevel: 14, healProgress: 0.30, radius: 150, cost: 14, cooldown: 48 },
-        { level: 4, minRunnerLevel: 25, healProgress: 0.50, radius: 160, cost: 16, cooldown: 45 }
+        { level: 1, minRunnerLevel: 1, radius: 96, projectileSpeed: 1450, range: 620, cooldown: 3, cost: 0, label: "Small burst · 3s cooldown" },
+        { level: 2, minRunnerLevel: 6, radius: 132, projectileSpeed: 1550, range: 660, cooldown: 2, cost: 0, label: "Medium burst · 2s cooldown" },
+        { level: 3, minRunnerLevel: 14, radius: 172, projectileSpeed: 1650, range: 700, cooldown: 1, cost: 0, label: "Large burst · 1s cooldown" }
       ]
     },
-    medicAura: {
-      id: "medicAura",
-      name: "Medic Aura",
-      shortName: "Aura",
-      accent: "cyan",
-      cost: 0,
-      cooldown: 0,
-      summary: "Passive: slightly faster normal heals and rescues.",
-      detail: "Passive class bonus. No button press needed.",
-      disabled: true,
-      passive: true
+    doubleOrb: {
+      id: "doubleOrb",
+      classAbility: true,
+      classId: "orbCollector",
+      name: "Double Orb",
+      shortName: "Double",
+      accent: "yellow",
+      cost: 10,
+      duration: 5,
+      cooldown: 60,
+      summary: "Temporarily gives orb pickups a chance to add bonus carried orbs.",
+      detail: "The bonus respects your carry cap, so banking at a rift still matters.",
+      levels: [
+        { level: 1, minRunnerLevel: 1, chance: 0.25, minBonus: 2, maxBonus: 4, duration: 5, cooldown: 60, cost: 10, label: "25% chance for +2-4" },
+        { level: 2, minRunnerLevel: 6, chance: 0.50, minBonus: 3, maxBonus: 5, duration: 7, cooldown: 45, cost: 10, label: "50% chance for +3-5" },
+        { level: 3, minRunnerLevel: 14, chance: 0.75, minBonus: 4, maxBonus: 6, duration: 10, cooldown: 30, cost: 10, label: "75% chance for +4-6" }
+      ]
+    },
+    smokeDart: {
+      id: "smokeDart",
+      classAbility: true,
+      classId: "nebulizer",
+      name: "Smoke Dart",
+      shortName: "Smoke",
+      accent: "purple",
+      cost: 10,
+      duration: 5,
+      cooldown: 60,
+      radius: 132,
+      projectileSpeed: 1380,
+      range: 620,
+      summary: "M1 fires a dart that blooms into a dark smoke cloud.",
+      detail: "Anything inside is hidden from outsiders. Step inside the smoke to see clearly through that specific cloud.",
+      inputType: "m1",
+      shootAbility: true,
+      projectileKind: "smoke",
+      levels: [
+        { level: 1, minRunnerLevel: 1, radius: 132, duration: 5, projectileSpeed: 1320, range: 600, cooldown: 60, cost: 10, label: "Small smoke" },
+        { level: 2, minRunnerLevel: 6, radius: 170, duration: 7, projectileSpeed: 1400, range: 640, cooldown: 45, cost: 10, label: "Medium smoke" },
+        { level: 3, minRunnerLevel: 14, radius: 220, duration: 10, projectileSpeed: 1500, range: 700, cooldown: 30, cost: 10, label: "Large smoke" }
+      ]
+    },
+    dashDart: {
+      id: "dashDart",
+      classAbility: true,
+      classId: "escapist",
+      name: "Dash Dart",
+      shortName: "Dash",
+      accent: "orange",
+      cost: 2,
+      duration: 3,
+      cooldown: 60,
+      radius: 112,
+      projectileSpeed: 1600,
+      range: 660,
+      summary: "M1 fires a dart that speed-boosts Runners in the burst.",
+      detail: "Shoot teammates, the ground, or a wall. Level 3 also hides scratch marks during the boost.",
+      inputType: "m1",
+      shootAbility: true,
+      projectileKind: "boost",
+      levels: [
+        { level: 1, minRunnerLevel: 1, speedMultiplier: 1.20, duration: 3, radius: 108, projectileSpeed: 1500, range: 620, cooldown: 60, cost: 2, hidesScratchMarks: false, label: "1.2x boost" },
+        { level: 2, minRunnerLevel: 6, speedMultiplier: 1.40, duration: 4, radius: 116, projectileSpeed: 1600, range: 660, cooldown: 45, cost: 2, hidesScratchMarks: false, label: "1.4x boost" },
+        { level: 3, minRunnerLevel: 14, speedMultiplier: 1.80, duration: 5, radius: 124, projectileSpeed: 1720, range: 700, cooldown: 30, cost: 2, hidesScratchMarks: true, scratchHideDuration: 5, label: "1.8x boost + hidden scratch marks" }
+      ]
+    },
+    swiftVault: {
+      id: "swiftVault",
+      classAbility: true,
+      classId: "escapist",
+      name: "Swift Vault",
+      shortName: "Swift",
+      accent: "orange",
+      cost: 5,
+      duration: 10,
+      cooldown: 60,
+      summary: "Prime your next window or pallet vault to trigger a speed boost.",
+      detail: "The boost triggers after your next vault, rewarding planned routes through windows or pallets.",
+      levels: [
+        { level: 1, minRunnerLevel: 1, speedMultiplier: 1.20, boostDuration: 2, duration: 10, cooldown: 60, cost: 5, label: "1.2x for 2s" },
+        { level: 2, minRunnerLevel: 6, speedMultiplier: 1.40, boostDuration: 3, duration: 12, cooldown: 45, cost: 5, label: "1.4x for 3s" },
+        { level: 3, minRunnerLevel: 14, speedMultiplier: 1.80, boostDuration: 4, duration: 14, cooldown: 30, cost: 5, label: "1.8x for 4s" }
+      ]
+    },
+    healingDart: {
+      id: "healingDart",
+      classAbility: true,
+      classId: "healer",
+      name: "Healing Dart",
+      shortName: "Heal",
+      accent: "green",
+      cost: 2,
+      duration: 3,
+      cooldown: 60,
+      radius: 58,
+      projectileSpeed: 1500,
+      range: 660,
+      summary: "M1 fires a dart that starts healing a teammate over time.",
+      detail: "Level 2 can unbind hooked teammates. Level 3 can pick up downed Runners and fight through bind/consume pressure.",
+      inputType: "m1",
+      shootAbility: true,
+      projectileKind: "heal",
+      levels: [
+        { level: 1, minRunnerLevel: 1, cost: 2, cooldown: 60, duration: 3, healProgress: 0.55, canUnhook: false, canPickupDowned: false, projectileSpeed: 1450, range: 620, radius: 58, label: "Heal over time" },
+        { level: 2, minRunnerLevel: 6, cost: 2, cooldown: 45, duration: 3, healProgress: 0.70, unhookProgress: 0.80, canUnhook: true, canPickupDowned: false, projectileSpeed: 1550, range: 660, radius: 62, label: "Heal + unbind over time" },
+        { level: 3, minRunnerLevel: 14, cost: 10, cooldown: 30, duration: 3, healProgress: 1.05, unhookProgress: 1.05, canUnhook: true, canPickupDowned: true, projectileSpeed: 1650, range: 700, radius: 66, label: "Heal, unbind, and pick up downed Runners" }
+      ]
     },
     orbMagnet: {
       id: "orbMagnet",
       name: "Orb Magnet",
       shortName: "Magnet",
-      accent: "gold",
+      accent: "yellow",
       cost: 0,
       cooldown: 0,
-      summary: "Passive: doubled orb pickup radius, shown by a simple orange ring.",
-      detail: "Passive class bonus. The simple orange ring shows your doubled orb pickup range; no button press needed.",
+      summary: "Passive: larger orb pickup radius.",
+      detail: "Passive class bonus. No button press needed.",
       disabled: true,
       passive: true
     },
-    rallyDart: {
-      id: "rallyDart",
-      name: "Rally Dart",
-      shortName: "Dart",
-      accent: "orange",
-      cost: 15,
-      cooldown: 55,
-      radius: 112,
-      duration: 1.25,
-      summary: "Press M1 when ready to shoot a Rally Dart at your cursor or on yourself.",
-      detail: "No Q activation needed. M1 fires the dart through windows and pallets, explodes on walls or Runners, and boosts anyone inside the orange ring. At tier 4, boosted Runners hide scratch marks for the boost duration.",
-      inputType: "m1",
-      shootAbility: true
-    },
-    cleanFooting: {
-      id: "cleanFooting",
-      name: "Clean Footing",
-      shortName: "Footing",
+    voidTrace: {
+      id: "voidTrace",
+      name: "Void Trace",
+      shortName: "Trace",
       accent: "purple",
       cost: 0,
       cooldown: 0,
-      summary: "Passive: injured window and pallet vaults are 8% faster.",
-      detail: "Passive class bonus. While injured, your vault animation is 8% faster; no button press needed.",
+      summary: "Passive: while inside smoke, read The Void through the haze.",
+      detail: "Passive class bonus. No button press needed.",
+      disabled: true,
+      passive: true
+    },
+    flowState: {
+      id: "flowState",
+      name: "Flow State",
+      shortName: "Flow",
+      accent: "orange",
+      cost: 0,
+      cooldown: 0,
+      summary: "Passive: faster window and pallet vaults.",
+      detail: "Passive class bonus. No button press needed.",
+      disabled: true,
+      passive: true
+    },
+    fieldMedic: {
+      id: "fieldMedic",
+      name: "Field Medic",
+      shortName: "Medic",
+      accent: "green",
+      cost: 0,
+      cooldown: 0,
+      summary: "Passive: faster heals and unbinds.",
+      detail: "Passive class bonus. No button press needed.",
       disabled: true,
       passive: true
     }

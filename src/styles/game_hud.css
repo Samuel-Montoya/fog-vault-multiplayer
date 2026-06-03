@@ -953,6 +953,12 @@ body.ultra-low-power.survivor-hit-impact #gameWrap {
     linear-gradient(180deg, rgba(25, 18, 5, 0.94), rgba(10, 8, 3, 0.88));
 }
 
+.perk-card.accent-orange {
+  background:
+    radial-gradient(circle at 12% 0%, rgba(255,159,28,0.20), transparent 38%),
+    linear-gradient(180deg, rgba(28, 13, 4, 0.94), rgba(12, 6, 3, 0.88));
+}
+
 .perk-card.accent-green {
   background:
     radial-gradient(circle at 12% 0%, rgba(77,226,131,0.18), transparent 38%),
@@ -1004,6 +1010,12 @@ body.ultra-low-power.survivor-hit-impact #gameWrap {
   background:
     radial-gradient(circle at 34% 28%, rgba(255,255,255,0.88), transparent 18%),
     linear-gradient(135deg, var(--gold), #fbbf24);
+}
+
+.accent-orange .perk-icon {
+  background:
+    radial-gradient(circle at 34% 28%, rgba(255,255,255,0.88), transparent 18%),
+    linear-gradient(135deg, #ff9f1c, #fb923c);
 }
 
 .accent-green .perk-icon {
@@ -1086,6 +1098,11 @@ body.ultra-low-power.survivor-hit-impact #gameWrap {
 .accent-yellow .perk-level-pips span.filled {
   background: linear-gradient(90deg, var(--gold), #fbbf24);
   border-color: rgba(255,211,106,0.38);
+}
+
+.accent-orange .perk-level-pips span.filled {
+  background: linear-gradient(90deg, #ff9f1c, #fb923c);
+  border-color: rgba(255,159,28,0.38);
 }
 
 .accent-green .perk-level-pips span.filled {
@@ -2118,6 +2135,8 @@ body.ultra-low-power.survivor-hit-impact #gameWrap {
 .ability-wheel-segment.accent-red.selected { border-color: rgba(255, 104, 120, 0.88); box-shadow: 0 16px 42px rgba(0,0,0,0.46), 0 0 28px rgba(255,48,72,0.24); }
 .ability-wheel-segment.accent-purple.selected { border-color: rgba(196,181,253,0.92); }
 .ability-wheel-segment.accent-gold.selected { border-color: rgba(251,191,36,0.88); box-shadow: 0 16px 42px rgba(0,0,0,0.46), 0 0 26px rgba(251,191,36,0.18); }
+.ability-wheel-segment.accent-yellow.selected { border-color: rgba(251,191,36,0.88); box-shadow: 0 16px 42px rgba(0,0,0,0.46), 0 0 26px rgba(251,191,36,0.18); }
+.ability-wheel-segment.accent-orange.selected { border-color: rgba(255,159,28,0.90); box-shadow: 0 16px 42px rgba(0,0,0,0.46), 0 0 26px rgba(255,124,24,0.22); }
 .ability-wheel-segment.accent-green.selected { border-color: rgba(134, 239, 172, 0.88); box-shadow: 0 16px 42px rgba(0,0,0,0.46), 0 0 26px rgba(34,197,94,0.20); }
 
 .ability-wheel-top { left: 50%; top: 18px; transform: translateX(-50%); }
@@ -2828,6 +2847,7 @@ body.ultra-low-power.survivor-hit-impact #gameWrap {
 }
 
 .ability-ready-item.accent-gold { --ready-accent: rgba(251, 191, 36, 0.96); --ready-accent-soft: rgba(251, 191, 36, 0.18); }
+.ability-ready-item.accent-yellow { --ready-accent: rgba(251, 191, 36, 0.96); --ready-accent-soft: rgba(251, 191, 36, 0.18); }
 .ability-ready-item.accent-cyan { --ready-accent: rgba(103, 232, 249, 0.96); --ready-accent-soft: rgba(103, 232, 249, 0.18); }
 .ability-ready-item.accent-green { --ready-accent: rgba(134, 239, 172, 0.96); --ready-accent-soft: rgba(34, 197, 94, 0.20); }
 .ability-ready-item.accent-purple { --ready-accent: rgba(196, 181, 253, 0.96); --ready-accent-soft: rgba(124, 58, 237, 0.20); }

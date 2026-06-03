@@ -1,6 +1,6 @@
 // public/abilities.js
 // Shared Void + Runner ability definitions for the React UI, Phaser client bridge, and Node server.
-// Internal role names stay "killer"/"survivor" because games enjoy not detonating.
+// Internal role names stay "killer"/"survivor" for compatibility with existing server/client code.
 
 const RIFTRUNNER_ABILITIES = {
   wheelOrder: ["nullRush", "redshiftOrbs", "cancel", "voidReveal"],
@@ -51,59 +51,8 @@ const RIFTRUNNER_ABILITIES = {
     }
   },
 
-  survivorWheelOrder: ["speedBurst", "riftLens", "cancel", "hourglass"],
+  survivorWheelOrder: ["collectionBolt", "doubleOrb", "cancel", "orbMagnet"],
   survivorAbilities: {
-    speedBurst: {
-      id: "speedBurst",
-      name: "Speed Burst",
-      shortName: "Burst",
-      cost: 10,
-      duration: 5,
-      cooldown: 60,
-      summary: "Small speed boost for 5 seconds.",
-      detail: "A controlled burst of speed. Fast enough to reposition, not fast enough to become a caffeinated mosquito.",
-      accent: "green"
-    },
-    rallyDart: {
-      id: "rallyDart",
-      name: "Rally Dart",
-      shortName: "Dart",
-      cost: 15,
-      duration: 1.25,
-      cooldown: 55,
-      radius: 112,
-      projectileSpeed: 560,
-      range: 620,
-      aimWindow: 5,
-      speedMultiplier: 1.10,
-      summary: "Press M1 when ready to fire an orange support dart at your cursor or feet.",
-      detail: "No Q activation needed. M1 fires the dart toward the cursor, through windows and pallets, and into an orange boost ring. Tier 4 also hides boosted Runners' scratch marks for the boost duration.",
-      accent: "orange",
-      inputType: "m1",
-      shootAbility: true
-    },
-    riftLens: {
-      id: "riftLens",
-      name: "Rift Lens",
-      shortName: "Lens",
-      cost: 10,
-      duration: 15,
-      cooldown: 30,
-      summary: "Widen your vision cone for 15 seconds.",
-      detail: "Your cone expands and reveals more of the world: orbs, players, The Void, walls, and objectives.",
-      accent: "gold"
-    },
-    hourglass: {
-      id: "hourglass",
-      name: "Hourglass",
-      shortName: "Hourglass",
-      cost: 10,
-      duration: 5,
-      cooldown: 30,
-      summary: "See behind you and hide scratch marks for 5 seconds.",
-      detail: "Adds a second cone behind you and hides scratch marks while active, because escaping should involve slightly fewer breadcrumbs.",
-      accent: "cyan"
-    },
     cancel: {
       id: "cancel",
       name: "Cancel",
@@ -122,11 +71,64 @@ const RIFTRUNNER_ABILITIES = {
       cost: 0,
       duration: 0,
       cooldown: 0,
-      summary: "More Runner abilities later.",
-      detail: "A quiet little placeholder, because apparently two powers are not enough forever.",
+      summary: "More class tools later.",
+      detail: "Placeholder slot for future class tools.",
       accent: "muted",
       cancel: true,
       disabled: true
+    },
+
+    // Legacy ids stay here as harmless compatibility definitions for older accounts/screens.
+    speedBurst: {
+      id: "speedBurst",
+      name: "Speed Burst",
+      shortName: "Burst",
+      cost: 10,
+      duration: 5,
+      cooldown: 60,
+      summary: "Legacy Runner speed boost.",
+      detail: "Kept for old perk data. New Escapist gameplay uses Dash Dart and Swift Vault.",
+      accent: "orange"
+    },
+    rallyDart: {
+      id: "rallyDart",
+      name: "Rally Dart",
+      shortName: "Dart",
+      cost: 2,
+      duration: 3,
+      cooldown: 60,
+      radius: 112,
+      projectileSpeed: 1500,
+      range: 620,
+      speedMultiplier: 1.2,
+      summary: "Legacy support dart.",
+      detail: "Kept for old perk data. New Escapist gameplay uses Dash Dart.",
+      accent: "orange",
+      inputType: "m1",
+      shootAbility: true,
+      projectileKind: "boost"
+    },
+    riftLens: {
+      id: "riftLens",
+      name: "Rift Lens",
+      shortName: "Lens",
+      cost: 10,
+      duration: 15,
+      cooldown: 30,
+      summary: "Legacy cone widen.",
+      detail: "Kept for old perk data. New Collector gameplay uses Collection Bolt and Double Orb.",
+      accent: "yellow"
+    },
+    hourglass: {
+      id: "hourglass",
+      name: "Hourglass",
+      shortName: "Hourglass",
+      cost: 10,
+      duration: 5,
+      cooldown: 30,
+      summary: "Legacy rear vision.",
+      detail: "Kept for old perk data. New classes use their own tools.",
+      accent: "cyan"
     }
   }
 };

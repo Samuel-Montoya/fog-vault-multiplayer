@@ -63,11 +63,20 @@ const STAT_LABELS = {
   slowAmount: "slow",
   slowPct: "slow",
   mineDuration: "mine duration",
-  cooldown: "cooldown",
   radius: "radius",
   revealRadius: "reveal radius",
   projectileSpeed: "dart speed",
   range: "range",
+  cost: "ability cost",
+  cooldown: "cooldown",
+  boostDuration: "boost time",
+  chance: "proc chance",
+  minBonus: "min bonus",
+  maxBonus: "max bonus",
+  healProgress: "heal progress",
+  unhookProgress: "unbind progress",
+  canUnhook: "can unbind",
+  canPickupDowned: "can pick up downed",
   aimWindow: "aim window",
   hidesScratchMarks: "special"
 }
@@ -204,14 +213,16 @@ function valueToText(key, value) {
   if (value === null || value === undefined || value === "") return ""
   const numeric = Number(value)
   const label = STAT_LABELS[key] || String(key).replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase()
-  if (key === "hidesScratchMarks" && value) return "Tier 4 hides scratch marks"
+  if (key === "hidesScratchMarks" && value) return "hides scratch marks"
+  if ((key === "canUnhook" || key === "canPickupDowned") && value) return label
 
   if (Number.isFinite(numeric)) {
     if (/ms$/i.test(key)) return `${label} ${(numeric / 1000).toFixed(numeric % 1000 === 0 ? 0 : 1)}s`
     if (/duration|cooldown|aimWindow/i.test(key)) return `${label} ${numeric}s`
     if (/speedMultiplier|multiplier/i.test(key)) return `${label} ${numeric}x`
     if (/projectileSpeed/i.test(key)) return `${label} ${Math.round(numeric)}`
-    if (/pct|percent|slow|width|length/i.test(key) && numeric > 0 && numeric < 1) return `${label} ${Math.round(numeric * 100)}%`
+    if (/cost/i.test(key)) return numeric > 0 ? `${label} ${numeric} orbs` : `${label} free`
+    if (/chance|healProgress|unhookProgress|pct|percent|slow|width|length/i.test(key) && numeric > 0 && numeric <= 1) return `${label} ${Math.round(numeric * 100)}%`
     return `${label} ${numeric}`
   }
 

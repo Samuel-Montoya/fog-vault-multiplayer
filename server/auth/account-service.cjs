@@ -121,7 +121,10 @@ function normalizeRunnerClassId(value) {
   const classes = runnerClassConfig.classes || {};
   const fallback = String(runnerClassConfig.defaultClass || "orbCollector");
   const id = String(value || fallback);
-  return classes[id] ? id : (classes[fallback] ? fallback : Object.keys(classes)[0] || "orbCollector");
+  if (classes[id]) return id;
+  const aliasMatch = Object.values(classes).find((runnerClass) => Array.isArray(runnerClass.aliases) && runnerClass.aliases.includes(id));
+  if (aliasMatch?.id && classes[aliasMatch.id]) return aliasMatch.id;
+  return classes[fallback] ? fallback : Object.keys(classes)[0] || "orbCollector";
 }
 
 function publicRunnerClassCatalog() {
@@ -220,7 +223,22 @@ function publicPerkCatalog() {
         level: Math.max(1, Math.floor(Number(level.level || 1))),
         unlockCost: level.unlockCost == null ? undefined : Math.max(0, Math.floor(Number(level.unlockCost || 0))),
         upgradeCost: level.upgradeCost == null ? undefined : Math.max(0, Math.floor(Number(level.upgradeCost || 0))),
+        label: level.label == null ? undefined : String(level.label),
+        cost: level.cost == null ? undefined : Math.max(0, Math.floor(Number(level.cost || 0))),
+        cooldown: level.cooldown == null ? undefined : Math.max(0, Number(level.cooldown || 0)),
         duration: Number(level.duration || 0),
+        boostDuration: level.boostDuration == null ? undefined : Number(level.boostDuration),
+        radius: level.radius == null ? undefined : Number(level.radius),
+        revealRadius: level.revealRadius == null ? undefined : Number(level.revealRadius),
+        projectileSpeed: level.projectileSpeed == null ? undefined : Number(level.projectileSpeed),
+        range: level.range == null ? undefined : Number(level.range),
+        chance: level.chance == null ? undefined : Number(level.chance),
+        minBonus: level.minBonus == null ? undefined : Math.max(0, Math.floor(Number(level.minBonus || 0))),
+        maxBonus: level.maxBonus == null ? undefined : Math.max(0, Math.floor(Number(level.maxBonus || 0))),
+        healProgress: level.healProgress == null ? undefined : Number(level.healProgress),
+        unhookProgress: level.unhookProgress == null ? undefined : Number(level.unhookProgress),
+        canUnhook: level.canUnhook == null ? undefined : !!level.canUnhook,
+        canPickupDowned: level.canPickupDowned == null ? undefined : !!level.canPickupDowned,
         speedMultiplier: level.speedMultiplier == null ? undefined : Number(level.speedMultiplier),
         lengthMultiplier: level.lengthMultiplier == null ? undefined : Number(level.lengthMultiplier),
         angleMultiplier: level.angleMultiplier == null ? undefined : Number(level.angleMultiplier),
@@ -228,7 +246,8 @@ function publicPerkCatalog() {
         backAngleMultiplier: level.backAngleMultiplier == null ? undefined : Number(level.backAngleMultiplier),
         slowMultiplier: level.slowMultiplier == null ? undefined : Number(level.slowMultiplier),
         slowSeconds: level.slowSeconds == null ? undefined : Number(level.slowSeconds),
-        hidesScratchMarks: level.hidesScratchMarks == null ? undefined : !!level.hidesScratchMarks
+        hidesScratchMarks: level.hidesScratchMarks == null ? undefined : !!level.hidesScratchMarks,
+        scratchHideDuration: level.scratchHideDuration == null ? undefined : Number(level.scratchHideDuration)
       }));
       catalog.push({
         id: perk.id,
@@ -238,6 +257,11 @@ function publicPerkCatalog() {
         accent: perk.accent || (normalizedRole === "killer" ? "purple" : "cyan"),
         abilityCost: Math.max(0, Math.floor(Number(perk.abilityCost || 0))),
         cooldown: Math.max(0, Number(perk.cooldown || 0)),
+        classAbility: perk.classAbility == null ? undefined : !!perk.classAbility,
+        classId: perk.classId == null ? undefined : String(perk.classId),
+        inputType: perk.inputType == null ? undefined : String(perk.inputType),
+        shootAbility: perk.shootAbility == null ? undefined : !!perk.shootAbility,
+        projectileKind: perk.projectileKind == null ? undefined : String(perk.projectileKind),
         summary: perk.summary || "Unlock and upgrade this ability.",
         detail: perk.detail || "Spend banked orbs to make this ability less embarrassing.",
         maxLevel: getMaxPerkLevel(perk),

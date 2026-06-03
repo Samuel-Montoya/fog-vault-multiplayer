@@ -10,134 +10,77 @@ const FALLBACK_RUNNER_CLASS_CONFIG = {
   classes: {
     orbCollector: {
       id: "orbCollector",
-      name: "Orb Collector",
-      shortName: "Orb",
-      accent: "gold",
+      name: "Collector",
+      shortName: "Collector",
+      accent: "yellow",
       icon: "✦",
-      summary: "Objective-focused Runner that controls routing, vision, and orb economy.",
-      detail: "Built for banking orbs safely, scouting routes, and keeping rift progress moving.",
-      grantedPerks: { riftLens: 1, hourglass: 1 },
-      passive: {
-        label: "Orb Magnet",
-        orbPickupRadiusMultiplier: 2,
-        pickupRadiusRing: { color: 0xff9f1c }
-      }
+      summary: "Objective Runner built around orb control, fast collection bursts, and safe economy.",
+      detail: "Collector vacuums nearby orbs, fires rapid pickup bolts, and multiplies pickups for aggressive rift progress.",
+      wheelOrder: ["collectionBolt", "doubleOrb", "cancel", "orbMagnet"],
+      passive: { label: "Orb Magnet", detail: "Larger orb pickup radius.", levels: [{ level: 1, label: "50% larger pickup radius" }] }
+    },
+    nebulizer: {
+      id: "nebulizer",
+      name: "Nebulizer",
+      shortName: "Nebula",
+      accent: "purple",
+      icon: "☁",
+      summary: "Control Runner that creates void-smoke cover and team safety.",
+      detail: "Smoke hides everything inside from outsiders. Runners inside the cloud can see through it.",
+      wheelOrder: ["smokeDart", "voidTrace", "cancel", "moreSoon"],
+      passive: { label: "Void Trace", detail: "While inside smoke, reveal The Void through the haze.", levels: [{ level: 1, label: "Reveal The Void inside smoke within 440px" }] }
+    },
+    escapist: {
+      id: "escapist",
+      aliases: ["chase"],
+      name: "Escapist",
+      shortName: "Escapist",
+      accent: "orange",
+      icon: "➟",
+      summary: "Chase Runner built for distance, fast vaults, and team speed saves.",
+      detail: "Escapist vaults faster, boosts teammates with Dash Dart, and primes Swift Vault bursts.",
+      wheelOrder: ["dashDart", "swiftVault", "cancel", "flowState"],
+      passive: { label: "Flow State", detail: "Faster window and pallet vaults.", levels: [{ level: 1, label: "5% faster vaults" }] }
     },
     healer: {
       id: "healer",
       name: "Healer",
       shortName: "Healer",
-      accent: "cyan",
+      accent: "green",
       icon: "+",
-      summary: "Support Runner that keeps teammates alive and moving through pressure.",
-      detail: "Built around recovery, rescue momentum, and quick healing windows during danger.",
-      grantedPerks: {},
-      passive: { label: "Medic Aura", healActionSpeedMultiplier: 1.08 }
-    },
-    chase: {
-      id: "chase",
-      name: "Chase",
-      shortName: "Chase",
-      accent: "purple",
-      icon: "➟",
-      summary: "Distraction Runner built to create space, absorb pressure, and escape.",
-      detail: "Built for stretching chase, pulling attention, and creating breathing room for the team.",
-      grantedPerks: { rallyDart: 1, speedBurst: 1 },
-      passive: { label: "Clean Footing", injuredVaultSpeedMultiplier: 1.08, detail: "While injured, window and pallet vaults are 8% faster." }
+      summary: "Support Runner that heals, unbinds, and saves teammates through pressure.",
+      detail: "Healer works faster on normal heals and rescues, then uses Healing Dart for ranged saves.",
+      wheelOrder: ["healingDart", "fieldMedic", "cancel", "moreSoon"],
+      passive: { label: "Field Medic", detail: "Faster heals and unbinds.", levels: [{ level: 1, label: "5% faster heals and unbinds" }] }
     }
   },
-  abilities: {
-    rallyDart: {
-      id: "rallyDart",
-      name: "Rally Dart",
-      shortName: "Dart",
-      accent: "orange",
-      cost: 15,
-      cooldown: 55,
-      radius: 112,
-      duration: 1.25,
-      summary: "Arm an orange dart, then click M1 to burst at your cursor or on yourself.",
-      detail: "Travels toward your cursor, passes through windows and pallets, explodes on walls, and boosts any Runner inside the orange ring."
-    },
-    healingPulse: {
-      id: "healingPulse",
-      classAbility: true,
-      classId: "healer",
-      name: "Healing Pulse",
-      shortName: "Pulse",
-      accent: "cyan",
-      cost: 12,
-      cooldown: 50,
-      radius: 140,
-      summary: "Pulse nearby wounded Runners with quick healing progress.",
-      detail: "Can be used while moving and during chase. Higher Runner levels make the pulse stronger.",
-      levels: [
-        { level: 1, minRunnerLevel: 1, healProgress: 0.15, radius: 130, cost: 12, cooldown: 52 },
-        { level: 2, minRunnerLevel: 6, healProgress: 0.20, radius: 140, cost: 12, cooldown: 50 },
-        { level: 3, minRunnerLevel: 14, healProgress: 0.30, radius: 150, cost: 14, cooldown: 48 },
-        { level: 4, minRunnerLevel: 25, healProgress: 0.50, radius: 160, cost: 16, cooldown: 45 }
-      ]
-    }
-  }
+  abilities: {}
 }
 
-const CLASS_ORDER = ["orbCollector", "healer", "chase"]
+const CLASS_ORDER = ["orbCollector", "nebulizer", "escapist", "healer"]
 
 const CLASS_COPY = {
   orbCollector: {
-    tags: ["Objective Control", "Safe Routing", "Orb Banking"],
-    footer: "Starts with Rift Lens and Hourglass for map control and safer orb banking."
+    tags: ["Orb Economy", "Rapid Bolts", "Objective Speed"],
+    footer: "Best for players who want to carry rift progress and keep the team supplied."
+  },
+  nebulizer: {
+    tags: ["Smoke Cover", "Void Tracking", "Rescue Control"],
+    footer: "Best for cutting sightlines, hiding saves, and forcing The Void to guess."
+  },
+  escapist: {
+    tags: ["Mobility", "Fast Vaults", "Team Boosts"],
+    footer: "Best for chase players who create distance and give teammates exits."
   },
   healer: {
-    tags: ["Team Sustain", "Rescue Momentum", "Chase Healing"],
-    footer: "Built around recovery, rescue momentum, and keeping the team active."
-  },
-  chase: {
-    tags: ["Mobility", "Escape Routes", "Pressure Relief"],
-    footer: "For stretching chase, creating distance, and pulling attention off the team."
-  }
-}
-
-const PERK_FALLBACKS = {
-  riftLens: {
-    id: "riftLens",
-    name: "Rift Lens",
-    summary: "Widen your cone and read the map before becoming floor decoration.",
-    abilityCost: 10,
-    cooldown: 30
-  },
-  hourglass: {
-    id: "hourglass",
-    name: "Hourglass",
-    summary: "Adds rear vision and hides scratch marks while active.",
-    abilityCost: 10,
-    cooldown: 30
-  },
-  speedBurst: {
-    id: "speedBurst",
-    name: "Speed Burst",
-    summary: "Panic sprint when The Void is breathing down your neck.",
-    abilityCost: 10,
-    cooldown: 60
-  },
-  rallyDart: {
-    id: "rallyDart",
-    name: "Rally Dart",
-    summary: "Fire a fast fast orange support dart that bursts into a Runner speed-boost ring.",
-    abilityCost: 15,
-    cooldown: 55,
-    radius: 112
+    tags: ["Recovery", "Unbind Saves", "Ranged Support"],
+    footer: "Best for keeping wounded, hooked, and downed teammates in the run."
   }
 }
 
 function readRunnerClassConfig() {
   if (typeof window === "undefined") return FALLBACK_RUNNER_CLASS_CONFIG
   return window.RIFTRUNNER_RUNNER_CLASS_CONFIG || FALLBACK_RUNNER_CLASS_CONFIG
-}
-
-function readPerkConfig() {
-  if (typeof window === "undefined") return null
-  return window.RIFTRUNNER_PERK_CONFIG || window.PERK_CONFIG || null
 }
 
 function orderedRunnerClasses(config) {
@@ -148,13 +91,7 @@ function orderedRunnerClasses(config) {
 }
 
 function classAccent(runnerClass) {
-  return runnerClass?.id === "orbCollector"
-    ? "gold"
-    : runnerClass?.id === "healer"
-      ? "cyan"
-      : runnerClass?.id === "chase"
-        ? "purple"
-        : runnerClass?.accent || "purple"
+  return runnerClass?.accent || (runnerClass?.id === "orbCollector" ? "gold" : runnerClass?.id === "healer" ? "cyan" : "purple")
 }
 
 function classCopy(runnerClass) {
@@ -164,101 +101,79 @@ function classCopy(runnerClass) {
   }
 }
 
-function percent(value) {
+function formatNumber(value) {
   const number = Number(value)
-  return Number.isFinite(number) ? `${Math.round(number * 100)}%` : ""
+  return Number.isFinite(number) ? number : null
 }
 
-function bonusPercentFromMultiplier(value) {
-  const number = Number(value)
-  return Number.isFinite(number) ? Math.max(0, Math.round((number - 1) * 100)) : 0
-}
-
-function getPerk(perkId) {
-  const perkConfig = readPerkConfig()
-  return perkConfig?.roles?.survivor?.perks?.[perkId]
-    || perkConfig?.roles?.runner?.perks?.[perkId]
-    || PERK_FALLBACKS[perkId]
-    || null
+function formatSeconds(value) {
+  const number = formatNumber(value)
+  return number && number > 0 ? `${number}s` : null
 }
 
 function abilityMeta(entry) {
-  const cost = Number(entry?.abilityCost ?? entry?.cost)
-  const cooldown = Number(entry?.cooldown)
-  const radius = Number(entry?.radius)
+  const cost = formatNumber(entry?.cost)
+  const cooldown = formatSeconds(entry?.cooldown)
+  const duration = formatSeconds(entry?.duration ?? entry?.boostDuration)
+  const radius = formatNumber(entry?.radius)
 
   return [
-    Number.isFinite(cost) && cost > 0 ? `${cost} orbs` : null,
-    Number.isFinite(cooldown) && cooldown > 0 ? `${cooldown}s cooldown` : null,
-    Number.isFinite(radius) && radius > 0 ? `${radius}px radius` : null
+    cost && cost > 0 ? `${cost} orbs` : cost === 0 ? "No cost" : null,
+    cooldown ? `${cooldown} cooldown` : null,
+    duration ? `${duration} duration` : null,
+    radius && radius > 0 ? `${Math.round(radius)}px radius` : null,
+    entry?.inputType === "m1" || entry?.shootAbility ? "M1" : null
   ].filter(Boolean)
+}
+
+function levelLine(level) {
+  if (!level) return null
+  if (level.label) return `Lv ${level.level}: ${level.label}`
+  const bits = [
+    level.chance ? `${Math.round(Number(level.chance) * 100)}% chance` : null,
+    level.speedMultiplier ? `${Number(level.speedMultiplier).toFixed(1)}x speed` : null,
+    level.healProgress ? `${Math.round(Number(level.healProgress) * 100)}% heal` : null,
+    level.radius ? `${Math.round(Number(level.radius))}px radius` : null,
+    level.cooldown ? `${level.cooldown}s cooldown` : null
+  ].filter(Boolean)
+  return bits.length ? `Lv ${level.level}: ${bits.join(" · ")}` : null
 }
 
 function passiveFeatureForClass(runnerClass) {
   const passive = runnerClass?.passive || {}
+  const levels = Array.isArray(passive.levels) ? passive.levels.map(levelLine).filter(Boolean) : []
 
-  return runnerClass?.id === "orbCollector"
-    ? {
-        id: "orbMagnet",
-        type: "passive",
-        label: "Passive",
-        name: passive.label || "Orb Magnet",
-        summary: `${bonusPercentFromMultiplier(passive.orbPickupRadiusMultiplier || 1)}% larger orb pickup radius. The orange ring shows your upgraded pickup range.`,
-        meta: ["Passive"]
-      }
-    : runnerClass?.id === "healer"
-      ? {
-          id: "medicAura",
-          type: "passive",
-          label: "Passive",
-          name: passive.label || "Medic Aura",
-          summary: `${bonusPercentFromMultiplier(passive.healActionSpeedMultiplier || 1)}% faster normal heals and rescues.`,
-          meta: ["Passive"]
-        }
-      : {
-          id: "cleanFooting",
-          type: "passive",
-          label: "Passive",
-          name: passive.label || "Clean Footing",
-          summary: passive.detail || `${bonusPercentFromMultiplier(passive.injuredVaultSpeedMultiplier || 1)}% faster window and pallet vaults while injured.`,
-          meta: ["Passive"]
-        }
+  return {
+    id: `${runnerClass?.id || "runner"}-passive`,
+    type: "passive",
+    label: "Passive",
+    name: passive.label || "Class Passive",
+    summary: passive.detail || "Passive class bonus.",
+    meta: ["Passive", ...levels.slice(0, 3)]
+  }
 }
 
 function classAbilityFeature(ability) {
   return ability ? {
     id: ability.id,
     type: "classAbility",
-    label: "Class Ability",
+    label: ability.inputType === "m1" || ability.shootAbility ? "M1 Ability" : "Q Ability",
     name: ability.name,
     summary: ability.summary || ability.detail || "Class ability.",
-    meta: abilityMeta(ability),
+    meta: [...abilityMeta(ability), ...(Array.isArray(ability.levels) ? ability.levels.map(levelLine).filter(Boolean).slice(0, 3) : [])],
     ability
   } : null
 }
 
-function startingPerkFeature(perkId, runnerClass) {
-  const perk = getPerk(perkId)
-  const grantedLevel = Number(runnerClass?.grantedPerks?.[perkId] || 0)
-
-  return perk ? {
-    id: perkId,
-    type: "startingPerk",
-    label: "Starting Perk",
-    name: perk.name || PERK_FALLBACKS[perkId]?.name || "Starting Perk",
-    summary: perk.summary || perk.detail || "Starts equipped for this class.",
-    meta: [grantedLevel > 0 ? `Lv ${grantedLevel}` : "Equipped", ...abilityMeta(perk)]
-  } : null
-}
-
 function featuresForClass(runnerClass, config) {
-  return runnerClass?.id === "orbCollector"
-    ? [passiveFeatureForClass(runnerClass), startingPerkFeature("riftLens", runnerClass), startingPerkFeature("hourglass", runnerClass)].filter(Boolean)
-    : runnerClass?.id === "healer"
-      ? [classAbilityFeature(config?.abilities?.healingPulse), passiveFeatureForClass(runnerClass)].filter(Boolean)
-      : runnerClass?.id === "chase"
-        ? [startingPerkFeature("rallyDart", runnerClass), startingPerkFeature("speedBurst", runnerClass), passiveFeatureForClass(runnerClass)].filter(Boolean)
-        : [passiveFeatureForClass(runnerClass)].filter(Boolean)
+  const abilityIds = Array.isArray(runnerClass?.wheelOrder)
+    ? runnerClass.wheelOrder.filter((id) => id && id !== "cancel" && id !== "moreSoon")
+    : []
+  const abilities = abilityIds
+    .map((id) => config?.abilities?.[id])
+    .filter((ability) => ability && !ability.disabled && !ability.passive)
+    .map(classAbilityFeature)
+  return [passiveFeatureForClass(runnerClass), ...abilities].filter(Boolean)
 }
 
 function PageBackButton() {
@@ -309,16 +224,6 @@ function TagList({ tags, label }) {
   )
 }
 
-function HealingPulseScaling({ ability }) {
-  const levels = Array.isArray(ability?.levels) ? ability.levels : []
-
-  return levels.length ? (
-    <div className="class-heal-scaling" aria-label="Healing Pulse scaling">
-      {levels.map((level) => <span key={level.level}>Lv {level.level}: {percent(level.healProgress)}</span>)}
-    </div>
-  ) : null
-}
-
 function MetaPills({ items }) {
   return items?.length ? (
     <div className="class-feature-meta">
@@ -343,7 +248,6 @@ function ClassFeature({ feature }) {
         <div className="class-feature-label">{feature.label}</div>
         <h3>{feature.name}</h3>
         <p>{feature.summary}</p>
-        {feature.id === "healingPulse" ? <HealingPulseScaling ability={feature.ability} /> : null}
         <MetaPills items={feature.meta} />
       </div>
     </article>
@@ -380,9 +284,9 @@ function ClassesHint() {
   return (
     <footer className="classes-bottom-hint">
       <span aria-hidden="true">✦</span>
-      <b>Choose wisely.</b>
+      <b>Class abilities scale at Runner levels 1, 6, and 14.</b>
       <i />
-      <span>Each Runner class changes your ability wheel.</span>
+      <span>M1 abilities fire toward your cursor.</span>
     </footer>
   )
 }
@@ -393,7 +297,6 @@ export default function ClassesScreen() {
   useEffect(() => {
     const updateConfig = (event) => setConfig(event.detail?.config || readRunnerClassConfig())
 
-    setConfig(readRunnerClassConfig())
     window.addEventListener("riftrunner:runner-class-config-ready", updateConfig)
     return () => window.removeEventListener("riftrunner:runner-class-config-ready", updateConfig)
   }, [])
