@@ -242,7 +242,7 @@
 #endScreen .end-stat-card.result-row-you {
   --result-accent: #39e4ff;
   grid-template-columns: minmax(330px, 400px) minmax(0, 1fr);
-  min-height: 112px;
+  min-height: 132px;
   border-width: 2px;
   border-color: rgba(57, 228, 255, 0.82);
   background:
@@ -285,24 +285,6 @@
 #endScreen .end-stat-card.result-row-you > * {
   position: relative;
   z-index: 2;
-}
-
-#endScreen .end-stat-card.result-row-you::after {
-  content: "YOU";
-  position: absolute;
-  right: 12px;
-  top: 10px;
-  z-index: 3;
-  padding: 5px 9px;
-  border: 1px solid color-mix(in srgb, var(--result-accent), white 18%);
-  border-radius: 999px;
-  color: #ffffff;
-  background: color-mix(in srgb, var(--result-accent), transparent 72%);
-  box-shadow: 0 0 18px color-mix(in srgb, var(--result-accent), transparent 70%);
-  font-size: 10px;
-  font-weight: 1000;
-  letter-spacing: 0.16em;
-  line-height: 1;
 }
 
 #endScreen .end-stat-head {

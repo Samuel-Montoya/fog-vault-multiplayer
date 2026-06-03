@@ -22,8 +22,6 @@ const FALLBACK_VOID_STATS = [
 ]
 
 const FALLBACK_RUNNER_STATS = [
-  "Rift XP",
-  "Runner XP",
   "Orbs Collected",
   "Orbs Deposited",
   "Void Stuns",
@@ -31,7 +29,9 @@ const FALLBACK_RUNNER_STATS = [
   "Rescues",
   "Escaped",
   "Chase Total",
-  "Longest Chase"
+  "Longest Chase",
+  "Rift XP",
+  "Runner XP"
 ]
 
 
@@ -51,6 +51,7 @@ function normalizeKey(value) {
 const HIDDEN_END_STATS = new Set(["echo score"])
 const HIDDEN_VOID_STATS = new Set(["abilities used"])
 const VOID_STAT_ORDER = FALLBACK_VOID_STATS.map(normalizeKey)
+const RUNNER_STAT_ORDER = FALLBACK_RUNNER_STATS.map(normalizeKey)
 
 function valueLooksTrue(value) {
   const normalized = normalizeKey(value)
@@ -97,10 +98,19 @@ function findStatValue(stats, labelCandidates) {
   return match?.value || ""
 }
 
-function voidStatSortIndex(stat) {
+function orderedStatSortIndex(stat, orderedLabels) {
   const label = normalizeKey(stat?.label)
-  const index = VOID_STAT_ORDER.findIndex((wanted) => label === wanted || label.includes(wanted))
-  return index >= 0 ? index : VOID_STAT_ORDER.length + 1
+  const index = orderedLabels.findIndex((wanted) => label === wanted || label.includes(wanted))
+  return index >= 0 ? index : orderedLabels.length + 1
+}
+
+function sortStatsByRole(role, stats) {
+  const orderedLabels = role === "void" ? VOID_STAT_ORDER : RUNNER_STAT_ORDER
+  return [...stats].sort((a, b) => {
+    const orderDiff = orderedStatSortIndex(a, orderedLabels) - orderedStatSortIndex(b, orderedLabels)
+    if (orderDiff !== 0) return orderDiff
+    return normalizeText(a.label).localeCompare(normalizeText(b.label))
+  })
 }
 
 function normalizeEndStatsForRole(role, stats) {
@@ -111,13 +121,7 @@ function normalizeEndStatsForRole(role, stats) {
     return true
   })
 
-  if (role !== "void") return filtered
-
-  return [...filtered].sort((a, b) => {
-    const orderDiff = voidStatSortIndex(a) - voidStatSortIndex(b)
-    if (orderDiff !== 0) return orderDiff
-    return normalizeText(a.label).localeCompare(normalizeText(b.label))
-  })
+  return sortStatsByRole(role, filtered)
 }
 
 function readLegacyName(card, role) {

@@ -8609,7 +8609,6 @@
             ...progressionItems
           ].join("")
         : [
-            ...progressionItems,
             statItem("Orbs collected", stats.orbsCollected || 0),
             statItem("Orbs deposited", stats.orbsDeposited || 0),
             statItem("Void stuns", stats.voidStuns || 0),
@@ -8617,7 +8616,8 @@
             statItem("Rescues", stats.unhooks || 0),
             statItem("Escaped", (stats.escaped || actor.escaped) ? "Yes" : "No"),
             statItem("Chase total", formatStatSeconds(stats.chaseSeconds)),
-            statItem("Longest chase", formatStatSeconds(stats.longestChase))
+            statItem("Longest chase", formatStatSeconds(stats.longestChase)),
+            ...progressionItems
           ].join("");
 
       return `
