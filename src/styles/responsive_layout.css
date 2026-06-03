@@ -67,18 +67,18 @@
 
 .angled-menu-actions {
   left: clamp(34px, 5.4vw, 108px) !important;
-  width: clamp(270px, 20.5vw, 370px) !important;
-  gap: clamp(9px, 1.1vh, 15px) !important;
+  width: clamp(320px, 23.5vw, 450px) !important;
+  gap: clamp(12px, 1.55vh, 22px) !important;
 }
 
 .angled-menu-actions .menu-action,
 .angled-menu-actions .coffee-link,
 .angled-menu-actions .menu-action.primary {
-  min-height: var(--rr-button-h) !important;
-  padding-left: clamp(24px, 3vw, 52px) !important;
-  padding-right: clamp(24px, 3vw, 52px) !important;
-  font-size: clamp(11px, 0.82vw, 16px) !important;
-  letter-spacing: clamp(0.16em, 0.38vw, 0.26em) !important;
+  min-height: clamp(54px, 5.8vh, 78px) !important;
+  padding-left: clamp(34px, 3.6vw, 66px) !important;
+  padding-right: clamp(32px, 3.4vw, 62px) !important;
+  font-size: clamp(13px, 0.94vw, 18px) !important;
+  letter-spacing: clamp(0.24em, 0.54vw, 0.38em) !important;
 }
 
 .angled-menu-actions .coffee-link,
@@ -215,7 +215,7 @@
 #skinScreen .skins-page-stage {
   height: 100dvh !important;
   min-height: 0 !important;
-  grid-template-rows: auto auto minmax(0, 1fr) auto !important;
+  grid-template-rows: auto auto minmax(0, 1fr) !important;
   gap: var(--rr-gap-md) !important;
   padding: var(--rr-page-y) var(--rr-page-x) !important;
   overflow: hidden !important;
@@ -331,7 +331,7 @@
 }
 
 #playScreen .play-hero-panel {
-  max-width: min(880px, 58vw) !important;
+  max-width: min(1380px, 78vw) !important;
   margin-bottom: clamp(16px, 2.5vh, 28px) !important;
 }
 
@@ -373,12 +373,11 @@
 }
 
 #playScreen .play-join-grid {
-  grid-template-columns: minmax(220px, 300px) minmax(460px, 1fr) !important;
+  grid-template-columns: minmax(620px, 1030px) !important;
   gap: var(--rr-gap-md) !important;
 }
 
-#playScreen .play-actions button,
-#playScreen .play-name-field input {
+#playScreen .play-actions button {
   min-height: clamp(44px, 5.8vh, 58px) !important;
   height: auto !important;
 }
@@ -493,9 +492,13 @@
     bottom: 14px !important;
   }
 
-  #skinScreen .skins-title-block p,
-  #playScreen .play-hero-panel p {
+  #skinScreen .skins-title-block p {
     max-width: 620px;
+  }
+
+  #playScreen .play-hero-panel p {
+    max-width: min(1180px, 100%);
+    white-space: nowrap;
   }
 
   #skinScreen .skin-store-section {
@@ -565,7 +568,7 @@
   }
 
   #playScreen .play-hero-panel {
-    max-width: min(760px, 56vw) !important;
+    max-width: min(1380px, 78vw) !important;
   }
 
   #playScreen .play-role-select {
@@ -657,6 +660,12 @@
 
   #playScreen .play-role-select {
     width: min(1500px, 100%) !important;
+  }
+}
+
+@media (max-width: 860px) {
+  #playScreen .play-hero-panel p {
+    white-space: normal !important;
   }
 }
 

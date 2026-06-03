@@ -178,7 +178,7 @@
 }
 
 #playScreen .play-hero-panel {
-  max-width: min(1060px, 62vw);
+  max-width: min(1380px, 78vw);
   margin-bottom: 28px;
 }
 
@@ -194,13 +194,14 @@
 }
 
 #playScreen .play-hero-panel p {
-  width: min(780px, 100%);
+  width: min(1180px, 100%);
   margin: 12px 0 0;
   color: rgba(255, 255, 255, 0.78);
   font-family: inherit;
   font-size: clamp(0.88rem, 1.05vw, 1.18rem);
   line-height: 1.55;
   letter-spacing: 0.04em;
+  white-space: nowrap;
 }
 
 #playScreen .play-title-line {
@@ -373,31 +374,10 @@
 
 #playScreen .play-join-grid {
   display: grid;
-  grid-template-columns: minmax(240px, 320px) minmax(520px, 1fr);
+  grid-template-columns: minmax(620px, 1030px);
   gap: 16px;
   align-items: stretch;
   width: min(1030px, 100%);
-}
-
-#playScreen .play-name-field {
-  display: grid;
-  gap: 7px;
-}
-
-#playScreen .play-name-field label {
-  color: rgba(255, 255, 255, 0.56);
-  font-size: 0.62rem;
-  letter-spacing: 0.22em;
-  text-transform: uppercase;
-}
-
-#playScreen .play-name-field input {
-  height: 56px;
-  border: 1px solid rgba(205, 178, 255, 0.18);
-  border-radius: 4px;
-  background: rgba(5, 3, 15, 0.66);
-  color: #fff;
-  box-shadow: inset 0 0 24px rgba(0, 0, 0, 0.34);
 }
 
 #playScreen .play-actions {
@@ -691,6 +671,10 @@
     letter-spacing: 0.10em;
   }
 
+  #playScreen .play-hero-panel p {
+    white-space: normal;
+  }
+
   #playScreen .compact-account-panel .auth-form,
   #playScreen .play-actions,
   #playScreen .play-lobby-table-head,
@@ -779,6 +763,8 @@
 #playScreen.play-screen .play-page-frame .play-hero-panel p {
   font-size: clamp(12px, 0.82vw, 15px) !important;
   margin-top: clamp(7px, 0.9vh, 11px) !important;
+  width: min(1180px, 100%) !important;
+  white-space: nowrap !important;
 }
 
 #playScreen.play-screen .play-title-line {
@@ -804,4 +790,10 @@
 #playScreen.play-screen .play-account-wrap .rr-account-panel-slim.account-badge {
   width: min(420px, 34vw) !important;
   max-width: 100% !important;
+}
+
+@media (max-width: 860px) {
+  #playScreen.play-screen .play-page-frame .play-hero-panel p {
+    white-space: normal !important;
+  }
 }

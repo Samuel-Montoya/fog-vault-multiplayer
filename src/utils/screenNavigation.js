@@ -267,6 +267,71 @@ export function getScreenNameFromMenuButton(id) {
   }
 }
 
+let screenTransitionTimer = 0
+
+function prefersReducedMotion() {
+  return typeof window !== "undefined"
+    && typeof window.matchMedia === "function"
+    && window.matchMedia("(prefers-reduced-motion: reduce)").matches
+}
+
+function clearScreenTransitions() {
+  if (screenTransitionTimer && typeof window !== "undefined") {
+    window.clearTimeout(screenTransitionTimer)
+    screenTransitionTimer = 0
+  }
+
+  for (const id of Object.values(SCREEN_IDS)) {
+    const screen = document.getElementById(id)
+    screen?.classList.remove("screen-transition-in", "screen-transition-out")
+  }
+}
+
+function applyScreenVisibility(nextScreen, isGameScreen) {
+  const nextId = SCREEN_IDS[nextScreen]
+  const nextElement = nextId ? document.getElementById(nextId) : null
+  const openScreens = Array.from(document.querySelectorAll(".rift-ui-shell > .screen.screen-open"))
+  const shouldTransition = !isGameScreen
+    && !prefersReducedMotion()
+    && nextElement
+    && openScreens.some((screen) => screen !== nextElement)
+
+  clearScreenTransitions()
+
+  for (const id of Object.values(SCREEN_IDS)) {
+    const screen = document.getElementById(id)
+    if (!screen || screen === nextElement) continue
+
+    if (shouldTransition && screen.classList.contains("screen-open")) {
+      screen.classList.remove("screen-open", "screen-transition-in")
+      screen.classList.add("screen-transition-out")
+    } else {
+      screen.classList.remove("screen-open", "screen-transition-in", "screen-transition-out")
+    }
+  }
+
+  if (nextElement) {
+    nextElement.classList.remove("screen-transition-out")
+    if (shouldTransition) nextElement.classList.add("screen-transition-in")
+    nextElement.classList.add("screen-open")
+
+    if (shouldTransition && typeof window !== "undefined") {
+      window.requestAnimationFrame(() => {
+        nextElement.classList.remove("screen-transition-in")
+      })
+    }
+  }
+
+  if (shouldTransition && typeof window !== "undefined") {
+    screenTransitionTimer = window.setTimeout(() => {
+      for (const screen of document.querySelectorAll(".rift-ui-shell > .screen.screen-transition-out")) {
+        screen.classList.remove("screen-transition-out")
+      }
+      screenTransitionTimer = 0
+    }, 260)
+  }
+}
+
 export function showMenuScreen(screenName = "menu") {
   if (typeof document === "undefined") return
 
@@ -280,10 +345,7 @@ export function showMenuScreen(screenName = "menu") {
   document.body.classList.toggle("is-game-screen", isGameScreen)
   document.body.classList.toggle("is-menu-screen", !isGameScreen)
 
-  for (const [name, id] of Object.entries(SCREEN_IDS)) {
-    const screen = document.getElementById(id)
-    if (screen) screen.classList.toggle("screen-open", name === nextScreen)
-  }
+  applyScreenVisibility(nextScreen, isGameScreen)
 
   for (const id of GAME_ONLY_IDS) {
     const element = document.getElementById(id)

@@ -1099,7 +1099,6 @@
     menuMusicVolumeSlider: document.getElementById("menuMusicVolumeSlider"),
     menuMusicVolumeValue: document.getElementById("menuMusicVolumeValue"),
     menuBackBtns: [...document.querySelectorAll(".menu-back-btn")],
-    playerName: document.getElementById("playerName"),
     roleBtns: [...document.querySelectorAll(".role-btn")],
     skinBtns: [...document.querySelectorAll('[data-skin-role="runner"]')],
     voidSkinBtns: [...document.querySelectorAll('[data-skin-role="void"]')],
@@ -1397,10 +1396,32 @@
     if (effect.angleMultiplier) parts.push(`${Number(effect.angleMultiplier).toFixed(2)}x cone width`);
     if (effect.backLengthMultiplier) parts.push(`${Number(effect.backLengthMultiplier).toFixed(2)}x rear length`);
     if (effect.backAngleMultiplier) parts.push(`${Number(effect.backAngleMultiplier).toFixed(2)}x rear width`);
-    if (effect.speedMultiplier && perk.id !== "speedBurst") parts.push(`${Number(effect.speedMultiplier).toFixed(2)}x speed`);
+    if (effect.speedMultiplier) parts.push(`${Number(effect.speedMultiplier).toFixed(2)}x speed`);
     if (effect.slowMultiplier) parts.push(`${Math.round((1 - Number(effect.slowMultiplier)) * 100)}% slow`);
     if (effect.slowSeconds) parts.push(`${formatSeconds(effect.slowSeconds)} slow`);
     return parts.join(" · ") || "Level effect configured.";
+  }
+
+  function createPerkLevelMeter(level, maxLevel) {
+    const currentLevel = Math.max(0, Math.floor(Number(level || 0)));
+    const count = Math.max(1, Math.floor(Number(maxLevel || 1)));
+    const meter = document.createElement("div");
+    meter.className = "perk-effect-meter";
+    meter.style.setProperty("--perk-level-count", String(count));
+    meter.setAttribute("aria-label", `Level ${Math.min(currentLevel, count)} of ${count}`);
+
+    for (let i = 1; i <= count; i++) {
+      const segment = document.createElement("span");
+      segment.className = [
+        i <= currentLevel ? "filled" : "",
+        i === currentLevel && currentLevel > 0 ? "current" : "",
+        i === currentLevel + 1 && currentLevel > 0 && currentLevel < count ? "next" : ""
+      ].filter(Boolean).join(" ");
+      segment.setAttribute("aria-hidden", "true");
+      meter.appendChild(segment);
+    }
+
+    return meter;
   }
 
   function renderPerkShop() {
@@ -1429,9 +1450,13 @@
 
         const card = document.createElement("article");
         card.className = `perk-card accent-${perk.accent || (role === "killer" ? "purple" : "cyan")}`;
+        card.dataset.perkId = id;
+        card.dataset.perkLevel = String(level);
+        card.dataset.perkMaxLevel = String(maxLevel);
         card.classList.toggle("locked", level <= 0);
         card.classList.toggle("owned", level > 0);
         card.classList.toggle("maxed", maxed);
+        card.classList.toggle("upgradeable", level > 0 && !maxed);
         card.classList.toggle("affordable", !maxed && affordable);
 
         const top = document.createElement("div");
@@ -1453,7 +1478,26 @@
 
         const effect = document.createElement("p");
         effect.className = "perk-effect";
-        effect.textContent = perkEffectLine(perk, level);
+        const currentEffectText = perkEffectLine(perk, level);
+        const nextEffectText = level > 0 && !maxed ? perkEffectLine(perk, level + 1) : "";
+        if (nextEffectText) {
+          card.dataset.nextLevelText = nextEffectText;
+          effect.dataset.baseEffectText = currentEffectText;
+          effect.classList.add("has-next-upgrade");
+          const currentEffect = document.createElement("span");
+          currentEffect.className = "perk-effect-current";
+          currentEffect.textContent = currentEffectText;
+          const arrow = document.createElement("span");
+          arrow.className = "perk-effect-arrow";
+          arrow.textContent = "->";
+          const nextEffect = document.createElement("span");
+          nextEffect.className = "perk-effect-next";
+          nextEffect.textContent = nextEffectText;
+          effect.append(currentEffect, arrow, nextEffect);
+        } else {
+          effect.textContent = currentEffectText;
+        }
+        const meter = createPerkLevelMeter(level, maxLevel);
 
         const pips = document.createElement("div");
         pips.className = "perk-level-pips";
@@ -1471,7 +1515,7 @@
         button.textContent = maxed ? "Max level" : level <= 0 ? `Unlock · ${nextCost} orbs` : `Upgrade · ${nextCost} orbs`;
         button.title = currentAccount ? button.textContent : "Login or Play as Guest to buy perks";
 
-        card.append(top, summary, effect, pips, button);
+        card.append(top, summary, effect, meter, pips, button);
         mount.appendChild(card);
       }
     }
@@ -1892,6 +1936,79 @@
     }
   }
 
+  let menuPageTransitionTimer = 0;
+
+  function prefersReducedPageMotion() {
+    return typeof window.matchMedia === "function"
+      && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  }
+
+  function getMenuScreenElements() {
+    return {
+      menu: ui.menu,
+      play: ui.playScreen,
+      skins: ui.skinScreen,
+      perks: ui.perksScreen,
+      options: ui.optionsScreen,
+      how: ui.howScreen,
+      lobby: ui.lobbyScreen,
+      end: ui.endScreen
+    };
+  }
+
+  function clearMenuPageTransitions() {
+    if (menuPageTransitionTimer) {
+      clearTimeout(menuPageTransitionTimer);
+      menuPageTransitionTimer = 0;
+    }
+
+    for (const screen of Object.values(getMenuScreenElements())) {
+      screen?.classList.remove("screen-transition-in", "screen-transition-out");
+    }
+  }
+
+  function applyMenuScreenVisibility(name, isGameScreen) {
+    const screens = getMenuScreenElements();
+    const nextElement = screens[name];
+    const openScreens = Object.values(screens).filter((screen) => screen?.classList.contains("screen-open"));
+    const shouldTransition = !isGameScreen
+      && !prefersReducedPageMotion()
+      && nextElement
+      && openScreens.some((screen) => screen !== nextElement);
+
+    clearMenuPageTransitions();
+
+    for (const screen of Object.values(screens)) {
+      if (!screen || screen === nextElement) continue;
+
+      if (shouldTransition && screen.classList.contains("screen-open")) {
+        screen.classList.remove("screen-open", "screen-transition-in");
+        screen.classList.add("screen-transition-out");
+      } else {
+        screen.classList.remove("screen-open", "screen-transition-in", "screen-transition-out");
+      }
+    }
+
+    if (nextElement) {
+      nextElement.classList.remove("screen-transition-out");
+      if (shouldTransition) nextElement.classList.add("screen-transition-in");
+      nextElement.classList.add("screen-open");
+
+      if (shouldTransition) {
+        requestAnimationFrame(() => {
+          nextElement.classList.remove("screen-transition-in");
+        });
+      }
+    }
+
+    if (shouldTransition) {
+      menuPageTransitionTimer = setTimeout(() => {
+        for (const screen of Object.values(screens)) screen?.classList.remove("screen-transition-out");
+        menuPageTransitionTimer = 0;
+      }, 260);
+    }
+  }
+
   function showScreen(name) {
     const previousScreen = activeScreenName;
     const wasGameScreen = previousScreen === "game";
@@ -1911,14 +2028,7 @@
     document.body.classList.toggle("is-menu-screen", menuLike);
     setGameplayAudioActive(isGameScreen);
     setMenuAudioActive(menuLike, { restart: shouldRestartMenuMusic });
-    ui.menu?.classList.toggle("screen-open", name === "menu");
-    ui.playScreen?.classList.toggle("screen-open", name === "play");
-    ui.skinScreen?.classList.toggle("screen-open", name === "skins");
-    ui.perksScreen?.classList.toggle("screen-open", name === "perks");
-    ui.optionsScreen?.classList.toggle("screen-open", name === "options");
-    ui.howScreen?.classList.toggle("screen-open", name === "how");
-    ui.lobbyScreen?.classList.toggle("screen-open", name === "lobby");
-    ui.endScreen?.classList.toggle("screen-open", name === "end");
+    applyMenuScreenVisibility(name, isGameScreen);
     ui.hud.classList.toggle("hidden", name !== "game");
     ui.survivorStatusHud?.classList.toggle("hidden", name !== "game");
     ui.bigGenCounter?.classList.toggle("hidden", name !== "game");
@@ -2063,7 +2173,7 @@
   }
 
   function getName() {
-    return (ui.playerName.value || "Player").trim().slice(0, 18) || "Player";
+    return String(currentAccount?.displayName || currentAccount?.username || "Player").trim().slice(0, 18) || "Player";
   }
 
   function toast(message, ms = 1800) {

@@ -194,13 +194,6 @@ export default function SkinScreen() {
             <SkinSection section={section} key={section.role} />
           ))}
         </div>
-
-        <footer className="skins-footer-strip" aria-label="Skin shop hint">
-          <span aria-hidden="true">ⓘ</span>
-          <b>Bank orbs by playing matches</b>
-          <i aria-hidden="true" />
-          <em>Spend orbs wisely. The rift rewards the prepared.</em>
-        </footer>
       </div>
     </div>
   )

@@ -1,4 +1,4 @@
-/* Imported last by App.jsx so the shared /images/background.png stays clean across every menu page. */
+/* Imported last by App.jsx so page-specific decoration cannot muddy the shared menu backdrop. */
 .menu-bg::before,
 .menu-bg::after,
 .rift-page-background::before,
@@ -28,5 +28,9 @@
 }
 
 .rift-page-background {
-  background: var(--menu-bg-image) center / cover no-repeat, #04020a !important;
+  background: #04020a !important;
+}
+
+.rift-page-background .menu-bg-image-layer {
+  background: var(--menu-bg-image) center / cover no-repeat !important;
 }

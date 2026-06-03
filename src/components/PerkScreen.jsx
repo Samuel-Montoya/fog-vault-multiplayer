@@ -29,8 +29,6 @@ const PERK_SECTIONS = [
   }
 ]
 
-const PERKS_FOOTER = ["Bank orbs by playing matches", "Spend orbs wisely. The rift rewards the prepared."]
-
 const PERK_CONFIG_GLOBALS = [
   "PERK_CONFIG",
   "PERK_CONFIGS",
@@ -153,6 +151,50 @@ function getCurrentLevel(card) {
   return filledPips || 0
 }
 
+function getMaxLevel(card) {
+  const datasetMax = Number(card.dataset.maxLevel || card.dataset.perkMaxLevel || "")
+  if (Number.isFinite(datasetMax) && datasetMax > 0) return datasetMax
+
+  const levelText = card.textContent?.match(/level\s*\d+\s*\/\s*(\d+)/i)
+  if (levelText) return Number(levelText[1]) || 0
+
+  const pips = card.querySelectorAll(".perk-level-pips span, .perk-level-pips i").length
+  return pips || 4
+}
+
+function updatePerkCardMeter(card) {
+  const level = Math.max(0, Math.floor(Number(getCurrentLevel(card) || 0)))
+  const maxLevel = Math.max(1, Math.floor(Number(getMaxLevel(card) || 4)))
+  const signature = `${level}:${maxLevel}`
+  const existing = card.querySelector(".perk-effect-meter")
+
+  if (existing?.dataset.meterSignature === signature) return
+
+  const meter = existing || document.createElement("div")
+  meter.className = "perk-effect-meter"
+  meter.dataset.meterSignature = signature
+  meter.style.setProperty("--perk-level-count", String(maxLevel))
+  meter.setAttribute("aria-label", `Level ${Math.min(level, maxLevel)} of ${maxLevel}`)
+  meter.replaceChildren()
+
+  for (let i = 1; i <= maxLevel; i += 1) {
+    const segment = document.createElement("span")
+    segment.className = [
+      i <= level ? "filled" : "",
+      i === level && level > 0 ? "current" : "",
+      i === level + 1 && level > 0 && level < maxLevel ? "next" : ""
+    ].filter(Boolean).join(" ")
+    segment.setAttribute("aria-hidden", "true")
+    meter.appendChild(segment)
+  }
+
+  if (!existing) {
+    const anchor = card.querySelector(".perk-effect") || card.querySelector(".perk-summary") || card.querySelector(".perk-card-top")
+    if (anchor?.parentElement) anchor.insertAdjacentElement("afterend", meter)
+    else card.appendChild(meter)
+  }
+}
+
 function valueToText(key, value) {
   if (value === null || value === undefined || value === "") return ""
   const numeric = Number(value)
@@ -256,14 +298,25 @@ function existingNextText(card) {
     || ""
 }
 
+function restorePerkEffect(effect) {
+  if (!effect?.classList?.contains("has-next-upgrade")) return
+
+  const original = effect.dataset.baseEffectText || effect.textContent?.trim() || ""
+  effect.textContent = original
+  effect.classList.remove("has-next-upgrade")
+  delete effect.dataset.baseEffectText
+}
+
 function updatePerkCardPreview(card) {
   const actionButton = card.querySelector("button")
   const actionText = actionButton?.textContent?.trim() || ""
   const isUpgrade = /upgrade/i.test(actionText) || card.classList.contains("upgradeable") || card.dataset.action === "upgrade"
   const preview = card.querySelector(".perk-next-preview")
+  const effect = card.querySelector(".perk-effect")
 
   if (!isUpgrade || card.classList.contains("maxed")) {
     preview?.remove()
+    restorePerkEffect(effect)
     card.removeAttribute("data-next-preview-signature")
     return
   }
@@ -271,6 +324,7 @@ function updatePerkCardPreview(card) {
   const currentLevel = getCurrentLevel(card)
   if (!currentLevel) {
     preview?.remove()
+    restorePerkEffect(effect)
     return
   }
 
@@ -285,20 +339,46 @@ function updatePerkCardPreview(card) {
 
   if (!text) {
     preview?.remove()
+    restorePerkEffect(effect)
     card.removeAttribute("data-next-preview-signature")
     return
   }
 
-  const signature = `${currentLevel}:${text}`
+  const currentText = effect?.dataset.baseEffectText || effect?.textContent?.trim() || ""
+  const signature = `${currentLevel}:${currentText}:${text}`
   if (card.dataset.nextPreviewSignature === signature) return
 
-  const nextPreview = preview || document.createElement("p")
-  nextPreview.className = "perk-next-preview"
-  nextPreview.innerHTML = `<span>Next level</span><b>${text}</b>`
+  preview?.remove()
 
-  const anchor = card.querySelector(".perk-effect") || card.querySelector(".perk-summary") || card.querySelector(".perk-card-top")
-  if (anchor?.parentElement) anchor.insertAdjacentElement("afterend", nextPreview)
-  else card.appendChild(nextPreview)
+  if (effect && currentText) {
+    effect.dataset.baseEffectText = currentText
+    effect.classList.add("has-next-upgrade")
+    effect.replaceChildren(
+      Object.assign(document.createElement("span"), {
+        className: "perk-effect-current",
+        textContent: currentText
+      }),
+      Object.assign(document.createElement("span"), {
+        className: "perk-effect-arrow",
+        textContent: "->"
+      }),
+      Object.assign(document.createElement("span"), {
+        className: "perk-effect-next",
+        textContent: text
+      })
+    )
+  } else {
+    const nextPreview = document.createElement("p")
+    nextPreview.className = "perk-next-preview"
+    nextPreview.replaceChildren(
+      Object.assign(document.createElement("span"), { textContent: "Next level" }),
+      Object.assign(document.createElement("b"), { textContent: text })
+    )
+
+    const anchor = card.querySelector(".perk-summary") || card.querySelector(".perk-card-top")
+    if (anchor?.parentElement) anchor.insertAdjacentElement("afterend", nextPreview)
+    else card.appendChild(nextPreview)
+  }
 
   card.dataset.nextPreviewSignature = signature
 }
@@ -317,6 +397,7 @@ function usePerkUpgradePreviews() {
         screen.querySelectorAll(".perk-card").forEach((card) => {
           updatePerkCardIcon(card)
           updatePerkCardPreview(card)
+          updatePerkCardMeter(card)
         })
       })
     }
@@ -327,7 +408,7 @@ function usePerkUpgradePreviews() {
       subtree: true,
       attributes: true,
       characterData: true,
-      attributeFilter: ["class", "data-level", "data-perk-level", "data-current-level", "data-next-level-text", "data-perk-icon"]
+      attributeFilter: ["class", "data-level", "data-perk-level", "data-current-level", "data-max-level", "data-perk-max-level", "data-next-level-text", "data-perk-icon"]
     })
 
     window.addEventListener("riftrunner:screen-change", scheduleUpdate)
@@ -374,17 +455,6 @@ function PerkShopSection({ section }) {
   )
 }
 
-function PerksFooter() {
-  return (
-    <footer className="perks-footer-strip" aria-label="Perks shop hint">
-      <span aria-hidden="true">✦</span>
-      <b>{PERKS_FOOTER[0]}</b>
-      <i aria-hidden="true" />
-      <em>{PERKS_FOOTER[1]}</em>
-    </footer>
-  )
-}
-
 export default function PerkScreen() {
   usePerkUpgradePreviews()
 
@@ -408,8 +478,6 @@ export default function PerkScreen() {
             <PerkShopSection section={section} key={section.role} />
           ))}
         </div>
-
-        <PerksFooter />
       </div>
     </div>
   )

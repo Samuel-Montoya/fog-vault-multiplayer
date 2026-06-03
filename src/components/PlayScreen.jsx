@@ -124,10 +124,6 @@ export default function PlayScreen() {
         <section className="play-step-panel play-join-panel" aria-labelledby="joinLobbyTitle">
           <div className="play-step-label" id="joinLobbyTitle">2. Join lobby or spectate</div>
           <div className="play-join-grid">
-            <div className="play-name-field">
-              <label htmlFor="playerName">Callsign</label>
-              <input id="playerName" maxLength="18" placeholder="Player" autoComplete="off" />
-            </div>
             <div className="button-row play-actions">
               {PLAY_ACTIONS.map((action) => (
                 <PlayActionButton action={action} key={action.id} />

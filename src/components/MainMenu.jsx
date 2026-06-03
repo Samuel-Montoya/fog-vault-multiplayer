@@ -87,7 +87,7 @@ function SideSelectPanel() {
         <SideOption option={option} key={option.key} />
       ))}
 
-      <div className="match-tagline">1 Void. 4 Runners. One brutal chase.</div>
+      <div className="match-tagline">1 Void. 4 Runners. Can you escape?</div>
     </aside>
   )
 }

@@ -1687,3 +1687,8 @@
   color: rgba(255, 116, 146, 0.98) !important;
   box-shadow: 0 0 16px rgba(255, 63, 105, 0.12), inset 0 0 0 1px rgba(255, 125, 155, 0.08) !important;
 }
+
+/* Skins page no longer renders a footer strip. Give that space back to the shop. */
+#skinScreen.skin-page-screen .skins-page-stage {
+  grid-template-rows: auto auto minmax(0, 1fr) !important;
+}
