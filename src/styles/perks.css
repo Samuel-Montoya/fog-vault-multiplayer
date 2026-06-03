@@ -31,7 +31,7 @@
   overflow: hidden !important;
   background: transparent !important;
   color: var(--rr-text) !important;
-  font-family: "Orbitron", "Rajdhani", "Eurostile", "Trebuchet MS", Arial, sans-serif !important;
+  font-family: var(--font-body) !important;
 }
 
 #perksScreen.perks-page-screen::before,
@@ -758,7 +758,7 @@
   align-self: start !important;
   margin: 4px 0 4px !important;
   color: rgba(236,232,255,0.64) !important;
-  font-family: "Trebuchet MS", Arial, sans-serif !important;
+  font-family: var(--font-body) !important;
   font-size: clamp(12px, 0.84vw, 15px) !important;
   font-weight: 500 !important;
   letter-spacing: 0.035em !important;
@@ -2012,4 +2012,364 @@
 /* Perks page no longer renders a footer strip. Give that space back to the shop. */
 #perksScreen.perks-page-screen .perks-page-stage {
   grid-template-rows: clamp(92px, 10.8vh, 120px) auto minmax(0, 1fr) !important;
+}
+
+/* Perk info modal + info button. Small button, big mercy for anyone trying to understand upgrades. */
+#perksScreen.perks-page-screen .perk-card .perk-card-top {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+#perksScreen.perks-page-screen .perk-card .perk-info-btn {
+  width: auto;
+  height: 34px;
+  min-height: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  justify-self: end;
+  padding: 0 13px;
+  border-radius: 999px;
+  border: 1px solid rgba(226, 232, 240, 0.18);
+  background: rgba(15, 23, 42, 0.58);
+  color: rgba(248, 250, 252, 0.92);
+  font-family: var(--font-body) !important;
+  font-size: 11px;
+  font-weight: 1000;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-align: center;
+  text-transform: uppercase;
+  white-space: nowrap;
+  box-shadow: 0 10px 24px rgba(0,0,0,0.30), inset 0 0 0 1px rgba(255,255,255,0.04);
+}
+
+#perksScreen.perks-page-screen .perk-card .perk-info-btn:hover,
+#perksScreen.perks-page-screen .perk-card .perk-info-btn:focus-visible {
+  transform: translateY(-1px);
+  border-color: rgba(251, 191, 36, 0.52);
+  color: #fff7d6;
+  background: rgba(251, 146, 60, 0.16);
+}
+
+.perk-info-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 7200;
+  display: grid;
+  place-items: center;
+  padding: 22px;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 140ms ease, visibility 140ms ease;
+}
+
+.perk-info-modal.is-open {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+}
+
+.perk-info-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.64);
+  backdrop-filter: blur(8px);
+}
+
+.perk-info-dialog {
+  position: relative;
+  width: min(920px, calc(100vw - 32px));
+  max-height: min(820px, calc(100vh - 32px));
+  overflow: auto;
+  border-radius: 30px;
+  border: 1px solid rgba(251, 191, 36, 0.18);
+  background: linear-gradient(180deg, rgba(6, 8, 18, 0.98), rgba(8, 8, 16, 0.96));
+  box-shadow: 0 28px 90px rgba(0, 0, 0, 0.72), 0 0 46px rgba(251, 146, 60, 0.14);
+}
+
+.perk-info-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 2;
+  width: 38px;
+  height: 38px;
+  border-radius: 999px;
+  border: 1px solid rgba(226, 232, 240, 0.16);
+  background: rgba(15, 23, 42, 0.72);
+  color: rgba(248, 250, 252, 0.92);
+  display: grid;
+  place-items: center;
+  padding: 0;
+  font-family: var(--font-body) !important;
+  font-size: 24px;
+  line-height: 1;
+  text-align: center;
+  cursor: pointer;
+}
+
+.perk-info-dialog-content {
+  padding: clamp(20px, 3vw, 34px);
+}
+
+.perk-info-header {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
+  gap: 18px;
+  align-items: center;
+  padding: 18px;
+  border-radius: 24px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: radial-gradient(circle at 0% 0%, rgba(251, 146, 60, 0.18), transparent 46%), rgba(15, 23, 42, 0.42);
+}
+
+.perk-info-header.accent-purple {
+  background: radial-gradient(circle at 0% 0%, rgba(168, 85, 247, 0.20), transparent 46%), rgba(15, 23, 42, 0.42);
+}
+
+.perk-info-icon {
+  width: 84px;
+  height: 84px;
+  display: grid;
+  place-items: center;
+  border-radius: 22px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.10);
+}
+
+.perk-info-icon img {
+  width: 68px;
+  height: 68px;
+  object-fit: contain;
+  filter: drop-shadow(0 0 18px rgba(251, 146, 60, 0.30));
+}
+
+.perk-info-kicker {
+  display: block;
+  margin-bottom: 6px;
+  color: rgba(251, 191, 36, 0.86);
+  font-size: 11px;
+  font-weight: 1000;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.perk-info-header h2 {
+  margin: 0;
+  color: #f8fafc;
+  font-size: clamp(30px, 4vw, 48px);
+  line-height: 0.95;
+  text-transform: uppercase;
+}
+
+.perk-info-header p,
+.perk-info-detail {
+  color: rgba(226, 232, 240, 0.78);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.perk-info-detail {
+  margin: 16px 2px 18px;
+}
+
+.perk-info-levels {
+  display: grid;
+  gap: 12px;
+}
+
+.perk-info-level {
+  display: grid;
+  grid-template-columns: minmax(120px, 170px) minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+  padding: 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(226, 232, 240, 0.10);
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.perk-info-level.owned {
+  border-color: rgba(74, 222, 128, 0.24);
+}
+
+.perk-info-level.current {
+  position: relative;
+  border-color: rgba(251, 191, 36, 0.74);
+  background:
+    radial-gradient(circle at 100% 0%, rgba(251, 191, 36, 0.18), transparent 46%),
+    linear-gradient(135deg, rgba(251, 191, 36, 0.11), rgba(15, 23, 42, 0.58));
+  box-shadow: inset 0 0 0 2px rgba(251, 191, 36, 0.34), 0 0 32px rgba(251, 191, 36, 0.14);
+}
+
+.perk-info-level.special {
+  border-color: rgba(251, 146, 60, 0.38);
+  background: radial-gradient(circle at 100% 0%, rgba(251, 146, 60, 0.12), transparent 42%), rgba(15, 23, 42, 0.48);
+}
+
+.perk-info-current-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: fit-content;
+  min-height: 24px;
+  margin-top: 8px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(251, 191, 36, 0.46);
+  background: rgba(251, 191, 36, 0.16);
+  color: #fff0b8;
+  font-size: 10px;
+  font-weight: 1000;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  box-shadow: 0 0 18px rgba(251, 191, 36, 0.12);
+}
+
+.perk-info-level.current .perk-info-level-head strong {
+  color: #fff2bd;
+}
+
+
+.perk-info-level-head strong {
+  display: block;
+  color: #f8fafc;
+  font-size: 16px;
+  font-weight: 1000;
+  text-transform: uppercase;
+}
+
+.perk-info-level-head small {
+  display: block;
+  margin-top: 4px;
+  color: rgba(251, 191, 36, 0.78);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.perk-info-level-values {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.perk-info-level-values span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.055);
+  color: rgba(226,232,240,0.84);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.perk-info-level-values b {
+  color: rgba(248,250,252,0.94);
+  font-size: 10px;
+  font-weight: 1000;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.perk-info-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 14px;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(226, 232, 240, 0.10);
+}
+
+.perk-info-actions p {
+  margin: 0;
+  color: rgba(226,232,240,0.72);
+  font-size: 13px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.perk-info-buy-btn {
+  min-width: 190px;
+  min-height: 46px;
+  border-radius: 999px;
+  border: 1px solid rgba(251, 191, 36, 0.42);
+  background: linear-gradient(135deg, rgba(251, 191, 36, 0.95), rgba(249, 115, 22, 0.86));
+  color: #140900;
+  font-size: 13px;
+  font-weight: 1000;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.perk-info-buy-btn.cant-afford {
+  border-color: rgba(248, 113, 113, 0.42);
+  background: linear-gradient(135deg, rgba(127, 29, 29, 0.82), rgba(69, 10, 10, 0.84));
+  color: #fee2e2;
+}
+
+.perk-info-buy-btn:disabled {
+  opacity: 0.58;
+  cursor: default;
+  filter: grayscale(0.35);
+}
+
+@media (max-width: 720px) {
+  .perk-info-dialog-content {
+    padding: 16px;
+  }
+
+  .perk-info-header,
+  .perk-info-level {
+    grid-template-columns: 1fr;
+  }
+
+  .perk-info-icon {
+    width: 68px;
+    height: 68px;
+  }
+
+  .perk-info-icon img {
+    width: 54px;
+    height: 54px;
+  }
+
+  .perk-info-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .perk-info-buy-btn {
+    width: 100%;
+  }
+}
+
+#perksScreen.perks-page-screen .perk-card .perk-card-top:has(.perk-info-btn) {
+  grid-template-columns: auto minmax(0, 1fr) auto !important;
+  align-items: center !important;
+}
+
+#perksScreen.perks-page-screen .perk-card .perk-card-top:has(.perk-info-btn) small {
+  position: static !important;
+  display: block !important;
+  margin-top: 5px !important;
+}
+
+#perksScreen.perks-page-screen .perk-card .perk-card-top.has-perk-info {
+  grid-template-columns: auto minmax(0, 1fr) auto !important;
+  align-items: center !important;
+}
+
+#perksScreen.perks-page-screen .perk-card .perk-card-top.has-perk-info small {
+  position: static !important;
+  display: block !important;
+  margin-top: 5px !important;
 }

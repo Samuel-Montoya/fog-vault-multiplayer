@@ -1609,8 +1609,12 @@
     if (effect.backLengthMultiplier) parts.push(`${Number(effect.backLengthMultiplier).toFixed(2)}x rear length`);
     if (effect.backAngleMultiplier) parts.push(`${Number(effect.backAngleMultiplier).toFixed(2)}x rear width`);
     if (effect.speedMultiplier) parts.push(`${Number(effect.speedMultiplier).toFixed(2)}x speed`);
+    if (effect.radius) parts.push(`${Math.round(Number(effect.radius))}px radius`);
+    if (effect.projectileSpeed) parts.push(`${Math.round(Number(effect.projectileSpeed))} dart speed`);
+    if (effect.range) parts.push(`${Math.round(Number(effect.range))}px range`);
     if (effect.slowMultiplier) parts.push(`${Math.round((1 - Number(effect.slowMultiplier)) * 100)}% slow`);
     if (effect.slowSeconds) parts.push(`${formatSeconds(effect.slowSeconds)} slow`);
+    if (effect.hidesScratchMarks) parts.push("hides scratch marks");
     return parts.join(" · ") || "Level effect configured.";
   }
 
@@ -1634,6 +1638,152 @@
     }
 
     return meter;
+  }
+
+  function perkLevelCostText(perk, levelRow, index) {
+    if (!levelRow) return "-";
+    const level = Math.max(1, Math.floor(Number(levelRow.level || index + 1)));
+    const cost = level <= 1
+      ? Math.max(0, Math.floor(Number(levelRow.unlockCost ?? perk?.unlockCost ?? 0)))
+      : Math.max(0, Math.floor(Number(levelRow.upgradeCost ?? levelRow.unlockCost ?? perk?.upgradeCost ?? 0)));
+    return cost > 0 ? `${level <= 1 ? "Unlock" : "Upgrade"} · ${cost} orbs` : "Included";
+  }
+
+  function perkLevelValueList(levelRow) {
+    if (!levelRow || typeof levelRow !== "object") return [];
+    const values = [];
+    if (Number(levelRow.duration || 0) > 0) values.push({ label: "Duration", value: formatSeconds(levelRow.duration) });
+    if (Number(levelRow.speedMultiplier || 0) > 0) values.push({ label: "Speed", value: `${Number(levelRow.speedMultiplier).toFixed(2)}x` });
+    if (Number(levelRow.radius || 0) > 0) values.push({ label: "Blast size", value: `${Math.round(Number(levelRow.radius))}px` });
+    if (Number(levelRow.projectileSpeed || 0) > 0) values.push({ label: "Dart speed", value: `${Math.round(Number(levelRow.projectileSpeed))}` });
+    if (Number(levelRow.range || 0) > 0) values.push({ label: "Range", value: `${Math.round(Number(levelRow.range))}px` });
+    if (Number(levelRow.aimWindow || 0) > 0) values.push({ label: "Aim window", value: formatSeconds(levelRow.aimWindow) });
+    if (Number(levelRow.lengthMultiplier || 0) > 0) values.push({ label: "Cone length", value: `${Number(levelRow.lengthMultiplier).toFixed(2)}x` });
+    if (Number(levelRow.angleMultiplier || 0) > 0) values.push({ label: "Cone width", value: `${Number(levelRow.angleMultiplier).toFixed(2)}x` });
+    if (Number(levelRow.backLengthMultiplier || 0) > 0) values.push({ label: "Rear length", value: `${Number(levelRow.backLengthMultiplier).toFixed(2)}x` });
+    if (Number(levelRow.backAngleMultiplier || 0) > 0) values.push({ label: "Rear width", value: `${Number(levelRow.backAngleMultiplier).toFixed(2)}x` });
+    if (Number(levelRow.slowMultiplier || 0) > 0 && Number(levelRow.slowMultiplier) < 1) values.push({ label: "Slow", value: `${Math.round((1 - Number(levelRow.slowMultiplier)) * 100)}%` });
+    if (Number(levelRow.slowSeconds || 0) > 0) values.push({ label: "Slow time", value: formatSeconds(levelRow.slowSeconds) });
+    if (levelRow.hidesScratchMarks) values.push({ label: "Tier 4 special", value: "Hides scratch marks" });
+    if (levelRow.special) values.push({ label: "Bonus", value: String(levelRow.special) });
+    return values;
+  }
+
+  function perkInfoIconSrc(perk) {
+    const key = String(perk?.id || perk?.name || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+    const byKey = {
+      speedburst: "/images/speed_burst.png",
+      rallydart: "/images/speed_burst.png",
+      riftlens: "/images/speed_burst.png",
+      hourglass: "/images/speed_burst.png",
+      nullrush: "/images/speed_burst.png",
+      redshiftorbs: "/images/speed_burst.png",
+      voidreveal: "/images/speed_burst.png"
+    };
+    return byKey[key] || perk?.icon || "/images/speed_burst.png";
+  }
+
+  function createPerkInfoModalRoot() {
+    let modal = document.getElementById("perkInfoModal");
+    if (modal) return modal;
+    modal = document.createElement("div");
+    modal.id = "perkInfoModal";
+    modal.className = "perk-info-modal";
+    modal.setAttribute("aria-hidden", "true");
+    modal.innerHTML = `
+      <div class="perk-info-backdrop" data-perk-info-close="true"></div>
+      <section class="perk-info-dialog" role="dialog" aria-modal="true" aria-labelledby="perkInfoTitle">
+        <button class="perk-info-close" type="button" data-perk-info-close="true" aria-label="Close perk info">×</button>
+        <div class="perk-info-dialog-content" data-perk-info-content></div>
+      </section>
+    `;
+    document.body.appendChild(modal);
+    return modal;
+  }
+
+  function closePerkInfoModal() {
+    const modal = document.getElementById("perkInfoModal");
+    if (!modal) return;
+    modal.classList.remove("is-open");
+    modal.setAttribute("aria-hidden", "true");
+  }
+
+  function openPerkInfoModal(perkId, role = "survivor") {
+    const roleKey = normalizePerkRole(role);
+    const perk = publicPerkById(perkId, roleKey);
+    if (!perk) {
+      toast("Could not find perk details. Extremely rude of it.", 2200);
+      return;
+    }
+
+    const modal = createPerkInfoModalRoot();
+    const content = modal.querySelector("[data-perk-info-content]");
+    if (!content) return;
+
+    const level = accountPerkLevel(perk.id, roleKey);
+    const maxLevel = perkMaxLevel(perk);
+    const maxed = level >= maxLevel;
+    const nextCost = perkNextCost(perk, level);
+    const affordable = !!currentAccount && (currentAccount.orbBalance || 0) >= nextCost;
+    const levels = perkLevels(perk);
+    const iconSrc = perkInfoIconSrc(perk);
+
+    content.replaceChildren();
+
+    const header = document.createElement("div");
+    header.className = `perk-info-header accent-${perk.accent || (roleKey === "killer" ? "purple" : "cyan")}`;
+    header.innerHTML = `
+      <span class="perk-info-icon"><img src="${iconSrc}" alt="" aria-hidden="true" /></span>
+      <div>
+        <span class="perk-info-kicker">${roleKey === "killer" ? "Void" : "Runner"} perk</span>
+        <h2 id="perkInfoTitle">${perk.name || perk.id}</h2>
+        <p>${perk.summary || "Unlock and upgrade this ability."}</p>
+      </div>
+    `;
+
+    const detail = document.createElement("p");
+    detail.className = "perk-info-detail";
+    detail.textContent = perk.detail || perk.summary || "Level this perk to improve its match effect.";
+
+    const table = document.createElement("div");
+    table.className = "perk-info-levels";
+    for (let index = 0; index < levels.length; index += 1) {
+      const row = levels[index];
+      const rowLevel = Math.max(1, Math.floor(Number(row.level || index + 1)));
+      const current = rowLevel === level;
+      const owned = rowLevel <= level;
+      const values = perkLevelValueList(row);
+      const item = document.createElement("article");
+      item.className = ["perk-info-level", owned ? "owned" : "", current ? "current" : "", row.hidesScratchMarks ? "special" : ""].filter(Boolean).join(" ");
+      const body = values.map((entry) => `<span><b>${entry.label}</b>${entry.value}</span>`).join("");
+      item.innerHTML = `
+        <div class="perk-info-level-head">
+          <strong>Level ${rowLevel}</strong>
+          <small>${perkLevelCostText(perk, row, index)}</small>
+          ${current ? '<span class="perk-info-current-badge">Current level</span>' : ''}
+        </div>
+        <div class="perk-info-level-values">${body || "<span><b>Effect</b>Configured in perk data</span>"}</div>
+      `;
+      table.appendChild(item);
+    }
+
+    const actions = document.createElement("div");
+    actions.className = "perk-info-actions";
+    const status = document.createElement("p");
+    status.textContent = level > 0 ? `Current level ${level}/${maxLevel}` : "Locked";
+    const buyButton = document.createElement("button");
+    buyButton.type = "button";
+    buyButton.dataset.perkBuy = perk.id;
+    buyButton.dataset.perkRole = roleKey;
+    buyButton.dataset.perkInfoAction = "true";
+    buyButton.disabled = maxed;
+    buyButton.className = ["perk-info-buy-btn", affordable || maxed ? "" : "cant-afford"].filter(Boolean).join(" ");
+    buyButton.textContent = maxed ? "Max level" : level <= 0 ? `Unlock · ${nextCost} orbs` : `Upgrade · ${nextCost} orbs`;
+    actions.append(status, buyButton);
+
+    content.append(header, detail, table, actions);
+    modal.classList.add("is-open");
+    modal.setAttribute("aria-hidden", "false");
   }
 
   function renderPerkShop() {
@@ -1672,7 +1822,7 @@
         card.classList.toggle("affordable", !maxed && affordable);
 
         const top = document.createElement("div");
-        top.className = "perk-card-top";
+        top.className = "perk-card-top has-perk-info";
         const icon = document.createElement("span");
         icon.className = "perk-icon";
         icon.setAttribute("aria-hidden", "true");
@@ -1682,7 +1832,14 @@
         const meta = document.createElement("small");
         meta.textContent = level > 0 ? `Level ${level}/${maxLevel}` : "Locked";
         title.append(name, meta);
-        top.append(icon, title);
+        const infoButton = document.createElement("button");
+        infoButton.type = "button";
+        infoButton.className = "perk-info-btn";
+        infoButton.dataset.perkInfo = id;
+        infoButton.dataset.perkRole = role;
+        infoButton.setAttribute("aria-label", `View ${perk.name || id} perk details`);
+        infoButton.textContent = "More Info";
+        top.append(icon, title, infoButton);
 
         const summary = document.createElement("p");
         summary.className = "perk-summary";
@@ -1733,27 +1890,36 @@
     }
   }
 
-  async function buyPerkFromButton(button) {
-    const perkId = String(button?.dataset?.perkBuy || "");
-    const role = normalizePerkRole(button?.dataset?.perkRole || "survivor");
-    if (!perkId) return false;
+  async function buyPerk(perkId, role = "survivor") {
+    const id = String(perkId || "");
+    const roleKey = normalizePerkRole(role || "survivor");
+    if (!id) return false;
     if (!currentAccount || !authToken) {
       toast("Login or Play as Guest first. The perk goblin requires paperwork.", 2600);
       return false;
     }
-    const perk = publicPerkById(perkId, role);
-    const level = accountPerkLevel(perkId, role);
+    const perk = publicPerkById(id, roleKey);
+    const level = accountPerkLevel(id, roleKey);
     const cost = perkNextCost(perk, level);
     if ((currentAccount.orbBalance || 0) < cost) {
       toast(`Need ${cost} deposited orbs for ${perk?.name || "that perk"}.`, 2600);
       return false;
     }
-    const payload = await authFetch("/api/perks/buy", { method: "POST", body: JSON.stringify({ perkId }) });
+    const payload = await authFetch("/api/perks/buy", { method: "POST", body: JSON.stringify({ perkId: id }) });
     applyAccountPayload(payload);
     socket?.emit("refreshAccount", { token: authToken || "" });
     const nextLevel = payload.perk?.level || Math.min(level + 1, perkMaxLevel(perk));
     toast(`${level <= 0 ? "Unlocked" : "Upgraded"} ${perk?.name || "perk"} to level ${nextLevel}.`, 1900);
+    if (document.getElementById("perkInfoModal")?.classList?.contains("is-open")) {
+      openPerkInfoModal(id, roleKey);
+    }
     return true;
+  }
+
+  async function buyPerkFromButton(button) {
+    const perkId = String(button?.dataset?.perkBuy || "");
+    const role = normalizePerkRole(button?.dataset?.perkRole || "survivor");
+    return buyPerk(perkId, role);
   }
 
   function getAccountPanels() {
@@ -9404,9 +9570,25 @@
     });
 
     document.addEventListener("click", (event) => {
+      const closeInfo = event.target?.closest?.("[data-perk-info-close]");
+      if (closeInfo) {
+        closePerkInfoModal();
+        return;
+      }
+
+      const infoButton = event.target?.closest?.("[data-perk-info]");
+      if (infoButton) {
+        openPerkInfoModal(infoButton.dataset.perkInfo, infoButton.dataset.perkRole || "survivor");
+        return;
+      }
+
       const button = event.target?.closest?.("[data-perk-buy]");
       if (!button) return;
       buyPerkFromButton(button).catch((error) => toast(error.message || "Could not buy perk.", 2600));
+    });
+
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") closePerkInfoModal();
     });
 
     ui.quickJoinBtn.addEventListener("click", () => socket.emit("quickJoin", { role: selectedRole, playerName: getName(), skin: skinForSelectedRole(), runnerClass: selectedRunnerClass }));

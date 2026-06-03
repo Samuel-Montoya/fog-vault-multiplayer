@@ -77,7 +77,7 @@ const RIFTRUNNER_ABILITIES = {
       aimWindow: 5,
       speedMultiplier: 1.10,
       summary: "Press M1 when ready to fire an orange support dart at your cursor or feet.",
-      detail: "No Q activation needed. If you have enough orbs and the cooldown is ready, M1 fires the dart toward the cursor, through windows and pallets, and into an orange boost ring.",
+      detail: "No Q activation needed. M1 fires the dart toward the cursor, through windows and pallets, and into an orange boost ring. Tier 4 also hides boosted Runners' scratch marks for the boost duration.",
       accent: "orange",
       inputType: "m1",
       shootAbility: true

@@ -117,7 +117,7 @@ const RIFTRUNNER_RUNNER_CLASS_CONFIG = {
       radius: 112,
       duration: 1.25,
       summary: "Press M1 when ready to shoot a Rally Dart at your cursor or on yourself.",
-      detail: "No Q activation needed. If you have enough orbs and the cooldown is ready, M1 fires the dart, travels through windows and pallets, explodes on walls, and boosts any Runner inside the orange ring.",
+      detail: "No Q activation needed. M1 fires the dart through windows and pallets, explodes on walls or Runners, and boosts anyone inside the orange ring. At tier 4, boosted Runners hide scratch marks for the boost duration.",
       inputType: "m1",
       shootAbility: true
     },

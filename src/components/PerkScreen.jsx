@@ -34,6 +34,7 @@ const PERK_CONFIG_GLOBALS = [
   "PERK_CONFIGS",
   "PERKS",
   "RIFTRUNNER_PERKS",
+  "RIFTRUNNER_PERK_CONFIG",
   "RIFT_RUNNER_PERKS",
   "VOIDRIFT_PERKS",
   "RUNNER_PERKS",
@@ -64,7 +65,11 @@ const STAT_LABELS = {
   mineDuration: "mine duration",
   cooldown: "cooldown",
   radius: "radius",
-  revealRadius: "reveal radius"
+  revealRadius: "reveal radius",
+  projectileSpeed: "dart speed",
+  range: "range",
+  aimWindow: "aim window",
+  hidesScratchMarks: "special"
 }
 
 function normalizeKey(value) {
@@ -199,11 +204,13 @@ function valueToText(key, value) {
   if (value === null || value === undefined || value === "") return ""
   const numeric = Number(value)
   const label = STAT_LABELS[key] || String(key).replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase()
+  if (key === "hidesScratchMarks" && value) return "Tier 4 hides scratch marks"
 
   if (Number.isFinite(numeric)) {
     if (/ms$/i.test(key)) return `${label} ${(numeric / 1000).toFixed(numeric % 1000 === 0 ? 0 : 1)}s`
-    if (/duration|cooldown/i.test(key)) return `${label} ${numeric}s`
-    if (/speed|multiplier/i.test(key)) return `${label} ${numeric}x`
+    if (/duration|cooldown|aimWindow/i.test(key)) return `${label} ${numeric}s`
+    if (/speedMultiplier|multiplier/i.test(key)) return `${label} ${numeric}x`
+    if (/projectileSpeed/i.test(key)) return `${label} ${Math.round(numeric)}`
     if (/pct|percent|slow|width|length/i.test(key) && numeric > 0 && numeric < 1) return `${label} ${Math.round(numeric * 100)}%`
     return `${label} ${numeric}`
   }
@@ -223,6 +230,7 @@ function levelToText(level, previousLevel = null) {
   const keys = Object.keys(level).filter((key) => {
     if (ignored.has(key)) return false
     const value = level[key]
+    if (key === "hidesScratchMarks") return !!value
     if (Array.isArray(value) || (value && typeof value === "object")) return false
     return previousLevel ? String(previousLevel[key]) !== String(value) : true
   })

@@ -708,6 +708,8 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
         range: Math.max(0, cfgNumber(effect?.range ?? ability.range, 0)),
         speedMultiplier: Math.max(0, cfgNumber(effect?.speedMultiplier ?? ability.speedMultiplier, 0)),
         aimWindow: Math.max(0, cfgNumber(effect?.aimWindow ?? ability.aimWindow, 0)),
+        hidesScratchMarks: !!(effect?.hidesScratchMarks ?? ability.hidesScratchMarks),
+        scratchHideDuration: Math.max(0, cfgNumber(effect?.scratchHideDuration ?? effect?.duration ?? ability.scratchHideDuration ?? ability.duration, 0)),
         cooldown: Math.max(0, cfgNumber(effect?.cooldown ?? ability.cooldown, 30)),
         level,
         maxLevel: Math.max(1, levels.length || 1),
@@ -729,6 +731,8 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       range: Math.max(0, cfgNumber(effect?.range ?? ability.range, 0)),
       speedMultiplier: Math.max(0, cfgNumber(effect?.speedMultiplier ?? ability.speedMultiplier, 0)),
       aimWindow: Math.max(0, cfgNumber(effect?.aimWindow ?? ability.aimWindow, 0)),
+      hidesScratchMarks: !!(effect?.hidesScratchMarks ?? ability.hidesScratchMarks),
+      scratchHideDuration: Math.max(0, cfgNumber(effect?.scratchHideDuration ?? effect?.duration ?? ability.scratchHideDuration ?? ability.duration, 0)),
       cooldown: Math.max(0, cfgNumber(perk?.cooldown ?? ability.cooldown, 30)),
       level,
       maxLevel: perkMaxLevel(perk || {}),
@@ -916,6 +920,8 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     const radius = Math.max(0, cfgNumber(projectile.radius, RALLY_DART_DEFAULT_RADIUS));
     const duration = Math.max(0, cfgNumber(projectile.duration, RALLY_DART_DEFAULT_DURATION));
     const speedMultiplier = Math.max(1, cfgNumber(projectile.speedMultiplier, RALLY_DART_DEFAULT_SPEED_MULT));
+    const hidesScratchMarks = !!projectile.hidesScratchMarks;
+    const scratchHideDuration = Math.max(0, cfgNumber(projectile.scratchHideDuration, duration));
     let affected = 0;
     const boostedIds = [];
     for (const target of game.actors.values()) {
@@ -924,6 +930,10 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       if (!segmentClear(game, x, y, target.x, target.y)) continue;
       target.rallyBoost = Math.max(target.rallyBoost || 0, duration);
       target.rallyBoostMultiplier = Math.max(target.rallyBoostMultiplier || 1, speedMultiplier);
+      if (hidesScratchMarks && scratchHideDuration > 0) {
+        target.rallyDartScratchHidden = Math.max(target.rallyDartScratchHidden || 0, scratchHideDuration);
+        if (Array.isArray(game.scratchMarks)) game.scratchMarks = game.scratchMarks.filter((mark) => mark.actorId !== target.id);
+      }
       affected += 1;
       boostedIds.push(target.id);
     }
@@ -936,6 +946,8 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       radius,
       duration,
       speedMultiplier,
+      hidesScratchMarks,
+      scratchHideDuration,
       affected,
       boostedIds,
       reason
@@ -1033,6 +1045,8 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     const radius = Math.max(20, cfgNumber(shot.radius, RALLY_DART_DEFAULT_RADIUS));
     const duration = Math.max(0.1, cfgNumber(shot.duration, RALLY_DART_DEFAULT_DURATION));
     const speedMultiplier = Math.max(1, cfgNumber(shot.speedMultiplier, RALLY_DART_DEFAULT_SPEED_MULT));
+    const hidesScratchMarks = !!(shot.hidesScratchMarks || shot.effect?.hidesScratchMarks);
+    const scratchHideDuration = Math.max(0, cfgNumber(shot.scratchHideDuration ?? shot.effect?.scratchHideDuration ?? duration, duration));
     const startX = clamp(actor.x, 0, game.map.width);
     const startY = clamp(actor.y, 0, game.map.height);
     const selfCastDistance = Math.max(PLAYER_SIZE * 0.8, 34);
@@ -1050,6 +1064,8 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       radius,
       duration,
       speedMultiplier,
+      hidesScratchMarks,
+      scratchHideDuration,
       traveled: 0,
       age: 0,
       ttl: 2
@@ -1069,7 +1085,9 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       angle,
       radius: projectile.radius,
       duration: projectile.duration,
-      speedMultiplier: projectile.speedMultiplier
+      speedMultiplier: projectile.speedMultiplier,
+      hidesScratchMarks: projectile.hidesScratchMarks,
+      scratchHideDuration: projectile.scratchHideDuration
     });
     if (hasTarget && aimDistance <= selfCastDistance) {
       explodeRallyDart(game, projectile, actor.x, actor.y, "self");
@@ -2058,6 +2076,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       speedBurst: 0,
       rallyBoost: 0,
       rallyBoostMultiplier: 1,
+      rallyDartScratchHidden: 0,
       rallyDartArmed: null,
       survivorAbilityCooldowns: {},
       orbSlow: 0,
@@ -2603,7 +2622,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
   }
 
   function addScratch(game, actor) {
-    if (actor?.role === "survivor" && ((actor.stealthStep || 0) > 0 || (SURVIVOR_HOURGLASS_HIDES_SCRATCH && (actor.hourglass || 0) > 0))) return;
+    if (actor?.role === "survivor" && ((actor.stealthStep || 0) > 0 || (actor.rallyDartScratchHidden || 0) > 0 || (SURVIVOR_HOURGLASS_HIDES_SCRATCH && (actor.hourglass || 0) > 0))) return;
     game.scratchMarks.push({ id: uid("scratch"), actorId: actor.id, x: actor.x, y: actor.y, angle: actor.angle + (Math.random() - 0.5), ttl: 4.0, createdAt: game.time || 0 });
     if (game.scratchMarks.length > SCRATCH_MARK_MAX) game.scratchMarks.splice(0, game.scratchMarks.length - SCRATCH_MARK_MAX);
   }
@@ -3324,6 +3343,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       actor.hourglass = Math.max(0, (actor.hourglass || 0) - dt);
       actor.speedBurst = Math.max(0, (actor.speedBurst || 0) - dt);
       actor.rallyBoost = Math.max(0, (actor.rallyBoost || 0) - dt);
+      actor.rallyDartScratchHidden = Math.max(0, (actor.rallyDartScratchHidden || 0) - dt);
       if ((actor.rallyBoost || 0) <= 0) actor.rallyBoostMultiplier = 1;
       if (actor.rallyDartArmed && rallyDartArmedRemaining(actor, game) <= 0) actor.rallyDartArmed = null;
       if (actor.survivorAbilityCooldowns) {
@@ -4997,6 +5017,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       speedBurst: actor.role === "survivor" ? actor.speedBurst || 0 : 0,
       rallyBoost: actor.role === "survivor" ? actor.rallyBoost || 0 : 0,
       rallyBoostMultiplier: actor.role === "survivor" ? actor.rallyBoostMultiplier || 1 : 1,
+      rallyDartScratchHidden: actor.role === "survivor" ? actor.rallyDartScratchHidden || 0 : 0,
       rallyDartArmed: actor.role === "survivor" && isSelf ? rallyDartArmedRemaining(actor, game) : 0,
       survivorAbilityCooldowns: actor.role === "survivor" && isSelf ? Object.fromEntries(
         Object.entries(actor.survivorAbilityCooldowns || {}).map(([id, remaining]) => [id, Number(Math.max(0, remaining || 0).toFixed(2))])
