@@ -188,7 +188,26 @@ export function AbilityWheel() {
   )
 }
 
-export function VoidAbilityHud() {
+const ABILITY_HUD_CONFIG = {
+  void: {
+    eventName: "riftrunner:void-ability-hud",
+    wrapperClassName: "void-ability-hud",
+    bankClassName: "void-orb-bank",
+    iconClassName: "void-orb-icon",
+    effectsClassName: "void-active-effects",
+    label: "Void Orbs"
+  },
+  runner: {
+    eventName: "riftrunner:runner-ability-hud",
+    wrapperClassName: "void-ability-hud runner-ability-hud",
+    bankClassName: "void-orb-bank runner-orb-bank",
+    iconClassName: "void-orb-icon runner-orb-icon",
+    effectsClassName: "void-active-effects runner-active-effects",
+    label: "Runner Orbs"
+  }
+}
+
+function useAbilityHud(eventName) {
   const [hud, setHud] = useState({ visible: false, orbs: 0, effects: [] })
 
   useEffect(() => {
@@ -201,71 +220,48 @@ export function VoidAbilityHud() {
       })
     }
 
-    window.addEventListener("riftrunner:void-ability-hud", handleHud)
-    return () => window.removeEventListener("riftrunner:void-ability-hud", handleHud)
-  }, [])
+    window.addEventListener(eventName, handleHud)
+    return () => window.removeEventListener(eventName, handleHud)
+  }, [eventName])
 
-  if (!hud.visible) return null
+  return hud
+}
 
-  return (
-    <div className="void-ability-hud" aria-live="polite">
-      <div className="void-orb-bank">
-        <img className="void-orb-icon" src="/images/orb.png" alt="" aria-hidden="true" />
+function ActiveAbilityEffects({ effects, className }) {
+  return effects.length ? (
+    <div className={className}>
+      {effects.map((effect) => (
+        <span key={effect.id}>{effect.label} {Math.ceil(effect.time)}s</span>
+      ))}
+    </div>
+  ) : null
+}
+
+function AbilityHudShell({ type }) {
+  const config = ABILITY_HUD_CONFIG[type]
+  const hud = useAbilityHud(config.eventName)
+
+  return hud.visible ? (
+    <div className={config.wrapperClassName} aria-live="polite">
+      <div className={config.bankClassName}>
+        <img className={config.iconClassName} src="/images/orb.png" alt="" aria-hidden="true" />
         <div>
-          <span>Void Orbs</span>
+          <span>{config.label}</span>
           <strong>{hud.orbs}</strong>
         </div>
       </div>
-      {!!hud.effects.length && (
-        <div className="void-active-effects">
-          {hud.effects.map((effect) => (
-            <span key={effect.id}>{effect.label} {Math.ceil(effect.time)}s</span>
-          ))}
-        </div>
-      )}
+      <ActiveAbilityEffects effects={hud.effects} className={config.effectsClassName} />
       <p>Hold <b>Q</b> for abilities</p>
     </div>
-  )
+  ) : null
+}
+
+export function VoidAbilityHud() {
+  return <AbilityHudShell type="void" />
 }
 
 export function RunnerAbilityHud() {
-  const [hud, setHud] = useState({ visible: false, orbs: 0, effects: [] })
-
-  useEffect(() => {
-    const handleHud = (event) => {
-      const detail = event.detail || {}
-      setHud({
-        visible: !!detail.visible,
-        orbs: Number(detail.orbs || 0),
-        effects: Array.isArray(detail.effects) ? detail.effects : []
-      })
-    }
-
-    window.addEventListener("riftrunner:runner-ability-hud", handleHud)
-    return () => window.removeEventListener("riftrunner:runner-ability-hud", handleHud)
-  }, [])
-
-  if (!hud.visible) return null
-
-  return (
-    <div className="void-ability-hud runner-ability-hud" aria-live="polite">
-      <div className="void-orb-bank runner-orb-bank">
-        <img className="void-orb-icon runner-orb-icon" src="/images/orb.png" alt="" aria-hidden="true" />
-        <div>
-          <span>Runner Orbs</span>
-          <strong>{hud.orbs}</strong>
-        </div>
-      </div>
-      {!!hud.effects.length && (
-        <div className="void-active-effects runner-active-effects">
-          {hud.effects.map((effect) => (
-            <span key={effect.id}>{effect.label} {Math.ceil(effect.time)}s</span>
-          ))}
-        </div>
-      )}
-      <p>Hold <b>Q</b> for abilities</p>
-    </div>
-  )
+  return <AbilityHudShell type="runner" />
 }
 
 const CHAT_WHEEL_FALLBACK_MESSAGES = ["Let's feed a rift.", "I'm so scared...", "Here he comes!", "What was that?!"]

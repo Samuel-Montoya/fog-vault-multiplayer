@@ -5,6 +5,32 @@ import { getPerkIconCandidates } from "../utils/perkIconPaths"
 import "../styles/perks.css"
 import "../styles/screen_header.css"
 
+
+const PERK_SECTIONS = [
+  {
+    id: "runnerPerksTitle",
+    role: "runner",
+    shopRole: "survivor",
+    shopId: "runnerPerkShop",
+    iconSrc: "/images/runner.png",
+    title: "Runner perks",
+    subtitle: "Survive • Rescue • Escape",
+    kicker: "Escape tools"
+  },
+  {
+    id: "voidPerksTitle",
+    role: "void",
+    shopRole: "killer",
+    shopId: "voidPerkShop",
+    iconSrc: "/images/void.png",
+    title: "Void perks",
+    subtitle: "Hunt • Hook • Consume",
+    kicker: "Hunting tools"
+  }
+]
+
+const PERKS_FOOTER = ["Bank orbs by playing matches", "Spend orbs wisely. The rift rewards the prepared."]
+
 const PERK_CONFIG_GLOBALS = [
   "PERK_CONFIG",
   "PERK_CONFIGS",
@@ -317,6 +343,48 @@ function usePerkUpgradePreviews() {
   }, [])
 }
 
+function BackButton() {
+  return (
+    <button className="perks-back-btn rr-back-btn" data-screen="menu" data-screen-nav="menu" type="button" onClick={() => showMenuScreen("menu")}>
+      <span aria-hidden="true">←</span>
+      Back
+    </button>
+  )
+}
+
+function PerkShopSection({ section }) {
+  const { id, role, shopRole, shopId, iconSrc, title, subtitle, kicker } = section
+
+  return (
+    <section className={`perk-shop-section ${role}-perk-section`} aria-labelledby={id}>
+      <div className="section-heading skin-shop-heading perks-section-heading">
+        <div className="perks-section-title-wrap">
+          <span className={`${role}-title-emblem section-title-emblem`} aria-hidden="true">
+            <img className="section-title-icon" src={iconSrc} alt="" />
+          </span>
+          <div>
+            <h2 id={id}>{title}</h2>
+            <small>{subtitle}</small>
+          </div>
+        </div>
+        <span className="perks-section-kicker">{kicker}</span>
+      </div>
+      <div id={shopId} className="perk-shop-grid" data-perk-shop={shopRole} aria-live="polite" />
+    </section>
+  )
+}
+
+function PerksFooter() {
+  return (
+    <footer className="perks-footer-strip" aria-label="Perks shop hint">
+      <span aria-hidden="true">✦</span>
+      <b>{PERKS_FOOTER[0]}</b>
+      <i aria-hidden="true" />
+      <em>{PERKS_FOOTER[1]}</em>
+    </footer>
+  )
+}
+
 export default function PerkScreen() {
   usePerkUpgradePreviews()
 
@@ -324,10 +392,7 @@ export default function PerkScreen() {
     <div id="perksScreen" className="screen io-screen perks-page-screen">
       <div className="perks-page-stage">
         <header className="perks-topbar">
-          <button className="perks-back-btn rr-back-btn" data-screen="menu" data-screen-nav="menu" type="button" onClick={() => showMenuScreen("menu")}>
-            <span aria-hidden="true">←</span>
-            Back
-          </button>
+          <BackButton />
           <AccountBadge panelId="perks" showOrbs className="perks-slim-account" />
         </header>
 
@@ -339,45 +404,12 @@ export default function PerkScreen() {
         </section>
 
         <div className="perk-shop-layout perks-shop-panels" aria-label="Perk upgrades">
-          <section className="perk-shop-section runner-perk-section" aria-labelledby="runnerPerksTitle">
-            <div className="section-heading skin-shop-heading perks-section-heading">
-              <div className="perks-section-title-wrap">
-                <span className="section-title-emblem runner-title-emblem" aria-hidden="true">
-                  <img className="section-title-icon" src="/images/runner.png" alt="" />
-                </span>
-                <div>
-                  <h2 id="runnerPerksTitle">Runner perks</h2>
-                  <small>Survive • Rescue • Escape</small>
-                </div>
-              </div>
-              <span className="perks-section-kicker">Escape tools</span>
-            </div>
-            <div id="runnerPerkShop" className="perk-shop-grid" data-perk-shop="survivor" aria-live="polite" />
-          </section>
-
-          <section className="perk-shop-section void-perk-section" aria-labelledby="voidPerksTitle">
-            <div className="section-heading skin-shop-heading perks-section-heading">
-              <div className="perks-section-title-wrap">
-                <span className="section-title-emblem void-title-emblem" aria-hidden="true">
-                  <img className="section-title-icon" src="/images/void.png" alt="" />
-                </span>
-                <div>
-                  <h2 id="voidPerksTitle">Void perks</h2>
-                  <small>Hunt • Hook • Consume</small>
-                </div>
-              </div>
-              <span className="perks-section-kicker">Hunting tools</span>
-            </div>
-            <div id="voidPerkShop" className="perk-shop-grid" data-perk-shop="killer" aria-live="polite" />
-          </section>
+          {PERK_SECTIONS.map((section) => (
+            <PerkShopSection section={section} key={section.role} />
+          ))}
         </div>
 
-        <footer className="perks-footer-strip" aria-label="Perks shop hint">
-          <span aria-hidden="true">✦</span>
-          <b>Bank orbs by playing matches</b>
-          <i aria-hidden="true" />
-          <em>Spend orbs wisely. The rift rewards the prepared.</em>
-        </footer>
+        <PerksFooter />
       </div>
     </div>
   )

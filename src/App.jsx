@@ -29,6 +29,28 @@ import "./styles/icon_assets.css"
 import "./styles/responsive_layout.css"
 import "./styles/lobby_game_ui_update.css"
 
+const MENU_SCREENS = [
+  { key: "menu", Component: MainMenu },
+  { key: "play", Component: PlayScreen },
+  { key: "skins", Component: SkinScreen },
+  { key: "perks", Component: PerkScreen },
+  { key: "settings", Component: SettingsScreen },
+  { key: "how", Component: HowScreen },
+  { key: "lobby", Component: LobbyScreen }
+]
+
+const GAME_OVERLAYS = [
+  { key: "hud", Component: GameHud },
+  { key: "survivors", Component: SurvivorStatusHud },
+  { key: "voidAbilities", Component: VoidAbilityHud },
+  { key: "runnerAbilities", Component: RunnerAbilityHud },
+  { key: "chatWheel", Component: ChatWheel },
+  { key: "abilityWheel", Component: AbilityWheel },
+  { key: "hookIndicators", Component: HookEdgeIndicators },
+  { key: "botDebug", Component: BotDebugOverlay },
+  { key: "pointFeed", Component: PointFeed }
+]
+
 export default function App() {
   const mobileBlocked = useMouseKeyboardOnlyGate()
   useVoidriftClient(mobileBlocked)
@@ -41,23 +63,13 @@ export default function App() {
       <div id="gameWrap" />
       <MenuBackground />
       <main className="rift-ui-shell" aria-label="RiftRunner interface">
-        <MainMenu />
-        <PlayScreen />
-        <SkinScreen />
-        <PerkScreen />
-        <SettingsScreen />
-        <HowScreen />
-        <LobbyScreen />
+        {MENU_SCREENS.map(({ key, Component }) => (
+          <Component key={key} />
+        ))}
       </main>
-      <GameHud />
-      <SurvivorStatusHud />
-      <VoidAbilityHud />
-      <RunnerAbilityHud />
-      <ChatWheel />
-      <AbilityWheel />
-      <HookEdgeIndicators />
-      <BotDebugOverlay />
-      <PointFeed />
+      {GAME_OVERLAYS.map(({ key, Component }) => (
+        <Component key={key} />
+      ))}
       <div id="toast" className="toast hidden" />
       <div id="screenFadeOverlay" className="screen-fade-overlay" aria-hidden="true" />
       <ShopConfirmDialog />

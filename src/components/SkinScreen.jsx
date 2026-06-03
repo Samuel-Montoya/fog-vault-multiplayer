@@ -6,6 +6,24 @@ import { showMenuScreen } from "../utils/screenNavigation"
 import "../styles/skins.css"
 import "../styles/screen_header.css"
 
+const SKIN_SECTIONS = [
+  {
+    role: "runner",
+    iconSrc: "/images/runner.png",
+    kicker: "Escape With Style",
+    title: "Runner skins",
+    subtitle: "Fast, bright cosmetics for orb-chasing chaos.",
+    skins: SKINS
+  },
+  {
+    role: "void",
+    iconSrc: "/images/void.png",
+    kicker: "Consume With Style",
+    title: "Void skins",
+    subtitle: "Darker forms for hunting runners through the rift.",
+    skins: VOID_SKINS
+  }
+]
 
 function readOrbBalance(screen) {
   if (typeof document === "undefined") return 0
@@ -34,7 +52,17 @@ function isSkinOwned(button) {
     || button.getAttribute("aria-pressed") === "true"
     || button.dataset.owned === "true"
     || button.dataset.unlocked === "true"
-    || /\b(owned|equipped|selected)\b/i.test(text)
+    || /(owned|equipped|selected)/i.test(text)
+}
+
+function getSkinShopState({ selected, owned, affordable }) {
+  return selected
+    ? { label: "EQUIPPED", state: "equipped" }
+    : owned
+      ? { label: "OWNED", state: "owned" }
+      : affordable
+        ? { label: null, state: "buy" }
+        : { label: null, state: "not-enough" }
 }
 
 function updateSkinShopLabels(screen) {
@@ -50,23 +78,8 @@ function updateSkinShopLabels(screen) {
     const selected = button.classList.contains("selected") || button.getAttribute("aria-pressed") === "true"
     const owned = isSkinOwned(button)
     const affordable = price > 0 && balance >= price
-
-    let nextText = "OWNED"
-    let state = "owned"
-
-    if (selected) {
-      nextText = "EQUIPPED"
-      state = "equipped"
-    } else if (owned) {
-      nextText = "OWNED"
-      state = "owned"
-    } else if (affordable) {
-      nextText = `BUY - ${price.toLocaleString()}`
-      state = "buy"
-    } else {
-      nextText = `BUY - ${price.toLocaleString()}`
-      state = "not-enough"
-    }
+    const { state, label: fixedLabel } = getSkinShopState({ selected, owned, affordable })
+    const nextText = fixedLabel || `BUY - ${price.toLocaleString()}`
 
     button.dataset.shopState = state
     button.dataset.skinAffordable = affordable ? "true" : "false"
@@ -129,7 +142,18 @@ function useSkinShopLabels() {
   }, [])
 }
 
-function SkinSection({ iconSrc, kicker, title, subtitle, skins, role }) {
+function BackButton() {
+  return (
+    <button className="skins-back-btn rr-back-btn" data-screen="menu" data-screen-nav="menu" type="button" onClick={() => showMenuScreen("menu")}>
+      <span aria-hidden="true">←</span>
+      Back
+    </button>
+  )
+}
+
+function SkinSection({ section }) {
+  const { iconSrc, kicker, title, subtitle, skins, role } = section
+
   return (
     <section className={`skin-store-section skin-store-section-${role}`} aria-labelledby={`${role}SkinsHeading`}>
       <div className="skin-store-section-head">
@@ -155,10 +179,7 @@ export default function SkinScreen() {
   return (
     <div id="skinScreen" className="screen io-screen skin-page-screen">
       <div className="skins-page-stage">
-        <button className="skins-back-btn rr-back-btn" data-screen="menu" data-screen-nav="menu" type="button" onClick={() => showMenuScreen("menu")}>
-          <span aria-hidden="true">←</span>
-          Back
-        </button>
+        <BackButton />
 
         <header className="skins-page-hero">
           <div className="skins-title-block">
@@ -169,22 +190,9 @@ export default function SkinScreen() {
         </header>
 
         <div className="skins-store-stack">
-          <SkinSection
-            iconSrc="/images/runner.png"
-            kicker="Escape With Style"
-            title="Runner skins"
-            subtitle="Fast, bright cosmetics for orb-chasing chaos."
-            skins={SKINS}
-            role="runner"
-          />
-          <SkinSection
-            iconSrc="/images/void.png"
-            kicker="Consume With Style"
-            title="Void skins"
-            subtitle="Darker forms for hunting runners through the rift."
-            skins={VOID_SKINS}
-            role="void"
-          />
+          {SKIN_SECTIONS.map((section) => (
+            <SkinSection section={section} key={section.role} />
+          ))}
         </div>
 
         <footer className="skins-footer-strip" aria-label="Skin shop hint">

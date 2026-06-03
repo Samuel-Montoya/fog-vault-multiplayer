@@ -75,6 +75,48 @@ function findPurchaseFromClick(target) {
   return null
 }
 
+function PurchaseStats({ current, next }) {
+  const rows = [
+    current ? { label: "Current", value: current } : null,
+    next ? { label: "After upgrade", value: next } : null
+  ].filter(Boolean)
+
+  return rows.length ? (
+    <div className="shop-confirm-stats">
+      {rows.map((row) => (
+        <p key={row.label}><span>{row.label}</span><b>{row.value}</b></p>
+      ))}
+    </div>
+  ) : null
+}
+
+function ConfirmPrice({ cost }) {
+  return (
+    <div className="shop-confirm-price">
+      <img src="/images/orb.png" alt="" aria-hidden="true" />
+      <span>Cost</span>
+      <b>{cost.toLocaleString()} orbs</b>
+    </div>
+  )
+}
+
+function ConfirmActions({ onCancel, onConfirm }) {
+  const actions = [
+    { className: "shop-confirm-cancel", label: "Cancel", onClick: onCancel },
+    { className: "shop-confirm-buy", label: "Confirm", onClick: onConfirm }
+  ]
+
+  return (
+    <div className="shop-confirm-actions">
+      {actions.map((action) => (
+        <button type="button" className={action.className} onClick={action.onClick} key={action.label}>
+          {action.label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 export default function ShopConfirmDialog() {
   const [purchase, setPurchase] = useState(null)
   const confirmedClicks = useRef(new WeakSet())
@@ -114,6 +156,8 @@ export default function ShopConfirmDialog() {
 
   if (!purchase) return null
 
+  const closeDialog = () => setPurchase(null)
+
   const confirmPurchase = () => {
     const element = purchase.element
     setPurchase(null)
@@ -125,9 +169,13 @@ export default function ShopConfirmDialog() {
   }
 
   return (
-    <div className="shop-confirm-backdrop" role="presentation" onMouseDown={(event) => {
-      if (event.target === event.currentTarget) setPurchase(null)
-    }}>
+    <div
+      className="shop-confirm-backdrop"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) closeDialog()
+      }}
+    >
       <section className="shop-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="shopConfirmTitle">
         <span className="shop-confirm-kicker">Confirm purchase</span>
         <h2 id="shopConfirmTitle">{purchase.action}</h2>
@@ -135,22 +183,10 @@ export default function ShopConfirmDialog() {
           <span>{purchase.typeLabel}</span>
           <strong>{purchase.title}</strong>
         </div>
-        {(purchase.current || purchase.next) && (
-          <div className="shop-confirm-stats">
-            {purchase.current && <p><span>Current</span><b>{purchase.current}</b></p>}
-            {purchase.next && <p><span>After upgrade</span><b>{purchase.next}</b></p>}
-          </div>
-        )}
+        <PurchaseStats current={purchase.current} next={purchase.next} />
         <p className="shop-confirm-copy">{purchase.details}</p>
-        <div className="shop-confirm-price">
-          <img src="/images/orb.png" alt="" aria-hidden="true" />
-          <span>Cost</span>
-          <b>{purchase.cost.toLocaleString()} orbs</b>
-        </div>
-        <div className="shop-confirm-actions">
-          <button type="button" className="shop-confirm-cancel" onClick={() => setPurchase(null)}>Cancel</button>
-          <button type="button" className="shop-confirm-buy" onClick={confirmPurchase}>Confirm</button>
-        </div>
+        <ConfirmPrice cost={purchase.cost} />
+        <ConfirmActions onCancel={closeDialog} onConfirm={confirmPurchase} />
       </section>
     </div>
   )

@@ -8,6 +8,28 @@ const DEFAULT_VOID_SKIN = VOID_SKINS[0]
 const ROLE_CLASS_NAMES = ["killer", "void", "survivor", "runner"]
 const skinStyleCache = new Map()
 
+
+const LOBBY_ROLE_ACTIONS = [
+  { id: "beKillerBtn", className: "void-choice-btn selected", image: "/images/void.png", label: "Play as The Void" },
+  { id: "beSurvivorBtn", className: "runner-choice-btn", image: "/images/runner.png", label: "Play as a Runner" },
+  { id: "beSpectatorBtn", className: "spectator-choice-btn", label: "Join as Spectator" }
+]
+
+const LOBBY_BOT_ACTIONS = [
+  { id: "addBotKillerBtn", image: "/images/void.png", label: "Add Void Bot" },
+  { id: "addBotSurvivorBtn", image: "/images/runner.png", label: "Add Runner Bot" }
+]
+
+const LOBBY_SKIN_PICKERS = [
+  { role: "runner", title: "Runner skins", skins: SKINS, className: "runner-lobby-skin-picker hidden", hidden: true },
+  { role: "void", title: "Void skins", skins: VOID_SKINS, className: "void-lobby-skin-picker", hidden: false }
+]
+
+const LOBBY_ACTIONS = [
+  { id: "readyBtn", className: "ready-action", label: "Ready" },
+  { id: "startBtn", className: "primary", label: "Start Run" }
+]
+
 function normalizeLabel(value) {
   return String(value || "")
     .toLowerCase()
@@ -313,6 +335,47 @@ function useLobbySkinSync() {
   }, [])
 }
 
+function RoleActionButton({ action }) {
+  return (
+    <button id={action.id} className={action.className} type="button">
+      {action.image ? <img className="button-role-img" src={action.image} alt="" aria-hidden="true" /> : null}
+      {action.label}
+    </button>
+  )
+}
+
+function BotActionButton({ action }) {
+  return (
+    <button id={action.id} type="button">
+      <img className="button-role-img" src={action.image} alt="" aria-hidden="true" />
+      {action.label}
+    </button>
+  )
+}
+
+function LobbySkinPicker({ picker }) {
+  return (
+    <div
+      className={`skin-picker compact lobby-skin-picker ${picker.className}`}
+      aria-label={`${picker.title} selector`}
+      aria-hidden={picker.hidden ? "true" : undefined}
+    >
+      <div className="skin-title">{picker.title}</div>
+      {picker.skins.map((skin) => (
+        <SkinButton skin={skin} compact role={picker.role} lobbyOnlyOwned key={skin.id} />
+      ))}
+    </div>
+  )
+}
+
+function LobbyActionButton({ action }) {
+  return (
+    <button id={action.id} className={action.className} type="button">
+      {action.label}
+    </button>
+  )
+}
+
 export default function LobbyScreen() {
   useLobbySkinSync()
 
@@ -345,32 +408,28 @@ export default function LobbyScreen() {
             </div>
 
             <div className="role-row lobby-role-actions">
-              <button id="beKillerBtn" className="void-choice-btn selected" type="button"><img className="button-role-img" src="/images/void.png" alt="" aria-hidden="true" />Play as The Void</button>
-              <button id="beSurvivorBtn" className="runner-choice-btn" type="button"><img className="button-role-img" src="/images/runner.png" alt="" aria-hidden="true" />Play as a Runner</button>
-              <button id="beSpectatorBtn" className="spectator-choice-btn" type="button">Join as Spectator</button>
+              {LOBBY_ROLE_ACTIONS.map((action) => (
+                <RoleActionButton action={action} key={action.id} />
+              ))}
             </div>
 
             <div className="lobby-column-heading lobby-subheading">
               <span>Bots</span>
             </div>
             <div className="lobby-bot-actions" aria-label="Add lobby bots">
-              <button id="addBotKillerBtn" type="button"><img className="button-role-img" src="/images/void.png" alt="" aria-hidden="true" />Add Void Bot</button>
-              <button id="addBotSurvivorBtn" type="button"><img className="button-role-img" src="/images/runner.png" alt="" aria-hidden="true" />Add Runner Bot</button>
+              {LOBBY_BOT_ACTIONS.map((action) => (
+                <BotActionButton action={action} key={action.id} />
+              ))}
             </div>
 
-            <div className="skin-picker compact lobby-skin-picker runner-lobby-skin-picker hidden" aria-label="Runner skin selector" aria-hidden="true">
-              <div className="skin-title">Runner skins</div>
-              {SKINS.map((skin) => <SkinButton skin={skin} compact role="runner" lobbyOnlyOwned key={skin.id} />)}
-            </div>
-
-            <div className="skin-picker compact lobby-skin-picker void-lobby-skin-picker" aria-label="Void skin selector">
-              <div className="skin-title">Void skins</div>
-              {VOID_SKINS.map((skin) => <SkinButton skin={skin} compact role="void" lobbyOnlyOwned key={skin.id} />)}
-            </div>
+            {LOBBY_SKIN_PICKERS.map((picker) => (
+              <LobbySkinPicker picker={picker} key={picker.role} />
+            ))}
 
             <div className="button-row lobby-actions">
-              <button id="readyBtn" className="ready-action" type="button">Ready</button>
-              <button id="startBtn" className="primary" type="button">Start Run</button>
+              {LOBBY_ACTIONS.map((action) => (
+                <LobbyActionButton action={action} key={action.id} />
+              ))}
             </div>
 
             <p className="hint lobby-hint">Multiple players can queue as <b>The Void</b>, but the run starts with exactly <b>1 Void</b> and at least <b>1 Runner</b>.</p>
