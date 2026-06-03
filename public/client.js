@@ -736,20 +736,22 @@
     STAR_NEAR_ALPHA: LOW_POWER_MODE ? 0.18 : 0.26,
     FLOAT_SHADOW_ALPHA: LOW_POWER_MODE ? 0.28 : 0.38,
     EDGE_GLOW_ALPHA: LOW_POWER_MODE ? 0.18 : 0.28,
-    // Basically stationary. The camera zoom already creates enough motion, and
-    // the last pass was still too wiggly because apparently space wanted attention.
-    BACKDROP_PARALLAX_X: LOW_POWER_MODE ? 0.00008 : 0.00016,
-    BACKDROP_PARALLAX_Y: LOW_POWER_MODE ? 0.00005 : 0.00010,
+    // Zoom changes were making the background feel like it was sliding around during
+    // sprint camera zooms. Keep the motion nearly locked when zoomed in.
+    BACKDROP_PARALLAX_X: LOW_POWER_MODE ? 0.002 : 0.004,
+    BACKDROP_PARALLAX_Y: LOW_POWER_MODE ? 0.0015 : 0.003,
     BACKDROP_DRIFT_X: 0,
     BACKDROP_DRIFT_Y: 0,
-    STAR_FAR_PARALLAX_X: LOW_POWER_MODE ? 0.00018 : 0.00035,
-    STAR_FAR_PARALLAX_Y: LOW_POWER_MODE ? 0.00012 : 0.00024,
+    STAR_FAR_PARALLAX_X: LOW_POWER_MODE ? 0.004 : 0.008,
+    STAR_FAR_PARALLAX_Y: LOW_POWER_MODE ? 0.003 : 0.006,
     STAR_FAR_DRIFT_X: 0,
     STAR_FAR_DRIFT_Y: 0,
-    STAR_NEAR_PARALLAX_X: LOW_POWER_MODE ? 0.00035 : 0.00070,
-    STAR_NEAR_PARALLAX_Y: LOW_POWER_MODE ? 0.00024 : 0.00048,
+    STAR_NEAR_PARALLAX_X: LOW_POWER_MODE ? 0.007 : 0.014,
+    STAR_NEAR_PARALLAX_Y: LOW_POWER_MODE ? 0.005 : 0.010,
     STAR_NEAR_DRIFT_X: 0,
-    STAR_NEAR_DRIFT_Y: 0
+    STAR_NEAR_DRIFT_Y: 0,
+    ZOOMED_IN_PARALLAX_SCALE: LOW_POWER_MODE ? 0.02 : 0.04,
+    ZOOM_COMPENSATION_MIN: 0.72
   };
 
   const WALL_VISUAL = {
@@ -4035,17 +4037,32 @@
         layer.setSize(Math.max(1, view.width), Math.max(1, view.height));
       }
 
+      const zoom = Math.max(0.001, cam.zoom || CAMERA.BASE_ZOOM || 1);
+      const baseZoom = Math.max(0.001, CAMERA.BASE_ZOOM || zoom);
+      const zoomedIn = zoom > baseZoom + 0.01;
+      const zoomParallaxScale = zoomedIn ? SPACE_VISUAL.ZOOMED_IN_PARALLAX_SCALE : 1;
+      const zoomTileScale = zoomedIn
+        ? Math.max(SPACE_VISUAL.ZOOM_COMPENSATION_MIN, Math.min(1, baseZoom / zoom))
+        : 1;
+      const cameraCenterX = Number.isFinite(view.centerX) ? view.centerX : cam.scrollX + view.width * 0.5;
+      const cameraCenterY = Number.isFinite(view.centerY) ? view.centerY : cam.scrollY + view.height * 0.5;
+
+      for (const layer of layers) {
+        layer.tileScaleX = zoomTileScale;
+        layer.tileScaleY = zoomTileScale;
+      }
+
       if (this.spaceBackdrop) {
-        this.spaceBackdrop.tilePositionX = cam.scrollX * SPACE_VISUAL.BACKDROP_PARALLAX_X + time * SPACE_VISUAL.BACKDROP_DRIFT_X;
-        this.spaceBackdrop.tilePositionY = cam.scrollY * SPACE_VISUAL.BACKDROP_PARALLAX_Y + time * SPACE_VISUAL.BACKDROP_DRIFT_Y;
+        this.spaceBackdrop.tilePositionX = cameraCenterX * SPACE_VISUAL.BACKDROP_PARALLAX_X * zoomParallaxScale + time * SPACE_VISUAL.BACKDROP_DRIFT_X;
+        this.spaceBackdrop.tilePositionY = cameraCenterY * SPACE_VISUAL.BACKDROP_PARALLAX_Y * zoomParallaxScale + time * SPACE_VISUAL.BACKDROP_DRIFT_Y;
       }
       if (this.spaceStarsFar) {
-        this.spaceStarsFar.tilePositionX = cam.scrollX * SPACE_VISUAL.STAR_FAR_PARALLAX_X + time * SPACE_VISUAL.STAR_FAR_DRIFT_X;
-        this.spaceStarsFar.tilePositionY = cam.scrollY * SPACE_VISUAL.STAR_FAR_PARALLAX_Y + time * SPACE_VISUAL.STAR_FAR_DRIFT_Y;
+        this.spaceStarsFar.tilePositionX = cameraCenterX * SPACE_VISUAL.STAR_FAR_PARALLAX_X * zoomParallaxScale + time * SPACE_VISUAL.STAR_FAR_DRIFT_X;
+        this.spaceStarsFar.tilePositionY = cameraCenterY * SPACE_VISUAL.STAR_FAR_PARALLAX_Y * zoomParallaxScale + time * SPACE_VISUAL.STAR_FAR_DRIFT_Y;
       }
       if (this.spaceStarsNear) {
-        this.spaceStarsNear.tilePositionX = cam.scrollX * SPACE_VISUAL.STAR_NEAR_PARALLAX_X + time * SPACE_VISUAL.STAR_NEAR_DRIFT_X;
-        this.spaceStarsNear.tilePositionY = cam.scrollY * SPACE_VISUAL.STAR_NEAR_PARALLAX_Y + time * SPACE_VISUAL.STAR_NEAR_DRIFT_Y;
+        this.spaceStarsNear.tilePositionX = cameraCenterX * SPACE_VISUAL.STAR_NEAR_PARALLAX_X * zoomParallaxScale + time * SPACE_VISUAL.STAR_NEAR_DRIFT_X;
+        this.spaceStarsNear.tilePositionY = cameraCenterY * SPACE_VISUAL.STAR_NEAR_PARALLAX_Y * zoomParallaxScale + time * SPACE_VISUAL.STAR_NEAR_DRIFT_Y;
       }
     }
 

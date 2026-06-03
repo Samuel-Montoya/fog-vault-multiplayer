@@ -14,10 +14,10 @@ window.GAME_AUDIO_CONFIG = {
     layerVolumes: {
       layer1: 1.0,
       // Start intro is separate from layer_1 so you can tune start.mp3 without touching the match bed.
-      start: 0.26,
+      start: 0.2,
       // Layer 2 is the warning/tension bed. Keep it present, but not louder than the actual chase hit.
-      layer2: 0.82,
-      layer3: 0.6
+      layer2: 0.9,
+      layer3: 0.9
     },
 
     // Main menu music volume multiplier.
@@ -92,7 +92,7 @@ window.GAME_AUDIO_CONFIG = {
       hooked: 0.82,
       dead: 0.55,
       gen: 0.85,
-      riftsComplete: 0.86,
+      riftsComplete: 0.6,
       swing: 0.42,
       windowVault: 0.66,
       palletVault: 0.76,
