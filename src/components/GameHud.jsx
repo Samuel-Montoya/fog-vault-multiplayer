@@ -77,7 +77,8 @@ function abilityStatusMeta(ability) {
   if (ability.locked) return { label: "Locked", tone: "locked", detail: "Unlock this perk in the Perks screen before using it in a match." }
   if (ability.testMode) {
     const level = Math.max(1, Math.floor(Number(ability.testLevel || ability.level || 1)))
-    return { label: `Test Lv ${level}`, tone: "ready", detail: `Ability testing is forcing this perk to level ${level}; cost and cooldown are zero.` }
+    // Cost is always zero in test mode; cooldown uses gameplayConfig.abilityTesting multipliers.
+    return { label: `Test Lv ${level}`, tone: "ready", detail: `Ability testing is forcing this perk to level ${level}; cost is zero and cooldown uses gameplayConfig.abilityTesting.` }
   }
 
   const cooldownRemaining = Math.max(0, Number(ability.cooldownRemaining || 0))

@@ -257,6 +257,23 @@ const GAMEPLAY_CONFIG = {
     speedBurstSpeedMultiplier: 1.14
   },
 
+  // ---------------------------------------------------------------------------
+  // In-match ability testing (press ' during a match, or auto-on in npm run dev).
+  //
+  // When active, perks behave as if unlocked at abilityTestLevel (1–3) with zero
+  // orb cost. Cooldowns still apply, scaled separately for Runners vs The Void:
+  //
+  //   effectiveCooldown = perkCooldown × runnerCooldownMultiplier   (Runners)
+  //   effectiveCooldown = perkCooldown × killerCooldownMultiplier   (The Void)
+  //
+  // Examples: 1 = normal, 0.25 = quarter time (30s → 7.5s), 0 = no cooldown.
+  // Restart the server after editing; hard-refresh the browser.
+  // ---------------------------------------------------------------------------
+  abilityTesting: {
+    runnerCooldownMultiplier: .25,
+    killerCooldownMultiplier: 1
+  },
+
   orbs: {
     survivorMax: 25,
     voidMax: 999,

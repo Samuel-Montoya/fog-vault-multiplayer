@@ -1,6 +1,7 @@
 "use strict";
 
 const voidAi = require("./server-void-ai.cjs");
+const { tryUseRunnerClassAbilities } = require("./runner-ability-ai.cjs"); // class darts/buffs during bot phases
 
 // Survivor AI deliberately went back to boring, cheap, readable priorities.
 // Fancy route theory made the server sweat and the bots forget how doors work.
@@ -30,7 +31,6 @@ const KILLER_CHASE_RADIUS = 430;
 const KILLER_PANIC_RADIUS = 285;
 const KILLER_CAMP_HOOK_RADIUS = 290;
 const KILLER_CAMP_SOFT_RADIUS = 390;
-const SPEED_BURST_PANIC_RADIUS = 360;
 
 const POST_INTERACT_SECONDS = 1.15;
 const TASK_COMMIT_SECONDS = 1.0;
@@ -40,8 +40,6 @@ const ESCAPE_COMMIT_SECONDS = 2.2;
 const CHASE_COMMIT_SECONDS = 1.15;
 const RECEIVE_HEAL_LOCK_SECONDS = 1.25;
 const FLEE_HYSTERESIS_SECONDS = 0.95;
-
-const RUNNER_SPEED_BURST_ID = "speedBurst";
 
 const MOVE_INTENT_LOCK_SECONDS = 0.42;
 const MOVE_INTENT_REACHED_DISTANCE = 24;
@@ -609,14 +607,6 @@ function threatInfo(game, actor, helpers, brain = null) {
   };
 }
 
-function tryUseSpeedBurst(game, actor, helpers, threat) {
-  if (!threat?.killer || typeof helpers?.applySurvivorAbility !== "function") return false;
-  if ((actor.speedBurst || 0) > 0) return false;
-  if (threat.distance > SPEED_BURST_PANIC_RADIUS && !(actor.chaseHold > 0 && threat.distance < KILLER_CHASE_RADIUS)) return false;
-  const result = helpers.applySurvivorAbility(game, actor, RUNNER_SPEED_BURST_ID);
-  return !!result?.ok;
-}
-
 function interactionObjectLocked(game, actor, item) {
   if (!game?.actors || !item?.object) return false;
   const vaultType = item.type === "palletVault" ? "pallet" : item.type === "window" ? "window" : null;
@@ -854,7 +844,8 @@ function tryUseSafetyObject(game, actor, helpers, threat, item) {
 function runFlee(game, actor, helpers, dt, threat) {
   const brain = ensureBotBrain(actor);
   clearNonSlotTasks(brain, "survivalTask");
-  tryUseSpeedBurst(game, actor, helpers, threat);
+  tryUseRunnerClassAbilities(game, actor, helpers, brain, { phase: "flee", threat });
+  tryUseRunnerClassAbilities(game, actor, helpers, brain, { phase: "safety", threat });
 
   const current = nearestCurrentInteractable(game, actor, helpers);
   if (current && tryUseSafetyObject(game, actor, helpers, threat, current)) return true;
@@ -999,6 +990,7 @@ function runUnhook(game, actor, helpers, dt, threat) {
 
   clearNonSlotTasks(brain, "unhookTask");
   setTask(brain, "unhookTask", "unhook", choice.target, game, { lockSeconds: RESCUE_COMMIT_SECONDS, reason: "rescue teammate" });
+  tryUseRunnerClassAbilities(game, actor, helpers, brain, { phase: "unhook", target: choice.target, threat });
 
   const rescueDistance = Number(helpers?.hookRescueDistance || 96);
   if (holdOrCreepToInteraction(game, actor, helpers, choice.target, rescueDistance, "hold-unhook", "close-unhook", choice.target.id, { holdBuffer: 8, creepBuffer: 84 })) {
@@ -1056,6 +1048,7 @@ function runHeal(game, actor, helpers, dt, threat) {
 
   clearNonSlotTasks(brain, "healTask");
   setTask(brain, "healTask", "heal", choice.target, game, { lockSeconds: HEAL_COMMIT_SECONDS, reason: "heal teammate" });
+  tryUseRunnerClassAbilities(game, actor, helpers, brain, { phase: "heal", target: choice.target, threat });
   const healDistance = Number(helpers?.healDistance || 82);
   if (holdOrCreepToInteraction(game, actor, helpers, choice.target, healDistance, "hold-heal", "close-heal", choice.target.id, { holdBuffer: 6, creepBuffer: 72 })) {
     return true;
@@ -1288,6 +1281,8 @@ function runCollectOrb(game, actor, helpers, dt, threat = null) {
   }
   if (!choice) choice = chooseOrb(game, actor, helpers, threat);
   if (!choice) return false;
+
+  tryUseRunnerClassAbilities(game, actor, helpers, brain, { phase: "collect", dot: choice.dot, threat });
 
   clearNonSlotTasks(brain, "task");
   setTask(brain, "task", "orb", choice.dot, game, { lockSeconds: TASK_COMMIT_SECONDS, reason: "collect orb" });

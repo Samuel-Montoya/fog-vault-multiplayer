@@ -402,6 +402,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     const roleKey = normalizePerkRole(role || actor.role);
     const debugLevel = abilityTestingLevel(actor);
     const debugPerk = debugLevel > 0 ? perkConfigById(id, roleKey) : null;
+    // Ability testing bypasses saved perk purchases and uses abilityTestLevel instead.
     if (debugPerk) return Math.max(1, Math.min(perkMaxLevel(debugPerk), debugLevel));
 
     const perks = actor.perkLevels || normalizePerkLevelMap(null, roleKey, !!actor.isBot);
@@ -613,6 +614,16 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
   }
 
 
+  // ---------------------------------------------------------------------------
+  // Ability testing — in-match debug mode (toggle with ', auto Lv 3 on npm run dev).
+  //
+  // Flow: actor.abilityTestLevel forces perk level + free cost via applyAbilityTestingOverride.
+  // Cooldown scaling lives in gameplayConfig.abilityTesting (runner vs killer multipliers).
+  // Server-side cooldown timers on actor.survivorAbilityCooldowns / voidAbilityCooldowns are
+  // authoritative; bots and players share the same rules.
+  // ---------------------------------------------------------------------------
+
+  /** 0 = off, 1–3 = pretend all perks are unlocked at that level for this actor. */
   function abilityTestingLevel(actor) {
     const rawLevel = actor?.abilityTestLevel ?? (actor?.abilityTestMode ? 1 : 0);
     return Math.max(0, Math.min(3, Math.floor(cfgNumber(rawLevel, 0))));
@@ -622,25 +633,49 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     return abilityTestingLevel(actor) > 0;
   }
 
+  /** Read runnerCooldownMultiplier or killerCooldownMultiplier from gameplayConfig. */
+  function abilityTestingCooldownMultiplier(actor) {
+    const cfg = GAMEPLAY_CONFIG.abilityTesting || {};
+    const mult = actor?.role === "killer"
+      ? cfgNumber(cfg.killerCooldownMultiplier, 1)
+      : cfgNumber(cfg.runnerCooldownMultiplier, 1);
+    return clamp(mult, 0, 10);
+  }
+
+  /** Apply test-mode cooldown scaling; returns base cooldown unchanged when testing is off. */
+  function scaleAbilityTestingCooldown(baseCooldown, actor) {
+    if (!abilityTestingEnabled(actor)) return Math.max(0, cfgNumber(baseCooldown, 0));
+    const mult = abilityTestingCooldownMultiplier(actor);
+    const base = Math.max(0, cfgNumber(baseCooldown, 0));
+    if (mult <= 0) return 0;
+    return Math.max(0, Number((base * mult).toFixed(2)));
+  }
+
+  /**
+   * Patch a resolved ability def when ability testing is on: unlock, zero cost,
+   * scale cooldown. Used by getSurvivorAbilityDef / getVoidAbilityDef before fire/check.
+   */
   function applyAbilityTestingOverride(def, actor) {
     const testLevel = abilityTestingLevel(actor);
     if (!def || testLevel <= 0) return def;
     return {
       ...def,
       cost: 0,
-      cooldown: 0,
+      cooldown: scaleAbilityTestingCooldown(def.cooldown, actor),
       locked: false,
       testMode: true,
       testLevel
     };
   }
 
+  /** Clear live cooldown timers (called when toggling test mode or enabling dev auto-test). */
   function resetActorAbilityCooldowns(actor) {
     if (!actor) return;
     actor.voidAbilityCooldowns = {};
     actor.survivorAbilityCooldowns = {};
   }
 
+  /** Turn on ability testing for one actor and wipe cooldowns so the first cast is immediate. */
   function enableAbilityTestingForActor(actor, level = 3) {
     if (!actor || (actor.role !== "survivor" && actor.role !== "killer")) return 0;
     const nextLevel = Math.max(1, Math.min(3, Math.floor(cfgNumber(level, 3))));
@@ -2868,9 +2903,11 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     botAi.assignRunnerBotPersonalities(game);
 
     if (DEV_SERVER) {
+      // Dev matches start with Lv 3 testing for every Runner, Void, and bot so perks
+      // can be exercised without grinding unlocks. Cooldowns still respect gameplayConfig.
       for (const actor of game.actors.values()) enableAbilityTestingForActor(actor, 3);
       io.to(lobby.id).emit("toast", {
-        message: "Dev mode: ability testing Lv 3 is ON — all perks unlocked, zero cost/cooldown. Pick Nebulizer for smoke, then M1 to fire. Press ' to cycle test levels."
+        message: "Dev mode: ability testing Lv 3 is ON — free abilities, cooldowns scaled by gameplayConfig.abilityTesting. Press ' to cycle."
       });
       for (const player of players) {
         if (player.role === "survivor" || player.role === "killer") {
@@ -5156,6 +5193,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     }
   }
 
+  /** Cycle abilityTestLevel 0 → 1 → 2 → 3 → 0 for the toggling player only. */
   function toggleAbilityTestMode(lobby, socketId) {
     if (!lobby?.game || lobby.game.phase !== "game") {
       return { ok: false, message: "Ability test mode only works during a match." };
@@ -5190,7 +5228,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       enabled,
       level: nextLevel,
       message: enabled
-        ? `Ability testing ${label}: all perks unlocked at level ${nextLevel}; costs/cooldowns zeroed.`
+        ? `Ability testing ${label}: all perks unlocked at level ${nextLevel}; free to use, cooldowns scaled by gameplayConfig.abilityTesting.`
         : "Ability testing OFF: normal purchases, costs, and cooldowns restored."
     };
   }
@@ -5246,6 +5284,10 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     hookRescueDistance: HOOK_RESCUE_DISTANCE,
     healDistance: HEAL_DISTANCE,
     applySurvivorAbility,
+    fireRunnerShootAbility,
+    abilityTestingEnabled,
+    abilityTestingLevel,
+    devServer: DEV_SERVER,
     pathfindLoopLimit: PERF.pathfindLoopLimit,
     pathCacheMax: PERF.pathCacheMax,
     enablePathCache: PERF.enablePathCache,

@@ -1581,6 +1581,12 @@
     return 0;
   }
 
+  // ---------------------------------------------------------------------------
+  // Ability testing — mirrors server/game/engine.cjs for HUD / Q-wheel display.
+  // Cooldown remaining comes from snapshots; scaleAbilityTestingCooldown only affects
+  // the max cooldown shown on each ability card (must match server math).
+  // ---------------------------------------------------------------------------
+
   function abilityTestingLevel(actor) {
     const rawLevel = actor?.abilityTestLevel ?? (actor?.abilityTestMode ? 1 : 0);
     const level = Math.floor(Number(rawLevel || 0));
@@ -1591,11 +1597,31 @@
     return abilityTestingLevel(actor) > 0;
   }
 
+  /** Same multipliers as gameplayConfig.abilityTesting on the server. */
+  function abilityTestingCooldownMultiplier(actor, role = null) {
+    const roleKey = normalizePerkRole(role || actor?.role);
+    const cfg = GAMEPLAY_CONFIG.abilityTesting || {};
+    const mult = roleKey === "killer"
+      ? cfgNumber(cfg.killerCooldownMultiplier, 1)
+      : cfgNumber(cfg.runnerCooldownMultiplier, 1);
+    return Math.max(0, Math.min(10, mult));
+  }
+
+  /** Scale perk cooldown for test mode; no-op when abilityTestLevel is 0. */
+  function scaleAbilityTestingCooldown(baseCooldown, actor, role = null) {
+    if (!abilityTestingEnabled(actor)) return Math.max(0, Number(baseCooldown || 0));
+    const mult = abilityTestingCooldownMultiplier(actor, role);
+    const base = Math.max(0, Number(baseCooldown || 0));
+    if (mult <= 0) return 0;
+    return Math.max(0, Number((base * mult).toFixed(2)));
+  }
+
   function actorPerkLevel(actor, perkId, role = null) {
     const id = String(perkId || "");
     const roleKey = normalizePerkRole(role || actor?.role);
     const debugLevel = abilityTestingLevel(actor);
     const debugPerk = debugLevel > 0 ? (perkConfigById(id, roleKey) || publicPerkById(id, roleKey)) : null;
+    // Ability testing bypasses account perk purchases and uses abilityTestLevel instead.
     if (debugPerk) return Math.max(1, Math.min(perkMaxLevel(debugPerk), debugLevel));
     if (actor?.isBot) return Math.max(1, Math.floor(Number(SHARED_PERKS.botLevel || SHARED_PERKS.maxLevel || 4)));
     const perks = actor?.perkLevels || actor?.perks || {};
@@ -3058,7 +3084,12 @@
         : fallbackEffect;
       const duration = Number(effect?.duration ?? effect?.boostDuration ?? base.duration ?? 0);
       const abilityCost = testingAbilities ? 0 : Number(effect?.cost ?? perk?.abilityCost ?? base.cost ?? 0);
-      const cooldown = testingAbilities ? 0 : Number(effect?.cooldown ?? perk?.cooldown ?? base.cooldown ?? 30);
+      // Match server applyAbilityTestingOverride cooldown scaling for wheel UI.
+      const cooldown = scaleAbilityTestingCooldown(
+        Number(effect?.cooldown ?? perk?.cooldown ?? base.cooldown ?? 30),
+        actor,
+        roleKey
+      );
       const stat = locked ? "unlock in Perks"
         : effect?.label ? String(effect.label)
           : effect?.chance ? `${Math.round(Number(effect.chance) * 100)}% proc`
@@ -3089,7 +3120,11 @@
     const effect = level > 0 ? perkLevelConfig(perk, level) : null;
     const duration = Number(effect?.duration ?? base.duration ?? 0);
     const abilityCost = testingAbilities ? 0 : Number(perk?.abilityCost ?? base.cost ?? 0);
-    const cooldown = testingAbilities ? 0 : Number(perk?.cooldown ?? base.cooldown ?? (role === "survivor" ? 30 : 20));
+    const cooldown = scaleAbilityTestingCooldown(
+      Number(perk?.cooldown ?? base.cooldown ?? (role === "survivor" ? 30 : 20)),
+      actor,
+      roleKey
+    );
     const classGranted = roleKey === "survivor" && classGrantedPerkLevel(actor, base.id || id) > 0;
     const levelLabel = level > 0
       ? `${classGranted ? "Class" : "Lv"} ${level}/${maxLevel} · ${formatSeconds(duration)}`
@@ -3118,7 +3153,7 @@
       const isCancel = !!ability.cancel || id === "cancel" || id === "moreSoon";
       const disabled = !!ability.disabled || !!ability.passive;
       const cooldowns = role === "survivor" ? actor?.survivorAbilityCooldowns : actor?.voidAbilityCooldowns;
-      const cooldownRemaining = (isCancel || disabled || testingAbilities) ? 0 : Math.max(0, Number(cooldowns?.[ability.id || id] || 0));
+      const cooldownRemaining = (isCancel || disabled) ? 0 : Math.max(0, Number(cooldowns?.[ability.id || id] || 0));
       const active = !!(actor && !isCancel && (
         (role === "killer" && ability.id === "nullRush" && (actor.voidSpeedBoost || 0) > 0) ||
         (role === "killer" && ability.id === "redshiftOrbs" && (currentSnapshot?.voidEffects?.redOrbs || 0) > 0) ||
@@ -10399,7 +10434,7 @@
     });
     socket.on("abilityTestModeChanged", (payload = {}) => {
       const level = Math.max(0, Math.min(3, Math.floor(Number(payload.level || 0))));
-      toast(payload.enabled ? `Ability testing Lv ${level}: all perks unlocked, costs/cooldowns zero.` : "Ability testing OFF: normal purchases, costs, and cooldowns restored.", 2400);
+      toast(payload.enabled ? `Ability testing Lv ${level}: free abilities; cooldowns use gameplayConfig.abilityTesting multipliers.` : "Ability testing OFF: normal purchases, costs, and cooldowns restored.", 2400);
       const me = getLocalPlayerData();
       if (me) {
         me.abilityTestMode = !!payload.enabled;
