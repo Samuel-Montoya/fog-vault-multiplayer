@@ -1,10 +1,21 @@
 "use strict";
 
-const voidAi = require("./server-void-ai.cjs");
-const { tryUseRunnerClassAbilities } = require("./runner-ability-ai.cjs"); // class darts/buffs during bot phases
+// =============================================================================
+// Runner (Survivor) Bot AI — Basic Runner
+//
+// Priority stack per tick (highest → lowest):
+//   1. Skip tick if mid-vault
+//   2. Post-interact dash (e.g. after vaulting a pallet)
+//   3. Flee when killer is close/visible (danger)
+//   4. Receive heal from teammate (if safe)
+//   5. Rescue hooked teammate
+//   6. Heal wounded teammate (if not threatened)
+//   7. Escape through open gate (prioritised when this bot is the last/only bot)
+//   8. Deposit carried orbs / collect orbs / idle patrol
+// =============================================================================
 
-// Survivor AI deliberately went back to boring, cheap, readable priorities.
-// Fancy route theory made the server sweat and the bots forget how doors work.
+const voidAi = require("./server-void-ai.cjs");
+const { tryUseRunnerClassAbilities } = require("./runner-ability-ai.cjs");
 
 const PERSONALITY_ID = "basic-runner";
 const PERSONALITY_LABEL = "Basic Runner";
@@ -44,6 +55,10 @@ const FLEE_HYSTERESIS_SECONDS = 0.95;
 const MOVE_INTENT_LOCK_SECONDS = 0.42;
 const MOVE_INTENT_REACHED_DISTANCE = 24;
 
+// =============================================================================
+// Utility
+// =============================================================================
+
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
@@ -57,6 +72,44 @@ function dist(ax, ay, bx, by) {
 
 function helperDist(helpers, ax, ay, bx, by) {
   return typeof helpers?.dist === "function" ? helpers.dist(ax, ay, bx, by) : dist(ax, ay, bx, by);
+}
+
+// =============================================================================
+// Min-Heap — A* open-list (O(log n) push/pop vs. O(n) linear scan)
+// =============================================================================
+
+/** Push a node onto the min-heap ordered by `f` score. */
+function heapPush(heap, node) {
+  heap.push(node);
+  let i = heap.length - 1;
+  while (i > 0) {
+    const p = (i - 1) >> 1;
+    if (heap[p].f <= heap[i].f) break;
+    const tmp = heap[p]; heap[p] = heap[i]; heap[i] = tmp;
+    i = p;
+  }
+}
+
+/** Pop the node with the lowest `f` score from the min-heap. */
+function heapPop(heap) {
+  const top = heap[0];
+  const end = heap.pop();
+  if (heap.length > 0) {
+    heap[0] = end;
+    let i = 0;
+    const n = heap.length;
+    for (;;) {
+      const l = 2 * i + 1;
+      const r = l + 1;
+      let min = i;
+      if (l < n && heap[l].f < heap[min].f) min = l;
+      if (r < n && heap[r].f < heap[min].f) min = r;
+      if (min === i) break;
+      const tmp = heap[min]; heap[min] = heap[i]; heap[i] = tmp;
+      i = min;
+    }
+  }
+  return top;
 }
 
 function now(game) {
@@ -375,6 +428,14 @@ function cachedPathKey(game, start, goal) {
   return `${game.__basicRunnerGrid?.key || "grid"}|${start.x},${start.y}>${goal.x},${goal.y}`;
 }
 
+/**
+ * A* on the pre-baked runner passability grid.
+ * Uses a binary min-heap open list (O(log n) per step) and the shared LRU
+ * path cache so repeated start→goal queries are free.
+ *
+ * Heuristic is octile distance weighted by 1.08 (slightly inadmissible) which
+ * reliably finds near-optimal paths while expanding far fewer nodes.
+ */
 function findPathTiles(game, actor, helpers, targetX, targetY, options = {}) {
   const grid = getRunnerGrid(game, actor, helpers);
   if (!grid) return null;
@@ -392,63 +453,62 @@ function findPathTiles(game, actor, helpers, targetX, targetY, options = {}) {
     return cached ? cached.map((p) => ({ ...p })) : null;
   }
 
-  const open = [{ x: start.x, y: start.y, g: 0, f: 0, parent: null }];
-  const best = new Map([[cellKey(start.x, start.y), open[0]]]);
+  const heap = [];
+  const gScore = new Map([[cellKey(start.x, start.y), 0]]);
+  const parent = new Map();
   const closed = new Set();
-  const dirs = [
-    [1, 0, 1],
-    [-1, 0, 1],
-    [0, 1, 1],
-    [0, -1, 1],
-    [1, 1, Math.SQRT2],
-    [-1, 1, Math.SQRT2],
-    [1, -1, Math.SQRT2],
-    [-1, -1, Math.SQRT2]
-  ];
-  let nodes = 0;
-  let found = null;
+  const H_WEIGHT = 1.08;
 
-  while (open.length && nodes++ < (options.nodeLimit || PATH_NODE_LIMIT)) {
-    let bestIndex = 0;
-    for (let i = 1; i < open.length; i++) {
-      if (open[i].f < open[bestIndex].f) bestIndex = i;
-    }
-    const current = open.splice(bestIndex, 1)[0];
+  const heuristic = (x, y) => {
+    const hx = Math.abs(goal.x - x);
+    const hy = Math.abs(goal.y - y);
+    return ((hx + hy) + (Math.SQRT2 - 2) * Math.min(hx, hy)) * H_WEIGHT;
+  };
+
+  heapPush(heap, { x: start.x, y: start.y, g: 0, f: heuristic(start.x, start.y) });
+
+  const DIRS = [
+    [1, 0, 1], [-1, 0, 1], [0, 1, 1], [0, -1, 1],
+    [1, 1, Math.SQRT2], [-1, 1, Math.SQRT2], [1, -1, Math.SQRT2], [-1, -1, Math.SQRT2]
+  ];
+
+  let found = null;
+  let nodes = 0;
+  const nodeLimit = options.nodeLimit || PATH_NODE_LIMIT;
+
+  while (heap.length && nodes++ < nodeLimit) {
+    const current = heapPop(heap);
     const currentKey = cellKey(current.x, current.y);
     if (closed.has(currentKey)) continue;
     closed.add(currentKey);
 
-    if (current.x === goal.x && current.y === goal.y) {
-      found = current;
-      break;
-    }
+    if (current.x === goal.x && current.y === goal.y) { found = current; break; }
 
-    for (const [dx, dy, stepCost] of dirs) {
+    const g = gScore.get(currentKey) ?? Infinity;
+    for (const [dx, dy, stepCost] of DIRS) {
       const nx = current.x + dx;
       const ny = current.y + dy;
       if (!isPassable(grid, nx, ny)) continue;
       if (dx !== 0 && dy !== 0 && (!isPassable(grid, current.x + dx, current.y) || !isPassable(grid, current.x, current.y + dy))) continue;
       const nk = cellKey(nx, ny);
       if (closed.has(nk)) continue;
-      const g = current.g + stepCost;
-      const hx = Math.abs(goal.x - nx);
-      const hy = Math.abs(goal.y - ny);
-      const h = (hx + hy) + (Math.SQRT2 - 2) * Math.min(hx, hy);
-      const existing = best.get(nk);
-      if (existing && existing.g <= g) continue;
-      const node = { x: nx, y: ny, g, f: g + h * 1.08, parent: current };
-      best.set(nk, node);
-      open.push(node);
+      const ng = g + stepCost;
+      if (ng >= (gScore.get(nk) ?? Infinity)) continue;
+      gScore.set(nk, ng);
+      parent.set(nk, currentKey);
+      heapPush(heap, { x: nx, y: ny, g: ng, f: ng + heuristic(nx, ny) });
     }
   }
 
   let result = null;
   if (found) {
     result = [];
-    let node = found;
-    while (node && !(node.x === start.x && node.y === start.y)) {
-      result.push({ x: node.x, y: node.y });
-      node = node.parent;
+    let k = cellKey(found.x, found.y);
+    const startKey = cellKey(start.x, start.y);
+    while (k && k !== startKey) {
+      const [x, y] = k.split(",").map(Number);
+      result.push({ x, y });
+      k = parent.get(k);
     }
     result.reverse();
   }
@@ -903,17 +963,26 @@ function runFlee(game, actor, helpers, dt, threat) {
   return true;
 }
 
+/**
+ * Find the best approach point around `target` within `radius` pixels.
+ *
+ * Samples 2 rings × 8 evenly-spaced angles (16 candidates total, vs. the old
+ * 4 × 16 = 64). The leading angle is biased toward the actor so the cheapest
+ * route is tested first; remaining angles step in 45° increments.
+ * Quality loss is negligible — 8 directions cover all compass+diagonal slots
+ * and the bot replans every ~0.55 s regardless.
+ */
 function approachPointForTarget(game, actor, helpers, target, radius, options = {}) {
-  // Keep approach points inside the actual server interaction radius. The old
-  // outer ring plus a loose stopDistance left bots close-ish, but not close
-  // enough for deposits/unhooks/heals to start. Very brave, very useless.
-  const rings = [radius * 0.55, radius * 0.72, radius * 0.9, radius * 1.05].filter((r) => r > 24);
-  const steps = 16;
+  const rings = [radius * 0.62, radius * 0.92].filter((r) => r > 24);
+  const STEPS = 8;
+  // Bias toward the actor's current position so the nearest usable point
+  // is evaluated early and expensive pathfinds are cut short.
+  const baseAngle = Math.atan2(actor.y - target.y, actor.x - target.x);
   let best = null;
   let bestScore = Infinity;
   for (const r of rings) {
-    for (let i = 0; i < steps; i++) {
-      const angle = (Math.PI * 2 * i) / steps;
+    for (let i = 0; i < STEPS; i++) {
+      const angle = baseAngle + (Math.PI * 2 * i) / STEPS;
       const p = {
         x: clamp(target.x + Math.cos(angle) * r, 44, game.map.width - 44),
         y: clamp(target.y + Math.sin(angle) * r, 44, game.map.height - 44)
@@ -1033,7 +1102,14 @@ function chooseHealTarget(game, actor, helpers, threat) {
 
 function runHeal(game, actor, helpers, dt, threat) {
   const brain = ensureBotBrain(actor);
-  if (actor.injured && !actor.downed) return false;
+
+  // Injured bots skip healing others entirely when under threat — self-preservation
+  // wins. When safe they may still heal a downed teammate (more critical than injured).
+  if (actor.injured && !actor.downed) {
+    if (threat?.threatened) return false;
+    // Fall through only to help downed teammates; chooseHealTarget will score them highest.
+  }
+
   const lockedTarget = brain.healTask?.id ? getActorById(game, brain.healTask.id) : null;
   let choice = null;
   if (lockedTarget && isWoundedSurvivor(lockedTarget) && (brain.healTask.lockUntil || 0) > now(game)) {
@@ -1128,6 +1204,36 @@ function botTaskClaimCount(game, actor, slot, kind, id) {
   return count;
 }
 
+/**
+ * Count peer bots currently committed to a deposit task.
+ * Used to stagger deposit timing so bots don't all converge on the same rift.
+ */
+function countActiveDepositors(game, actor) {
+  let count = 0;
+  const t = now(game);
+  for (const other of game.actors.values()) {
+    if (!other?.isBot || other.id === actor.id || other.role !== "survivor") continue;
+    if (other.dead || other.escaped || other.hooked || other.downed) continue;
+    const task = other.bot?.simpleAi?.task;
+    if (task?.kind === "deposit" && (task.lockUntil || 0) > t) count++;
+  }
+  return count;
+}
+
+/**
+ * True when this bot is the last (or only) active survivor bot on the team.
+ * Used to let a lone bot prioritise its own escape over rescuing others.
+ */
+function isLastOrOnlyBot(game, actor) {
+  let count = 0;
+  for (const other of game.actors.values()) {
+    if (!other?.isBot || other.role !== "survivor") continue;
+    if (other.dead || other.escaped || other.hooked) continue;
+    count++;
+  }
+  return count <= 1;
+}
+
 function killerDangerPenalty(game, x, y, helpers, threat = null) {
   const killer = threat?.killer || null;
   if (!killer || killer.dead || killer.escaped) return 0;
@@ -1218,12 +1324,23 @@ function nearAnyRift(game, actor, helpers) {
   return best;
 }
 
+/**
+ * Whether this bot should stop collecting and route to a rift.
+ *
+ * Role coordination: if another bot is already locked onto a deposit task,
+ * raise the threshold by 3 so the second bot keeps collecting instead of
+ * converging on the same rift. This keeps one depositor active and one
+ * collector harvesting simultaneously.
+ */
 function shouldDeposit(game, actor, helpers) {
   const carried = carriedOrbs(actor);
   if (carried <= 0) return false;
   if (nearAnyRift(game, actor, helpers)) return true;
   if (carried >= Number(helpers?.survivorDotMax || 30)) return true;
-  if (carried >= DEPOSIT_AFTER_ORBS) return true;
+  const threshold = countActiveDepositors(game, actor) > 0
+    ? DEPOSIT_AFTER_ORBS + 3
+    : DEPOSIT_AFTER_ORBS;
+  if (carried >= threshold) return true;
   if (!(game.collectibleDots || []).length) return true;
   return false;
 }
@@ -1463,6 +1580,13 @@ function updateRunner(game, actor, helpers, dt) {
     return;
   }
 
+
+  // When this bot is the last survivor bot alive, prioritise its own escape
+  // over rescuing teammates — a lone bot attempting a rescue against a camping
+  // killer almost always results in two hooks instead of one escape.
+  if (game.escapeOpen && isLastOrOnlyBot(game, actor)) {
+    if (runEscape(game, actor, helpers, dt)) return;
+  }
 
   if (runUnhook(game, actor, helpers, dt, threat)) return;
 

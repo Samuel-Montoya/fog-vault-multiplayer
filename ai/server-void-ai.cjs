@@ -1,17 +1,41 @@
 "use strict";
 
+// =============================================================================
+// The Void (Killer) Bot AI — Rift Warden
+//
+// Priority stack (highest → lowest):
+//   1. Hook/execute downed runners
+//   2. Chase & attack sensed runners
+//   3. Patrol open exit gates (endgame)
+//   4. Kick / check progress on unfinished rifts
+//
+// Ability usage is woven into the chase and objective phases:
+//   - Null Rush:     speed burst when the runner is opening the gap
+//   - Void Reveal:   vision pulse when the target signal is lost
+//   - Redshift Orbs: slow field proactively when runners are depositing
+// =============================================================================
+
+// --- Personality ---------------------------------------------------------------
 const PERSONALITY_ID = "rift-warden";
 const PERSONALITY_LABEL = "Rift Warden";
+
+// --- Pathfinding ---------------------------------------------------------------
 const PATH_REPLAN_SECONDS = 0.72;
 const STUCK_SAMPLE_SECONDS = 0.42;
 const STUCK_REPATH_DISTANCE = 5.5;
 const STUCK_CLEAR_SECONDS = 1.55;
 const PATHFIND_LOOP_LIMIT = 2600;
+/** LRU path cache entry limit for The Void. Smaller than runner because the
+ *  Void's grid changes more often (dropped pallets block). */
+const VOID_PATH_CACHE_LIMIT = 140;
+
+// --- Rift objectives -----------------------------------------------------------
 const RIFT_PROGRESS_EPSILON = 0.001;
 const DEFAULT_RIFT_KICK_DISTANCE = 84;
 const CHECK_DWELL_SECONDS = 0.65;
 const RECENT_CHECK_MEMORY = 3;
 
+// --- Chase / hunt --------------------------------------------------------------
 const VOID_HUNT_RADIUS = 980;
 const VOID_CLOSE_SENSE_RADIUS = 360;
 const VOID_TARGET_MEMORY_SECONDS = 2.35;
@@ -20,6 +44,8 @@ const VOID_CHASE_TARGET_REPATH_DISTANCE = 96;
 const VOID_LAST_KNOWN_REACHED_DISTANCE = 62;
 const VOID_HOOK_DISTANCE = 128;
 const VOID_HOOK_ACTION_MARGIN = 6;
+
+// --- Attack --------------------------------------------------------------------
 const VOID_ATTACK_QUICK_RANGE = 86;
 const VOID_ATTACK_LUNGE_RANGE = 122;
 const VOID_ATTACK_CLEAR_EXTRA = 18;
@@ -27,10 +53,14 @@ const VOID_LUNGE_START_EXTRA = 56;
 const VOID_LUNGE_COMMIT_SECONDS = 0.72;
 const VOID_LUNGE_POINT_BLANK_MULT = 0.82;
 const VOID_LUNGE_BRAKE_RANGE_MULT = 1.08;
+
+// --- Exit patrol ---------------------------------------------------------------
 const VOID_EXIT_PATROL_REPATH_SECONDS = 0.65;
 const VOID_EXIT_PATROL_DWELL_SECONDS = 2.45;
 const VOID_EXIT_PATROL_REACH_DISTANCE = 118;
 const VOID_EXIT_PRESSURE_DISTANCE = 560;
+
+// --- Obstacle traversal --------------------------------------------------------
 const VOID_OBSTACLE_ACTION_DISTANCE = 86;
 const VOID_OBSTACLE_SEEK_DISTANCE = 230;
 const VOID_OBSTACLE_PATH_WIDTH = 118;
@@ -41,6 +71,15 @@ const VOID_OBSTACLE_REUSE_COOLDOWN_SECONDS = 6.25;
 const VOID_OBSTACLE_ACTION_BUFFER = 70;
 const VOID_OBSTACLE_ACTION_LOCK_SECONDS = 0.45;
 const VOID_OBSTACLE_COMMIT_SECONDS = 2.15;
+
+// --- Abilities -----------------------------------------------------------------
+/** Minimum chase distance before Null Rush is worth spending on. */
+const VOID_NULL_RUSH_MIN_DISTANCE = 220;
+const VOID_NULL_RUSH_MIN_ORBS = 15;
+const VOID_REVEAL_MIN_ORBS = 15;
+const VOID_REDSHIFT_MIN_ORBS = 25;
+/** Throttle: don't retry an ability call every tick; wait this many seconds. */
+const VOID_ABILITY_RETRY_SECONDS = 2.5;
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -55,6 +94,61 @@ function distance(a, b, c, d) {
 
 function helperDist(helpers, ax, ay, bx, by) {
   return typeof helpers?.dist === "function" ? helpers.dist(ax, ay, bx, by) : distance(ax, ay, bx, by);
+}
+
+// =============================================================================
+// Min-Heap — A* open-list (O(log n) push/pop vs. O(n) linear scan)
+// =============================================================================
+
+/** Push a node onto the min-heap ordered by `f` score. */
+function heapPush(heap, node) {
+  heap.push(node);
+  let i = heap.length - 1;
+  while (i > 0) {
+    const p = (i - 1) >> 1;
+    if (heap[p].f <= heap[i].f) break;
+    const tmp = heap[p]; heap[p] = heap[i]; heap[i] = tmp;
+    i = p;
+  }
+}
+
+/** Pop the node with the lowest `f` score from the min-heap. */
+function heapPop(heap) {
+  const top = heap[0];
+  const end = heap.pop();
+  if (heap.length > 0) {
+    heap[0] = end;
+    let i = 0;
+    const n = heap.length;
+    for (;;) {
+      const l = 2 * i + 1;
+      const r = l + 1;
+      let min = i;
+      if (l < n && heap[l].f < heap[min].f) min = l;
+      if (r < n && heap[r].f < heap[min].f) min = r;
+      if (min === i) break;
+      const tmp = heap[min]; heap[min] = heap[i]; heap[i] = tmp;
+      i = min;
+    }
+  }
+  return top;
+}
+
+// =============================================================================
+// Path Cache — LRU keyed by start→goal tile, invalidated by pathCacheEpoch
+// =============================================================================
+
+/**
+ * Returns the LRU path cache for The Void, resetting it when the map epoch
+ * changes (dropped/broken pallets, rifts completing, etc.).
+ */
+function getVoidPathCache(game) {
+  const epoch = game.pathCacheEpoch || 0;
+  if (game.__voidPathCacheEpoch !== epoch || !game.__voidPathCache) {
+    game.__voidPathCache = new Map();
+    game.__voidPathCacheEpoch = epoch;
+  }
+  return game.__voidPathCache;
 }
 
 const MOVE_INTENT_LOCK_SECONDS = 0.72;
@@ -280,6 +374,14 @@ function findNearestStandableTile(game, actor, targetX, targetY, helpers) {
   return null;
 }
 
+/**
+ * A* pathfinder from actor's current tile to the tile nearest (targetX, targetY).
+ * Uses a binary min-heap open list (O(log n) per step) and an LRU path cache
+ * keyed by start→goal tile so identical queries within the same epoch are free.
+ *
+ * Heuristic is octile distance inflated by 1.06 (weighted A*) — finds
+ * near-optimal paths significantly faster than admissible A* on large maps.
+ */
 function buildPath(game, actor, targetX, targetY, helpers) {
   const start = tileAt(game, actor.x, actor.y);
   const goal = findNearestStandableTile(game, actor, targetX, targetY, helpers);
@@ -288,29 +390,39 @@ function buildPath(game, actor, targetX, targetY, helpers) {
   const goalKey = tileKey(goal.x, goal.y);
   if (startKey === goalKey) return [{ x: targetX, y: targetY }];
 
-  const open = [{ x: start.x, y: start.y, g: 0, f: 0 }];
+  // LRU cache lookup — same start/goal pair within this epoch returns instantly.
+  const cache = getVoidPathCache(game);
+  const cacheKey = `${startKey}>${goalKey}`;
+  if (cache.has(cacheKey)) {
+    const hit = cache.get(cacheKey);
+    cache.delete(cacheKey);
+    cache.set(cacheKey, hit);
+    return hit ? hit.map((p) => ({ ...p })) : [];
+  }
+
+  const heap = [];
   const cameFrom = new Map();
   const gScore = new Map([[startKey, 0]]);
   const closed = new Set();
+  const H_WEIGHT = 1.06; // slight inflation makes search faster with near-optimal paths
 
   const heuristic = (x, y) => {
     const dx = Math.abs(x - goal.x);
     const dy = Math.abs(y - goal.y);
-    return (dx + dy) + (Math.SQRT2 - 2) * Math.min(dx, dy);
+    return ((dx + dy) + (Math.SQRT2 - 2) * Math.min(dx, dy)) * H_WEIGHT;
   };
 
-  let loops = 0;
-  while (open.length && loops++ < PATHFIND_LOOP_LIMIT) {
-    let bestIndex = 0;
-    let bestF = open[0].f;
-    for (let i = 1; i < open.length; i++) {
-      if (open[i].f < bestF) {
-        bestIndex = i;
-        bestF = open[i].f;
-      }
-    }
+  heapPush(heap, { x: start.x, y: start.y, g: 0, f: heuristic(start.x, start.y) });
 
-    const current = open.splice(bestIndex, 1)[0];
+  const DIRS = [
+    [1, 0, false], [-1, 0, false], [0, 1, false], [0, -1, false],
+    [1, 1, true],  [-1, 1, true],  [1, -1, true], [-1, -1, true]
+  ];
+
+  let result = null;
+  let loops = 0;
+  while (heap.length && loops++ < PATHFIND_LOOP_LIMIT) {
+    const current = heapPop(heap);
     const currentKey = tileKey(current.x, current.y);
     if (closed.has(currentKey)) continue;
     closed.add(currentKey);
@@ -325,38 +437,35 @@ function buildPath(game, actor, targetX, targetY, helpers) {
       }
       path.reverse();
       const last = path[path.length - 1];
-      if (last && distance(last.x, last.y, targetX, targetY) > (game.map.tile || 32) * 0.25 && actorCanStandAt(game, actor, targetX, targetY, helpers)) {
+      if (last && distance(last.x, last.y, targetX, targetY) > (game.map.tile || 32) * 0.25
+          && actorCanStandAt(game, actor, targetX, targetY, helpers)) {
         path.push({ x: targetX, y: targetY });
       }
-      return path;
+      result = path;
+      break;
     }
 
-    const neighbors = [
-      { x: current.x + 1, y: current.y, diagonal: false },
-      { x: current.x - 1, y: current.y, diagonal: false },
-      { x: current.x, y: current.y + 1, diagonal: false },
-      { x: current.x, y: current.y - 1, diagonal: false },
-      { x: current.x + 1, y: current.y + 1, diagonal: true },
-      { x: current.x - 1, y: current.y + 1, diagonal: true },
-      { x: current.x + 1, y: current.y - 1, diagonal: true },
-      { x: current.x - 1, y: current.y - 1, diagonal: true }
-    ];
-
-    for (const n of neighbors) {
-      if (isTileBlocked(game, actor, n.x, n.y, helpers)) continue;
-      if (n.diagonal && (isTileBlocked(game, actor, current.x, n.y, helpers) || isTileBlocked(game, actor, n.x, current.y, helpers))) continue;
-      const nk = tileKey(n.x, n.y);
+    const g = gScore.get(currentKey) ?? Infinity;
+    for (const [dx, dy, diagonal] of DIRS) {
+      const nx = current.x + dx;
+      const ny = current.y + dy;
+      if (isTileBlocked(game, actor, nx, ny, helpers)) continue;
+      if (diagonal && (isTileBlocked(game, actor, current.x, ny, helpers)
+          || isTileBlocked(game, actor, nx, current.y, helpers))) continue;
+      const nk = tileKey(nx, ny);
       if (closed.has(nk)) continue;
-      const stepCost = n.diagonal ? Math.SQRT2 : 1;
-      const tentative = (gScore.get(currentKey) ?? Infinity) + stepCost;
+      const tentative = g + (diagonal ? Math.SQRT2 : 1);
       if (tentative >= (gScore.get(nk) ?? Infinity)) continue;
       cameFrom.set(nk, currentKey);
       gScore.set(nk, tentative);
-      open.push({ x: n.x, y: n.y, g: tentative, f: tentative + heuristic(n.x, n.y) });
+      heapPush(heap, { x: nx, y: ny, g: tentative, f: tentative + heuristic(nx, ny) });
     }
   }
 
-  return [];
+  // Store in LRU cache (null = no path found, avoids repeating expensive failures).
+  cache.set(cacheKey, result ? result.map((p) => ({ ...p })) : null);
+  while (cache.size > VOID_PATH_CACHE_LIMIT) cache.delete(cache.keys().next().value);
+  return result || [];
 }
 
 function clearPath(brain) {
@@ -1389,6 +1498,86 @@ function clearHuntMemory(actor) {
   clearPath(brain);
 }
 
+// =============================================================================
+// Void Abilities
+// =============================================================================
+
+/** True when the given ability cooldown has expired. */
+function voidAbilityReady(actor, abilityId) {
+  return Math.max(0, Number(actor?.voidAbilityCooldowns?.[abilityId] || 0)) <= 0;
+}
+
+/** Current carried orb count for the killer. */
+function voidOrbCount(actor) {
+  return Math.max(0, Math.floor(Number(actor?.dots || 0)));
+}
+
+/**
+ * Per-brain throttle: returns true at most once per `seconds` seconds so the
+ * AI does not call `applyVoidAbility` on every tick for the same ability.
+ */
+function gateVoidAbilityTry(brain, seconds) {
+  const t = Number(brain.aiNow || 0);
+  if ((brain.nextAbilityTry || 0) > t) return false;
+  brain.nextAbilityTry = t + seconds;
+  return true;
+}
+
+/**
+ * Attempt the most contextually appropriate Void ability.
+ *
+ * @param {object} context.target        - Current hunt target (or null).
+ * @param {boolean} context.hunting      - True when actively chasing a runner.
+ * @param {boolean} context.lostTarget   - True when following a last-known position.
+ */
+function tryUseVoidAbility(game, actor, helpers, brain, context = {}) {
+  if (typeof helpers?.applyVoidAbility !== "function") return false;
+  if ((actor.voidStun || 0) > 0 || actor.vault || actor.breakTarget) return false;
+
+  const { target = null, hunting = false, lostTarget = false } = context;
+
+  // --- Null Rush: spend a speed burst when the runner is pulling ahead ----------
+  if (hunting && target && !lostTarget && !(actor.voidSpeedBoost > 0)) {
+    const d = helperDist(helpers, actor.x, actor.y, target.x, target.y);
+    if (d > VOID_NULL_RUSH_MIN_DISTANCE
+        && voidAbilityReady(actor, "nullRush")
+        && voidOrbCount(actor) >= VOID_NULL_RUSH_MIN_ORBS) {
+      if (gateVoidAbilityTry(brain, VOID_ABILITY_RETRY_SECONDS)) {
+        const result = helpers.applyVoidAbility(game, actor, "nullRush");
+        if (result?.ok) return true;
+      }
+    }
+  }
+
+  // --- Void Reveal: light up the map when runner signal is lost ----------------
+  if (lostTarget && voidAbilityReady(actor, "voidReveal")
+      && voidOrbCount(actor) >= VOID_REVEAL_MIN_ORBS) {
+    if (gateVoidAbilityTry(brain, VOID_ABILITY_RETRY_SECONDS)) {
+      const result = helpers.applyVoidAbility(game, actor, "voidReveal");
+      if (result?.ok) return true;
+    }
+  }
+
+  // --- Redshift Orbs: slow field when runners are mass-depositing --------------
+  // Only used during objective-patrol downtime so it isn't burned mid-chase.
+  if (!hunting && !target) {
+    let depositPressure = 0;
+    for (const runner of activeSurvivors(game)) {
+      if (runnerDepositActivity(runner) || (runner.dots || 0) >= 8) depositPressure++;
+    }
+    if (depositPressure >= 2
+        && voidAbilityReady(actor, "redshiftOrbs")
+        && voidOrbCount(actor) >= VOID_REDSHIFT_MIN_ORBS) {
+      if (gateVoidAbilityTry(brain, VOID_ABILITY_RETRY_SECONDS)) {
+        const result = helpers.applyVoidAbility(game, actor, "redshiftOrbs");
+        if (result?.ok) return true;
+      }
+    }
+  }
+
+  return false;
+}
+
 function chaseLastKnownRunner(game, killer, target, helpers, dt) {
   const brain = ensureVoidBrain(killer);
   const now = game.time || 0;
@@ -1411,6 +1600,9 @@ function chaseLastKnownRunner(game, killer, target, helpers, dt) {
   killer.input.action = false;
   killer.input.repair = false;
   clearAttackInputs(killer);
+
+  // Void Reveal: burn orbs for vision when chasing blind — the payoff here is high.
+  tryUseVoidAbility(game, killer, helpers, brain, { target, hunting: true, lostTarget: true });
 
   const oldReplan = brain.repathIn;
   brain.repathIn = Math.min(oldReplan || 0, VOID_CHASE_REPATH_SECONDS);
@@ -1436,6 +1628,9 @@ function chaseRunner(game, killer, target, helpers, dt) {
   rememberHuntTarget(game, brain, target);
   brain.holdingKick = false;
   brain.nextStep = { kind: "hunt-runner", targetId: target.id };
+
+  // Null Rush when the runner is opening the gap during an active chase.
+  tryUseVoidAbility(game, killer, helpers, brain, { target, hunting: true, lostTarget: false });
 
   if (tryVoidAttack(game, killer, target, helpers, dt)) return true;
 
@@ -1643,6 +1838,10 @@ function runVoidRiftAi(game, actor, helpers = {}, dt = 0) {
     stopAndFace(actor, null);
     return;
   }
+
+  // Redshift Orbs: during objective downtime (no runner sensed) slow any runner
+  // that is actively depositing or carrying a heavy orb load.
+  tryUseVoidAbility(game, actor, helpers, brain, { target: null, hunting: false, lostTarget: false });
 
   if (!taskStillValid(game, brain.task)) {
     clearTask(actor);

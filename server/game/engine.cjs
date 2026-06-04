@@ -5284,6 +5284,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     hookRescueDistance: HOOK_RESCUE_DISTANCE,
     healDistance: HEAL_DISTANCE,
     applySurvivorAbility,
+    applyVoidAbility,
     fireRunnerShootAbility,
     abilityTestingEnabled,
     abilityTestingLevel,
