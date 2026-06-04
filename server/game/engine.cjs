@@ -2137,16 +2137,78 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
         continue;
       }
 
-      if (tryX) {
+      // Guard: only take single-axis slides when they produce actual movement.
+      // Without this, pressing into a corner with no perpendicular input causes
+      // the trivially-valid opposite-axis "slide" to fire as a no-op every step,
+      // skipping the corner correction and peel-off nudges below.
+      if (tryX && Math.abs(desiredX - startX) > 0.0001) {
         actor.x = desiredX;
         moved = true;
         continue;
       }
 
-      if (tryY) {
+      if (tryY && Math.abs(desiredY - startY) > 0.0001) {
         actor.y = desiredY;
         moved = true;
         continue;
+      }
+
+      // Corner correction: when an axis slide is blocked, compute the exact
+      // perpendicular penetration depth into the wall corner. If it is a small
+      // clip (< 45 % of body size) apply the minimum nudge so the character
+      // glides smoothly around the corner instead of sticking to the wall tip.
+      {
+        const bodySize = actor.role === "killer" ? KILLER_SIZE : PLAYER_SIZE;
+        const cornerThreshold = bodySize * 0.45;
+        const candidates = collisionBlockingRects(game, actor);
+
+        if (Math.abs(stepX) > 0.0001) {
+          const boxX = actorRect(actor, desiredX, startY);
+          let yCorr = 0;
+          let canCornerX = true;
+          for (const r of candidates) {
+            if (!rectsOverlap(boxX, r)) continue;
+            const overlapTop = (boxX.y + boxX.h) - r.y;
+            const overlapBot = (r.y + r.h) - boxX.y;
+            if (Math.min(overlapTop, overlapBot) > cornerThreshold) { canCornerX = false; break; }
+            const c = overlapTop < overlapBot ? -overlapTop : overlapBot;
+            if (yCorr !== 0 && Math.sign(c) !== Math.sign(yCorr)) { canCornerX = false; break; }
+            if (Math.abs(c) > Math.abs(yCorr)) yCorr = c;
+          }
+          if (canCornerX && yCorr !== 0) {
+            const cy = clamp(startY + yCorr, 36, game.map.height - 36);
+            if (!wouldCollide(game, actor, desiredX, cy)) {
+              actor.x = desiredX;
+              actor.y = cy;
+              moved = true;
+              continue;
+            }
+          }
+        }
+
+        if (Math.abs(stepY) > 0.0001) {
+          const boxY = actorRect(actor, startX, desiredY);
+          let xCorr = 0;
+          let canCornerY = true;
+          for (const r of candidates) {
+            if (!rectsOverlap(boxY, r)) continue;
+            const overlapLeft = (boxY.x + boxY.w) - r.x;
+            const overlapRight = (r.x + r.w) - boxY.x;
+            if (Math.min(overlapLeft, overlapRight) > cornerThreshold) { canCornerY = false; break; }
+            const c = overlapLeft < overlapRight ? -overlapLeft : overlapRight;
+            if (xCorr !== 0 && Math.sign(c) !== Math.sign(xCorr)) { canCornerY = false; break; }
+            if (Math.abs(c) > Math.abs(xCorr)) xCorr = c;
+          }
+          if (canCornerY && xCorr !== 0) {
+            const cx = clamp(startX + xCorr, 36, game.map.width - 36);
+            if (!wouldCollide(game, actor, cx, desiredY)) {
+              actor.x = cx;
+              actor.y = desiredY;
+              moved = true;
+              continue;
+            }
+          }
+        }
       }
 
       // If both component moves are blocked, we are probably pressing into a convex corner

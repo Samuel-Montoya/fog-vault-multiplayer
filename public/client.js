@@ -42,7 +42,7 @@
   const ADAPTIVE_PERFORMANCE_PROFILES = {
     normal: {
       label: "NORMAL",
-      targetFps: 60,
+      targetFps: 144,
       dynamicWorldFps: 7,
       generatorFps: 6,
       scratchDrawFps: 8,
@@ -4464,6 +4464,8 @@
       this.localCollisionCache = new Map();
       this.localCollisionCacheEpoch = 0;
       this.localCollisionCellSize = 96;
+      this._collisionSeenScratch = new Set();
+      this._collisionResultsScratch = [];
       this.killerWallVisionStableKey = "";
       this.hookIndicatorTimer = 0;
     }
@@ -6019,6 +6021,11 @@
 
     applySnapshot(snapshot) {
       currentSnapshot = snapshot;
+      // Bump the collision cache epoch so localCollisionSignature stays cheap
+      // (just epoch:role) while still invalidating whenever pallets or generators
+      // could have changed. Snapshots arrive at ~30 Hz so this is much cheaper
+      // than building the full pallet-state string on every collision query.
+      this.invalidateLocalCollisionCache();
       this.matchStartFreezeRemaining = Math.max(0, Number(snapshot.matchStartFreezeRemaining || 0));
       if (this.matchStartFreezeRemaining > 0) {
         this.matchStartFreezeDuration = Math.max(this.matchStartFreezeDuration || 0, this.matchStartFreezeRemaining);
@@ -7189,11 +7196,26 @@
         && !data.downed
         && alphaBase > ACTOR_VISION.MIN_VISIBLE_ALPHA;
 
-      item.boostAura.clear();
       item.boostAura.setVisible(active);
-      if (!active) return;
 
+      if (!active) {
+        // Only call clear() when transitioning from active → inactive, not every frame.
+        if (item._boostAuraWasActive) { item.boostAura.clear(); item._boostAuraWasActive = false; }
+        return;
+      }
+
+      // Position tracks the actor every frame (cheap transform, no redraw).
+      item.boostAura.setPosition(item.current.x, item.current.y);
+      item.boostAura.setRotation(0);
+
+      // Throttle the expensive path redraw to ~24 Hz.
       const now = performance.now();
+      if (item._boostAuraWasActive && now - (item._boostAuraRedrawAt || 0) < 42) return;
+      item._boostAuraWasActive = true;
+      item._boostAuraRedrawAt = now;
+
+      item.boostAura.clear();
+
       const seed = hash2((data.id || "rally").length, (data.id || "r").charCodeAt(0) || 0);
       const ultra = adaptivePerformance.mode === "ultra" || LOW_POWER_MODE;
       const points = ultra ? 8 : 12;
@@ -7203,9 +7225,6 @@
       const flicker = 0.72 + Math.sin(now / 58 + seed * 8) * 0.18;
       const outerAlpha = alphaBase * (ultra ? 0.34 : 0.48) * flicker;
       const coreAlpha = alphaBase * (ultra ? 0.48 : 0.70) * flicker;
-
-      item.boostAura.setPosition(item.current.x, item.current.y);
-      item.boostAura.setRotation(0);
 
       item.boostAura.lineStyle(ultra ? 2 : 2.6, 0xff9f1c, coreAlpha);
       item.boostAura.beginPath();
@@ -8124,16 +8143,10 @@
 
     localCollisionSignature(role) {
       if (!this.map) return `${role}:no-map`;
-      const pallets = currentSnapshot?.map?.pallets || this.map?.pallets || [];
-      const palletKey = pallets
-        .map((p) => `${p.id || ""}:${Math.round(p.x)}:${Math.round(p.y)}:${Math.round(p.w)}:${Math.round(p.h)}:${p.state || ""}:${p.broken ? 1 : 0}`)
-        .join("|");
-      const generatorKey = role === "survivor"
-        ? this.visibleGenerators()
-            .map((g) => `${g.id || ""}:${Math.round(g.x)}:${Math.round(g.y)}:${g.done ? 1 : 0}`)
-            .join("|")
-        : "";
-      return `${this.localCollisionCacheEpoch || 0}:${role}:${this.map.width}:${this.map.height}:${palletKey}:${generatorKey}`;
+      // Epoch is bumped on every snapshot (applySnapshot) and on loadMap, so
+      // pallet/generator changes are captured without rebuilding a long string
+      // on every collision query call (which can be hundreds of times per frame).
+      return `${this.localCollisionCacheEpoch || 0}:${role}`;
     }
 
     buildLocalCollisionGrid(rects) {
@@ -8197,8 +8210,13 @@
       const maxX = Math.floor((box.x + box.w) / cellSize);
       const minY = Math.floor(box.y / cellSize);
       const maxY = Math.floor((box.y + box.h) / cellSize);
-      const seen = new Set();
-      const results = [];
+      // Reuse scene-level scratch buffers to avoid per-call Set/Array allocation.
+      // Safe because JS is single-threaded and callers consume the result before
+      // the next call (no async gaps, no stored references across calls).
+      const seen = this._collisionSeenScratch;
+      seen.clear();
+      const results = this._collisionResultsScratch;
+      results.length = 0;
       for (let cy = minY; cy <= maxY; cy += 1) {
         for (let cx = minX; cx <= maxX; cx += 1) {
           const bucket = cache.grid.get(`${cx},${cy}`);
@@ -8308,16 +8326,79 @@
           continue;
         }
 
-        if (tryX) {
+        // Guard: only take single-axis slides when they produce actual movement.
+        // Without this, pressing into a corner with no perpendicular input causes
+        // the trivially-valid opposite-axis "slide" to fire as a no-op every step,
+        // skipping the corner correction and peel-off nudges below.
+        if (tryX && Math.abs(desiredX - startX) > 0.0001) {
           this.localVisual.x = desiredX;
           moved = true;
           continue;
         }
 
-        if (tryY) {
+        if (tryY && Math.abs(desiredY - startY) > 0.0001) {
           this.localVisual.y = desiredY;
           moved = true;
           continue;
+        }
+
+        // Corner correction: mirrors the server logic so client prediction stays
+        // in sync. When an axis slide is blocked by a small corner clip, compute
+        // the exact perpendicular penetration depth and nudge the character just
+        // enough to glide around the wall tip.
+        {
+          const bodySize = role === "killer" ? LOCAL_SPEEDS.killerSize : LOCAL_SPEEDS.survivorSize;
+          const cornerThreshold = bodySize * 0.45;
+
+          if (Math.abs(stepX) > 0.0001) {
+            const boxX = actorRect({ role }, desiredX, startY);
+            const candidates = this.localCollisionCandidatesForBox(role, boxX);
+            let yCorr = 0;
+            let canCornerX = true;
+            for (const r of candidates) {
+              if (!rectsOverlap(boxX, r)) continue;
+              const overlapTop = (boxX.y + boxX.h) - r.y;
+              const overlapBot = (r.y + r.h) - boxX.y;
+              if (Math.min(overlapTop, overlapBot) > cornerThreshold) { canCornerX = false; break; }
+              const c = overlapTop < overlapBot ? -overlapTop : overlapBot;
+              if (yCorr !== 0 && Math.sign(c) !== Math.sign(yCorr)) { canCornerX = false; break; }
+              if (Math.abs(c) > Math.abs(yCorr)) yCorr = c;
+            }
+            if (canCornerX && yCorr !== 0) {
+              const cy = clamp(startY + yCorr, 36, this.map.height - 36);
+              if (!this.localWouldCollide(role, desiredX, cy)) {
+                this.localVisual.x = desiredX;
+                this.localVisual.y = cy;
+                moved = true;
+                continue;
+              }
+            }
+          }
+
+          if (Math.abs(stepY) > 0.0001) {
+            const boxY = actorRect({ role }, startX, desiredY);
+            const candidates = this.localCollisionCandidatesForBox(role, boxY);
+            let xCorr = 0;
+            let canCornerY = true;
+            for (const r of candidates) {
+              if (!rectsOverlap(boxY, r)) continue;
+              const overlapLeft = (boxY.x + boxY.w) - r.x;
+              const overlapRight = (r.x + r.w) - boxY.x;
+              if (Math.min(overlapLeft, overlapRight) > cornerThreshold) { canCornerY = false; break; }
+              const c = overlapLeft < overlapRight ? -overlapLeft : overlapRight;
+              if (xCorr !== 0 && Math.sign(c) !== Math.sign(xCorr)) { canCornerY = false; break; }
+              if (Math.abs(c) > Math.abs(xCorr)) xCorr = c;
+            }
+            if (canCornerY && xCorr !== 0) {
+              const cx = clamp(startX + xCorr, 36, this.map.width - 36);
+              if (!this.localWouldCollide(role, cx, desiredY)) {
+                this.localVisual.x = cx;
+                this.localVisual.y = desiredY;
+                moved = true;
+                continue;
+              }
+            }
+          }
         }
 
         // Last-resort peel-off for convex corners. This mirrors the server, so the
@@ -9644,7 +9725,16 @@
       if (!g) return;
       const visibleProjectiles = currentSnapshot?.runnerProjectiles || [];
       const visibleSmokeClouds = currentSnapshot?.smokeClouds || [];
-      this.drawSmokeClouds(dt);
+
+      // Throttle smoke redraws to particleFps (60 in normal, lower in degraded modes).
+      // Smoke is ambient/decorative — it doesn't need to redraw at 144 Hz.
+      this._smokeRedrawTimer = (this._smokeRedrawTimer || 0) + dt;
+      const smokeInterval = 1 / Math.max(1, performanceValue("particleFps", 60));
+      if (this._smokeRedrawTimer >= smokeInterval || !visibleSmokeClouds.length) {
+        this._smokeRedrawTimer = 0;
+        this.drawSmokeClouds(dt);
+      }
+
       const hasFx = this.shockwaves.length > 0 || this.particles.length > 0 || visibleProjectiles.length > 0 || (this.runnerProjectileVisuals?.size || 0) > 0;
       if (!hasFx) {
         if (this.particleLayerDirty) {

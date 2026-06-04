@@ -177,9 +177,9 @@ const RIFTRUNNER_RUNNER_CLASS_CONFIG = {
       shootAbility: true,
       projectileKind: "boost",
       levels: [
-        { level: 1, minRunnerLevel: 1, speedMultiplier: 1.20, duration: 3, radius: 108, projectileSpeed: 1500, range: 620, cooldown: 60, cost: 2, hidesScratchMarks: false, label: "1.2x boost" },
-        { level: 2, minRunnerLevel: 6, speedMultiplier: 1.40, duration: 4, radius: 116, projectileSpeed: 1600, range: 660, cooldown: 45, cost: 2, hidesScratchMarks: false, label: "1.4x boost" },
-        { level: 3, minRunnerLevel: 14, speedMultiplier: 1.80, duration: 5, radius: 124, projectileSpeed: 1720, range: 700, cooldown: 30, cost: 2, hidesScratchMarks: true, scratchHideDuration: 5, label: "1.8x boost + hidden scratch marks" }
+        { level: 1, minRunnerLevel: 1, speedMultiplier: 1.15, duration: 3, radius: 108, projectileSpeed: 1500, range: 620, cooldown: 60, cost: 2, hidesScratchMarks: false, label: "1.15x boost" },
+        { level: 2, minRunnerLevel: 6, speedMultiplier: 1.28, duration: 4, radius: 116, projectileSpeed: 1600, range: 660, cooldown: 45, cost: 2, hidesScratchMarks: false, label: "1.28x boost" },
+        { level: 3, minRunnerLevel: 14, speedMultiplier: 1.50, duration: 5, radius: 124, projectileSpeed: 1720, range: 700, cooldown: 30, cost: 2, hidesScratchMarks: true, scratchHideDuration: 5, label: "1.5x boost + hidden scratch marks" }
       ]
     },
     swiftVault: {
@@ -195,9 +195,9 @@ const RIFTRUNNER_RUNNER_CLASS_CONFIG = {
       summary: "Prime your next window or pallet vault to trigger a speed boost.",
       detail: "The boost triggers after your next vault, rewarding planned routes through windows or pallets.",
       levels: [
-        { level: 1, minRunnerLevel: 1, speedMultiplier: 1.20, boostDuration: 2, duration: 10, cooldown: 60, cost: 5, label: "1.2x for 2s" },
-        { level: 2, minRunnerLevel: 6, speedMultiplier: 1.40, boostDuration: 3, duration: 12, cooldown: 45, cost: 5, label: "1.4x for 3s" },
-        { level: 3, minRunnerLevel: 14, speedMultiplier: 1.80, boostDuration: 4, duration: 14, cooldown: 30, cost: 5, label: "1.8x for 4s" }
+        { level: 1, minRunnerLevel: 1, speedMultiplier: 1.15, boostDuration: 2, duration: 10, cooldown: 60, cost: 5, label: "1.15x for 2s" },
+        { level: 2, minRunnerLevel: 6, speedMultiplier: 1.28, boostDuration: 3, duration: 12, cooldown: 45, cost: 5, label: "1.28x for 3s" },
+        { level: 3, minRunnerLevel: 14, speedMultiplier: 1.50, boostDuration: 4, duration: 14, cooldown: 30, cost: 5, label: "1.5x for 4s" }
       ]
     },
     healingDart: {
