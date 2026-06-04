@@ -5524,6 +5524,7 @@
               : 0;
             state.targetAlpha = Math.max(forwardAlpha, backAlpha);
           }
+          state.targetAlpha = this.applySmokeVisionAlpha(state.targetAlpha, subject, gen.x, gen.y);
         }
         const rate = state.targetAlpha > state.alpha ? WALL_VISION.FADE_IN_PER_SECOND : WALL_VISION.FADE_OUT_PER_SECOND;
         const next = lerp(state.alpha, state.targetAlpha, dampAlpha(rate, dt));
@@ -6042,11 +6043,12 @@
       const hudRole = me.role === "killer" ? "killer" : me.role === "spectator" ? "spectator" : "survivor";
       ui.hud.dataset.role = hudRole;
       ui.roleLabel.textContent = hudRole === "killer" ? "The Void" : hudRole === "spectator" ? "Spectator" : `${runnerClassLabel(me.runnerClass)} Runner`;
+      const abilityTestHint = abilityTestingEnabled(me) ? " • Ability test ON (' cycles levels)" : "";
       ui.controlsLabel.textContent = hudRole === "killer"
-        ? "WASD move • Mouse aim • M1 attack/lunge • Space vault/break • hold E bind/execute/kick Rift • hold Q abilities • hold R chat"
+        ? `WASD move • Mouse aim • M1 attack/lunge • Space vault/break • hold E bind/execute/kick Rift • hold Q abilities • hold R chat${abilityTestHint}`
         : hudRole === "spectator"
           ? "Tab / Shift+Tab — switch camera • overview after players"
-          : "WASD move • Shift sprint • Mouse flashlight • Space vault/drop • hold Q abilities • collect orbs, stand near active Rifts to deposit • stand still near teammates to heal/rescue • hold R chat";
+          : `WASD move • Shift sprint • Mouse flashlight • M1 class dart • Space vault/drop • hold Q abilities • collect orbs, stand near active Rifts to deposit • stand still near teammates to heal/rescue • hold R chat${abilityTestHint}`;
       const shownDone = Math.min(done, required);
       ui.genText.textContent = `${shownDone} / ${required}${total > required ? ` (${total} on map)` : ""}`;
       if (ui.bigGenText) ui.bigGenText.textContent = `${shownDone} / ${required}`;
@@ -6093,7 +6095,9 @@
     updateScratchGraphics(marks) {
       const g = this.scratchGraphics;
       g.clear();
+      const subject = this.getCameraSubjectItem();
       for (const mark of marks) {
+        if (this.pointBlockedBySmoke(subject, mark.x, mark.y)) continue;
         const alpha = clamp((mark.ttl || 0) / 4, 0, 1) * 0.85;
         const len = 22;
         const a = mark.angle || 0;
@@ -6137,6 +6141,69 @@
         }
       }
       return true;
+    }
+
+    activeSmokeClouds() {
+      return (currentSnapshot?.smokeClouds || []).filter((cloud) => cfgNumber(cloud?.remaining, cloud?.duration ?? 0) > 0);
+    }
+
+    smokeContainsPoint(cloud, x, y) {
+      if (!cloud || !Number.isFinite(x) || !Number.isFinite(y)) return false;
+      return Math.hypot(cloud.x - x, cloud.y - y) <= Math.max(0, cfgNumber(cloud.radius, 0));
+    }
+
+    smokeBlocksViewerPoint(viewerX, viewerY, pointX, pointY) {
+      const clouds = this.activeSmokeClouds();
+      if (!clouds.length) return false;
+      const viewerClouds = clouds.filter((cloud) => this.smokeContainsPoint(cloud, viewerX, viewerY));
+      const pointClouds = clouds.filter((cloud) => this.smokeContainsPoint(cloud, pointX, pointY));
+      if (viewerClouds.length) {
+        return !viewerClouds.some((cloud) => this.smokeContainsPoint(cloud, pointX, pointY));
+      }
+      if (!pointClouds.length) return false;
+      return true;
+    }
+
+    getViewerSmokePosition(subject) {
+      return {
+        x: subject?.current?.x ?? subject?.container?.x ?? 0,
+        y: subject?.current?.y ?? subject?.container?.y ?? 0
+      };
+    }
+
+    pointBlockedBySmoke(subject, worldX, worldY) {
+      if (this.isSpectatorOverviewMode() || !subject) return false;
+      const { x, y } = this.getViewerSmokePosition(subject);
+      return this.smokeBlocksViewerPoint(x, y, worldX, worldY);
+    }
+
+    applySmokeVisionAlpha(baseAlpha, subject, worldX, worldY) {
+      if (baseAlpha <= 0 || this.pointBlockedBySmoke(subject, worldX, worldY)) return 0;
+      return baseAlpha;
+    }
+
+    smokeRevealsKillerToViewer(subject, actorData, actorX, actorY) {
+      const viewerData = subject?.data;
+      if (!viewerData || viewerData.role !== "survivor" || actorData?.role !== "killer") return false;
+      const revealRadius = Math.max(0, cfgNumber(runnerClassPassive(viewerData)?.smokeKillerRevealRadius, 0));
+      if (revealRadius <= 0) return false;
+      const { x: vx, y: vy } = this.getViewerSmokePosition(subject);
+      if (Math.hypot(actorX - vx, actorY - vy) > revealRadius) return false;
+      return this.activeSmokeClouds().some((cloud) => this.smokeContainsPoint(cloud, vx, vy));
+    }
+
+    applySmokeMaskToWallVision(subject) {
+      if (!subject || !this.wallVisuals?.length || this.isSpectatorOverviewMode()) return;
+      for (const item of this.wallVisuals) {
+        if (item.alpha <= 0 && item.targetAlpha <= 0) continue;
+        const sampleX = item.centerX ?? item.rect?.x ?? 0;
+        const sampleY = item.centerY ?? item.rect?.y ?? 0;
+        if (this.pointBlockedBySmoke(subject, sampleX, sampleY)) {
+          item.targetAlpha = 0;
+          item.alpha = 0;
+          item.graphics?.setVisible(false);
+        }
+      }
     }
 
     shouldRevealVoidToHookedLocal(data, actors) {
@@ -8394,6 +8461,7 @@
 
     computePointVisionAlpha(worldX, worldY, subject) {
       if (!subject) return 0;
+      if (this.pointBlockedBySmoke(subject, worldX, worldY)) return 0;
       const sourceX = subject?.current?.x ?? subject?.container?.x ?? 0;
       const sourceY = subject?.current?.y ?? subject?.container?.y ?? 0;
       let best = 0;
@@ -8437,6 +8505,12 @@
           target = item.serverVisible
             ? (subject ? this.computePointVisionAlpha(item.current.x, item.current.y, subject) : 1)
             : 0;
+        }
+
+        if (!overviewVision && id !== myId && subject && this.pointBlockedBySmoke(subject, item.current.x, item.current.y)) {
+          if (!this.smokeRevealsKillerToViewer(subject, data, item.current.x, item.current.y)) {
+            target = 0;
+          }
         }
 
         item.visionTargetAlpha = target;
@@ -8541,6 +8615,7 @@
         // Low-performance Void POV does not need per-frame wall fading math. The Void
         // should read the whole arena while local prediction gets the CPU budget.
         this.applyKillerFullWallVisionIfStable();
+        this.applySmokeMaskToWallVision(subject);
         return;
       }
 
@@ -8568,6 +8643,9 @@
               : 0;
             item.targetAlpha = Math.max(forwardAlpha, backAlpha);
           }
+          const sampleX = item.centerX ?? item.rect?.x ?? 0;
+          const sampleY = item.centerY ?? item.rect?.y ?? 0;
+          item.targetAlpha = this.applySmokeVisionAlpha(item.targetAlpha, subject, sampleX, sampleY);
         }
 
         const rate = item.targetAlpha > item.alpha ? fadeInRate : fadeOutRate;
@@ -9443,6 +9521,8 @@
       g.clear();
       if (!clouds.length) return;
       const now = performance.now();
+      const subject = this.getCameraSubjectItem();
+      const viewerPos = subject && !this.isSpectatorOverviewMode() ? this.getViewerSmokePosition(subject) : null;
       for (const cloud of clouds) {
         const lifeRatio = clamp(cloud.remaining / Math.max(0.1, cloud.duration), 0, 1);
         const fadeIn = clamp((cloud.duration - cloud.remaining) / 0.45, 0, 1);
@@ -9511,6 +9591,16 @@
         g.fillCircle(cloud.x + radius * 0.10, cloud.y - radius * 0.05, radius * 0.26);
         g.lineStyle(LOW_POWER_MODE ? 1.2 : 1.8, 0xe9d5ff, alpha * 0.16);
         g.strokeCircle(cloud.x, cloud.y, radius * 1.02);
+
+        if (viewerPos && this.smokeContainsPoint(cloud, viewerPos.x, viewerPos.y)) {
+          g.fillStyle(0x03010a, 0.52);
+          g.beginPath();
+          g.arc(cloud.x, cloud.y, radius * 1.34, 0, Math.PI * 2);
+          g.arc(cloud.x, cloud.y, radius * 0.90, 0, Math.PI * 2, true);
+          g.fillPath();
+          g.lineStyle(LOW_POWER_MODE ? 2 : 2.6, 0x12081f, 0.72);
+          g.strokeCircle(cloud.x, cloud.y, radius * 1.02);
+        }
       }
     }
 

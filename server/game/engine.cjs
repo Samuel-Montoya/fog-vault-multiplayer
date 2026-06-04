@@ -30,6 +30,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
   const server = http.createServer(app);
 
   const IS_PRODUCTION = process.env.NODE_ENV === "production";
+  const DEV_SERVER = process.argv.includes("--dev") || process.env.VITE_DEV_SERVER === "1";
   const PORT = Number(process.env.PORT) || 3000;
   const HOST = process.env.HOST || "0.0.0.0";
   const PUBLIC_DIR = path.join(ROOT_DIR, "public");
@@ -638,6 +639,15 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     if (!actor) return;
     actor.voidAbilityCooldowns = {};
     actor.survivorAbilityCooldowns = {};
+  }
+
+  function enableAbilityTestingForActor(actor, level = 3) {
+    if (!actor || (actor.role !== "survivor" && actor.role !== "killer")) return 0;
+    const nextLevel = Math.max(1, Math.min(3, Math.floor(cfgNumber(level, 3))));
+    actor.abilityTestLevel = nextLevel;
+    actor.abilityTestMode = true;
+    resetActorAbilityCooldowns(actor);
+    return nextLevel;
   }
 
   function getVoidAbilityDef(id, actor = null) {
@@ -2856,6 +2866,18 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     }
 
     botAi.assignRunnerBotPersonalities(game);
+
+    if (DEV_SERVER) {
+      for (const actor of game.actors.values()) enableAbilityTestingForActor(actor, 3);
+      io.to(lobby.id).emit("toast", {
+        message: "Dev mode: ability testing Lv 3 is ON — all perks unlocked, zero cost/cooldown. Pick Nebulizer for smoke, then M1 to fire. Press ' to cycle test levels."
+      });
+      for (const player of players) {
+        if (player.role === "survivor" || player.role === "killer") {
+          io.to(player.id).emit("abilityTestModeChanged", { enabled: true, level: 3 });
+        }
+      }
+    }
 
     lobby.phase = "game";
     lobby.game = game;

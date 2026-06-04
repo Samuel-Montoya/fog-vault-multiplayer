@@ -463,7 +463,14 @@ function registerSocketHandlers(context) {
       const result = typeof toggleAbilityTestMode === "function"
         ? toggleAbilityTestMode(lobby, socket.id)
         : { ok: false, message: "Ability test mode is not wired in." };
-      if (!result.ok) socket.emit("toast", { type: "error", message: result.message || "Ability test mode could not be changed." });
+      if (result.message) {
+        socket.emit("toast", {
+          type: result.ok ? "info" : "error",
+          message: result.message
+        });
+      } else if (!result.ok) {
+        socket.emit("toast", { type: "error", message: "Ability test mode could not be changed." });
+      }
     });
 
     socket.on("runnerShootAbilityFire", (payload = {}) => {
