@@ -22,7 +22,8 @@ const GAMEPLAY_CONFIG = {
     startFreezeSeconds: 1.5,
     maxSurvivors: 4,
     requiredRiftsToComplete: 4,
-    scratchMarkMax: 45
+    scratchMarkMax: 75,
+    scratchMarkTtl: 6.5
   },
 
   lighting: {
@@ -183,7 +184,7 @@ const GAMEPLAY_CONFIG = {
     breakTime: 1.25,
     coneLength: 920,
     coneAngle: Math.PI / 1.75,
-    scratchMarkVisibilityRange: 520,
+    scratchMarkVisibilityRange: 650,
     hookMinDistance: 430,
     clientConeLength: 1080,
     clientConeAngle: Math.PI / 1.62
@@ -272,6 +273,21 @@ const GAMEPLAY_CONFIG = {
     respawnBatch: 5
   },
 
+  dartBoxes: {
+    maxAmmo: 3,
+    collectorMaxAmmo: 15,
+    fireLockoutSeconds: 0.5,
+    collectSeconds: 2,
+    movingCollectMultiplier: 0.44,
+    interactRadius: 74,
+    aoeRadius: 220,
+    minTileSpacing: 7.0,
+    spawnFloorRatio: 0.0052,
+    spawnMin: 3,
+    maxOnMap: 5,
+    respawnSeconds: 24
+  },
+
   hook: {
     channelTime: 1.35,
     executeTime: 2.15,
@@ -293,6 +309,9 @@ const GAMEPLAY_CONFIG = {
     startRadius: 520,
     holdSeconds: 3,
     closeRevealRadius: 120,
+    // Runners passively reveal The Void a little farther inside the tiny awareness bubble.
+    // This does not change the normal forward vision cone or nearby orb/object visibility.
+    survivorKillerCloseRevealRadius: 185,
     musicLayer1Volume: 0.12,
     // Layer 2 is the warning layer before a full chase. It starts farther out than
     // the terror UI so players feel the threat coming instead of getting silent jumpscared.

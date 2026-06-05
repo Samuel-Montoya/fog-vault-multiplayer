@@ -198,13 +198,42 @@ function getMaxPerkLevel(perk) {
   return Math.max(1, Math.min(configured, levels.length ? Math.max(...levels) : configured));
 }
 
+function getPerkDefaultLevel(perk) {
+  if (!perk) return 0;
+  const rawDefault = perk.defaultLevel ?? (perk.passive || perk.alwaysUnlocked ? 1 : 0);
+  const level = Math.floor(Number(rawDefault || 0));
+  if (!Number.isFinite(level) || level <= 0) return 0;
+  return Math.max(0, Math.min(getMaxPerkLevel(perk), level));
+}
+
+function getPerkEffectiveLevel(perk, storedLevel = 0) {
+  const maxLevel = getMaxPerkLevel(perk);
+  const boughtLevel = Math.max(0, Math.min(maxLevel, Math.floor(Number(storedLevel || 0))));
+  return Math.max(getPerkDefaultLevel(perk), boughtLevel);
+}
+
+function seedDefaultPerks(out, roleFilter = null) {
+  const roles = perkCatalog.roles || {};
+  for (const [role, roleDef] of Object.entries(roles)) {
+    const normalizedRole = normalizePerkRole(role);
+    if (roleFilter && normalizedRole !== roleFilter) continue;
+    for (const perk of Object.values(roleDef?.perks || {})) {
+      const defaultLevel = getPerkDefaultLevel({ ...perk, role: normalizePerkRole(perk.role || role) });
+      if (defaultLevel <= 0) continue;
+      out.all[perk.id] = Math.max(out.all[perk.id] || 0, defaultLevel);
+      out[normalizedRole][perk.id] = Math.max(out[normalizedRole][perk.id] || 0, defaultLevel);
+    }
+  }
+  return out;
+}
+
 function getPerkLevelConfig(perk, level) {
   const target = Math.max(1, Math.floor(Number(level || 1)));
   return perkLevelRows(perk).find((row) => Math.floor(Number(row.level || 0)) === target) || null;
 }
 
 function getPerkNextCost(perk, currentLevel) {
-  const level = Math.max(0, Math.floor(Number(currentLevel || 0)));
+  const level = getPerkEffectiveLevel(perk, currentLevel);
   const maxLevel = getMaxPerkLevel(perk);
   if (level >= maxLevel) return 0;
   const target = getPerkLevelConfig(perk, level + 1);
@@ -247,7 +276,12 @@ function publicPerkCatalog() {
         slowMultiplier: level.slowMultiplier == null ? undefined : Number(level.slowMultiplier),
         slowSeconds: level.slowSeconds == null ? undefined : Number(level.slowSeconds),
         hidesScratchMarks: level.hidesScratchMarks == null ? undefined : !!level.hidesScratchMarks,
-        scratchHideDuration: level.scratchHideDuration == null ? undefined : Number(level.scratchHideDuration)
+        scratchHideDuration: level.scratchHideDuration == null ? undefined : Number(level.scratchHideDuration),
+        orbPickupRadiusMultiplier: level.orbPickupRadiusMultiplier == null ? undefined : Number(level.orbPickupRadiusMultiplier),
+        smokeKillerRevealRadius: level.smokeKillerRevealRadius == null ? undefined : Number(level.smokeKillerRevealRadius),
+        vaultSpeedMultiplier: level.vaultSpeedMultiplier == null ? undefined : Number(level.vaultSpeedMultiplier),
+        healActionSpeedMultiplier: level.healActionSpeedMultiplier == null ? undefined : Number(level.healActionSpeedMultiplier),
+        unhookActionSpeedMultiplier: level.unhookActionSpeedMultiplier == null ? undefined : Number(level.unhookActionSpeedMultiplier)
       }));
       catalog.push({
         id: perk.id,
@@ -258,6 +292,9 @@ function publicPerkCatalog() {
         abilityCost: Math.max(0, Math.floor(Number(perk.abilityCost || 0))),
         cooldown: Math.max(0, Number(perk.cooldown || 0)),
         classAbility: perk.classAbility == null ? undefined : !!perk.classAbility,
+        passive: perk.passive == null ? undefined : !!perk.passive,
+        alwaysUnlocked: perk.alwaysUnlocked == null ? undefined : !!perk.alwaysUnlocked,
+        defaultLevel: getPerkDefaultLevel({ ...perk, role: normalizePerkRole(perk.role || normalizedRole) }) || undefined,
         classId: perk.classId == null ? undefined : String(perk.classId),
         inputType: perk.inputType == null ? undefined : String(perk.inputType),
         shootAbility: perk.shootAbility == null ? undefined : !!perk.shootAbility,
@@ -349,15 +386,15 @@ async function getOwnedPerks(accountId, client = null) {
     `SELECT perk_id, perk_role, level FROM account_perks WHERE account_id = $1`,
     [accountId]
   );
-  const out = { all: {}, survivor: {}, killer: {} };
+  const out = seedDefaultPerks({ all: {}, survivor: {}, killer: {} });
   for (const row of result.rows) {
     const perk = getPerkDef(row.perk_id);
     if (!perk) continue;
     const role = normalizePerkRole(row.perk_role || perk.role);
-    const level = Math.max(0, Math.min(getMaxPerkLevel(perk), Math.floor(Number(row.level || 0))));
+    const level = getPerkEffectiveLevel(perk, row.level);
     if (level <= 0) continue;
-    out.all[perk.id] = level;
-    out[role][perk.id] = level;
+    out.all[perk.id] = Math.max(out.all[perk.id] || 0, level);
+    out[role][perk.id] = Math.max(out[role][perk.id] || 0, level);
   }
   return out;
 }
@@ -496,7 +533,8 @@ async function purchasePerk(accountId, perkId) {
       `SELECT level FROM account_perks WHERE account_id = $1 AND perk_id = $2 FOR UPDATE`,
       [accountId, perk.id]
     );
-    const currentLevel = Math.max(0, Math.floor(Number(current.rows[0]?.level || 0)));
+    const storedLevel = Math.max(0, Math.floor(Number(current.rows[0]?.level || 0)));
+    const currentLevel = getPerkEffectiveLevel(perk, storedLevel);
     if (currentLevel >= maxLevel) throw new Error(`${perk.name || "Perk"} is already max level.`);
     const targetLevel = currentLevel + 1;
     const cost = getPerkNextCost(perk, currentLevel);

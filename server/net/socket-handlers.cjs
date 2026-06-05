@@ -36,7 +36,6 @@ function registerSocketHandlers(context) {
     applyVoidAbility,
     applySurvivorAbility,
     fireRunnerShootAbility,
-    fireRallyDart,
     getChatWheelMessagesForActor,
     setActorChat,
     nowMs
@@ -474,18 +473,7 @@ function registerSocketHandlers(context) {
       const result = typeof fireRunnerShootAbility === "function"
         ? fireRunnerShootAbility(lobby.game, actor, payload)
         : { ok: false, message: "Runner projectile ability is not ready." };
-      if (!result.ok) socket.emit("toast", { type: "error", message: result.message || "Runner projectile ability cannot be fired." });
-    });
-
-    socket.on("rallyDartFire", (payload = {}) => {
-      if (!allowSocketEvent(socket, "action")) return;
-      const lobby = lobbies.get(socketToLobby.get(socket.id));
-      if (!lobby || !lobby.game || lobby.game.phase !== "game") return;
-      const actor = lobby.game.actors.get(socket.id);
-      const result = typeof fireRallyDart === "function"
-        ? fireRallyDart(lobby.game, actor, payload)
-        : { ok: false, message: "Rally Dart is not ready." };
-      if (!result.ok) socket.emit("toast", { type: "error", message: result.message || "Rally Dart cannot be fired." });
+      if (!result.ok && !result.noAmmo) socket.emit("toast", { type: "error", message: result.message || "Runner projectile ability cannot be fired." });
     });
 
     socket.on("chatWheel", (payload = {}) => {

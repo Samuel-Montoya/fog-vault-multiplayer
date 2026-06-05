@@ -77,59 +77,6 @@ const RIFTRUNNER_ABILITIES = {
       cancel: true,
       disabled: true
     },
-
-    // Legacy ids stay here as harmless compatibility definitions for older accounts/screens.
-    speedBurst: {
-      id: "speedBurst",
-      name: "Speed Burst",
-      shortName: "Burst",
-      cost: 10,
-      duration: 5,
-      cooldown: 60,
-      summary: "Legacy Runner speed boost.",
-      detail: "Kept for old perk data. New Escapist gameplay uses Dash Dart and Swift Vault.",
-      accent: "orange"
-    },
-    rallyDart: {
-      id: "rallyDart",
-      name: "Rally Dart",
-      shortName: "Dart",
-      cost: 2,
-      duration: 3,
-      cooldown: 60,
-      radius: 112,
-      projectileSpeed: 1500,
-      range: 620,
-      speedMultiplier: 1.2,
-      summary: "Legacy support dart.",
-      detail: "Kept for old perk data. New Escapist gameplay uses Dash Dart.",
-      accent: "orange",
-      inputType: "m1",
-      shootAbility: true,
-      projectileKind: "boost"
-    },
-    riftLens: {
-      id: "riftLens",
-      name: "Rift Lens",
-      shortName: "Lens",
-      cost: 10,
-      duration: 15,
-      cooldown: 30,
-      summary: "Legacy cone widen.",
-      detail: "Kept for old perk data. New Collector gameplay uses Collection Bolt and Double Orb.",
-      accent: "yellow"
-    },
-    hourglass: {
-      id: "hourglass",
-      name: "Hourglass",
-      shortName: "Hourglass",
-      cost: 10,
-      duration: 5,
-      cooldown: 30,
-      summary: "Legacy rear vision.",
-      detail: "Kept for old perk data. New classes use their own tools.",
-      accent: "cyan"
-    }
   }
 };
 

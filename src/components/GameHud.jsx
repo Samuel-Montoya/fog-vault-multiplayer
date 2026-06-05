@@ -11,10 +11,10 @@ const VOID_ABILITY_WHEEL_FALLBACK = [
 ]
 
 const RUNNER_ABILITY_WHEEL_FALLBACK = [
-  { id: "speedBurst", name: "Speed Burst", shortName: "Burst", cost: 10, summary: "Small speed boost.", accent: "orange", cooldown: 60 },
-  { id: "riftLens", name: "Rift Lens", shortName: "Lens", cost: 10, summary: "Widen your vision cone.", accent: "yellow", cooldown: 30 },
+  { id: "collectionBolt", name: "Collection Bolt", shortName: "Collect", cost: 0, summary: "Collect orbs with dart ammo.", accent: "yellow", cooldown: 3, inputType: "m1", shootAbility: true },
+  { id: "doubleOrb", name: "Double Orb", shortName: "Double", cost: 10, summary: "Briefly multiply orb pickups.", accent: "yellow", cooldown: 30 },
   { id: "cancel", name: "Cancel", shortName: "Cancel", cost: 0, summary: "Close the wheel.", accent: "muted", cancel: true },
-  { id: "hourglass", name: "Hourglass", shortName: "Hourglass", cost: 10, summary: "Rear cone + no trails.", accent: "cyan", cooldown: 30 }
+  { id: "moreSoon", name: "More Soon", shortName: "Soon", cost: 0, summary: "More class tools later.", accent: "muted", cancel: true, disabled: true }
 ]
 
 function abilityFallbackForRole(role) {
@@ -43,8 +43,15 @@ function normalizeAbilities(abilities, role = "killer") {
       active: !!ability?.active,
       cooldown: Number.isFinite(Number(ability?.cooldown)) ? Number(ability.cooldown) : Number(fallback[index]?.cooldown || (role === "survivor" ? 30 : 20)),
       cooldownRemaining: Math.max(0, Number.isFinite(Number(ability?.cooldownRemaining)) ? Number(ability.cooldownRemaining) : 0),
+      inputType: ability?.inputType || (ability?.shootAbility ? "m1" : "q"),
+      shootAbility: !!ability?.shootAbility,
+      ammo: ability?.ammo == null ? null : Math.max(0, Math.floor(Number(ability.ammo || 0))),
+      maxAmmo: ability?.maxAmmo == null ? null : Math.max(1, Math.floor(Number(ability.maxAmmo || 1))),
+      reloadRemaining: Math.max(0, Number(ability?.reloadRemaining || 0)),
+      fireLockoutRemaining: Math.max(0, Number(ability?.fireLockoutRemaining || ability?.cooldownRemaining || 0)),
       locked: !!ability?.locked,
       testMode: !!ability?.testMode,
+      testLevel: Math.max(0, Number.isFinite(Number(ability?.testLevel)) ? Number(ability.testLevel) : 0),
       level: Math.max(0, Number.isFinite(Number(ability?.level)) ? Number(ability.level) : 0),
       maxLevel: Math.max(1, Number.isFinite(Number(ability?.maxLevel)) ? Number(ability.maxLevel) : 4)
     }
@@ -70,6 +77,37 @@ function abilityFallbackGlyph(ability) {
   return "✕"
 }
 
+function abilityDisplayName(ability) {
+  if (!ability) return "Ability"
+  const id = String(ability.id || ability.key || "")
+  const isShoot = ability.inputType === "m1" || ability.shootAbility
+  if (!isShoot) return ability.shortName || ability.name || "Ability"
+  if (id === "healingDart") return "Heal Bolt"
+  if (id === "dashDart") return "Dash Bolt"
+  if (id === "smokeDart") return "Smoke Bolt"
+  if (id === "collectionBolt") return "Collect Bolt"
+  return `${String(ability.shortName || ability.name || "Bolt").replace(/\s*Dart$/i, "")} Bolt`
+}
+
+function abilityTierLabel(ability) {
+  if (!ability || ability.cancel || ability.passive || ability.disabled) return ""
+  if (ability.locked) return "Locked"
+  const rawLevel = ability.testMode ? (ability.testLevel || ability.level) : ability.level
+  const level = Math.max(0, Math.floor(Number(rawLevel || 0)))
+  const maxLevel = Math.max(1, Math.floor(Number(ability.maxLevel || 3)))
+  if (level <= 0) return "Locked"
+  if (level >= Math.min(3, maxLevel) || level >= maxLevel) return "Max Level"
+  return `Tier ${level}`
+}
+
+function abilityWheelHintText(ability, meta) {
+  if (!ability || ability.cancel) return ""
+  if (ability.locked) return "Unlock this perk from the Perks screen."
+  const summary = String(ability.summary || "").replace(/^TEST LV \d+\s*·\s*/i, "").trim()
+  const detail = String(meta?.detail || "").trim()
+  return summary || detail || "Release Q to use this ability."
+}
+
 function abilityStatusMeta(ability) {
   if (!ability) return { label: "", tone: "muted", detail: "" }
   if (ability.cancel) return { label: "Close", tone: "muted", detail: "Release Q to close the wheel." }
@@ -78,6 +116,32 @@ function abilityStatusMeta(ability) {
   if (ability.testMode) {
     const level = Math.max(1, Math.floor(Number(ability.testLevel || ability.level || 1)))
     return { label: `Test Lv ${level}`, tone: "ready", detail: `Ability testing is forcing this perk to level ${level}; cost and cooldown are zero.` }
+  }
+
+  const isShoot = ability.inputType === "m1" || ability.shootAbility
+  if (isShoot) {
+    const ammo = Math.max(0, Math.floor(Number(ability.ammo ?? 0)))
+    const maxAmmo = Math.max(1, Math.floor(Number(ability.maxAmmo ?? 3)))
+    const fireLockout = Math.max(0, Number(ability.fireLockoutRemaining || ability.cooldownRemaining || 0))
+    if (ammo <= 0) {
+      return {
+        label: "No darts",
+        tone: "cooldown",
+        detail: "Find a Dart Box to refill your bolts."
+      }
+    }
+    if (fireLockout > 0) {
+      return {
+        label: `${Math.ceil(fireLockout * 10) / 10}s`,
+        tone: "cooldown",
+        detail: "Bolt chambering. Give the launcher half a second to stop being dramatic."
+      }
+    }
+    return {
+      label: `${ammo}/${maxAmmo}`,
+      tone: "ready",
+      detail: `Ready. ${ammo} of ${maxAmmo} bolts loaded.`
+    }
   }
 
   const cooldownRemaining = Math.max(0, Number(ability.cooldownRemaining || 0))
@@ -222,6 +286,7 @@ export function AbilityWheel() {
           const ready = cancel || ability.passive || ability.available !== false
           const meta = abilityStatusMeta(ability)
           const iconSrc = cancel ? "" : abilityIconSrc(ability)
+          const hint = selected ? abilityWheelHintText(ability, meta) : ""
           return (
             <div
               className={`ability-wheel-segment ability-wheel-${segment.className} ${selected ? "selected" : ""} ${ready ? "can-use" : "locked"} ${ability.active ? "is-active" : ""} ${cancel ? "is-cancel" : ""} accent-${ability.accent || "purple"}`}
@@ -229,6 +294,7 @@ export function AbilityWheel() {
               aria-label={cancel ? "Cancel ability wheel" : `${ability.name}, ${meta.label}`}
               key={`${wheel.role}-${ability.id}-${segment.index}`}
             >
+              {hint ? <div className={`ability-wheel-hint ability-wheel-hint-${segment.className}`}>{hint}</div> : null}
               <div className="ability-wheel-segment-main">
                 {iconSrc ? (
                   <img
@@ -241,7 +307,7 @@ export function AbilityWheel() {
                 ) : (
                   <div className="ability-icon-fallback" aria-hidden="true">{abilityFallbackGlyph(ability)}</div>
                 )}
-                <span className="ability-name">{ability.shortName || ability.name}</span>
+                <span className="ability-name">{abilityDisplayName(ability)}</span>
               </div>
               <span className={`ability-status-pill tone-${meta.tone}`}>{meta.label}</span>
             </div>
@@ -302,9 +368,28 @@ function ActiveAbilityEffects({ effects, className }) {
   ) : null
 }
 
+function AbilityHoldHint() {
+  return (
+    <div className="ability-hold-hint" aria-label="Hold Q for abilities">
+      <span>Hold</span>
+      <kbd className="ability-hold-key">Q</kbd>
+      <span>for abilities</span>
+    </div>
+  )
+}
+
 function abilityReadinessLabel(ability) {
   if (!ability) return ""
   if (ability.locked) return "Locked"
+  const isShoot = ability.inputType === "m1" || ability.shootAbility
+  if (isShoot && !ability.testMode) {
+    const ammo = Math.max(0, Math.floor(Number(ability.ammo ?? 0)))
+    const maxAmmo = Math.max(1, Math.floor(Number(ability.maxAmmo ?? 3)))
+    const fireLockout = Math.max(0, Number(ability.fireLockoutRemaining || ability.cooldownRemaining || 0))
+    if (ammo <= 0) return "No darts"
+    if (fireLockout > 0) return `${Math.ceil(fireLockout * 10) / 10}s`
+    return `${ammo}/${maxAmmo}`
+  }
   const cooldown = Math.max(0, Number(ability.cooldownRemaining || 0))
   if (cooldown > 0) return `${Math.ceil(cooldown)}s`
   if (ability.available === false) return `Need ${Math.max(0, Number(ability.cost || 0))}`
@@ -323,6 +408,7 @@ function AbilityReadinessStrip({ abilities = [], role = "runner" }) {
         const ready = ability.available !== false && !ability.locked && Math.max(0, Number(ability.cooldownRemaining || 0)) <= 0
         const iconSrc = abilityIconSrc(ability)
         const isShoot = ability.inputType === "m1" || ability.shootAbility
+        const tierLabel = abilityTierLabel(ability)
         return (
           <div
             className={`ability-ready-entry ${isShoot ? "has-input" : ""} ${ready ? "is-ready" : "is-unavailable"}`}
@@ -342,7 +428,8 @@ function AbilityReadinessStrip({ abilities = [], role = "runner" }) {
                 )}
               </div>
               <div className="ability-ready-copy">
-                <strong>{ability.shortName || ability.name}</strong>
+                <strong>{abilityDisplayName(ability)}</strong>
+                {tierLabel ? <small>{tierLabel}</small> : null}
                 <span>{abilityReadinessLabel(ability)}</span>
               </div>
             </div>
@@ -368,7 +455,7 @@ function AbilityHudShell({ type }) {
           </div>
         </div>
         <ActiveAbilityEffects effects={hud.effects} className={config.effectsClassName} />
-        <p>Hold <b>Q</b> for abilities</p>
+        <AbilityHoldHint />
       </div>
       <AbilityReadinessStrip abilities={hud.abilities} role={type === "void" ? "void" : "runner"} />
     </>
@@ -442,6 +529,104 @@ function actionLabel(actor) {
   if (actor.healProgress > 0) return "heal"
   if (actor.health <= 1 || actor.injured) return "hurt"
   return "safe"
+}
+
+function SpectateHintCard({ show }) {
+  return show ? (
+    <div className="spectate-hint-card" role="status">
+      <span>Tab</span> switch view
+      <i aria-hidden="true" />
+      <span>Esc</span> exit
+    </div>
+  ) : null
+}
+
+function KillerChatCard({ killerChat }) {
+  return killerChat ? (
+    <div className="survivor-status-card killer-chat-card has-chat">
+      <div className={killerChat.skinClassName} title={killerChat.skinLabel} aria-hidden="true" />
+      <div className="survivor-meta">
+        <div className="survivor-name-row">
+          <span className="survivor-name">{killerChat.name}</span>
+          <span className="survivor-you">VOID</span>
+        </div>
+      </div>
+      <div className="survivor-action">chat</div>
+      {killerChat.chat ? (
+        <div className="survivor-chat survivor-chat-bubble" role="status">&quot;{killerChat.chat}&quot;</div>
+      ) : null}
+    </div>
+  ) : null
+}
+
+function SurvivorStatusCard({ actor, myId }) {
+  return (
+    <div className={`${actor.className}${actor.chat ? " has-chat" : ""}`}>
+      <div className={actor.skinClassName} title={actor.skinLabel} aria-hidden="true" />
+      <div className="survivor-meta">
+        <div className="survivor-name-row">
+          <span className="survivor-name">{actor.name}</span>
+          {actor.id === myId ? <span className="survivor-you">You</span> : null}
+        </div>
+        <div className="survivor-state">{actor.state}</div>
+        <div className="survivor-dots" aria-label="Collectible dots">
+          {actor.dotsHeld} / {SURVIVOR_DOT_MAX}{actor.depositText}
+        </div>
+      </div>
+      <div className="survivor-action">{actor.action}</div>
+      {actor.chat ? (
+        <div className="survivor-chat survivor-chat-bubble" role="status">&quot;{actor.chat}&quot;</div>
+      ) : null}
+    </div>
+  )
+}
+
+function EmptySurvivorState({ show }) {
+  return show ? (
+    <div className="survivor-status-card dead">
+      <div className="survivor-portrait" />
+      <div className="survivor-meta">
+        <div className="survivor-name">No runners</div>
+        <div className="survivor-state">The void is quiet</div>
+      </div>
+      <div className="survivor-action">void</div>
+    </div>
+  ) : null
+}
+
+function RiftCounterCard() {
+  return (
+    <div id="bigGenCounter" className="big-gen-counter hidden" aria-live="polite">
+      <div className="big-gen-icon rift-counter-icon" aria-hidden="true">
+        <span className="rift-counter-core" />
+        <span className="rift-counter-orbit orbit-a" />
+        <span className="rift-counter-orbit orbit-b" />
+        <span className="rift-counter-orbit orbit-c" />
+      </div>
+      <div className="big-gen-copy">
+        <span>Rifts sealed</span>
+        <strong id="bigGenText">0 / 5</strong>
+      </div>
+    </div>
+  )
+}
+
+function MatchStatusCluster({ hud }) {
+  const showEmpty = !hud.survivors.length && !hud.killerChat
+
+  return (
+    <section className="match-status-cluster" aria-label="Match status">
+      <div id="survivorStatusHud" className="survivor-status-list hidden" aria-live="polite">
+        <SpectateHintCard show={hud.spectating && hud.canCycleSpectate} />
+        <KillerChatCard killerChat={hud.killerChat} />
+        {hud.survivors.map((actor) => (
+          <SurvivorStatusCard actor={actor} myId={hud.myId} key={actor.id} />
+        ))}
+        <EmptySurvivorState show={showEmpty} />
+      </div>
+      <RiftCounterCard />
+    </section>
+  )
 }
 
 const CHAT_WHEEL_SEGMENTS = [
@@ -639,61 +824,7 @@ export function SurvivorStatusHud() {
     return () => window.removeEventListener("voidrift:survivor-status-hud", handleHud)
   }, [])
 
-  return (
-    <div id="survivorStatusHud" className="survivor-status-list hidden" aria-live="polite">
-      {hud.spectating && hud.canCycleSpectate && (
-        <div className="spectate-hint-card" role="status">
-          <span>Tab</span> switch view
-          <i aria-hidden="true" />
-          <span>Esc</span> exit
-        </div>
-      )}
-      {hud.killerChat && (
-        <div className="survivor-status-card killer-chat-card has-chat">
-          <div className={hud.killerChat.skinClassName} title={hud.killerChat.skinLabel} aria-hidden="true" />
-          <div className="survivor-meta">
-            <div className="survivor-name-row">
-              <span className="survivor-name">{hud.killerChat.name}</span>
-              <span className="survivor-you">VOID</span>
-            </div>
-          </div>
-          <div className="survivor-action">chat</div>
-          {hud.killerChat.chat && (
-            <div className="survivor-chat survivor-chat-bubble" role="status">&quot;{hud.killerChat.chat}&quot;</div>
-          )}
-        </div>
-      )}
-      {hud.survivors.map((actor) => (
-        <div className={`${actor.className}${actor.chat ? " has-chat" : ""}`} key={actor.id}>
-          <div className={actor.skinClassName} title={actor.skinLabel} aria-hidden="true" />
-          <div className="survivor-meta">
-            <div className="survivor-name-row">
-              <span className="survivor-name">{actor.name}</span>
-              {actor.id === hud.myId && <span className="survivor-you">You</span>}
-            </div>
-            <div className="survivor-state">{actor.state}</div>
-            <div className="survivor-dots" aria-label="Collectible dots">
-              {actor.dotsHeld} / {SURVIVOR_DOT_MAX}{actor.depositText}
-            </div>
-          </div>
-          <div className="survivor-action">{actor.action}</div>
-          {actor.chat && (
-            <div className="survivor-chat survivor-chat-bubble" role="status">&quot;{actor.chat}&quot;</div>
-          )}
-        </div>
-      ))}
-      {!hud.survivors.length && !hud.killerChat && (
-        <div className="survivor-status-card dead">
-          <div className="survivor-portrait" />
-          <div className="survivor-meta">
-            <div className="survivor-name">No runners</div>
-            <div className="survivor-state">The void is quiet</div>
-          </div>
-          <div className="survivor-action">void</div>
-        </div>
-      )}
-    </div>
-  )
+  return <MatchStatusCluster hud={hud} />
 }
 
 export function PointFeed() {
@@ -967,57 +1098,84 @@ export function BotDebugOverlay() {
 }
 
 
+function RoleHudSkinPreview() {
+  return (
+    <div
+      id="roleHudSkin"
+      className="role-hud-skin"
+      data-skin-role="survivor"
+      data-skin-shape="orbit"
+      style={{
+        "--skin-base": "#38bdf8",
+        "--skin-accent": "#818cf8",
+        "--skin-glow": "#bae6fd",
+        "--skin-outline": "#f0f9ff"
+      }}
+      aria-hidden="true"
+    >
+      <span className="role-hud-skin-core" />
+      <span className="role-hud-skin-accent" />
+    </div>
+  )
+}
+
+function RoleHudCard() {
+  return (
+    <div id="roleHudCard" className="hud-card compact-card role-hud-card">
+      <div id="roleHudIcon" className="role-hud-icon" aria-hidden="true">
+        <RoleHudSkinPreview />
+      </div>
+      <div className="role-hud-copy">
+        <span>Playing as</span>
+        <h2 id="roleLabel">Runner</h2>
+        <p id="controlsLabel">Controls</p>
+        <div id="fpsCounterRow" className="fps-counter-row">
+          <span>FPS</span>
+          <b id="fpsText">--</b>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function HudDataBridge() {
+  return (
+    <div className="hud-data-bucket" aria-hidden="true">
+      <span id="genText">0 / 0</span>
+      <span id="gateText">Closed</span>
+      <span id="healthText">Healthy</span>
+      <span id="audioText">Press any key</span>
+    </div>
+  )
+}
+
+function MatchAnnouncementRegion() {
+  return <div id="matchAnnouncements" className="match-announcements" aria-live="polite" />
+}
+
+function HorrorFxOverlay() {
+  return (
+    <div id="horrorFx" className="horror-fx hidden" aria-hidden="true">
+      <div className="fx-vignette" />
+      <div className="fx-blood" />
+      <div className="fx-hit" />
+      <div className="fx-terror" />
+      <div className="fx-focus" />
+      <div className="fx-speed-boost" />
+      <div className="fx-grain" />
+    </div>
+  )
+}
+
 export function GameHud() {
   return (
     <>
       <div id="hud" className="hud hidden" data-role="survivor">
-        <div id="roleHudCard" className="hud-card compact-card role-hud-card">
-          <div id="roleHudIcon" className="role-hud-icon" aria-hidden="true">
-            <img className="role-hud-img role-hud-runner-img" src="/images/runner.png" alt="" />
-            <img className="role-hud-img role-hud-void-img" src="/images/void.png" alt="" />
-          </div>
-          <div className="role-hud-copy">
-            <span>Playing as</span>
-            <h2 id="roleLabel">Runner</h2>
-            <p id="controlsLabel">Controls</p>
-            <div id="fpsCounterRow" className="fps-counter-row">
-              <span>FPS</span>
-              <b id="fpsText">--</b>
-            </div>
-          </div>
-        </div>
-        <div className="hud-data-bucket" aria-hidden="true">
-          <span id="genText">0 / 0</span>
-          <span id="gateText">Closed</span>
-          <span id="healthText">Healthy</span>
-          <span id="audioText">Press any key</span>
-        </div>
+        <RoleHudCard />
+        <HudDataBridge />
       </div>
-
-      <div id="bigGenCounter" className="big-gen-counter hidden" aria-live="polite">
-        <div className="big-gen-icon rift-counter-icon" aria-hidden="true">
-          <span className="rift-counter-core" />
-          <span className="rift-counter-orbit orbit-a" />
-          <span className="rift-counter-orbit orbit-b" />
-          <span className="rift-counter-orbit orbit-c" />
-        </div>
-        <div className="big-gen-copy">
-          <span>Rifts sealed</span>
-          <strong id="bigGenText">0 / 5</strong>
-        </div>
-      </div>
-
-      <div id="matchAnnouncements" className="match-announcements" aria-live="polite" />
-
-      <div id="horrorFx" className="horror-fx hidden" aria-hidden="true">
-        <div className="fx-vignette" />
-        <div className="fx-blood" />
-        <div className="fx-hit" />
-        <div className="fx-terror" />
-        <div className="fx-focus" />
-        <div className="fx-speed-boost" />
-        <div className="fx-grain" />
-      </div>
+      <MatchAnnouncementRegion />
+      <HorrorFxOverlay />
     </>
   )
 }

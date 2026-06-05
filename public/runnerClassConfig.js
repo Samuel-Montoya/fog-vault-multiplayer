@@ -16,6 +16,7 @@ const RIFTRUNNER_RUNNER_CLASS_CONFIG = {
       wheelOrder: ["collectionBolt", "doubleOrb", "cancel", "orbMagnet"],
       grantedPerks: {},
       passive: {
+        id: "orbMagnet",
         label: "Orb Magnet",
         detail: "Collects loose orbs in a larger radius around the Runner.",
         levels: [
@@ -24,9 +25,9 @@ const RIFTRUNNER_RUNNER_CLASS_CONFIG = {
           { level: 3, minRunnerLevel: 14, orbPickupRadiusMultiplier: 2.00, label: "100% larger pickup radius" }
         ],
         pickupRadiusRing: {
-          color: 0xffb84d,
-          lineAlpha: 0.82,
-          lineWidth: 2.2
+          color: 0xfacc15,
+          lineAlpha: 0.36,
+          lineWidth: 1.38
         }
       }
     },
@@ -41,12 +42,13 @@ const RIFTRUNNER_RUNNER_CLASS_CONFIG = {
       wheelOrder: ["smokeDart", "voidTrace", "cancel", "moreSoon"],
       grantedPerks: {},
       passive: {
+        id: "voidTrace",
         label: "Void Trace",
         detail: "While standing inside any smoke cloud, you can see The Void through the haze in a wider radius.",
         levels: [
-          { level: 1, minRunnerLevel: 1, smokeKillerRevealRadius: 440, label: "Reveal The Void inside smoke within 440px" },
-          { level: 2, minRunnerLevel: 6, smokeKillerRevealRadius: 540, label: "Reveal The Void inside smoke within 540px" },
-          { level: 3, minRunnerLevel: 14, smokeKillerRevealRadius: 660, label: "Reveal The Void inside smoke within 660px" }
+          { level: 1, minRunnerLevel: 1, smokeKillerRevealRadius: 440, label: "Short smoke reveal while inside smoke" },
+          { level: 2, minRunnerLevel: 6, smokeKillerRevealRadius: 540, label: "Medium smoke reveal while inside smoke" },
+          { level: 3, minRunnerLevel: 14, smokeKillerRevealRadius: 660, label: "Long smoke reveal while inside smoke" }
         ]
       }
     },
@@ -62,6 +64,7 @@ const RIFTRUNNER_RUNNER_CLASS_CONFIG = {
       wheelOrder: ["dashDart", "swiftVault", "cancel", "flowState"],
       grantedPerks: {},
       passive: {
+        id: "flowState",
         label: "Flow State",
         detail: "Vaults windows and pallets faster.",
         levels: [
@@ -82,6 +85,7 @@ const RIFTRUNNER_RUNNER_CLASS_CONFIG = {
       wheelOrder: ["healingDart", "fieldMedic", "cancel", "moreSoon"],
       grantedPerks: {},
       passive: {
+        id: "fieldMedic",
         label: "Field Medic",
         detail: "Heals and unbinds teammates faster.",
         levels: [
@@ -106,14 +110,14 @@ const RIFTRUNNER_RUNNER_CLASS_CONFIG = {
       projectileSpeed: 1500,
       range: 660,
       summary: "M1 fires a bolt that collects loose orbs inside its burst radius.",
-      detail: "Explodes on walls or at max range and pulls every clear-line orb in the burst into your inventory.",
+      detail: "Explodes on walls or at max range and pulls every clear-line orb in the burst into your inventory. At Level 3, the bolt also collects orbs the laser path passes through.",
       inputType: "m1",
       shootAbility: true,
       projectileKind: "collect",
       levels: [
         { level: 1, minRunnerLevel: 1, radius: 96, projectileSpeed: 1450, range: 620, cooldown: 3, cost: 0, label: "Small burst · 3s cooldown" },
         { level: 2, minRunnerLevel: 6, radius: 132, projectileSpeed: 1550, range: 660, cooldown: 2, cost: 0, label: "Medium burst · 2s cooldown" },
-        { level: 3, minRunnerLevel: 14, radius: 172, projectileSpeed: 1650, range: 700, cooldown: 1, cost: 0, label: "Large burst · 1s cooldown" }
+        { level: 3, minRunnerLevel: 14, radius: 172, beamCollectRadius: 48, projectileSpeed: 1650, range: 700, cooldown: 1, cost: 0, label: "Large burst + pass-through beam pickup · 1s cooldown" }
       ]
     },
     doubleOrb: {
@@ -125,13 +129,13 @@ const RIFTRUNNER_RUNNER_CLASS_CONFIG = {
       accent: "yellow",
       cost: 10,
       duration: 5,
-      cooldown: 60,
+      cooldown: 30,
       summary: "Temporarily gives orb pickups a chance to add bonus carried orbs.",
       detail: "The bonus respects your carry cap, so banking at a rift still matters.",
       levels: [
-        { level: 1, minRunnerLevel: 1, chance: 0.25, minBonus: 2, maxBonus: 4, duration: 5, cooldown: 60, cost: 10, label: "25% chance for +2-4" },
-        { level: 2, minRunnerLevel: 6, chance: 0.50, minBonus: 3, maxBonus: 5, duration: 7, cooldown: 45, cost: 10, label: "50% chance for +3-5" },
-        { level: 3, minRunnerLevel: 14, chance: 0.75, minBonus: 4, maxBonus: 6, duration: 10, cooldown: 30, cost: 10, label: "75% chance for +4-6" }
+        { level: 1, minRunnerLevel: 1, chance: 0.25, minBonus: 2, maxBonus: 4, duration: 5, cooldown: 30, cost: 10, label: "25% chance for +2-4" },
+        { level: 2, minRunnerLevel: 6, chance: 0.50, minBonus: 3, maxBonus: 5, duration: 7, cooldown: 20, cost: 10, label: "50% chance for +3-5" },
+        { level: 3, minRunnerLevel: 14, chance: 0.75, minBonus: 4, maxBonus: 6, duration: 10, cooldown: 10, cost: 10, label: "75% chance for +4-6" }
       ]
     },
     smokeDart: {
@@ -141,9 +145,9 @@ const RIFTRUNNER_RUNNER_CLASS_CONFIG = {
       name: "Smoke Dart",
       shortName: "Smoke",
       accent: "purple",
-      cost: 10,
+      cost: 0,
       duration: 5,
-      cooldown: 60,
+      cooldown: 30,
       radius: 132,
       projectileSpeed: 1380,
       range: 620,
@@ -153,9 +157,9 @@ const RIFTRUNNER_RUNNER_CLASS_CONFIG = {
       shootAbility: true,
       projectileKind: "smoke",
       levels: [
-        { level: 1, minRunnerLevel: 1, radius: 132, duration: 5, projectileSpeed: 1320, range: 600, cooldown: 60, cost: 10, label: "Small smoke" },
-        { level: 2, minRunnerLevel: 6, radius: 170, duration: 7, projectileSpeed: 1400, range: 640, cooldown: 45, cost: 10, label: "Medium smoke" },
-        { level: 3, minRunnerLevel: 14, radius: 220, duration: 10, projectileSpeed: 1500, range: 700, cooldown: 30, cost: 10, label: "Large smoke" }
+        { level: 1, minRunnerLevel: 1, radius: 132, duration: 5, projectileSpeed: 1320, range: 600, cooldown: 30, cost: 0, label: "Small smoke" },
+        { level: 2, minRunnerLevel: 6, radius: 170, duration: 7, projectileSpeed: 1400, range: 640, cooldown: 20, cost: 0, label: "Medium smoke" },
+        { level: 3, minRunnerLevel: 14, radius: 220, duration: 10, projectileSpeed: 1500, range: 700, cooldown: 10, cost: 0, label: "Large smoke" }
       ]
     },
     dashDart: {
@@ -165,9 +169,9 @@ const RIFTRUNNER_RUNNER_CLASS_CONFIG = {
       name: "Dash Dart",
       shortName: "Dash",
       accent: "orange",
-      cost: 2,
+      cost: 0,
       duration: 3,
-      cooldown: 60,
+      cooldown: 30,
       radius: 112,
       projectileSpeed: 1600,
       range: 660,
@@ -177,9 +181,9 @@ const RIFTRUNNER_RUNNER_CLASS_CONFIG = {
       shootAbility: true,
       projectileKind: "boost",
       levels: [
-        { level: 1, minRunnerLevel: 1, speedMultiplier: 1.20, duration: 3, radius: 108, projectileSpeed: 1500, range: 620, cooldown: 60, cost: 2, hidesScratchMarks: false, label: "1.2x boost" },
-        { level: 2, minRunnerLevel: 6, speedMultiplier: 1.40, duration: 4, radius: 116, projectileSpeed: 1600, range: 660, cooldown: 45, cost: 2, hidesScratchMarks: false, label: "1.4x boost" },
-        { level: 3, minRunnerLevel: 14, speedMultiplier: 1.80, duration: 5, radius: 124, projectileSpeed: 1720, range: 700, cooldown: 30, cost: 2, hidesScratchMarks: true, scratchHideDuration: 5, label: "1.8x boost + hidden scratch marks" }
+        { level: 1, minRunnerLevel: 1, speedMultiplier: 1.20, duration: 3, radius: 108, projectileSpeed: 1500, range: 620, cooldown: 30, cost: 0, hidesScratchMarks: false, label: "1.2x boost" },
+        { level: 2, minRunnerLevel: 6, speedMultiplier: 1.40, duration: 4, radius: 116, projectileSpeed: 1600, range: 660, cooldown: 20, cost: 0, hidesScratchMarks: false, label: "1.4x boost" },
+        { level: 3, minRunnerLevel: 14, speedMultiplier: 1.80, duration: 5, radius: 124, projectileSpeed: 1720, range: 700, cooldown: 10, cost: 0, hidesScratchMarks: true, scratchHideDuration: 5, label: "1.8x boost + hidden scratch marks" }
       ]
     },
     swiftVault: {
@@ -191,13 +195,13 @@ const RIFTRUNNER_RUNNER_CLASS_CONFIG = {
       accent: "orange",
       cost: 5,
       duration: 10,
-      cooldown: 60,
+      cooldown: 30,
       summary: "Prime your next window or pallet vault to trigger a speed boost.",
       detail: "The boost triggers after your next vault, rewarding planned routes through windows or pallets.",
       levels: [
-        { level: 1, minRunnerLevel: 1, speedMultiplier: 1.20, boostDuration: 2, duration: 10, cooldown: 60, cost: 5, label: "1.2x for 2s" },
-        { level: 2, minRunnerLevel: 6, speedMultiplier: 1.40, boostDuration: 3, duration: 12, cooldown: 45, cost: 5, label: "1.4x for 3s" },
-        { level: 3, minRunnerLevel: 14, speedMultiplier: 1.80, boostDuration: 4, duration: 14, cooldown: 30, cost: 5, label: "1.8x for 4s" }
+        { level: 1, minRunnerLevel: 1, speedMultiplier: 1.20, boostDuration: 2, duration: 10, cooldown: 30, cost: 5, label: "1.2x for 2s" },
+        { level: 2, minRunnerLevel: 6, speedMultiplier: 1.40, boostDuration: 3, duration: 12, cooldown: 20, cost: 5, label: "1.4x for 3s" },
+        { level: 3, minRunnerLevel: 14, speedMultiplier: 1.80, boostDuration: 4, duration: 14, cooldown: 10, cost: 5, label: "1.8x for 4s" }
       ]
     },
     healingDart: {
@@ -207,21 +211,21 @@ const RIFTRUNNER_RUNNER_CLASS_CONFIG = {
       name: "Healing Dart",
       shortName: "Heal",
       accent: "green",
-      cost: 2,
+      cost: 0,
       duration: 3,
-      cooldown: 60,
+      cooldown: 30,
       radius: 58,
       projectileSpeed: 1500,
       range: 660,
       summary: "M1 fires a dart that starts healing a teammate over time.",
-      detail: "Level 2 can unbind hooked teammates. Level 3 can pick up downed Runners and fight through bind/consume pressure.",
+      detail: "Level 1 heals. Level 2 can unbind hooked teammates. Level 3 can pick up downed Runners and fight through bind/consume pressure.",
       inputType: "m1",
       shootAbility: true,
       projectileKind: "heal",
       levels: [
-        { level: 1, minRunnerLevel: 1, cost: 2, cooldown: 60, duration: 3, healProgress: 0.55, canUnhook: false, canPickupDowned: false, projectileSpeed: 1450, range: 620, radius: 58, label: "Heal over time" },
-        { level: 2, minRunnerLevel: 6, cost: 2, cooldown: 45, duration: 3, healProgress: 0.70, unhookProgress: 0.80, canUnhook: true, canPickupDowned: false, projectileSpeed: 1550, range: 660, radius: 62, label: "Heal + unbind over time" },
-        { level: 3, minRunnerLevel: 14, cost: 10, cooldown: 30, duration: 3, healProgress: 1.05, unhookProgress: 1.05, canUnhook: true, canPickupDowned: true, projectileSpeed: 1650, range: 700, radius: 66, label: "Heal, unbind, and pick up downed Runners" }
+        { level: 1, minRunnerLevel: 1, cost: 0, cooldown: 30, duration: 3, healProgress: 1.05, unhookProgress: 0, canUnhook: false, canPickupDowned: false, projectileSpeed: 1450, range: 620, radius: 58, label: "Full heal over time" },
+        { level: 2, minRunnerLevel: 6, cost: 0, cooldown: 20, duration: 3, healProgress: 1.05, unhookProgress: 1.05, canUnhook: true, canPickupDowned: false, projectileSpeed: 1550, range: 660, radius: 62, label: "Full heal + full unbind over time" },
+        { level: 3, minRunnerLevel: 14, cost: 0, cooldown: 10, duration: 3, healProgress: 1.05, unhookProgress: 1.05, canUnhook: true, canPickupDowned: true, projectileSpeed: 1650, range: 700, radius: 66, label: "Heal, unbind, and pick up downed Runners" }
       ]
     },
     orbMagnet: {

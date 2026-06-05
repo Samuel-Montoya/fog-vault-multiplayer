@@ -2,8 +2,6 @@ const PERK_ICON_ALIASES = new Map([
   ["speed", "speed_burst"],
   ["speed_burst", "speed_burst"],
   ["speedburst", "speed_burst"],
-  ["rally_dart", "speed_burst"],
-  ["rallydart", "speed_burst"],
   ["dart", "speed_burst"],
 
   ["rift_lens", "rift_lens"],

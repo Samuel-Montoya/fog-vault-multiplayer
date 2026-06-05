@@ -1,33 +1,62 @@
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import { showMenuScreen } from "../utils/screenNavigation"
 import AccountBadge from "./AccountBadge"
 import { getPerkIconCandidates } from "../utils/perkIconPaths"
 import "../styles/perks.css"
 import "../styles/screen_header.css"
 
-
-const PERK_SECTIONS = [
+const RUNNER_CLASS_SECTIONS = [
   {
-    id: "runnerPerksTitle",
-    role: "runner",
-    shopRole: "survivor",
-    shopId: "runnerPerkShop",
-    iconSrc: "/images/runner.png",
-    title: "Runner perks",
-    subtitle: "Survive • Rescue • Escape",
-    kicker: "Escape tools"
+    id: "collectorPerks",
+    role: "survivor",
+    classId: "orbCollector",
+    accent: "yellow",
+    icon: "✦",
+    title: "Collector",
+    subtitle: "Orb control • economy • objective pressure",
+    summary: "Pickup-focused perks for vacuuming loose orbs, snowballing your carry, and feeding rifts faster."
   },
   {
-    id: "voidPerksTitle",
-    role: "void",
-    shopRole: "killer",
-    shopId: "voidPerkShop",
-    iconSrc: "/images/void.png",
-    title: "Void perks",
-    subtitle: "Hunt • Bind • Consume",
-    kicker: "Hunting tools"
+    id: "nebulizerPerks",
+    role: "survivor",
+    classId: "nebulizer",
+    accent: "purple",
+    icon: "☁",
+    title: "Nebulizer",
+    subtitle: "Vision denial • space control • cover",
+    summary: "Smoke-based perks for blocking sightlines, creating safe pockets, and turning fog into a tactical weapon."
+  },
+  {
+    id: "escapistPerks",
+    role: "survivor",
+    classId: "escapist",
+    accent: "orange",
+    icon: "➟",
+    title: "Escapist",
+    subtitle: "Chase tools • speed • vault routes",
+    summary: "Mobility perks for extending chase, rescuing teammates with movement bursts, and escaping ugly pressure."
+  },
+  {
+    id: "healerPerks",
+    role: "survivor",
+    classId: "healer",
+    accent: "green",
+    icon: "✚",
+    title: "Healer",
+    subtitle: "Support • rescue • recovery",
+    summary: "Recovery perks for ranged healing, faster saves, and stabilizing teammates before The Void cashes in."
   }
 ]
+
+const VOID_SECTION = {
+  id: "voidPerks",
+  role: "killer",
+  accent: "red",
+  icon: "◈",
+  title: "The Void",
+  subtitle: "Hunt • pressure • consume",
+  summary: "Aggressive pressure perks for chase control, map denial, and locking down greedy Runners."
+}
 
 const PERK_CONFIG_GLOBALS = [
   "PERK_CONFIG",
@@ -86,7 +115,6 @@ function normalizeKey(value) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "")
 }
-
 
 function readGlobalBinding(name) {
   if (typeof window === "undefined") return undefined
@@ -249,7 +277,6 @@ function levelToText(level, previousLevel = null) {
   return keys.map((key) => valueToText(key, level[key])).filter(Boolean).slice(0, 4).join(" · ")
 }
 
-
 function perkIconSourcesForCard(card) {
   if (!card) return []
 
@@ -284,7 +311,17 @@ function setImageFallbackChain(img, sources) {
       return
     }
 
+    const icon = img.parentElement
+    const fallback = icon?.dataset?.perkFallback || "✦"
     img.classList.add("perk-icon-image-missing")
+    icon?.classList?.add("icon-image-failed")
+    if (icon && !icon.querySelector(".perk-icon-fallback")) {
+      const fallbackNode = document.createElement("span")
+      fallbackNode.className = "perk-icon-fallback"
+      fallbackNode.setAttribute("aria-hidden", "true")
+      fallbackNode.textContent = fallback
+      icon.appendChild(fallbackNode)
+    }
   }
 }
 
@@ -294,6 +331,15 @@ function updatePerkCardIcon(card) {
 
   const sources = perkIconSourcesForCard(card)
   if (!sources.length) return
+
+  let fallbackNode = icon.querySelector(".perk-icon-fallback")
+  if (!fallbackNode) {
+    fallbackNode = document.createElement("span")
+    fallbackNode.className = "perk-icon-fallback"
+    fallbackNode.setAttribute("aria-hidden", "true")
+    fallbackNode.textContent = icon.dataset.perkFallback || "✦"
+    icon.appendChild(fallbackNode)
+  }
 
   const current = icon.querySelector("img.perk-icon-image")
   const currentSrc = current?.getAttribute("src")
@@ -306,8 +352,9 @@ function updatePerkCardIcon(card) {
   setImageFallbackChain(img, sources)
   img.src = sources[0]
 
-  icon.replaceChildren(img)
-  icon.classList.add("uses-perk-image")
+  icon.prepend(img)
+  icon.classList.add("uses-perk-image", "perk-active-emblem")
+  icon.classList.remove("icon-image-failed")
 }
 
 function existingNextText(card) {
@@ -327,6 +374,7 @@ function restorePerkEffect(effect) {
 }
 
 function updatePerkCardPreview(card) {
+  if (card.querySelector(".perk-card-upgrades")) return
   const actionButton = card.querySelector("button")
   const actionText = actionButton?.textContent?.trim() || ""
   const isUpgrade = /upgrade/i.test(actionText) || card.classList.contains("upgradeable") || card.dataset.action === "upgrade"
@@ -379,7 +427,7 @@ function updatePerkCardPreview(card) {
       }),
       Object.assign(document.createElement("span"), {
         className: "perk-effect-arrow",
-        textContent: "->"
+        textContent: "→"
       }),
       Object.assign(document.createElement("span"), {
         className: "perk-effect-next",
@@ -452,30 +500,73 @@ function BackButton() {
   )
 }
 
-function PerkShopSection({ section }) {
-  const { id, role, shopRole, shopId, iconSrc, title, subtitle, kicker } = section
+const CATEGORY_NAV = [
+  ...RUNNER_CLASS_SECTIONS.map((section) => ({
+    ...section,
+    type: "runner",
+    shopRole: "survivor"
+  })),
+  {
+    ...VOID_SECTION,
+    type: "void",
+    classId: "",
+    shopRole: "killer"
+  }
+]
 
+function ClassTab({ category, active, onSelect }) {
   return (
-    <section className={`perk-shop-section ${role}-perk-section`} aria-labelledby={id}>
-      <div className="section-heading skin-shop-heading perks-section-heading">
-        <div className="perks-section-title-wrap">
-          <span className={`${role}-title-emblem section-title-emblem`} aria-hidden="true">
-            <img className="section-title-icon" src={iconSrc} alt="" />
-          </span>
-          <div>
-            <h2 id={id}>{title}</h2>
-            <small>{subtitle}</small>
-          </div>
+    <button
+      className={`perks-class-tab accent-${category.accent} ${active ? "is-active" : ""}`}
+      type="button"
+      onClick={() => onSelect(category.id)}
+      aria-pressed={active}
+    >
+      <span className="perks-tab-icon" aria-hidden="true">{category.icon}</span>
+      <span className="perks-tab-copy">
+        <b>{category.title}</b>
+        <small>{category.type === "void" ? "Void perks" : "Runner class"}</small>
+      </span>
+    </button>
+  )
+}
+
+function ActivePerkPanel({ category }) {
+  const isVoid = category.type === "void"
+  return (
+    <section className={`perks-active-panel accent-${category.accent}`} aria-labelledby="activePerksTitle">
+      <header className="perks-active-header">
+        <div className="perks-active-emblem" aria-hidden="true">{category.icon}</div>
+        <div className="perks-active-copy">
+          <span>{isVoid ? "Killer upgrades" : "Runner class upgrades"}</span>
+          <h2 id="activePerksTitle">{category.title}</h2>
+          <strong>{category.subtitle}</strong>
+          <p>{category.summary}</p>
         </div>
-        <span className="perks-section-kicker">{kicker}</span>
-      </div>
-      <div id={shopId} className="perk-shop-grid" data-perk-shop={shopRole} aria-live="polite" />
+      </header>
+      <div
+        className="perk-shop-grid perks-active-grid"
+        data-perk-shop={category.shopRole}
+        data-perk-class={category.classId || undefined}
+        aria-live="polite"
+      />
     </section>
   )
 }
 
 export default function PerkScreen() {
   usePerkUpgradePreviews()
+  const [selectedCategoryId, setSelectedCategoryId] = useState(CATEGORY_NAV[0].id)
+  const activeCategory = CATEGORY_NAV.find((category) => category.id === selectedCategoryId) || CATEGORY_NAV[0]
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined
+    const frame = window.requestAnimationFrame(() => {
+      window.RiftRunnerRenderPerkShop?.()
+      window.dispatchEvent(new CustomEvent("riftrunner:perk-tab-change", { detail: { categoryId: selectedCategoryId } }))
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [selectedCategoryId])
 
   return (
     <div id="perksScreen" className="screen io-screen perks-page-screen">
@@ -487,16 +578,26 @@ export default function PerkScreen() {
 
         <section className="perks-page-hero" aria-labelledby="perksPageTitle">
           <div className="perks-title-block">
+            <span className="perks-title-kicker">Class upgrades</span>
             <h1 id="perksPageTitle">Perks</h1>
-            <p>Spend banked orbs to unlock and upgrade abilities for Runners and The Void.</p>
+            <p>Pick a class, read the upgrades, and buy what you need. Same RiftRunner theme, less visual tax filing.</p>
           </div>
         </section>
 
-        <div className="perk-shop-layout perks-shop-panels" aria-label="Perk upgrades">
-          {PERK_SECTIONS.map((section) => (
-            <PerkShopSection section={section} key={section.role} />
-          ))}
-        </div>
+        <main className="perks-content" aria-label="Perk upgrades">
+          <nav className="perks-class-tabs" aria-label="Perk category tabs">
+            {CATEGORY_NAV.map((category) => (
+              <ClassTab
+                category={category}
+                active={category.id === activeCategory.id}
+                onSelect={setSelectedCategoryId}
+                key={category.id}
+              />
+            ))}
+          </nav>
+
+          <ActivePerkPanel category={activeCategory} key={activeCategory.id} />
+        </main>
       </div>
     </div>
   )

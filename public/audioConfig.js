@@ -89,7 +89,8 @@ window.GAME_AUDIO_CONFIG = {
       shootDart: "/sfx/shoot_dart.mp3",
       healDartImpact: "/sfx/heal.mp3",
       smokeDartImpact: "/sfx/smoke.mp3",
-      collectMiss: "/sfx/collect_miss.mp3"
+      collectMiss: "/sfx/collect_miss.mp3",
+      collected: "/sfx/collected.mp3"
     },
 
     // Per-sound volume before the global SFX master multiplier is applied.
@@ -113,10 +114,11 @@ window.GAME_AUDIO_CONFIG = {
       unhooking: 0.26,
       speedBoost: 0.40,
       dash: 0.2,
-      shootDart: 0.18,
-      healDartImpact: 0.6,
-      smokeDartImpact: 0.6,
-      collectMiss: 0.6
+      shootDart: 0.22,
+      healDartImpact: 0.2,
+      smokeDartImpact: 0.2,
+      collectMiss: 0.58,
+      collected: 0.34
     },
 
     // Pitch variation lists. Used only when enablePitchVariation is true.
@@ -142,6 +144,7 @@ window.GAME_AUDIO_CONFIG = {
       healDartImpact: [0.88, 0.94, 1.0, 1.07, 1.15, 1.24],
       smokeDartImpact: [0.88, 0.94, 1.0, 1.07, 1.15, 1.24],
       collectMiss: [0.88, 0.94, 1.0, 1.07, 1.15, 1.24],
+      collected: [0.88, 0.94, 1.0, 1.07, 1.15, 1.24],
       gen: [0.92, 0.97, 1.0, 1.05, 1.11, 1.18]
     },
 
@@ -154,14 +157,15 @@ window.GAME_AUDIO_CONFIG = {
       healing: 340,
       unhooking: 0,
       dash: 900,
-      rallyDartExplosion: 650,
-      rallyDartExplosionVisible: 1000,
-      rallyDartExplosionMinVolumeScale: 0.05,
-      rallyDartExplosionShooterMinVolumeScale: 0.05,
       runnerProjectileImpact: 650,
       runnerProjectileImpactVisible: 1000,
       runnerProjectileImpactMinVolumeScale: 0.05,
       runnerProjectileImpactShooterMinVolumeScale: 0.05,
+      dartBoxCollect: 420,
+      dartBoxCollected: 650,
+      dartBoxCollectedVisible: 1000,
+      dartBoxCollectedMinVolumeScale: 0.05,
+      dartBoxCollectedShooterMinVolumeScale: 0.05,
       // Shooter-only cue. This stays 0 so other nearby players do not hear dart firing.
       shootDart: 0
     }

@@ -46,6 +46,7 @@
       dynamicWorldFps: 7,
       generatorFps: 6,
       scratchDrawFps: 8,
+      smokeFps: 24,
       lightingFps: 60,
       wallVisionFps: 22,
       actorVisionFps: 60,
@@ -348,7 +349,8 @@
         shootDart: "/sfx/shoot_dart.mp3",
         healDartImpact: "/sfx/heal.mp3",
         smokeDartImpact: "/sfx/smoke.mp3",
-        collectMiss: "/sfx/collect_miss.mp3"
+        collectMiss: "/sfx/collect_miss.mp3",
+        collected: "/sfx/collected.mp3"
       },
       volumes: {
         hooked: 0.82,
@@ -373,7 +375,8 @@
         shootDart: 0.48,
         healDartImpact: 0.64,
         smokeDartImpact: 0.64,
-        collectMiss: 0.64
+        collectMiss: 0.58,
+        collected: 0.34
       },
       pitchSteps: {
         hooked: [0.84, 0.92, 1.0, 1.09, 1.18, 1.28],
@@ -392,7 +395,8 @@
         shootDart: [0.92, 0.97, 1.0, 1.06, 1.12],
         healDartImpact: [0.88, 0.94, 1.0, 1.07, 1.15, 1.24],
         smokeDartImpact: [0.88, 0.94, 1.0, 1.07, 1.15, 1.24],
-        collectMiss: [0.88, 0.94, 1.0, 1.07, 1.15, 1.24]
+        collectMiss: [0.88, 0.94, 1.0, 1.07, 1.15, 1.24],
+        collected: [0.88, 0.94, 1.0, 1.07, 1.15, 1.24]
       },
       localRange: {
         swing: 315,
@@ -406,6 +410,11 @@
         runnerProjectileImpactVisible: 1125,
         runnerProjectileImpactMinVolumeScale: 0.18,
         runnerProjectileImpactShooterMinVolumeScale: 0.46,
+        dartBoxCollect: 420,
+        dartBoxCollected: 900,
+        dartBoxCollectedVisible: 1125,
+        dartBoxCollectedMinVolumeScale: 0.18,
+        dartBoxCollectedShooterMinVolumeScale: 0.46,
         // Shooter-only cue. Kept at 0 so config clearly does not localize it to nearby players.
         shootDart: 0
       }
@@ -688,6 +697,7 @@
   // Keep this matched with server.js. Client uses it only for local prediction
   // so walking into generators does not feel like rubber-band soup.
   const GENERATOR_COLLISION_SIZE = cfgNumber(GAMEPLAY_CONFIG.rift?.collisionSize, 54);
+  const SCRATCH_MARK_CLIENT_TTL = Math.max(0.5, cfgNumber(GAMEPLAY_CONFIG.match?.scratchMarkTtl, 6.5));
   const SURVIVOR_VAULT_TIME = cfgNumber(GAMEPLAY_CONFIG.survivor?.vaultTime, 0.38);
   const KILLER_VAULT_TIME = cfgNumber(GAMEPLAY_CONFIG.void?.vaultTime, 1.05);
 
@@ -886,7 +896,12 @@
     PICKUP_SMOOTHING: 11,
     DEPOSIT_SMOOTHING: 5.5,
     DEPOSIT_PROGRESS_SMOOTHING: 16,
-    DEPOSIT_EXIT_PUSH: 16
+    DEPOSIT_EXIT_PUSH: 16,
+    TRAIL_ALPHA: LOW_POWER_MODE ? 0.10 : 0.16,
+    RING_ALPHA: LOW_POWER_MODE ? 0.035 : 0.055,
+    RING_ARC_ALPHA: LOW_POWER_MODE ? 0.055 : 0.085,
+    RING_SPARK_ALPHA: LOW_POWER_MODE ? 0.13 : 0.20,
+    NEW_ORB_POP: 0.32
   };
 
   const DOT_FADE_VISUAL = {
@@ -1136,6 +1151,36 @@
     return VOID_SKINS[key] || VOID_SKINS.voidCore;
   }
 
+  function colorNumberToCss(value, fallback = "#ffffff") {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric)) return fallback;
+    const hex = Math.max(0, Math.min(0xffffff, numeric | 0)).toString(16).padStart(6, "0");
+    return `#${hex}`;
+  }
+
+  function applyRoleHudSkin(actor, hudRole = "survivor") {
+    const preview = ui.roleHudSkin || document.getElementById("roleHudSkin");
+    if (!preview) return;
+
+    const isVoid = hudRole === "killer" || actor?.role === "killer";
+    const isSpectator = hudRole === "spectator" || actor?.role === "spectator";
+    const skin = isVoid
+      ? getVoidSkin(actor?.skin || selectedVoidSkin)
+      : isSpectator
+        ? { id: "spectator", label: "Spectator", shape: "spectator", color: 0x94a3b8, accent: 0xc4b5fd, glow: 0xe2e8f0, outline: 0xf8fafc }
+        : getSurvivorSkin(actor?.skin || selectedSkin);
+
+    preview.dataset.skinRole = isVoid ? "void" : isSpectator ? "spectator" : "survivor";
+    preview.dataset.skinShape = String(skin.shape || (isVoid ? "core" : "orbit"));
+    preview.dataset.skinId = String(skin.id || "default");
+    preview.title = skin.label || (isVoid ? "Void skin" : isSpectator ? "Spectator" : "Runner skin");
+    preview.style.setProperty("--skin-base", colorNumberToCss(skin.color ?? skin.base ?? skin.mid, isVoid ? "#32105f" : "#38bdf8"));
+    preview.style.setProperty("--skin-accent", colorNumberToCss(skin.accent ?? skin.mid ?? skin.color, isVoid ? "#7c3aed" : "#818cf8"));
+    preview.style.setProperty("--skin-glow", colorNumberToCss(skin.glow ?? skin.highlight ?? skin.outline, isVoid ? "#d8b4fe" : "#bae6fd"));
+    preview.style.setProperty("--skin-outline", colorNumberToCss(skin.outline ?? skin.highlight ?? skin.glow, "#f8fafc"));
+    preview.style.setProperty("--skin-shadow", colorNumberToCss(skin.shadow ?? skin.dark, "#020617"));
+  }
+
 
   const ui = {
     menu: document.getElementById("menu"),
@@ -1182,6 +1227,7 @@
     survivorStatusHud: document.getElementById("survivorStatusHud"),
     horrorFx: document.getElementById("horrorFx"),
     roleLabel: document.getElementById("roleLabel"),
+    roleHudSkin: document.getElementById("roleHudSkin"),
     controlsLabel: document.getElementById("controlsLabel"),
     genText: document.getElementById("genText"),
     bigGenCounter: document.getElementById("bigGenCounter"),
@@ -1430,23 +1476,41 @@
     return best || rows[0];
   }
 
+  function passivePerkIdForClass(classDef) {
+    if (classDef?.passive?.id) return String(classDef.passive.id);
+    const id = String(classDef?.id || "");
+    if (id === "orbCollector") return "orbMagnet";
+    if (id === "nebulizer") return "voidTrace";
+    if (id === "escapist") return "flowState";
+    if (id === "healer") return "fieldMedic";
+    return "";
+  }
+
   function runnerClassPassive(actor) {
     if (!actor || actor.role !== "survivor") return {};
     const classDef = runnerClassDef(actor.runnerClass || currentAccount?.selectedRunnerClass || selectedRunnerClass);
     const passive = classDef?.passive || {};
-    const level = classLevelConfig(passive.levels, actor);
-    return level ? { ...passive, ...level } : passive;
+    const passiveId = passivePerkIdForClass(classDef);
+    const passivePerk = passiveId ? perkConfigById(passiveId, "survivor") : null;
+    const boughtLevel = passivePerk ? actorPerkLevel(actor, passiveId, "survivor") : 0;
+    const boughtConfig = boughtLevel > 0 ? perkLevelConfig(passivePerk, boughtLevel) : null;
+    const autoConfig = passivePerk ? null : classLevelConfig(passive.levels, actor);
+    const level = boughtConfig || autoConfig;
+    return level ? { ...passive, ...(passivePerk || {}), ...level, id: passiveId || passive.id } : passive;
   }
 
   function orbPickupAuraForActor(actor) {
     if (!actor || actor.role !== "survivor") return null;
-    const passive = runnerClassPassive(actor);
+    const classId = normalizeRunnerClassId(actor.runnerClass || currentAccount?.selectedRunnerClass || selectedRunnerClass);
+    const passive = runnerClassPassive({ ...actor, runnerClass: classId });
     const multiplier = Math.max(0, Number(passive?.orbPickupRadiusMultiplier || 1));
     if (multiplier <= 1.001) return null;
     const visual = passive.pickupRadiusRing || {};
     return {
       radius: SURVIVOR_DOT_PICKUP_RADIUS * multiplier,
       baseRadius: SURVIVOR_DOT_PICKUP_RADIUS,
+      classId,
+      isCollector: classId === "orbCollector",
       color: Number(visual.color ?? 0xff9f1c),
       lineAlpha: clamp(Number(visual.lineAlpha ?? 0.82), 0, 1),
       lineWidth: clamp(Number(visual.lineWidth ?? 2.2), 0.5, 8)
@@ -1455,9 +1519,23 @@
 
   function runnerClassWheelOrder(actor) {
     const classDef = runnerClassDef(actor?.runnerClass || currentAccount?.selectedRunnerClass || selectedRunnerClass);
-    return Array.isArray(classDef?.wheelOrder) && classDef.wheelOrder.length
+    const rawOrder = Array.isArray(classDef?.wheelOrder) && classDef.wheelOrder.length
       ? classDef.wheelOrder
       : SURVIVOR_ABILITY_ORDER;
+
+    const activeIds = rawOrder
+      .map((id) => String(id || ""))
+      .filter((id) => {
+        if (!id || id === "cancel" || id === "moreSoon") return false;
+        if (id === String(classDef?.passive?.id || "")) return false;
+        const ability = SURVIVOR_ABILITIES[id];
+        return !(ability?.passive || ability?.disabled);
+      })
+      .slice(0, 3);
+
+    // Top, right, bottom cancel, left. Passives stay off the wheel because
+    // they are always-on class bonuses, not Q abilities.
+    return [activeIds[0] || "moreSoon", activeIds[1] || "moreSoon", "cancel", activeIds[2] || "moreSoon"];
   }
 
   function classGrantedPerkLevel(actor, perkId) {
@@ -1534,10 +1612,29 @@
     return null;
   }
 
+  function mergePerkDefinition(publicPerk, configuredPerk) {
+    if (!publicPerk) return configuredPerk || null;
+    if (!configuredPerk) return publicPerk;
+    const publicLevels = Array.isArray(publicPerk.levels) ? publicPerk.levels : [];
+    const configuredLevels = Array.isArray(configuredPerk.levels) ? configuredPerk.levels : [];
+    const levels = configuredLevels.map((configuredLevel) => {
+      const levelNumber = Math.max(1, Math.floor(Number(configuredLevel.level || 1)));
+      const publicLevel = publicLevels.find((row) => Math.max(1, Math.floor(Number(row.level || 1))) === levelNumber) || {};
+      return { ...configuredLevel, ...publicLevel };
+    });
+    return {
+      ...configuredPerk,
+      ...publicPerk,
+      levels: levels.length ? levels : (publicLevels.length ? publicLevels : configuredLevels)
+    };
+  }
+
   function publicPerkById(perkId, role = null) {
     const id = String(perkId || "");
     const roleKey = role ? normalizePerkRole(role) : null;
-    return shopPerks.find((perk) => perk.id === id && (!roleKey || normalizePerkRole(perk.role) === roleKey)) || perkConfigById(id, roleKey) || null;
+    const publicPerk = shopPerks.find((perk) => perk.id === id && (!roleKey || normalizePerkRole(perk.role) === roleKey)) || null;
+    const configuredPerk = perkConfigById(id, roleKey) || null;
+    return mergePerkDefinition(publicPerk, configuredPerk);
   }
 
   function perkLevels(perk) {
@@ -1550,13 +1647,28 @@
     return Math.max(1, Math.min(configured, levels.length ? Math.max(...levels) : configured));
   }
 
+  function perkDefaultLevel(perk) {
+    if (!perk) return 0;
+    const rawDefault = perk.defaultLevel ?? (perk.passive || perk.alwaysUnlocked ? 1 : 0);
+    const level = Math.floor(Number(rawDefault || 0));
+    if (!Number.isFinite(level) || level <= 0) return 0;
+    return Math.max(0, Math.min(perkMaxLevel(perk), level));
+  }
+
+
+  function perkEffectiveLevel(perk, storedLevel = 0) {
+    const maxLevel = perkMaxLevel(perk);
+    const boughtLevel = Math.max(0, Math.min(maxLevel, Math.floor(Number(storedLevel || 0))));
+    return Math.max(perkDefaultLevel(perk), boughtLevel);
+  }
+
   function perkLevelConfig(perk, level) {
     const target = Math.max(1, Math.floor(Number(level || 1)));
     return perkLevels(perk).find((row) => Math.floor(Number(row.level || 0)) === target) || null;
   }
 
   function perkNextCost(perk, currentLevel) {
-    const level = Math.max(0, Math.floor(Number(currentLevel || 0)));
+    const level = perkEffectiveLevel(perk, currentLevel);
     if (level >= perkMaxLevel(perk)) return 0;
     const target = perkLevelConfig(perk, level + 1);
     if (!target) return 0;
@@ -1567,6 +1679,7 @@
   function accountPerkLevel(perkId, role = null, account = currentAccount) {
     const id = String(perkId || "");
     const roleKey = role ? normalizePerkRole(role) : null;
+    const perk = publicPerkById(id, roleKey) || perkConfigById(id, roleKey);
     const perks = account?.perks || {};
     const sources = [
       roleKey ? perks[roleKey] : null,
@@ -1574,11 +1687,12 @@
       perks.all,
       perks
     ].filter(Boolean);
+    let best = 0;
     for (const source of sources) {
       const value = Number(source?.[id] || 0);
-      if (value > 0) return Math.max(0, Math.floor(value));
+      if (value > best) best = value;
     }
-    return 0;
+    return perkEffectiveLevel(perk, best);
   }
 
   function abilityTestingLevel(actor) {
@@ -1589,6 +1703,19 @@
 
   function abilityTestingEnabled(actor) {
     return abilityTestingLevel(actor) > 0;
+  }
+
+  function shortenedAbilityCooldown(value) {
+    return Math.max(0, Number(value || 0));
+  }
+
+  function isDartAbility(ability, effect = null) {
+    return !!(ability?.shootAbility || ability?.inputType === "m1" || ability?.projectileKind || effect?.projectileKind);
+  }
+
+  function abilityCostForDisplay(ability, effect, fallback = 0, testing = false) {
+    if (testing || isDartAbility(ability, effect)) return 0;
+    return Math.max(0, Number(fallback || 0));
   }
 
   function actorPerkLevel(actor, perkId, role = null) {
@@ -1610,7 +1737,8 @@
       accountPerks.all,
       accountPerks
     ].filter(Boolean);
-    let best = roleKey === "survivor" ? classGrantedPerkLevel(actor, id) : 0;
+    const perk = perkConfigById(id, roleKey) || publicPerkById(id, roleKey);
+    let best = Math.max(perkDefaultLevel(perk), roleKey === "survivor" ? classGrantedPerkLevel(actor, id) : 0);
     for (const source of sources) {
       const value = Number(source?.[id] || 0);
       if (value > best) best = value;
@@ -1632,34 +1760,334 @@
     return `${Number.isInteger(seconds) ? seconds : seconds.toFixed(1)}s`;
   }
 
+  function escapeHtml(value) {
+    return String(value ?? "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  function perkFallbackEmblem(perk) {
+    const id = String(perk?.id || "").toLowerCase();
+    const classId = String(perk?.classId || "").toLowerCase();
+    if (/heal/.test(id) || classId === "healer") return "✚";
+    if (/smoke|voidtrace|nebul/.test(id) || classId === "nebulizer") return "☁";
+    if (/dash|swift|vault|escape/.test(id) || classId === "escapist") return "➟";
+    if (/collect|double|orb/.test(id) || classId === "orbcollector") return "✦";
+    if (/redshift|reveal|void|null/.test(id) || normalizePerkRole(perk?.role) === "killer") return "◈";
+    return "✦";
+  }
+
+  function perkSizeWord(level) {
+    const n = Math.max(1, Math.floor(Number(level || 1)));
+    if (n <= 1) return "small";
+    if (n === 2) return "medium";
+    return "large";
+  }
+
+  function titleCaseWord(value) {
+    const text = String(value || "").trim();
+    return text ? text.charAt(0).toUpperCase() + text.slice(1) : "";
+  }
+
+  function perkQualitativeWord(value, thresholds, words) {
+    const n = Number(value || 0);
+    if (!Number.isFinite(n) || n <= 0) return "";
+    if (n <= thresholds[0]) return words[0];
+    if (n <= thresholds[1]) return words[1];
+    return words[2];
+  }
+
+  function perkRadiusWord(value) {
+    return perkQualitativeWord(value, [115, 165], ["Small", "Medium", "Large"]);
+  }
+
+  function perkRangeWord(value) {
+    return perkQualitativeWord(value, [620, 670], ["Short", "Medium", "Long"]);
+  }
+
+  function perkDartSpeedWord(value) {
+    return perkQualitativeWord(value, [1400, 1580], ["Slow", "Medium", "Fast"]);
+  }
+
+  function perkSpeedBoostWord(value) {
+    return perkQualitativeWord(value, [1.25, 1.5], ["Weak", "Medium", "Strong"]);
+  }
+
+  function perkPassiveStrengthWord(value, fallbackLevel = 1) {
+    const n = Number(value || 0);
+    if (Number.isFinite(n) && n > 1.2) {
+      if (n <= 1.55) return "Small";
+      if (n <= 1.8) return "Medium";
+      return "Large";
+    }
+    const level = Math.max(1, Math.floor(Number(fallbackLevel || 1)));
+    if (level <= 1) return "Small";
+    if (level === 2) return "Medium";
+    return "Large";
+  }
+
+  function perkCardDescription(perk) {
+    const id = String(perk?.id || "");
+    const levels = perkLevels(perk);
+    const last = levels[levels.length - 1] || null;
+    switch (id) {
+      case "orbMagnet":
+        return "Passive: pull loose orbs in from farther away while moving through the map. Higher tiers make the pickup radius stronger.";
+      case "collectionBolt":
+        return "Fire a yellow bolt that pulls loose orbs into your inventory. Higher tiers increase the pickup radius, and Max Level also collects orbs the bolt passes through.";
+      case "doubleOrb":
+        return "Turn normal orb pickups into bonus pickups for a short window. Higher tiers raise the proc chance, duration, and bonus-orb range.";
+      case "voidTrace":
+        return "Passive: while standing inside smoke, reveal The Void through the haze. Higher tiers improve how far that smoke-read reaches.";
+      case "smokeDart":
+        return "Fire a purple dart that blooms into void smoke. Players outside cannot see into it, and players inside are trapped inside that same vision space.";
+      case "flowState":
+        return "Passive: vault windows and pallets faster, making chase routes smoother and harder for The Void to punish.";
+      case "dashDart":
+        return "Fire an orange bolt that speed-boosts Runners inside the radius. Max Level also hides scratch marks during the boost.";
+      case "swiftVault":
+        return "Prime your next window or pallet vault. When you vault, you get a short sprint boost for chase routing and escapes.";
+      case "fieldMedic":
+        return "Passive: finish normal heals and close-range unbinding faster when helping teammates directly.";
+      case "healingDart":
+        return "Fire a green bolt that starts ranged healing. Tier 2 adds ranged unbinding, and Max Level instantly picks up downed Runners with brief i-frames.";
+      case "nullRush":
+        return `Surge forward to close distance in chase. Higher tiers extend the rush${last?.speedMultiplier ? " and make the chase pressure stronger" : ""}.`;
+      case "redshiftOrbs":
+        return "Corrupt loose orbs into slowdown hazards. Higher tiers last longer and punish greedy Runner routing harder.";
+      case "voidReveal":
+        return "Reveal all Runners for a short hunt window. Higher tiers extend the reveal so The Void can choose a better target.";
+      default:
+        return perk?.summary || "Unlock and upgrade this perk to improve its match effect.";
+    }
+  }
+
+  function perkTypeLabel(perk, roleKey) {
+    const role = normalizePerkRole(roleKey || perk?.role || "survivor");
+    if (role === "killer") return "Void perk";
+    if (perk?.passive) return "Runner passive";
+    if (perk?.inputType === "m1" || perk?.shootAbility || perk?.projectileKind) return "Runner Dart (M1)";
+    return "Runner perk";
+  }
+
+  function perkLevelEnglish(perk, level) {
+    const rowLevel = Math.max(1, Math.floor(Number(level || 1)));
+    const row = perkLevelConfig(perk, rowLevel) || perkLevelConfig(perk, 1) || {};
+    const id = String(perk?.id || "");
+    const tierName = rowLevel >= perkMaxLevel(perk) ? "Max Level" : `Tier ${rowLevel}`;
+    const size = titleCaseWord(perkSizeWord(rowLevel));
+    const duration = Number(row.duration || 0) > 0 ? formatSeconds(row.duration) : null;
+    const radiusWord = perkRadiusWord(row.radius) || size;
+    const rangeWord = perkRangeWord(row.range);
+    const dartSpeedWord = perkDartSpeedWord(row.projectileSpeed);
+    const speedBoostWord = perkSpeedBoostWord(row.speedMultiplier);
+
+    switch (id) {
+      case "orbMagnet":
+        return `${tierName} Upgrade: increases your passive orb pickup radius to ${perkPassiveStrengthWord(row.orbPickupRadiusMultiplier, rowLevel).toLowerCase()}.`;
+      case "voidTrace":
+        return `${tierName} Upgrade: improves how far you can reveal The Void while standing inside smoke.`;
+      case "flowState":
+        return `${tierName} Upgrade: makes window and pallet vaults ${perkPassiveStrengthWord(row.vaultSpeedMultiplier, rowLevel).toLowerCase()} faster.`;
+      case "fieldMedic":
+        return `${tierName} Upgrade: makes normal healing and close-range unbinding ${perkPassiveStrengthWord(row.healActionSpeedMultiplier || row.unhookActionSpeedMultiplier, rowLevel).toLowerCase()} faster.`;
+      case "collectionBolt": {
+        const beam = row.beamCollectRadius ? " It also collects loose orbs the bolt passes through." : "";
+        const rangeText = rangeWord ? ` with ${rangeWord.toLowerCase()} range` : "";
+        const dartText = dartSpeedWord ? ` and ${dartSpeedWord.toLowerCase()} travel speed` : "";
+        return `${tierName} Upgrade: fires a ${radiusWord.toLowerCase()} pickup radius${rangeText}${dartText}.${beam}`;
+      }
+      case "doubleOrb": {
+        const chance = Math.round(Number(row.chance || 0) * 100);
+        const min = Math.floor(Number(row.minBonus || 0));
+        const max = Math.floor(Number(row.maxBonus || 0));
+        return `${tierName} Upgrade: for ${duration || "a short time"}, orb pickups have a ${chance}% chance to add ${min}-${max} bonus orbs.`;
+      }
+      case "smokeDart":
+        return `${tierName} Upgrade: creates a ${radiusWord.toLowerCase()} void-smoke radius for ${duration || "a short time"}.`;
+      case "dashDart": {
+        const boostText = speedBoostWord ? `${speedBoostWord.toLowerCase()} speed boost` : "speed boost";
+        const special = row.hidesScratchMarks ? " It also hides scratch marks while boosted." : "";
+        return `${tierName} Upgrade: gives Runners in the radius a ${boostText} for ${duration || "a short time"}.${special}`;
+      }
+      case "swiftVault": {
+        const boostText = speedBoostWord ? `${speedBoostWord.toLowerCase()} sprint boost` : "sprint boost";
+        const boost = Number(row.boostDuration || 0) > 0 ? formatSeconds(row.boostDuration) : duration;
+        return `${tierName} Upgrade: your next vault triggers a ${boostText} for ${boost || "a short time"}.`;
+      }
+      case "healingDart": {
+        if (row.canPickupDowned) return `${tierName} Upgrade: instantly picks up downed Runners, keeps healing and unbinding support, resets Void execution pressure, and gives brief i-frames.`;
+        if (row.canUnhook) return `${tierName} Upgrade: starts a full heal and can start ranged unbinding on bound teammates.`;
+        return `${tierName} Upgrade: starts a full heal over ${duration || "the normal duration"} on hit teammates.`;
+      }
+      case "nullRush": {
+        const boostText = speedBoostWord ? `${speedBoostWord.toLowerCase()} speed rush` : "speed rush";
+        return `${tierName} Upgrade: rush forward with a ${boostText} for ${duration || "a short time"}.`;
+      }
+      case "redshiftOrbs": {
+        const slow = Math.round((1 - Number(row.slowMultiplier || 1)) * 100);
+        const slowTime = Number(row.slowSeconds || 0) > 0 ? formatSeconds(row.slowSeconds) : "briefly";
+        return `${tierName} Upgrade: corrupts loose orbs for ${duration || "a short time"}. Runners who touch them are slowed by ${slow}% for ${slowTime}.`;
+      }
+      case "voidReveal":
+        return `${tierName} Upgrade: reveals all Runners for ${duration || "a short time"}.`;
+      default:
+        return `${tierName} Upgrade: ${perkEffectLine(perk, rowLevel) || "improves this perk."}`;
+    }
+  }
+
+  function perkLevelInfoBullets(perk, level) {
+    const rowLevel = Math.max(1, Math.floor(Number(level || 1)));
+    const row = perkLevelConfig(perk, rowLevel) || perkLevelConfig(perk, 1) || {};
+    const id = String(perk?.id || "");
+    const bullets = [];
+    const duration = Number(row.duration || 0) > 0 ? formatSeconds(row.duration) : "";
+    const cooldown = Number(row.cooldown || 0) > 0 ? formatSeconds(row.cooldown) : "";
+    const radiusWord = perkRadiusWord(row.radius) || titleCaseWord(perkSizeWord(rowLevel));
+    const rangeWord = perkRangeWord(row.range);
+    const dartSpeedWord = perkDartSpeedWord(row.projectileSpeed);
+    const speedBoostWord = perkSpeedBoostWord(row.speedMultiplier);
+    const add = (label, text) => {
+      const clean = String(text || "").trim();
+      if (clean) bullets.push({ label, text: clean });
+    };
+
+    switch (id) {
+      case "orbMagnet":
+        add("Upgrade", `Passively increases your orb pickup radius to ${perkPassiveStrengthWord(row.orbPickupRadiusMultiplier, rowLevel).toLowerCase()}.`);
+        add("Passive", "This is always active on Collector once unlocked. No button press needed.");
+        add("Best use", "Run close to loose orbs while pathing to rifts instead of stopping for every pickup.");
+        break;
+      case "voidTrace":
+        add("Upgrade", `Improves your smoke-read to ${perkPassiveStrengthWord(row.smokeKillerRevealRadius, rowLevel).toLowerCase()} reveal reach.`);
+        add("Passive", "This is always active on Nebulizer while you are standing inside smoke.");
+        add("Best use", "Use smoke as cover while still tracking where The Void is moving inside the cloud.");
+        break;
+      case "flowState":
+        add("Upgrade", `Makes your window and pallet vaults ${perkPassiveStrengthWord(row.vaultSpeedMultiplier, rowLevel).toLowerCase()} faster.`);
+        add("Passive", "This is always active on Escapist once unlocked. No ability charge needed.");
+        add("Best use", "Chain windows and pallets more safely during chase without losing as much momentum.");
+        break;
+      case "fieldMedic":
+        add("Upgrade", `Makes normal healing and close-range unbinding ${perkPassiveStrengthWord(row.healActionSpeedMultiplier || row.unhookActionSpeedMultiplier, rowLevel).toLowerCase()} faster.`);
+        add("Passive", "This is always active on Healer when helping teammates directly.");
+        add("Best use", "Stabilize injured or bound teammates faster when you are close enough to interact normally.");
+        break;
+      case "collectionBolt":
+        add("Upgrade", `Fires a ${radiusWord.toLowerCase()} pickup radius that pulls loose orbs into your inventory.`);
+        if (rangeWord || dartSpeedWord) add("Bolt feel", `${rangeWord ? `${rangeWord} range` : ""}${rangeWord && dartSpeedWord ? " · " : ""}${dartSpeedWord ? `${dartSpeedWord} travel speed` : ""}.`);
+        if (row.beamCollectRadius) add("Special", "Collects any loose orbs the bolt passes through before it lands.");
+        if (cooldown) add("Cooldown", `${cooldown} between uses.`);
+        break;
+      case "doubleOrb": {
+        const chance = Math.round(Number(row.chance || 0) * 100);
+        const min = Math.floor(Number(row.minBonus || 0));
+        const max = Math.floor(Number(row.maxBonus || 0));
+        add("Upgrade", `Orb pickups have a ${chance}% chance to add ${min}-${max} bonus orbs.`);
+        if (duration) add("Duration", `Bonus pickups stay active for ${duration}.`);
+        if (cooldown) add("Cooldown", `${cooldown} before you can trigger it again.`);
+        break;
+      }
+      case "smokeDart":
+        add("Upgrade", `Creates a ${radiusWord.toLowerCase()} void-smoke radius that blocks vision between inside and outside.`);
+        if (duration) add("Duration", `The smoke lasts ${duration}.`);
+        if (rangeWord || dartSpeedWord) add("Bolt feel", `${rangeWord ? `${rangeWord} range` : ""}${rangeWord && dartSpeedWord ? " · " : ""}${dartSpeedWord ? `${dartSpeedWord} travel speed` : ""}.`);
+        if (cooldown) add("Cooldown", `${cooldown} before the next smoke shot.`);
+        break;
+      case "dashDart":
+        add("Upgrade", `Gives Runners in the radius a ${speedBoostWord ? speedBoostWord.toLowerCase() : "strong"} speed boost.`);
+        if (duration) add("Duration", `The speed boost lasts ${duration}.`);
+        if (row.hidesScratchMarks) add("Special", "Boosted Runners also hide scratch marks while the boost is active.");
+        if (rangeWord || dartSpeedWord) add("Bolt feel", `${rangeWord ? `${rangeWord} range` : ""}${rangeWord && dartSpeedWord ? " · " : ""}${dartSpeedWord ? `${dartSpeedWord} travel speed` : ""}.`);
+        if (cooldown) add("Cooldown", `${cooldown} before the next dash shot.`);
+        break;
+      case "swiftVault": {
+        const boost = Number(row.boostDuration || 0) > 0 ? formatSeconds(row.boostDuration) : duration;
+        add("Upgrade", `Your next vault triggers a ${speedBoostWord ? speedBoostWord.toLowerCase() : "strong"} sprint boost.`);
+        if (boost) add("Boost", `The sprint boost lasts ${boost}.`);
+        if (duration) add("Window", `The vault trigger stays primed for ${duration}.`);
+        if (cooldown) add("Cooldown", `${cooldown} before you can prime another vault.`);
+        break;
+      }
+      case "healingDart":
+        if (row.canPickupDowned) {
+          add("Upgrade", "Instantly picks up downed Runners and gives them a brief escape window.");
+          add("Healing", `Still starts a full heal over ${duration || "the normal duration"}.`);
+          add("Unbind", "Can start ranged unbinding on bound teammates.");
+          add("Special", "Interrupts Void execution pressure and grants brief i-frames after pickup.");
+        } else if (row.canUnhook) {
+          add("Upgrade", "Starts a full heal and adds ranged unbinding for bound teammates.");
+          add("Healing", `Starts a full heal over ${duration || "the normal duration"}.`);
+          add("Unbind", "Only Tier 2 and higher can unbind teammates from range.");
+        } else {
+          add("Upgrade", `Starts a full heal over ${duration || "the normal duration"} on hit teammates.`);
+          add("Healing", "Tier 1 heals only. It does not unbind bound teammates.");
+        }
+        if (rangeWord || dartSpeedWord) add("Bolt feel", `${rangeWord ? `${rangeWord} range` : ""}${rangeWord && dartSpeedWord ? " · " : ""}${dartSpeedWord ? `${dartSpeedWord} travel speed` : ""}.`);
+        if (cooldown) add("Cooldown", `${cooldown} before the next healing shot.`);
+        break;
+      case "nullRush":
+        add("Upgrade", `Rush forward with a ${speedBoostWord ? speedBoostWord.toLowerCase() : "strong"} speed surge.`);
+        if (duration) add("Duration", `The rush lasts ${duration}.`);
+        if (cooldown) add("Cooldown", `${cooldown} before the next rush.`);
+        break;
+      case "redshiftOrbs": {
+        const slow = Math.round((1 - Number(row.slowMultiplier || 1)) * 100);
+        const slowTime = Number(row.slowSeconds || 0) > 0 ? formatSeconds(row.slowSeconds) : "briefly";
+        add("Upgrade", "Turns loose orbs into slowdown hazards.");
+        if (duration) add("Duration", `The corruption lasts ${duration}.`);
+        add("Slow", `Runners who touch a redshift orb are slowed by ${slow}% for ${slowTime}.`);
+        if (cooldown) add("Cooldown", `${cooldown} before the next bloom.`);
+        break;
+      }
+      case "voidReveal":
+        add("Upgrade", "Reveals all living Runners so The Void can choose a target." );
+        if (duration) add("Duration", `The reveal lasts ${duration}.`);
+        if (cooldown) add("Cooldown", `${cooldown} before the next reveal.`);
+        break;
+      default:
+        add("Upgrade", perkEffectLine(perk, rowLevel) || "Improves this perk.");
+        if (duration) add("Duration", `Lasts ${duration}.`);
+        if (cooldown) add("Cooldown", `${cooldown} before it can be used again.`);
+        break;
+    }
+
+    return bullets;
+  }
+
   function perkEffectLine(perk, level) {
     const currentLevel = Math.max(0, Math.floor(Number(level || 0)));
     const effect = currentLevel > 0 ? perkLevelConfig(perk, currentLevel) : perkLevelConfig(perk, 1);
     if (!effect) return "Unlock to use this ability in match.";
     const parts = [];
-    if (effect.label) parts.push(String(effect.label));
-    if (effect.cost != null) parts.push(Number(effect.cost) > 0 ? `${Math.floor(Number(effect.cost))} orb cost` : "no cost");
-    if (Number(effect.cooldown || 0) > 0) parts.push(`${formatSeconds(effect.cooldown)} cooldown`);
+    if (effect.label) parts.push(String(effect.label)
+      .replace(/burst/gi, "radius")
+      .replace(/costs?\s+\d+\s+orbs?/gi, "")
+      .replace(/costs?\s+no\s+orbs?/gi, "")
+      .replace(/(?:^|[·,])\s*\d+(?:\.\d+)?s\s+cooldown/gi, "")
+      .replace(/\s+·\s+$/g, "")
+      .trim());
     if (Number(effect.duration || 0) > 0) parts.push(`${formatSeconds(effect.duration)} duration`);
     if (Number(effect.boostDuration || 0) > 0) parts.push(`${formatSeconds(effect.boostDuration)} boost`);
     if (effect.chance) parts.push(`${Math.round(Number(effect.chance) * 100)}% proc`);
     if (effect.minBonus != null && effect.maxBonus != null) parts.push(`+${Math.floor(Number(effect.minBonus))}-${Math.floor(Number(effect.maxBonus))} orbs`);
-    if (effect.healProgress) parts.push(`${Math.round(Number(effect.healProgress) * 100)}% heal`);
-    if (effect.unhookProgress) parts.push(`${Math.round(Number(effect.unhookProgress) * 100)}% unbind`);
     if (effect.canPickupDowned) parts.push("picks up downed Runners");
     else if (effect.canUnhook) parts.push("can unbind");
-    if (effect.lengthMultiplier) parts.push(`${Number(effect.lengthMultiplier).toFixed(2)}x cone length`);
-    if (effect.angleMultiplier) parts.push(`${Number(effect.angleMultiplier).toFixed(2)}x cone width`);
-    if (effect.backLengthMultiplier) parts.push(`${Number(effect.backLengthMultiplier).toFixed(2)}x rear length`);
-    if (effect.backAngleMultiplier) parts.push(`${Number(effect.backAngleMultiplier).toFixed(2)}x rear width`);
-    if (effect.speedMultiplier) parts.push(`${Number(effect.speedMultiplier).toFixed(2)}x speed`);
-    if (effect.radius) parts.push(`${Math.round(Number(effect.radius))}px radius`);
-    if (effect.projectileSpeed) parts.push(`${Math.round(Number(effect.projectileSpeed))} dart speed`);
-    if (effect.range) parts.push(`${Math.round(Number(effect.range))}px range`);
+    if (effect.orbPickupRadiusMultiplier) parts.push(`${perkPassiveStrengthWord(effect.orbPickupRadiusMultiplier, currentLevel)} pickup radius`);
+    if (effect.smokeKillerRevealRadius) parts.push(`${perkPassiveStrengthWord(effect.smokeKillerRevealRadius, currentLevel)} smoke reveal`);
+    if (effect.vaultSpeedMultiplier) parts.push(`${perkPassiveStrengthWord(effect.vaultSpeedMultiplier, currentLevel)} vault speed`);
+    if (effect.healActionSpeedMultiplier || effect.unhookActionSpeedMultiplier) parts.push(`${perkPassiveStrengthWord(effect.healActionSpeedMultiplier || effect.unhookActionSpeedMultiplier, currentLevel)} support speed`);
+    if (effect.speedMultiplier) parts.push(`${perkSpeedBoostWord(effect.speedMultiplier) || "Medium"} speed boost`);
+    if (effect.radius) parts.push(`${perkRadiusWord(effect.radius) || "Medium"} radius`);
+    if (effect.projectileSpeed) parts.push(`${perkDartSpeedWord(effect.projectileSpeed) || "Medium"} dart speed`);
+    if (effect.range) parts.push(`${perkRangeWord(effect.range) || "Medium"} range`);
     if (effect.slowMultiplier) parts.push(`${Math.round((1 - Number(effect.slowMultiplier)) * 100)}% slow`);
     if (effect.slowSeconds) parts.push(`${formatSeconds(effect.slowSeconds)} slow`);
     if (effect.hidesScratchMarks) parts.push("hides scratch marks");
-    return [...new Set(parts)].slice(0, 6).join(" · ") || "Level effect configured.";
+    return [...new Set(parts.filter(Boolean))].slice(0, 6).join(" · ") || "Level effect configured.";
   }
 
   function createPerkLevelMeter(level, maxLevel) {
@@ -1696,30 +2124,25 @@
   function perkLevelValueList(levelRow) {
     if (!levelRow || typeof levelRow !== "object") return [];
     const values = [];
-    if (levelRow.label) values.push({ label: "Upgrade", value: String(levelRow.label) });
-    if (levelRow.cost != null) values.push({ label: "Ability cost", value: Number(levelRow.cost) > 0 ? `${Math.floor(Number(levelRow.cost))} orbs` : "Free" });
-    if (Number(levelRow.cooldown || 0) > 0) values.push({ label: "Cooldown", value: formatSeconds(levelRow.cooldown) });
     if (Number(levelRow.duration || 0) > 0) values.push({ label: "Duration", value: formatSeconds(levelRow.duration) });
     if (Number(levelRow.boostDuration || 0) > 0) values.push({ label: "Boost time", value: formatSeconds(levelRow.boostDuration) });
-    if (Number(levelRow.chance || 0) > 0) values.push({ label: "Proc chance", value: `${Math.round(Number(levelRow.chance) * 100)}%` });
+    if (Number(levelRow.chance || 0) > 0) values.push({ label: "Chance", value: `${Math.round(Number(levelRow.chance) * 100)}%` });
     if (levelRow.minBonus != null && levelRow.maxBonus != null) values.push({ label: "Bonus orbs", value: `+${Math.floor(Number(levelRow.minBonus))}-${Math.floor(Number(levelRow.maxBonus))}` });
-    if (Number(levelRow.healProgress || 0) > 0) values.push({ label: "Heal progress", value: `${Math.round(Number(levelRow.healProgress) * 100)}%` });
-    if (Number(levelRow.unhookProgress || 0) > 0) values.push({ label: "Unbind progress", value: `${Math.round(Number(levelRow.unhookProgress) * 100)}%` });
-    if (levelRow.canPickupDowned) values.push({ label: "Save type", value: "Picks up downed Runners" });
-    else if (levelRow.canUnhook) values.push({ label: "Save type", value: "Can unbind" });
-    if (Number(levelRow.speedMultiplier || 0) > 0) values.push({ label: "Speed", value: `${Number(levelRow.speedMultiplier).toFixed(2)}x` });
-    if (Number(levelRow.radius || 0) > 0) values.push({ label: "Blast size", value: `${Math.round(Number(levelRow.radius))}px` });
-    if (Number(levelRow.projectileSpeed || 0) > 0) values.push({ label: "Dart speed", value: `${Math.round(Number(levelRow.projectileSpeed))}` });
-    if (Number(levelRow.range || 0) > 0) values.push({ label: "Range", value: `${Math.round(Number(levelRow.range))}px` });
+    if (Number(levelRow.speedMultiplier || 0) > 0) values.push({ label: "Boost strength", value: `${perkSpeedBoostWord(levelRow.speedMultiplier) || "Medium"}` });
+    if (Number(levelRow.radius || 0) > 0) values.push({ label: "Radius", value: `${perkRadiusWord(levelRow.radius) || "Medium"}` });
+    if (Number(levelRow.projectileSpeed || 0) > 0) values.push({ label: "Dart speed", value: `${perkDartSpeedWord(levelRow.projectileSpeed) || "Medium"}` });
+    if (Number(levelRow.range || 0) > 0) values.push({ label: "Range", value: `${perkRangeWord(levelRow.range) || "Medium"}` });
     if (Number(levelRow.aimWindow || 0) > 0) values.push({ label: "Aim window", value: formatSeconds(levelRow.aimWindow) });
-    if (Number(levelRow.lengthMultiplier || 0) > 0) values.push({ label: "Cone length", value: `${Number(levelRow.lengthMultiplier).toFixed(2)}x` });
-    if (Number(levelRow.angleMultiplier || 0) > 0) values.push({ label: "Cone width", value: `${Number(levelRow.angleMultiplier).toFixed(2)}x` });
-    if (Number(levelRow.backLengthMultiplier || 0) > 0) values.push({ label: "Rear length", value: `${Number(levelRow.backLengthMultiplier).toFixed(2)}x` });
-    if (Number(levelRow.backAngleMultiplier || 0) > 0) values.push({ label: "Rear width", value: `${Number(levelRow.backAngleMultiplier).toFixed(2)}x` });
+    if (Number(levelRow.lengthMultiplier || 0) > 0) values.push({ label: "Cone length", value: `${perkSpeedBoostWord(levelRow.lengthMultiplier) || "Medium"}` });
+    if (Number(levelRow.angleMultiplier || 0) > 0) values.push({ label: "Cone width", value: `${perkSpeedBoostWord(levelRow.angleMultiplier) || "Medium"}` });
+    if (Number(levelRow.backLengthMultiplier || 0) > 0) values.push({ label: "Rear view", value: "Longer" });
+    if (Number(levelRow.backAngleMultiplier || 0) > 0) values.push({ label: "Rear width", value: "Wider" });
     if (Number(levelRow.slowMultiplier || 0) > 0 && Number(levelRow.slowMultiplier) < 1) values.push({ label: "Slow", value: `${Math.round((1 - Number(levelRow.slowMultiplier)) * 100)}%` });
     if (Number(levelRow.slowSeconds || 0) > 0) values.push({ label: "Slow time", value: formatSeconds(levelRow.slowSeconds) });
-    if (levelRow.hidesScratchMarks) values.push({ label: "Special", value: "Hides scratch marks" });
-    if (levelRow.special) values.push({ label: "Bonus", value: String(levelRow.special) });
+    if (levelRow.orbPickupRadiusMultiplier) values.push({ label: "Pickup radius", value: perkPassiveStrengthWord(levelRow.orbPickupRadiusMultiplier, levelRow.level) });
+    if (levelRow.smokeKillerRevealRadius) values.push({ label: "Smoke reveal", value: perkPassiveStrengthWord(levelRow.smokeKillerRevealRadius, levelRow.level) });
+    if (levelRow.vaultSpeedMultiplier) values.push({ label: "Vault speed", value: perkPassiveStrengthWord(levelRow.vaultSpeedMultiplier, levelRow.level) });
+    if (levelRow.healActionSpeedMultiplier || levelRow.unhookActionSpeedMultiplier) values.push({ label: "Support speed", value: perkPassiveStrengthWord(levelRow.healActionSpeedMultiplier || levelRow.unhookActionSpeedMultiplier, levelRow.level) });
     return values;
   }
 
@@ -1727,14 +2150,91 @@
     const key = String(perk?.id || perk?.name || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
     const byKey = {
       speedburst: "/images/speed_burst.png",
-      rallydart: "/images/speed_burst.png",
       riftlens: "/images/speed_burst.png",
-      hourglass: "/images/speed_burst.png",
-      nullrush: "/images/speed_burst.png",
-      redshiftorbs: "/images/speed_burst.png",
-      voidreveal: "/images/speed_burst.png"
+      hourglass: "/images/speed_burst.png"
     };
-    return byKey[key] || perk?.icon || "/images/speed_burst.png";
+    return byKey[key] || perk?.icon || "";
+  }
+
+  function perkInfoBulletList(perk) {
+    const id = String(perk?.id || "");
+    const fallback = perkCardDescription(perk) || "Level this perk to improve its match effect.";
+    switch (id) {
+      case "orbMagnet":
+        return [
+          { label: "Passive", text: "Collector pulls loose orbs in from farther away without pressing an ability button." },
+          { label: "Scaling", text: "Higher tiers increase the pickup radius from small to large." },
+          { label: "Best use", text: "Sweep through orb paths while rotating to rifts instead of stopping for every orb." }
+        ];
+      case "voidTrace":
+        return [
+          { label: "Passive", text: "Nebulizer can read The Void through smoke while standing inside a smoke cloud." },
+          { label: "Scaling", text: "Higher tiers improve the reveal reach inside smoke." },
+          { label: "Best use", text: "Hide your team in smoke without completely losing track of The Void." }
+        ];
+      case "flowState":
+        return [
+          { label: "Passive", text: "Escapist vaults windows and pallets faster." },
+          { label: "Scaling", text: "Higher tiers make chase vaults progressively faster." },
+          { label: "Best use", text: "Chain vault routes to keep distance when The Void commits to chase." }
+        ];
+      case "fieldMedic":
+        return [
+          { label: "Passive", text: "Healer completes normal heals and close-range unbinding faster." },
+          { label: "Scaling", text: "Higher tiers improve both direct healing and direct unbinding speed." },
+          { label: "Best use", text: "Stabilize teammates faster when you are close enough to interact normally." }
+        ];
+      case "collectionBolt":
+        return [
+          { label: "Purpose", text: "Fire a bolt that collects loose orbs inside its pickup radius." },
+          { label: "Scaling", text: "Higher tiers increase radius, range, and travel speed." },
+          { label: "Special", text: "Max Level also collects orbs it passes through before landing." }
+        ];
+      case "doubleOrb":
+        return [
+          { label: "Purpose", text: "Turn normal orb pickups into bonus pickups for a short window." },
+          { label: "Scaling", text: "Higher tiers improve chance, duration, and bonus-orb amount." }
+        ];
+      case "smokeDart":
+        return [
+          { label: "Purpose", text: "Create a void-smoke radius that blocks vision between inside and outside." },
+          { label: "Scaling", text: "Higher tiers create larger smoke that lasts longer." }
+        ];
+      case "dashDart":
+        return [
+          { label: "Purpose", text: "Give Runners inside the radius a speed boost." },
+          { label: "Scaling", text: "Higher tiers make the boost stronger and last longer." },
+          { label: "Special", text: "Max Level also hides scratch marks while boosted." }
+        ];
+      case "swiftVault":
+        return [
+          { label: "Purpose", text: "Prime your next vault to trigger a sprint boost." },
+          { label: "Scaling", text: "Higher tiers make the boost stronger and last longer." }
+        ];
+      case "healingDart":
+        return [
+          { label: "Tier 1", text: "Heals hit teammates from range. It does not unbind bound teammates." },
+          { label: "Tier 2", text: "Adds ranged unbinding support for bound teammates." },
+          { label: "Special", text: "Max Level instantly picks up downed Runners and grants brief i-frames." }
+        ];
+      case "nullRush":
+        return [
+          { label: "Purpose", text: "Surge forward to close distance in chase." },
+          { label: "Scaling", text: "Higher tiers extend the rush and improve pressure." }
+        ];
+      case "redshiftOrbs":
+        return [
+          { label: "Purpose", text: "Corrupt loose orbs into slowdown hazards." },
+          { label: "Scaling", text: "Higher tiers last longer and punish greedy routing harder." }
+        ];
+      case "voidReveal":
+        return [
+          { label: "Purpose", text: "Reveal all Runners for a short hunt window." },
+          { label: "Scaling", text: "Higher tiers keep Runners revealed longer." }
+        ];
+      default:
+        return [{ label: "Purpose", text: fallback }];
+    }
   }
 
   function createPerkInfoModalRoot() {
@@ -1774,6 +2274,10 @@
     const content = modal.querySelector("[data-perk-info-content]");
     if (!content) return;
 
+    const accent = perk.accent || (roleKey === "killer" ? "red" : "purple");
+    modal.classList.remove("accent-yellow", "accent-purple", "accent-orange", "accent-green", "accent-red", "accent-gray", "accent-cyan");
+    modal.classList.add(`accent-${accent}`);
+
     const level = accountPerkLevel(perk.id, roleKey);
     const maxLevel = perkMaxLevel(perk);
     const maxed = level >= maxLevel;
@@ -1781,23 +2285,28 @@
     const affordable = !!currentAccount && (currentAccount.orbBalance || 0) >= nextCost;
     const levels = perkLevels(perk);
     const iconSrc = perkInfoIconSrc(perk);
+    const fallbackEmblem = perkFallbackEmblem(perk);
 
     content.replaceChildren();
 
     const header = document.createElement("div");
-    header.className = `perk-info-header accent-${perk.accent || (roleKey === "killer" ? "purple" : "cyan")}`;
+    header.className = `perk-info-header accent-${accent}`;
     header.innerHTML = `
-      <span class="perk-info-icon"><img src="${iconSrc}" alt="" aria-hidden="true" /></span>
+      <span class="perk-info-icon perk-active-emblem" data-perk-fallback="${escapeHtml(fallbackEmblem)}">${iconSrc ? `<img src="${escapeHtml(iconSrc)}" alt="" aria-hidden="true" />` : `<span class="perk-icon-fallback" aria-hidden="true">${escapeHtml(fallbackEmblem)}</span>`}</span>
       <div>
-        <span class="perk-info-kicker">${roleKey === "killer" ? "Void" : "Runner"} perk</span>
-        <h2 id="perkInfoTitle">${perk.name || perk.id}</h2>
-        <p>${perk.summary || "Unlock and upgrade this ability."}</p>
+        <span class="perk-info-kicker">${escapeHtml(perkTypeLabel(perk, roleKey))}</span>
+        <h2 id="perkInfoTitle">${escapeHtml(perk.name || perk.id)}</h2>
+        <p>${escapeHtml(perkCardDescription(perk))}</p>
       </div>
     `;
 
-    const detail = document.createElement("p");
+    const detail = document.createElement("section");
     detail.className = "perk-info-detail";
-    detail.textContent = perk.detail || perk.summary || "Level this perk to improve its match effect.";
+    const detailItems = perkInfoBulletList(perk);
+    detail.innerHTML = `
+      <h3>What it does</h3>
+      <ul>${detailItems.map((entry) => `<li><b>${escapeHtml(entry.label)}:</b> ${escapeHtml(entry.text)}</li>`).join("")}</ul>
+    `;
 
     const table = document.createElement("div");
     table.className = "perk-info-levels";
@@ -1809,14 +2318,17 @@
       const values = perkLevelValueList(row);
       const item = document.createElement("article");
       item.className = ["perk-info-level", owned ? "owned" : "", current ? "current" : "", row.hidesScratchMarks ? "special" : ""].filter(Boolean).join(" ");
-      const body = values.map((entry) => `<span><b>${entry.label}</b>${entry.value}</span>`).join("");
+      const body = values.map((entry) => `<span><b>${escapeHtml(entry.label)}</b>${escapeHtml(entry.value)}</span>`).join("");
+      const levelBullets = perkLevelInfoBullets(perk, rowLevel);
+      const bulletBody = levelBullets.map((entry) => `<li><b>${escapeHtml(entry.label)}:</b> ${escapeHtml(entry.text)}</li>`).join("");
       item.innerHTML = `
         <div class="perk-info-level-head">
-          <strong>Level ${rowLevel}</strong>
-          <small>${perkLevelCostText(perk, row, index)}</small>
+          <strong>${rowLevel >= maxLevel ? "Max Level" : `Tier ${rowLevel}`}</strong>
+          <small>${escapeHtml(perkLevelCostText(perk, row, index))}</small>
           ${current ? '<span class="perk-info-current-badge">Current level</span>' : ''}
         </div>
-        <div class="perk-info-level-values">${body || "<span><b>Effect</b>Configured in perk data</span>"}</div>
+        <ul class="perk-info-level-copy">${bulletBody || `<li><b>Upgrade:</b> ${escapeHtml(perkLevelEnglish(perk, rowLevel))}</li>`}</ul>
+        ${body ? `<div class="perk-info-level-values">${body}</div>` : ""}
       `;
       table.appendChild(item);
     }
@@ -1840,108 +2352,155 @@
     modal.setAttribute("aria-hidden", "false");
   }
 
+  function appendText(parent, tag, className, text) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    node.textContent = text;
+    parent.appendChild(node);
+    return node;
+  }
+
+  function createPerkEmblem(perk) {
+    const icon = document.createElement("span");
+    icon.className = "perk-icon perk-active-emblem";
+    icon.setAttribute("aria-hidden", "true");
+    icon.dataset.perkFallback = perkFallbackEmblem(perk);
+    const fallbackIcon = document.createElement("span");
+    fallbackIcon.className = "perk-icon-fallback";
+    fallbackIcon.textContent = icon.dataset.perkFallback;
+    icon.appendChild(fallbackIcon);
+    return icon;
+  }
+
+  function createPerkUpgradePanel({ title, copy, tone = "current" }) {
+    const panel = document.createElement("section");
+    panel.className = `perk-upgrade-panel ${tone}`;
+    appendText(panel, "b", "perk-upgrade-label", title);
+    appendText(panel, "p", "perk-upgrade-copy", copy);
+    return panel;
+  }
+
+  function createPerkActionButton(perk, role, level, maxLevel, nextCost, maxed) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "perk-buy-btn";
+    button.dataset.perkBuy = perk.id;
+    button.dataset.perkRole = role;
+    button.disabled = maxed;
+    button.textContent = maxed ? "Max level" : level <= 0 ? `Unlock · ${nextCost} orbs` : `Upgrade · ${nextCost} orbs`;
+    button.title = currentAccount ? button.textContent : "Login or Play as Guest to buy perks";
+    return button;
+  }
+
   function renderPerkShop() {
     const mounts = [...document.querySelectorAll("[data-perk-shop]")];
     if (!mounts.length) return;
     for (const mount of mounts) {
       const role = normalizePerkRole(mount.dataset.perkShop || "survivor");
-      const perks = shopPerks.filter((perk) => normalizePerkRole(perk.role) === role);
-      const fallback = configuredPerksForRole(role);
+      const classFilter = String(mount.dataset.perkClass || "").trim();
+      const perks = shopPerks.filter((perk) => {
+        if (normalizePerkRole(perk.role) !== role) return false;
+        if (classFilter && String(perk.classId || "") !== classFilter) return false;
+        return true;
+      });
+      const fallback = configuredPerksForRole(role).filter((perk) => {
+        if (classFilter && String(perk.classId || "") !== classFilter) return false;
+        return true;
+      });
       const catalog = perks.length ? perks : fallback;
       mount.replaceChildren();
       if (!catalog.length) {
         const empty = document.createElement("p");
         empty.className = "perk-shop-empty";
-        empty.textContent = "Perk catalog did not load. Very dramatic. Try refreshing.";
+        empty.textContent = "No perks found for this class yet.";
         mount.appendChild(empty);
         continue;
       }
-      for (const perk of catalog) {
+
+      for (const catalogPerk of catalog) {
+        const perk = publicPerkById(catalogPerk.id, role) || catalogPerk;
         const id = String(perk.id || "");
         const level = accountPerkLevel(id, role);
         const maxLevel = perkMaxLevel(perk);
         const nextCost = perkNextCost(perk, level);
         const maxed = level >= maxLevel;
         const affordable = !!currentAccount && (currentAccount.orbBalance || 0) >= nextCost;
+        const previewLevel = level > 0 ? level : 1;
+        const currentEffectText = perkLevelEnglish(perk, previewLevel);
+        const nextEffectText = level > 0 && !maxed ? perkLevelEnglish(perk, level + 1) : "";
+        const statusText = level > 0 ? (maxed ? "Max Level" : `Tier ${level}/${maxLevel}`) : "Locked";
 
         const card = document.createElement("article");
         card.className = `perk-card accent-${perk.accent || (role === "killer" ? "purple" : "cyan")}`;
         card.dataset.perkId = id;
         card.dataset.perkLevel = String(level);
         card.dataset.perkMaxLevel = String(maxLevel);
+        card.dataset.perkRole = role;
+        card.dataset.nextLevelText = nextEffectText;
+        if (perk.classId) card.dataset.perkClass = String(perk.classId);
         card.classList.toggle("locked", level <= 0);
         card.classList.toggle("owned", level > 0);
         card.classList.toggle("maxed", maxed);
         card.classList.toggle("upgradeable", level > 0 && !maxed);
         card.classList.toggle("affordable", !maxed && affordable);
+        card.classList.toggle("passive-perk", !!perk.passive);
 
-        const top = document.createElement("div");
-        top.className = "perk-card-top has-perk-info";
-        const icon = document.createElement("span");
-        icon.className = "perk-icon";
-        icon.setAttribute("aria-hidden", "true");
+        const header = document.createElement("header");
+        header.className = "perk-card-top has-perk-info";
+        const icon = createPerkEmblem(perk);
         const title = document.createElement("div");
-        const name = document.createElement("strong");
-        name.textContent = perk.name || id;
-        const meta = document.createElement("small");
-        meta.textContent = level > 0 ? `Level ${level}/${maxLevel}` : "Locked";
-        title.append(name, meta);
+        title.className = "perk-card-title";
+        appendText(title, "strong", "", perk.name || id);
+        appendText(title, "small", "", perkTypeLabel(perk, role));
+        const status = appendText(document.createElement("span"), "i", "", statusText);
+        status.parentElement.className = "perk-status-pill";
         const infoButton = document.createElement("button");
         infoButton.type = "button";
         infoButton.className = "perk-info-btn";
         infoButton.dataset.perkInfo = id;
         infoButton.dataset.perkRole = role;
         infoButton.setAttribute("aria-label", `View ${perk.name || id} perk details`);
-        infoButton.textContent = "More Info";
-        top.append(icon, title, infoButton);
+        infoButton.textContent = "Details";
+        const headerActions = document.createElement("div");
+        headerActions.className = "perk-card-actions";
+        headerActions.append(status.parentElement, infoButton);
+        header.append(icon, title, headerActions);
 
-        const summary = document.createElement("p");
-        summary.className = "perk-summary";
-        summary.textContent = perk.summary || "Unlock and upgrade this ability.";
+        const body = document.createElement("div");
+        body.className = "perk-card-body";
+        const description = document.createElement("section");
+        description.className = "perk-card-description";
+        appendText(description, "b", "", "What it does");
+        appendText(description, "p", "perk-summary", perkCardDescription(perk));
 
-        const effect = document.createElement("p");
-        effect.className = "perk-effect";
-        const currentEffectText = perkEffectLine(perk, level);
-        const nextEffectText = level > 0 && !maxed ? perkEffectLine(perk, level + 1) : "";
+        const upgrades = document.createElement("div");
+        upgrades.className = "perk-card-upgrades";
+        upgrades.appendChild(createPerkUpgradePanel({
+          title: level > 0 ? (maxed ? "Max Level" : "Current tier") : "Unlocks tier 1",
+          copy: currentEffectText,
+          tone: level > 0 ? "current" : "locked"
+        }));
         if (nextEffectText) {
-          card.dataset.nextLevelText = nextEffectText;
-          effect.dataset.baseEffectText = currentEffectText;
-          effect.classList.add("has-next-upgrade");
-          const currentEffect = document.createElement("span");
-          currentEffect.className = "perk-effect-current";
-          currentEffect.textContent = currentEffectText;
-          const arrow = document.createElement("span");
-          arrow.className = "perk-effect-arrow";
-          arrow.textContent = "->";
-          const nextEffect = document.createElement("span");
-          nextEffect.className = "perk-effect-next";
-          nextEffect.textContent = nextEffectText;
-          effect.append(currentEffect, arrow, nextEffect);
-        } else {
-          effect.textContent = currentEffectText;
+          upgrades.appendChild(createPerkUpgradePanel({
+            title: level + 1 >= maxLevel ? "Next: Max Level" : `Next: Tier ${level + 1}`,
+            copy: nextEffectText,
+            tone: "next"
+          }));
         }
-        const meter = createPerkLevelMeter(level, maxLevel);
+        body.append(description, upgrades);
 
-        const pips = document.createElement("div");
-        pips.className = "perk-level-pips";
-        for (let i = 1; i <= maxLevel; i++) {
-          const pip = document.createElement("span");
-          pip.className = i <= level ? "filled" : "";
-          pips.appendChild(pip);
-        }
+        const footer = document.createElement("footer");
+        footer.className = "perk-card-footer";
+        footer.append(createPerkLevelMeter(level, maxLevel), createPerkActionButton(perk, role, level, maxLevel, nextCost, maxed));
 
-        const button = document.createElement("button");
-        button.type = "button";
-        button.dataset.perkBuy = id;
-        button.dataset.perkRole = role;
-        button.disabled = maxed;
-        button.textContent = maxed ? "Max level" : level <= 0 ? `Unlock · ${nextCost} orbs` : `Upgrade · ${nextCost} orbs`;
-        button.title = currentAccount ? button.textContent : "Login or Play as Guest to buy perks";
-
-        card.append(top, summary, effect, meter, pips, button);
+        card.append(header, body, footer);
         mount.appendChild(card);
       }
     }
+  }
+
+  if (typeof window !== "undefined") {
+    window.RiftRunnerRenderPerkShop = renderPerkShop;
   }
 
   async function buyPerk(perkId, role = "survivor") {
@@ -2906,7 +3465,9 @@
     if (!actor || actor.role !== "survivor" || actor.dead || actor.escaped || actor.hooked || actor.downed) return null;
     return getAbilityListForActor(actor).find((ability) => ability
       && ability.shootAbility
-      && ability.available !== false
+      // Intentionally do NOT require ability.available here.
+      // When ammo is 0, the server still needs to receive the fire attempt so it can
+      // create the same under-player chat bubble used by the chat wheel.
       && !ability.locked
       && !ability.disabled
       && !ability.passive
@@ -3051,20 +3612,21 @@
       const fallbackEffect = runnerClassAbilityLevelConfig(base, actor);
       const perkLevel = perk ? actorPerkLevel(actor, base.id || id, roleKey) : 0;
       const maxLevel = perk ? perkMaxLevel(perk) : Math.max(1, Array.isArray(base.levels) ? base.levels.length : 1);
-      const level = perk ? Math.max(0, Math.min(maxLevel, Math.floor(Number(perkLevel || 0)))) : Math.max(1, Math.floor(Number(fallbackEffect?.level || 1)));
+      const forcedLevel = testingAbilities ? Math.min(maxLevel, testLevel) : 0;
+      const level = forcedLevel || (perk ? Math.max(0, Math.min(maxLevel, Math.floor(Number(perkLevel || 0)))) : Math.max(1, Math.floor(Number(fallbackEffect?.level || 1))));
       const locked = !testingAbilities && !!perk && level <= 0;
       const effect = perk
         ? (level > 0 ? perkLevelConfig(perk, level) : perkLevelConfig(perk, 1))
         : fallbackEffect;
       const duration = Number(effect?.duration ?? effect?.boostDuration ?? base.duration ?? 0);
-      const abilityCost = testingAbilities ? 0 : Number(effect?.cost ?? perk?.abilityCost ?? base.cost ?? 0);
-      const cooldown = testingAbilities ? 0 : Number(effect?.cooldown ?? perk?.cooldown ?? base.cooldown ?? 30);
+      const abilityCost = abilityCostForDisplay(base, effect, effect?.cost ?? perk?.abilityCost ?? base.cost ?? 0, testingAbilities);
+      const cooldown = testingAbilities ? 0 : shortenedAbilityCooldown(effect?.cooldown ?? perk?.cooldown ?? base.cooldown ?? 30);
       const stat = locked ? "unlock in Perks"
         : effect?.label ? String(effect.label)
           : effect?.chance ? `${Math.round(Number(effect.chance) * 100)}% proc`
             : effect?.speedMultiplier ? `${Number(effect.speedMultiplier).toFixed(1)}x speed`
               : effect?.healProgress ? `${Math.round(Number(effect.healProgress) * 100)}% heal`
-                : effect?.radius ? `${Math.round(Number(effect.radius))}px radius`
+                : effect?.radius ? `${perkRadiusWord(effect.radius) || "Medium"} radius`
                   : duration ? formatSeconds(duration)
                     : "class ability";
       const levelLabel = locked ? "Locked" : `Lv ${level}/${maxLevel}`;
@@ -3088,8 +3650,8 @@
     const maxLevel = perkMaxLevel(perk || {});
     const effect = level > 0 ? perkLevelConfig(perk, level) : null;
     const duration = Number(effect?.duration ?? base.duration ?? 0);
-    const abilityCost = testingAbilities ? 0 : Number(perk?.abilityCost ?? base.cost ?? 0);
-    const cooldown = testingAbilities ? 0 : Number(perk?.cooldown ?? base.cooldown ?? (role === "survivor" ? 30 : 20));
+    const abilityCost = abilityCostForDisplay(base, effect, perk?.abilityCost ?? base.cost ?? 0, testingAbilities);
+    const cooldown = testingAbilities ? 0 : shortenedAbilityCooldown(perk?.cooldown ?? base.cooldown ?? (role === "survivor" ? 30 : 20));
     const classGranted = roleKey === "survivor" && classGrantedPerkLevel(actor, base.id || id) > 0;
     const levelLabel = level > 0
       ? `${classGranted ? "Class" : "Lv"} ${level}/${maxLevel} · ${formatSeconds(duration)}`
@@ -3118,7 +3680,15 @@
       const isCancel = !!ability.cancel || id === "cancel" || id === "moreSoon";
       const disabled = !!ability.disabled || !!ability.passive;
       const cooldowns = role === "survivor" ? actor?.survivorAbilityCooldowns : actor?.voidAbilityCooldowns;
-      const cooldownRemaining = (isCancel || disabled || testingAbilities) ? 0 : Math.max(0, Number(cooldowns?.[ability.id || id] || 0));
+      const isShoot = role === "survivor" && isDartAbility(ability);
+      const dartAmmo = Math.max(0, Math.floor(Number(actor?.runnerDartAmmo || 0)));
+      const dartMaxAmmo = Math.max(1, Math.floor(Number(actor?.runnerDartMaxAmmo || 3)));
+      const dartFireLockoutRemaining = Math.max(0, Number(actor?.runnerDartFireLockoutRemaining || actor?.runnerDartReloadRemaining || 0));
+      const cooldownRemaining = (isCancel || disabled || testingAbilities)
+        ? 0
+        : isShoot
+          ? dartFireLockoutRemaining
+          : Math.max(0, Number(cooldowns?.[ability.id || id] || 0));
       const active = !!(actor && !isCancel && (
         (role === "killer" && ability.id === "nullRush" && (actor.voidSpeedBoost || 0) > 0) ||
         (role === "killer" && ability.id === "redshiftOrbs" && (currentSnapshot?.voidEffects?.redOrbs || 0) > 0) ||
@@ -3128,22 +3698,25 @@
         (role === "survivor" && ability.id === "speedBurst" && (actor.speedBurst || 0) > 0) ||
         (role === "survivor" && ability.id === "doubleOrb" && (actor.doubleOrb || 0) > 0) ||
         (role === "survivor" && ability.id === "swiftVault" && (actor.swiftVaultReady || 0) > 0) ||
-        (role === "survivor" && ability.id === "dashDart" && (actor.rallyBoost || 0) > 0) ||
-        (role === "survivor" && ability.id === "rallyDart" && (actor.rallyDartArmed || 0) > 0)
+        (role === "survivor" && ability.id === "dashDart" && (actor.dashBoost || 0) > 0)
       ));
       return {
         id: ability.id || id,
         name: ability.name || (isCancel ? "Cancel" : fallbackName),
         shortName: ability.shortName || ability.name || (isCancel ? "Cancel" : "Ability"),
-        cost: Number(ability.cost || 0),
-        summary: ability.summary || (isCancel ? "Close the wheel." : "Spend orbs to bend the run."),
+        cost: isShoot ? 0 : Number(ability.cost || 0),
+        summary: ability.summary || (isCancel ? "Close the wheel." : isShoot ? "Uses dart ammo instead of orbs." : "Spend orbs to bend the run."),
         accent: ability.accent || (isCancel ? "muted" : role === "survivor" ? "cyan" : "purple"),
         cancel: isCancel,
         disabled,
         passive: !!ability.passive,
         cooldown: Number(ability.cooldown || (role === "survivor" ? 30 : 20)),
         cooldownRemaining,
-        available: isCancel || (!disabled && !ability.locked && orbs >= Number(ability.cost || 0) && cooldownRemaining <= 0),
+        ammo: isShoot ? dartAmmo : null,
+        maxAmmo: isShoot ? dartMaxAmmo : null,
+        reloadRemaining: 0,
+        fireLockoutRemaining: isShoot ? dartFireLockoutRemaining : 0,
+        available: isCancel || (!disabled && !ability.locked && (isShoot ? dartAmmo > 0 : orbs >= Number(ability.cost || 0)) && cooldownRemaining <= 0),
         locked: !!ability.locked,
         level: Math.max(0, Math.floor(Number(ability.level || 0))),
         maxLevel: Math.max(1, Math.floor(Number(ability.maxLevel || 4))),
@@ -3249,12 +3822,15 @@
     if (isRunner && (me.speedBurst || 0) > 0) runnerEffects.push({ id: "speedBurst", label: "burst", time: me.speedBurst });
     if (isRunner && (me.doubleOrb || 0) > 0) runnerEffects.push({ id: "doubleOrb", label: "double orb", time: me.doubleOrb });
     if (isRunner && (me.swiftVaultReady || 0) > 0) runnerEffects.push({ id: "swiftVault", label: "swift vault", time: me.swiftVaultReady });
-    if (isRunner && (me.rallyDartArmed || 0) > 0) runnerEffects.push({ id: "rallyDart", label: "dart armed", time: me.rallyDartArmed });
-    if (isRunner && (me.rallyBoost || 0) > 0) runnerEffects.push({ id: "rallyBoost", label: "dash boost", time: me.rallyBoost });
+    if (isRunner && (me.dashBoost || 0) > 0) runnerEffects.push({ id: "dashBoost", label: "dash boost", time: me.dashBoost });
     window.dispatchEvent(new CustomEvent("riftrunner:runner-ability-hud", {
       detail: {
         visible: isRunner,
         orbs: isRunner ? Math.max(0, Math.floor(me.dots || 0)) : 0,
+        dartAmmo: isRunner ? Math.max(0, Math.floor(me.runnerDartAmmo || 0)) : 0,
+        dartMaxAmmo: isRunner ? Math.max(1, Math.floor(me.runnerDartMaxAmmo || 3)) : 3,
+        dartReloadRemaining: 0,
+        dartFireLockoutRemaining: isRunner ? Math.max(0, Number(me.runnerDartFireLockoutRemaining || 0)) : 0,
         effects: runnerEffects,
         abilities: isRunner ? getAbilityListForActor(me).filter((ability) => ability && !ability.cancel && !ability.passive && !ability.disabled) : []
       }
@@ -3843,6 +4419,18 @@
         best = { active: true, healerCount, distance: d, linked };
       }
     }
+
+    const dartBoxRange = Math.max(range, Number(LOCAL_SFX_RANGE?.dartBoxCollect) || 420);
+    for (const actor of actors) {
+      if (!actor || actor.role !== "survivor" || !(actor.dartBoxProgress > 0.001) || !actor.dartBoxTargetId) continue;
+      const linked = actor.id === localId || localData.dartBoxTargetId === actor.dartBoxTargetId;
+      const d = Number.isFinite(lx) && Number.isFinite(ly) ? dist(lx, ly, actor.x || 0, actor.y || 0) : Infinity;
+      const audible = linked || d <= dartBoxRange;
+      if (!audible) continue;
+      if (!best.active || best.healerCount <= 0 || d < best.distance) {
+        best = { active: true, healerCount: 1, distance: d, linked };
+      }
+    }
     return best;
   }
 
@@ -3958,6 +4546,26 @@
     return dist(me.current.x, me.current.y, x, y);
   }
 
+  function localEventHasWallLineOfSight(event) {
+    const me = getLocalVisualActor();
+    const x = Number(event?.x);
+    const y = Number(event?.y);
+    if (!me?.current || !Number.isFinite(x) || !Number.isFinite(y)) return false;
+    const scene = phaserScene;
+    if (!scene || typeof scene.hasClearWallLineOfSight !== "function") return true;
+    return scene.hasClearWallLineOfSight(me.current.x, me.current.y, x, y);
+  }
+
+  function distanceVolumeScale(distance, range, minScale = 0.18) {
+    const d = Number(distance);
+    const r = Number(range);
+    const floor = clamp(Number(minScale), 0, 1);
+    if (!Number.isFinite(d)) return floor;
+    if (!Number.isFinite(r) || r <= 0) return 1;
+    const t = clamp(1 - d / r, 0, 1);
+    return clamp(floor + (1 - floor) * Math.pow(t, 1.18), floor, 1);
+  }
+
   function playLocalizedSwing(event) {
     if (!event) return;
     const isKillerSwinging = event.actorId === myId;
@@ -4003,12 +4611,6 @@
   const DASH_SFX_ABILITY_IDS = new Set(["nullRush", "speedBurst"]);
   const recentDashSfx = new Map();
 
-  function eventBoostedIds(event) {
-    return Array.isArray(event?.boostedIds)
-      ? event.boostedIds.map((id) => String(id || "")).filter(Boolean)
-      : [];
-  }
-
   function dashSfxActorId(event) {
     return String(event?.actorId || event?.survivorId || event?.killerId || "");
   }
@@ -4031,77 +4633,21 @@
     if (!event) return;
     const abilityId = dashSfxAbilityId(event);
     if (!abilityId) return;
-
     const actorId = dashSfxActorId(event);
     const isDasher = actorId === myId;
     const d = distanceToLocalEvent(event);
     const range = Math.max(180, Number(LOCAL_SFX_RANGE.dash || 900));
-    // The dasher always hears their own dash. Other players only hear it nearby.
     if (!isDasher && d > range) return;
     if (shouldSkipDuplicateDashSfx(actorId, abilityId)) return;
-
     playSfx("dash", { fallbackName: "speedBoost" });
-  }
-
-  function localEventHasWallLineOfSight(event) {
-    const me = getLocalVisualActor();
-    const x = Number(event?.x);
-    const y = Number(event?.y);
-    if (!me?.current || !Number.isFinite(x) || !Number.isFinite(y)) return false;
-    const scene = phaserScene;
-    if (!scene || typeof scene.hasClearWallLineOfSight !== "function") return true;
-    return scene.hasClearWallLineOfSight(me.current.x, me.current.y, x, y);
-  }
-
-  function distanceVolumeScale(distance, range, minScale = 0.18) {
-    if (!Number.isFinite(distance)) return minScale;
-    if (!Number.isFinite(range) || range <= 0) return 1;
-    const t = clamp(1 - (distance / range), 0, 1);
-    return clamp(minScale + (1 - minScale) * Math.pow(t, 1.18), minScale, 1);
-  }
-
-  function playLocalizedRallyDartBoostSfx(event) {
-    if (!event) return;
-
-    const actorId = String(event.actorId || event.survivorId || "rallyDart");
-    const boostedIds = eventBoostedIds(event);
-    const isShooter = actorId === String(myId || "");
-    const isBoosted = boostedIds.includes(String(myId || ""));
-    const d = distanceToLocalEvent(event);
-    const range = Math.max(520, Number(LOCAL_SFX_RANGE.rallyDartExplosion || LOCAL_SFX_RANGE.dash || 1500));
-    const visibleRange = Math.max(range, Number(LOCAL_SFX_RANGE.rallyDartExplosionVisible || range * 1.25));
-    const canSeeLanding = d <= visibleRange && localEventHasWallLineOfSight(event);
-
-    // This is the landing/explosion cue, not just the buff cue.
-    // Shooter always hears confirmation, boosted players always hear it,
-    // and anyone close enough or with a clear view hears a distance-faded version.
-    if (!isShooter && !isBoosted && d > range && !canSeeLanding) return;
-
-    const keyId = `${actorId}:rallyDart:${Math.round(Number(event.x) || 0)}:${Math.round(Number(event.y) || 0)}`;
-    if (shouldSkipDuplicateDashSfx(keyId, "rallyDartBoost", 260)) return;
-
-    const minScale = clamp(Number(LOCAL_SFX_RANGE.rallyDartExplosionMinVolumeScale || 0.18), 0.02, 0.65);
-    const shooterMinScale = clamp(Number(LOCAL_SFX_RANGE.rallyDartExplosionShooterMinVolumeScale || 0.46), 0.02, 0.85);
-    const shooterFalloffRange = Math.max(range, visibleRange);
-    let volumeScale = isShooter
-      ? distanceVolumeScale(d, shooterFalloffRange, shooterMinScale)
-      : distanceVolumeScale(d, range, minScale);
-
-    // Boosted players need clear feedback, but the shooter should still hear the landing fade by distance.
-    if (isBoosted && !isShooter) volumeScale = Math.max(volumeScale, 0.72);
-    if (!isShooter && !isBoosted && d > range && canSeeLanding) volumeScale = Math.max(minScale, 0.16);
-
-    playSfx("dash", { fallbackName: "speedBoost", volumeScale });
   }
 
   function runnerProjectileImpactSfxName(event) {
     const projectileType = String(event?.projectileType || event?.abilityId || "");
+    if (projectileType === "boost") return "dash";
     if (projectileType === "heal") return Number(event?.affected || 0) > 0 ? "healDartImpact" : "";
     if (projectileType === "smoke") return "smokeDartImpact";
-    if (projectileType === "collect") {
-      const collected = Number(event?.collected ?? event?.affected ?? 0);
-      return collected <= 0 ? "collectMiss" : "";
-    }
+    if (projectileType === "collect") return "collectMiss";
     return "";
   }
 
@@ -4111,8 +4657,8 @@
 
     const actorId = String(event.actorId || event.survivorId || "runnerProjectile");
     const d = distanceToLocalEvent(event);
-    const range = Math.max(520, Number(LOCAL_SFX_RANGE.runnerProjectileImpact || LOCAL_SFX_RANGE.rallyDartExplosion || LOCAL_SFX_RANGE.dash || 900));
-    const visibleRange = Math.max(range, Number(LOCAL_SFX_RANGE.runnerProjectileImpactVisible || LOCAL_SFX_RANGE.rallyDartExplosionVisible || range * 1.25));
+    const range = Math.max(520, Number(LOCAL_SFX_RANGE.runnerProjectileImpact || LOCAL_SFX_RANGE.dash || 900));
+    const visibleRange = Math.max(range, Number(LOCAL_SFX_RANGE.runnerProjectileImpactVisible || range * 1.25));
     const isShooter = actorId === String(myId || "");
     const canSeeLanding = d <= visibleRange && localEventHasWallLineOfSight(event);
 
@@ -4121,14 +4667,38 @@
     const keyId = `${actorId}:${sfxName}:${event.projectileType || event.abilityId}:${Math.round(Number(event.x) || 0)}:${Math.round(Number(event.y) || 0)}`;
     if (shouldSkipDuplicateDashSfx(keyId, sfxName, 260)) return;
 
-    const minScale = clamp(Number(LOCAL_SFX_RANGE.runnerProjectileImpactMinVolumeScale ?? LOCAL_SFX_RANGE.rallyDartExplosionMinVolumeScale ?? 0.18), 0.02, 0.65);
-    const shooterMinScale = clamp(Number(LOCAL_SFX_RANGE.runnerProjectileImpactShooterMinVolumeScale ?? LOCAL_SFX_RANGE.rallyDartExplosionShooterMinVolumeScale ?? 0.46), 0.02, 0.85);
+    const minScale = clamp(Number(LOCAL_SFX_RANGE.runnerProjectileImpactMinVolumeScale ?? 0.18), 0.02, 0.65);
+    const shooterMinScale = clamp(Number(LOCAL_SFX_RANGE.runnerProjectileImpactShooterMinVolumeScale ?? 0.46), 0.02, 0.85);
     let volumeScale = isShooter
       ? distanceVolumeScale(d, Math.max(range, visibleRange), shooterMinScale)
       : distanceVolumeScale(d, range, minScale);
 
     if (!isShooter && d > range && canSeeLanding) volumeScale = Math.max(minScale, 0.16);
     playSfx(sfxName, { volumeScale });
+  }
+
+  function playLocalizedDartBoxCollectedSfx(event) {
+    if (!event) return;
+    const actorId = String(event.survivorId || "dartBox");
+    const affected = Array.isArray(event.affected) ? event.affected.map(String) : [];
+    const isCollector = actorId === String(myId || "");
+    const isAffected = affected.includes(String(myId || ""));
+    const d = distanceToLocalEvent(event);
+    const range = Math.max(520, Number(LOCAL_SFX_RANGE.dartBoxCollected || LOCAL_SFX_RANGE.runnerProjectileImpact || LOCAL_SFX_RANGE.dash || 900));
+    const visibleRange = Math.max(range, Number(LOCAL_SFX_RANGE.dartBoxCollectedVisible || LOCAL_SFX_RANGE.runnerProjectileImpactVisible || range * 1.25));
+    const canSeeLanding = d <= visibleRange && localEventHasWallLineOfSight(event);
+    if (!isCollector && !isAffected && d > range && !canSeeLanding) return;
+
+    const keyId = `${actorId}:dartBoxCollected:${event.boxId || "box"}:${Math.round(Number(event.x) || 0)}:${Math.round(Number(event.y) || 0)}`;
+    if (shouldSkipDuplicateDashSfx(keyId, "dartBoxCollected", 260)) return;
+
+    const minScale = clamp(Number(LOCAL_SFX_RANGE.dartBoxCollectedMinVolumeScale ?? LOCAL_SFX_RANGE.runnerProjectileImpactMinVolumeScale ?? 0.18), 0.02, 0.65);
+    const linkedMinScale = clamp(Number(LOCAL_SFX_RANGE.dartBoxCollectedShooterMinVolumeScale ?? LOCAL_SFX_RANGE.runnerProjectileImpactShooterMinVolumeScale ?? 0.46), 0.02, 0.85);
+    let volumeScale = (isCollector || isAffected)
+      ? distanceVolumeScale(d, Math.max(range, visibleRange), linkedMinScale)
+      : distanceVolumeScale(d, range, minScale);
+    if (!isCollector && !isAffected && d > range && canSeeLanding) volumeScale = Math.max(minScale, 0.16);
+    playSfx("collected", { fallbackName: "orbPickup", volumeScale });
   }
 
   function playShooterOnlyDartSfx(event) {
@@ -4246,7 +4816,7 @@
     const voidStun = me?.role === "killer" ? clamp(Number(me.voidStun || 0) / Math.max(0.001, VOID_STUN_SECONDS), 0, 1) : 0;
     const blood = me?.hooked ? 0.95 : me?.downed ? 1 : injured ? 0.82 : me?.dead ? 1 : 0;
     const speedBoost = me?.role === "survivor" && !me.dead && !me.escaped && !me.downed && !me.hooked
-      ? ((Number(me.speedBurst || 0) > 0 || Number(me.rallyBoost || 0) > 0) ? 1 : 0)
+      ? ((Number(me.speedBurst || 0) > 0 || Number(me.dashBoost || 0) > 0) ? 1 : 0)
       : 0;
     return { terror, chase, blood, injured, voidStun, speedBoost };
   }
@@ -4372,6 +4942,8 @@
       this.shockwaves = [];
       this.runnerProjectileVisuals = new Map();
       this.smokeCloudVisuals = new Map();
+      this.recentRunnerProjectileImpacts = new Map();
+      this.dartBoxVisuals = new Map();
       this.inputTimer = 0;
       this.dynamicRedrawTimer = 0;
       this.generatorRedrawTimer = 0;
@@ -4383,6 +4955,7 @@
       this.lastDynamicKey = "";
       this.lastGeneratorKey = "";
       this.collectibleDotVisuals?.clear();
+      this.dartBoxVisuals?.clear();
       this.collectibleDotsAnimating = false;
       this.lastHudKey = "";
       this.lastHudRenderAt = 0;
@@ -4567,7 +5140,7 @@
       // and Vite helpfully returned index.html when the file was missing, which made Phaser
       // parse HTML as SVG and die with a useless XML error. Humanity marches on.
       // Rifts are drawn with Graphics in drawGenerator(), and create() still builds a small
-      // fallback canvas texture for any legacy code path that asks for one.
+      // fallback canvas texture for any rare texture lookup that asks for one.
     }
 
     create() {
@@ -4587,6 +5160,7 @@
       this.generatorDepositVisual = new Map();
       this.generatorDepositLastRaw = new Map();
       this.collectibleDotVisuals = new Map();
+      this.dartBoxVisuals = new Map();
       this.collectibleDotsAnimating = false;
       this.scratchGraphics = this.add.graphics().setDepth(4);
       // Minimal visibility cone. One small Graphics object.
@@ -4602,8 +5176,7 @@
       this.swipes = [];
       this.recentHookIndicators = [];
       this.createGeneratorFallbackTexture();
-      // Legacy soft cone textures are intentionally not created here. The minimal
-      // system below uses vector alpha + object visibility, which is much cheaper.
+      // Soft cone textures are intentionally not created here; vector alpha + object visibility is much cheaper.
       this.input.on("pointerdown", (pointer) => {
         ensureAudioStarted();
         if (isDedicatedSpectator()) {
@@ -4643,7 +5216,7 @@
     }
 
     createGrassTexture() {
-      // Legacy no-op. v51 uses a cheap solid/patch ground graphics layer for performance.
+      // No-op kept for old scene lifecycle callers; ground is drawn by the cheap static arena layer.
       return null;
     }
 
@@ -4910,6 +5483,7 @@
       this.lastDynamicKey = "";
       this.lastGeneratorKey = "";
       this.collectibleDotVisuals?.clear();
+      this.dartBoxVisuals?.clear();
       this.collectibleDotsAnimating = false;
       this.needsDynamicRedraw = true;
       this.needsGeneratorRedraw = true;
@@ -5051,9 +5625,7 @@
     }
 
     rebuildFogTexture() {
-      // Legacy compatibility hook. The old version allocated a camera-sized
-      // RenderTexture and erased a flashlight cone out of it. That looked nice,
-      // and also gave weak laptops a reason to write goodbye letters.
+      // Compatibility hook for older scene lifecycle callers. The current visibility system avoids rebuilding camera-sized RenderTextures.
       if (this.fogRT) {
         this.fogRT.destroy();
         this.fogRT = null;
@@ -5077,6 +5649,7 @@
       item.healAura?.destroy();
       item.pickupAura?.destroy();
       item.boostAura?.destroy();
+      item.reviveAura?.destroy();
       item.healBarBg?.destroy();
       item.healBar?.destroy();
     }
@@ -5358,6 +5931,108 @@
         this.drawHook(g, hook, hookAlpha);
       }
       this.drawCollectibleDots(g);
+      this.drawDartBoxes(g);
+    }
+
+    updateDartBoxVisuals(dt) {
+      if (!this.dartBoxVisuals) this.dartBoxVisuals = new Map();
+      const visibleBoxes = currentSnapshot?.dartBoxes || [];
+      const seen = new Set();
+      let animating = false;
+
+      for (const box of visibleBoxes) {
+        if (!box?.id || !Number.isFinite(box.x) || !Number.isFinite(box.y)) continue;
+        seen.add(box.id);
+        let visual = this.dartBoxVisuals.get(box.id);
+        if (!visual) {
+          visual = {
+            id: box.id,
+            x: box.x,
+            y: box.y,
+            alpha: 0,
+            targetAlpha: 1,
+            progress: 0,
+            active: false,
+            radius: Number(box.radius || 220),
+            phase: hash2(Math.floor(box.x), Math.floor(box.y)) * Math.PI * 2
+          };
+          this.dartBoxVisuals.set(box.id, visual);
+          animating = true;
+        }
+        visual.x = lerp(visual.x, box.x, dampAlpha(12, dt));
+        visual.y = lerp(visual.y, box.y, dampAlpha(12, dt));
+        visual.progress = lerp(visual.progress || 0, Number(box.progress || 0), dampAlpha(14, dt));
+        visual.active = !!box.active;
+        visual.radius = Number(box.radius || visual.radius || 220);
+        visual.targetAlpha = 1;
+        if (visual.active || (visual.progress || 0) > 0.001) animating = true;
+      }
+
+      for (const [id, visual] of this.dartBoxVisuals.entries()) {
+        if (!seen.has(id)) visual.targetAlpha = 0;
+        const speed = visual.targetAlpha > visual.alpha ? DOT_FADE_VISUAL.IN_SPEED : DOT_FADE_VISUAL.OUT_SPEED;
+        const next = lerp(visual.alpha, visual.targetAlpha, dampAlpha(speed, dt));
+        if (Math.abs(next - visual.alpha) > 0.002) animating = true;
+        visual.alpha = next;
+        if (visual.targetAlpha <= 0 && visual.alpha <= DOT_FADE_VISUAL.REMOVE_ALPHA) {
+          this.dartBoxVisuals.delete(id);
+          animating = true;
+        }
+      }
+
+      this.dartBoxesAnimating = animating;
+      return animating;
+    }
+
+    drawDartBoxes(g) {
+      if (!this.dartBoxVisuals?.size) return;
+      for (const box of this.dartBoxVisuals.values()) this.drawDartBox(g, box);
+    }
+
+    drawDartBox(g, box) {
+      if (!box || !Number.isFinite(box.x) || !Number.isFinite(box.y)) return;
+      const alpha = clamp(box.alpha ?? 1, 0, 1);
+      if (alpha <= 0.01) return;
+      const now = performance.now();
+      const pulse = 0.5 + Math.sin(now / 360 + (box.phase || 0)) * 0.5;
+      const progress = clamp(box.progress || 0, 0, 1);
+      const base = 15 + pulse * 2.4;
+      const activeGlow = box.active || progress > 0.01;
+
+      // Blue cosmic cache: not ammo, because apparently bullets in space weren't dramatic enough.
+      g.fillStyle(0x0f2c66, (0.18 + pulse * 0.10) * alpha);
+      g.fillCircle(box.x, box.y, base * 2.2);
+      g.fillStyle(0x38bdf8, (0.18 + pulse * 0.13) * alpha);
+      g.fillCircle(box.x, box.y, base * 1.45);
+      g.fillStyle(0xdff9ff, 0.92 * alpha);
+      g.fillCircle(box.x, box.y, base * 0.52);
+      g.fillStyle(0x7dd3fc, 0.74 * alpha);
+      g.fillCircle(box.x, box.y, base * 0.88);
+      g.fillStyle(0xffffff, 0.60 * alpha);
+      g.fillCircle(box.x - base * 0.18, box.y - base * 0.20, base * 0.18);
+
+      const shardCount = LOW_POWER_MODE ? 4 : 6;
+      for (let i = 0; i < shardCount; i += 1) {
+        const a = (Math.PI * 2 * i) / shardCount + now / (900 + i * 40) + (box.phase || 0);
+        const r = base * (1.25 + (i % 2) * 0.18);
+        const sx = box.x + Math.cos(a) * r;
+        const sy = box.y + Math.sin(a) * r;
+        this.drawRunnerProjectileStar(g, sx, sy, LOW_POWER_MODE ? 2.2 : 3.0, i % 2 ? 0x7dd3fc : 0xe0faff, 0.25 * alpha, -a);
+      }
+
+      g.lineStyle(2, 0x93eaff, (0.42 + pulse * 0.22) * alpha);
+      g.strokeCircle(box.x, box.y, base * 1.18);
+      if (activeGlow) {
+        const aoePulse = 0.5 + Math.sin(now / 520 + (box.phase || 0)) * 0.5;
+        g.fillStyle(0x0ea5e9, (0.035 + aoePulse * 0.025) * alpha);
+        g.fillCircle(box.x, box.y, Math.max(70, Number(box.radius || 220)));
+        g.lineStyle(LOW_POWER_MODE ? 1.2 : 1.8, 0x7dd3fc, (0.18 + aoePulse * 0.18) * alpha);
+        g.strokeCircle(box.x, box.y, Math.max(70, Number(box.radius || 220)));
+        g.lineStyle(3, 0xe0faff, 0.70 * alpha);
+        g.beginPath();
+        g.arc(box.x, box.y, base * 1.75, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress, false);
+        g.strokePath();
+      }
     }
 
     updateCollectibleDotVisuals(dt) {
@@ -6026,7 +6701,7 @@
       const total = objective.totalGenerators ?? objective.total ?? required;
       const escapeOpen = objective.escapeOpen ?? objective.gatesPowered ?? false;
       const hudKey = JSON.stringify({
-        self: [me.id, me.role, me.runnerClass, me.runnerLevel, me.health, me.dots, me.injured, me.downed, me.hooked, me.dead, me.escaped, me.escapeProgress, me.escapeGateId, me.chase, me.hookProgress, me.healProgress, me.generatorKickTargetId, me.generatorKickProgress, me.voidStun, me.voidSpeedBoost],
+        self: [me.id, me.role, me.skin, me.runnerClass, me.runnerLevel, me.health, me.dots, me.injured, me.downed, me.hooked, me.dead, me.escaped, me.escapeProgress, me.escapeGateId, me.chase, me.hookProgress, me.healProgress, me.generatorKickTargetId, me.generatorKickProgress, me.voidStun, me.voidSpeedBoost],
         objective: [done, required, total, escapeOpen],
         survivors: (snapshot.actors || []).filter((a) => a.role === "survivor").map((a) => [a.id, a.health, a.dots, a.injured, a.downed, a.hooked, a.dead, a.escaped, a.escapeProgress, a.escapeGateId, a.chase, a.hookProgress, a.healProgress, a.hookCount, a.chatText]),
         killerChat: (snapshot.actors || []).find((a) => a.role === "killer")?.chatText || null,
@@ -6041,6 +6716,7 @@
       renderSurvivorStatusHud(snapshot);
       const hudRole = me.role === "killer" ? "killer" : me.role === "spectator" ? "spectator" : "survivor";
       ui.hud.dataset.role = hudRole;
+      applyRoleHudSkin(me, hudRole);
       ui.roleLabel.textContent = hudRole === "killer" ? "The Void" : hudRole === "spectator" ? "Spectator" : `${runnerClassLabel(me.runnerClass)} Runner`;
       ui.controlsLabel.textContent = hudRole === "killer"
         ? "WASD move • Mouse aim • M1 attack/lunge • Space vault/break • hold E bind/execute/kick Rift • hold Q abilities • hold R chat"
@@ -6093,8 +6769,13 @@
     updateScratchGraphics(marks) {
       const g = this.scratchGraphics;
       g.clear();
+      const serverTime = Number(currentSnapshot?.serverTime || 0);
       for (const mark of marks) {
-        const alpha = clamp((mark.ttl || 0) / 4, 0, 1) * 0.85;
+        const remaining = Number.isFinite(Number(mark.expiresAt)) && serverTime > 0
+          ? Number(mark.expiresAt) - serverTime
+          : Number(mark.ttl || 0);
+        if (remaining <= 0) continue;
+        const alpha = clamp(remaining / SCRATCH_MARK_CLIENT_TTL, 0, 1) * 0.85;
         const len = 22;
         const a = mark.angle || 0;
         g.lineStyle(6, 0x0f172a, alpha * 0.18);
@@ -6295,6 +6976,11 @@
         .setScrollFactor(1, 1)
         .setBlendMode(Phaser.BlendModes.SCREEN)
         .setVisible(false);
+      const reviveAura = this.add.graphics()
+        .setDepth(isKiller ? 16.2 : 13.75)
+        .setScrollFactor(1, 1)
+        .setBlendMode(Phaser.BlendModes.SCREEN)
+        .setVisible(false);
       // Action bars are scene-level objects, not children of the rotating actor
       // container. Keeping them separate makes healing / rescue / hook / execute
       // bars stay fixed underneath the player instead of rotating or drifting away
@@ -6340,6 +7026,7 @@
         healAura,
         pickupAura,
         boostAura,
+        reviveAura,
         healBarBg,
         healBar,
         nameText,
@@ -6382,6 +7069,7 @@
         data.dead ? 1 : 0,
         data.escaped ? 1 : 0,
         data.invuln > 0 ? 1 : 0,
+        data.reviveInvuln > 0 ? 1 : 0,
         data.attackState || "",
         data.attacking ? 1 : 0,
         data.recovery > 0 ? 1 : 0,
@@ -6595,36 +7283,115 @@
       ));
       if (maxVisualDots <= 0) return;
 
-      const visualDots = Math.max(1, Math.min(maxVisualDots, Math.ceil(display)));
-      const spreadCount = Math.max(1, visualDots);
       const spinScale = clamp(performanceValue("heldOrbSpinScale", 1), 0, 1);
       const bobScale = clamp(performanceValue("heldOrbBobScale", 1), 0, 1);
       const orbitPhase = (item.dotOrbitPhase ?? 0) * spinScale;
-      const represented = Math.max(1, display / visualDots);
-      const highCountScale = display > visualDots ? clamp(display / Math.max(1, SURVIVOR_DOT_MAX), 0.35, 1) : 1;
+      const represented = Math.max(1, SURVIVOR_DOT_MAX / Math.max(1, maxVisualDots));
+      const visibleSlots = Math.max(1, Math.min(maxVisualDots, Math.ceil(display / represented)));
+      const highCountScale = clamp(display / Math.max(1, SURVIVOR_DOT_MAX), 0.35, 1);
+      const baseAlpha = bodyAlpha * (adaptivePerformance.mode === "ultra" ? 0.58 : 0.80);
 
-      for (let i = 0; i < visualDots; i++) {
-        const rawFill = display - i * represented;
-        const fill = clamp(rawFill / Math.max(1, represented), 0, 1);
+      if (adaptivePerformance.mode !== "ultra") {
+        const ringRadius = DOT_ORBIT_VISUAL.RADIUS_BASE + highCountScale * 6.5;
+        const ringAlpha = DOT_ORBIT_VISUAL.RING_ALPHA * bodyAlpha * clamp(display / 6, 0.18, 1);
+        const arcAlpha = DOT_ORBIT_VISUAL.RING_ARC_ALPHA * bodyAlpha * clamp(display / 8, 0.16, 1);
+        const orbitSpin = orbitPhase * 0.72;
+        const isCollector = normalizeRunnerClassId(item?.data?.runnerClass || "") === "orbCollector";
+
+        if (isCollector) {
+          // Collector magnet field: subtle gold pull field with brighter yellow accents.
+          const gold = 0xfbbf24;
+          const brightGold = 0xfde047;
+          const softGold = 0xfff7c2;
+          const pulse = 0.5 + Math.sin(orbitPhase * 1.55) * 0.5;
+          const magneticAlpha = bodyAlpha * clamp(display / 8, 0.15, 1);
+
+          body.lineStyle(LOW_POWER_MODE ? 0.46 : 0.62, softGold, 0.034 * magneticAlpha);
+          body.strokeCircle(0, 0, ringRadius + 0.6);
+
+          for (let i = 0; i < 3; i += 1) {
+            const start = orbitSpin + i * Math.PI * 0.72 + Math.sin(orbitPhase * 0.42 + i) * 0.09;
+            const span = Math.PI * (LOW_POWER_MODE ? 0.20 : 0.27);
+            const r = ringRadius + (i - 1) * 1.7;
+            body.lineStyle(LOW_POWER_MODE ? 0.9 : 1.16, i === 1 ? brightGold : gold, (0.075 + pulse * 0.05) * magneticAlpha);
+            body.beginPath();
+            body.arc(0, 0, r, start, start + span, false);
+            body.strokePath();
+          }
+
+          if (!LOW_POWER_MODE) {
+            for (let i = 0; i < 5; i += 1) {
+              const a = orbitSpin * 1.08 + i * Math.PI * 0.58 + Math.sin(orbitPhase * 0.63 + i) * 0.16;
+              const r = ringRadius + Math.sin(orbitPhase * 0.9 + i) * 2.4;
+              const sx = Math.cos(a) * r;
+              const sy = Math.sin(a) * r;
+              body.fillStyle(i % 2 ? brightGold : gold, (0.075 + pulse * 0.04) * magneticAlpha);
+              body.fillCircle(sx, sy, i % 2 ? 0.82 : 1.02);
+            }
+          }
+        } else {
+          body.lineStyle(LOW_POWER_MODE ? 0.45 : 0.6, glow, ringAlpha);
+          body.strokeCircle(0, 0, ringRadius);
+          body.lineStyle(LOW_POWER_MODE ? 0.75 : 0.95, accent, arcAlpha);
+          body.beginPath();
+          body.arc(0, 0, ringRadius + 1.2, orbitSpin, orbitSpin + Math.PI * 0.34, false);
+          body.strokePath();
+          body.beginPath();
+          body.arc(0, 0, ringRadius - 1.5, orbitSpin + Math.PI * 1.16, orbitSpin + Math.PI * 1.52, false);
+          body.strokePath();
+          if (!LOW_POWER_MODE) {
+            for (let i = 0; i < 3; i += 1) {
+              const a = orbitSpin + i * Math.PI * 0.72 + Math.sin(orbitPhase * 0.7 + i) * 0.12;
+              const r = ringRadius + (i % 2 ? -1.9 : 2.0);
+              const sx = Math.cos(a) * r;
+              const sy = Math.sin(a) * r;
+              body.fillStyle(i % 2 ? glow : accent, DOT_ORBIT_VISUAL.RING_SPARK_ALPHA * bodyAlpha * clamp(display / 10, 0.12, 1));
+              body.fillCircle(sx, sy, 0.9 + (i % 2) * 0.25);
+            }
+          }
+        }
+      }
+
+      for (let i = 0; i < visibleSlots; i++) {
+        const slotStart = i * represented;
+        const fill = clamp((display - slotStart) / represented, 0, 1);
         if (fill <= 0.02) continue;
 
-        const orbitSpin = orbitPhase * (1.05 + i * 0.1);
-        const slotAngle = orbitSpin + (i / spreadCount) * Math.PI * 2 - Math.PI / 2;
+        // Slot angle uses maxVisualDots, not current held count, so existing orbs never jump
+        // when a new one is collected. The new slot fades in instead of redistributing the ring.
+        const slotRatio = i / Math.max(1, maxVisualDots);
+        const orbitSpin = orbitPhase * (1.02 + (i % 5) * 0.025);
+        const slotAngle = orbitSpin + slotRatio * Math.PI * 2 - Math.PI / 2;
         const localAngle = slotAngle - (playerAngle || 0);
-        const radius = DOT_ORBIT_VISUAL.RADIUS_BASE + (i % 3) * DOT_ORBIT_VISUAL.RADIUS_STEP + highCountScale * 3;
-        const bob = Math.sin(orbitPhase * 2.3 + i * 0.85) * DOT_ORBIT_VISUAL.BOB * bobScale;
+        const lane = i % 3;
+        const radius = DOT_ORBIT_VISUAL.RADIUS_BASE + lane * DOT_ORBIT_VISUAL.RADIUS_STEP + highCountScale * 4.5;
+        const bob = Math.sin(orbitPhase * 2.25 + i * 0.83) * DOT_ORBIT_VISUAL.BOB * bobScale;
         const exitT = 1 - fill;
         const exitEase = exitT * exitT;
         const exitPush = exitEase * DOT_ORBIT_VISUAL.DEPOSIT_EXIT_PUSH;
-        const ox = Math.cos(localAngle) * (radius + bob + exitPush);
-        const oy = Math.sin(localAngle) * (radius + bob + exitPush);
+        const orbitRadius = radius + bob + exitPush;
+        const ox = Math.cos(localAngle) * orbitRadius;
+        const oy = Math.sin(localAngle) * orbitRadius;
         const baseSize = i % 2 === 1 ? DOT_ORBIT_VISUAL.SIZE_PRIMARY : DOT_ORBIT_VISUAL.SIZE_SECONDARY;
-        const size = (baseSize + highCountScale * 0.9) * (0.65 + fill * 0.35);
-        const alpha = bodyAlpha * (adaptivePerformance.mode === "ultra" ? 0.58 : 0.78) * fill * fill;
+        const pop = Math.sin(fill * Math.PI) * DOT_ORBIT_VISUAL.NEW_ORB_POP;
+        const size = (baseSize + highCountScale * 0.95 + pop) * (0.68 + fill * 0.32);
+        const alpha = baseAlpha * fill * fill;
         const color = i % 2 === 1 ? accent : glow;
+
+        if (adaptivePerformance.mode !== "ultra") {
+          const trailAngle = localAngle - 0.22 - (i % 4) * 0.015;
+          const tx = Math.cos(trailAngle) * (orbitRadius - size * 0.2);
+          const ty = Math.sin(trailAngle) * (orbitRadius - size * 0.2);
+          body.lineStyle(Math.max(0.8, size * 0.46), color, DOT_ORBIT_VISUAL.TRAIL_ALPHA * alpha);
+          body.lineBetween(tx, ty, ox, oy);
+          body.fillStyle(color, alpha * 0.16);
+          body.fillCircle(ox, oy, size * 2.15);
+        }
 
         body.fillStyle(color, alpha);
         body.fillCircle(ox, oy, size);
+        body.fillStyle(0xffffff, alpha * 0.48);
+        body.fillCircle(ox - size * 0.28, oy - size * 0.28, Math.max(0.65, size * 0.32));
       }
     }
 
@@ -7016,7 +7783,54 @@
         item.outline.strokeCircle(0, 0, r + 3);
       }
 
+      if ((data.reviveInvuln || 0) > 0 && !disabled && !data.hooked && !data.downed) {
+        const shieldPulse = 0.5 + Math.sin(performance.now() / 105 + seed) * 0.5;
+        item.outline.lineStyle(2.2, 0xf8fafc, 0.52 + shieldPulse * 0.28);
+        item.outline.strokeCircle(0, 0, 28 + shieldPulse * 4);
+        item.outline.lineStyle(1.2, 0x94a3b8, 0.34 + shieldPulse * 0.18);
+        item.outline.strokeCircle(0, 0, 36 + shieldPulse * 7);
+        item.body.fillStyle(0xffffff, 0.11 + shieldPulse * 0.05);
+        item.body.fillCircle(0, 0, 21 + shieldPulse * 2);
+      }
+
       this.drawHeldDotOrbits(item, item.body, bodyAlpha, accent, glow, item.current?.angle ?? 0);
+    }
+
+    drawReviveInvulnAura(item, data) {
+      if (!item?.reviveAura || data?.role !== "survivor") return;
+      const alphaBase = clamp(item.visionAlpha ?? 0, 0, 1);
+      const active = (data.reviveInvuln || 0) > 0
+        && !data.dead
+        && !data.escaped
+        && !data.hooked
+        && !data.downed
+        && alphaBase > ACTOR_VISION.MIN_VISIBLE_ALPHA;
+
+      item.reviveAura.clear();
+      item.reviveAura.setVisible(active);
+      if (!active) return;
+
+      const now = performance.now();
+      const seed = hash2((data.id || "revive").length, (data.id || "r").charCodeAt(0) || 0);
+      const pulse = 0.5 + Math.sin(now / 120 + seed * Math.PI * 2) * 0.5;
+      const slow = 0.5 + Math.sin(now / 310 + seed) * 0.5;
+      const radius = 30 + pulse * 5;
+
+      item.reviveAura.setPosition(item.current.x, item.current.y);
+      item.reviveAura.setRotation(0);
+      item.reviveAura.fillStyle(0xffffff, alphaBase * (0.045 + slow * 0.035));
+      item.reviveAura.fillCircle(0, 0, radius * 0.95);
+      item.reviveAura.lineStyle(2.4, 0xf8fafc, alphaBase * (0.35 + pulse * 0.26));
+      item.reviveAura.strokeCircle(0, 0, radius);
+      item.reviveAura.lineStyle(1.1, 0x94a3b8, alphaBase * (0.22 + slow * 0.18));
+      item.reviveAura.strokeCircle(0, 0, radius + 9 + slow * 3);
+      for (let i = 0; i < 4; i += 1) {
+        const angle = now / (260 + i * 34) + seed + i * Math.PI * 0.5;
+        const px = Math.cos(angle) * (radius + 3 + (i % 2) * 4);
+        const py = Math.sin(angle) * (radius * 0.78 + (i % 2) * 3);
+        item.reviveAura.fillStyle(i % 2 ? 0xe2e8f0 : 0xffffff, alphaBase * (0.24 + pulse * 0.10));
+        item.reviveAura.fillCircle(px, py, LOW_POWER_MODE ? 1.7 : 2.3);
+      }
     }
 
     drawHealingAura(item, data) {
@@ -7068,19 +7882,63 @@
       if (!active) return;
 
       const radius = Math.max(aura.baseRadius + 3, aura.radius);
-      const ringWidth = adaptivePerformance.mode === "ultra" ? Math.max(1.2, aura.lineWidth * 0.75) : aura.lineWidth;
+      const now = performance.now();
+      const pulse = 0.5 + Math.sin(now / 520 + (item.seed || 0)) * 0.5;
 
       item.pickupAura.setPosition(item.current.x, item.current.y);
       item.pickupAura.setRotation(0);
+
+      if (aura.isCollector) {
+        const spin = now / 1350 + (item.seed || 0) * 0.031;
+        const gold = 0xfbbf24;
+        const brightGold = 0xfde047;
+        const softGold = 0xfff7c2;
+        const fieldAlpha = alphaBase * clamp((aura.radius - aura.baseRadius) / Math.max(1, aura.baseRadius), 0.18, 0.55);
+
+        // Collector field: brighter gold haze with broken magnetic arcs.
+        item.pickupAura.fillStyle(brightGold, 0.013 * fieldAlpha);
+        item.pickupAura.fillCircle(0, 0, radius + 4 + pulse * 2.5);
+        item.pickupAura.fillStyle(gold, 0.011 * fieldAlpha);
+        item.pickupAura.fillCircle(0, 0, radius - 1.5);
+
+        item.pickupAura.lineStyle(adaptivePerformance.mode === "ultra" ? 0.72 : 0.92, softGold, 0.080 * fieldAlpha);
+        item.pickupAura.strokeCircle(0, 0, radius + 0.5);
+
+        const arcCount = LOW_POWER_MODE ? 3 : 5;
+        for (let i = 0; i < arcCount; i += 1) {
+          const start = spin + i * Math.PI * 0.64 + Math.sin(now / (760 + i * 45) + i) * 0.11;
+          const span = Math.PI * (0.17 + (i % 2) * 0.065);
+          const r = radius + (i % 3 - 1) * 2.6;
+          const color = i % 3 === 1 ? brightGold : gold;
+          const width = adaptivePerformance.mode === "ultra" ? 0.92 : 1.28;
+          item.pickupAura.lineStyle(width, color, (0.16 + pulse * 0.06) * fieldAlpha);
+          item.pickupAura.beginPath();
+          item.pickupAura.arc(0, 0, r, start, start + span, false);
+          item.pickupAura.strokePath();
+        }
+
+        if (!LOW_POWER_MODE && adaptivePerformance.mode !== "ultra") {
+          for (let i = 0; i < 7; i += 1) {
+            const a = -spin * 0.82 + i * Math.PI * 0.49 + Math.sin(now / (690 + i * 22) + i) * 0.13;
+            const r = radius + Math.sin(now / (820 + i * 30) + i * 1.7) * 4.2;
+            const size = i % 3 === 0 ? 1.26 : 0.94;
+            item.pickupAura.fillStyle(i % 2 ? brightGold : gold, (0.10 + pulse * 0.045) * fieldAlpha);
+            item.pickupAura.fillCircle(Math.cos(a) * r, Math.sin(a) * r, size);
+          }
+        }
+        return;
+      }
+
+      const ringWidth = adaptivePerformance.mode === "ultra" ? Math.max(1.2, aura.lineWidth * 0.75) : aura.lineWidth;
       item.pickupAura.lineStyle(ringWidth, aura.color, alphaBase * aura.lineAlpha);
       item.pickupAura.strokeCircle(0, 0, radius);
     }
 
-    drawRallyBoostAura(item, data) {
+    drawDashBoostAura(item, data) {
       if (!item?.boostAura || data?.role !== "survivor") return;
 
       const alphaBase = clamp(item.visionAlpha ?? 0, 0, 1);
-      const active = (data.rallyBoost || 0) > 0
+      const active = (data.dashBoost || 0) > 0
         && !data.dead
         && !data.escaped
         && !data.hooked
@@ -7092,7 +7950,7 @@
       if (!active) return;
 
       const now = performance.now();
-      const seed = hash2((data.id || "rally").length, (data.id || "r").charCodeAt(0) || 0);
+      const seed = hash2((data.id || "dash").length, (data.id || "r").charCodeAt(0) || 0);
       const ultra = adaptivePerformance.mode === "ultra" || LOW_POWER_MODE;
       const points = ultra ? 8 : 12;
       const radius = ultra ? 29 : 33;
@@ -7288,6 +8146,10 @@
           item.boostAura.clear();
           item.boostAura.setVisible(false);
         }
+        if (item.reviveAura) {
+          item.reviveAura.clear();
+          item.reviveAura.setVisible(false);
+        }
         const charging = data.attackState === "charging";
         const attacking = data.attacking || data.attackState === "quick" || data.attackState === "lunge";
         const voidSkin = getVoidSkin(data.skin);
@@ -7312,11 +8174,11 @@
         const progress = data.hooked ? (data.unhookProgress || 0) : data.downed ? (downedHealProgress || data.hookProgress || 0) : (data.healProgress || 0);
         const showProgress = progress > 0 && !data.dead && !data.escaped;
         const progressColor = data.hooked ? 0x75d5ff : downedHealProgress ? 0x8dff9a : hookOrExecuteProgress ? 0xff4040 : data.downed ? 0xffb36b : 0x8dff9a;
-        const outlineColor = showProgress ? progressColor : data.invuln > 0 ? 0xffffff : data.hooked ? 0xffc06a : skin.outline;
+        const outlineColor = showProgress ? progressColor : data.reviveInvuln > 0 ? 0xf8fafc : data.invuln > 0 ? 0xffffff : data.hooked ? 0xffc06a : skin.outline;
         const progressStep = Math.round(progress * (adaptivePerformance.mode === "ultra" ? 10 : 24));
         const dotKeyStep = adaptivePerformance.mode === "ultra" ? 2 : adaptivePerformance.mode === "low" ? 1 : 0.5;
         const dotVisualKey = Math.round((item.dotDisplay || 0) / dotKeyStep) * dotKeyStep;
-        const survivorStateKey = `${data.skin || ""}:${data.health}:${data.injured ? 1 : 0}:${data.downed ? 1 : 0}:${data.hooked ? 1 : 0}:${data.dead ? 1 : 0}:${data.escaped ? 1 : 0}:${data.invuln > 0 ? 1 : 0}:${progressStep}:${dotVisualKey}`;
+        const survivorStateKey = `${data.skin || ""}:${data.health}:${data.injured ? 1 : 0}:${data.downed ? 1 : 0}:${data.hooked ? 1 : 0}:${data.dead ? 1 : 0}:${data.escaped ? 1 : 0}:${data.invuln > 0 ? 1 : 0}:${data.reviveInvuln > 0 ? 1 : 0}:${progressStep}:${dotVisualKey}`;
         const survivorRedrawEvery = performanceValue("survivorRedrawMs", LOW_POWER_MODE ? 85 : 0);
         const shouldRedrawSurvivor = item.lastSurvivorStateKey !== survivorStateKey
           || !item.lastSurvivorDrawAt
@@ -7334,6 +8196,7 @@
             this.drawHookedSurvivorPulse(item, data);
           }
         }
+        this.drawReviveInvulnAura(item, data);
         this.drawOrbPickupAura(item, data);
         item.facing.setFillStyle(0xffffff, disabled || data.hooked ? 0.15 : 0.42);
         if (item.healBarBg && item.healBar) {
@@ -7344,6 +8207,85 @@
           item.healBar.width = 42 * clamp(progress, 0, 1);
         }
       }
+    }
+
+    rememberRunnerProjectileImpact(projectileId) {
+      if (!projectileId) return;
+      const impacts = this.recentRunnerProjectileImpacts || (this.recentRunnerProjectileImpacts = new Map());
+      impacts.set(String(projectileId), performance.now() + 900);
+      if (impacts.size > 48) {
+        const now = performance.now();
+        for (const [id, until] of impacts) {
+          if (until <= now || impacts.size > 48) impacts.delete(id);
+        }
+      }
+    }
+
+    recentlySawRunnerProjectileImpact(projectileId) {
+      if (!projectileId) return false;
+      const impacts = this.recentRunnerProjectileImpacts;
+      if (!impacts) return false;
+      const until = impacts.get(String(projectileId));
+      if (!until) return false;
+      if (until <= performance.now()) {
+        impacts.delete(String(projectileId));
+        return false;
+      }
+      return true;
+    }
+
+    playMissingRunnerProjectileImpactFx(visual) {
+      if (!visual || String(visual.ownerId || "") !== String(myId || "")) return;
+      if (this.recentlySawRunnerProjectileImpact(visual.id)) return;
+      this.playRunnerProjectileImpactFx({
+        type: "runnerProjectileExplode",
+        x: visual.x,
+        y: visual.y,
+        actorId: visual.ownerId,
+        survivorId: visual.ownerId,
+        ownerId: visual.ownerId,
+        projectileId: visual.id,
+        abilityId: visual.abilityId || visual.type,
+        projectileType: visual.type,
+        radius: visual.radius || 96,
+        affected: 0,
+        collected: 0,
+        reason: "clientFallback"
+      });
+    }
+
+    playSharedImpactFx(event, color, options = {}) {
+      if (!event || !Number.isFinite(Number(event.x)) || !Number.isFinite(Number(event.y))) return;
+      const mode = adaptivePerformance.mode;
+      const burstNormal = Math.max(0, Math.floor(cfgNumber(options.burstNormal, 24)));
+      const burstLow = Math.max(0, Math.floor(cfgNumber(options.burstLow, 8)));
+      const burstUltra = Math.max(0, Math.floor(cfgNumber(options.burstUltra, 0)));
+      const burstCount = mode === "ultra" ? burstUltra : LOW_POWER_MODE ? burstLow : burstNormal;
+      const burstLife = Math.max(50, cfgNumber(options.burstLife, LOW_POWER_MODE ? 115 : 170));
+      if (burstCount > 0) this.burst(event.x, event.y, color, burstCount, burstLife);
+      if (mode === "normal" && options.shockwave !== false) {
+        this.addShockwave(
+          event.x,
+          event.y,
+          options.ringColor ?? color,
+          cfgNumber(options.shockwaveAlpha, 0.44),
+          Math.max(24, cfgNumber(options.radius, 120))
+        );
+      }
+    }
+
+    playRunnerProjectileImpactFx(event) {
+      this.rememberRunnerProjectileImpact(event?.projectileId);
+      playLocalizedRunnerProjectileImpactSfx(event);
+      const palette = this.runnerProjectilePalette(event.projectileType || event.abilityId);
+      this.playSharedImpactFx(event, palette.mid, {
+        ringColor: palette.ring,
+        radius: Math.max(60, Number(event.radius || 110)),
+        burstNormal: 24,
+        burstLow: 8,
+        burstUltra: 0,
+        burstLife: LOW_POWER_MODE ? 115 : 170
+      });
     }
 
     handleEvents(events) {
@@ -7455,36 +8397,29 @@
         }
         if (event.type === "survivorAbility") {
           playLocalizedDashAbilitySfx(event);
-          const color = event.abilityId === "rallyDart" || event.abilityId === "dashDart" || event.abilityId === "swiftVault" || event.abilityId === "speedBurst" ? 0xff9f1c
+          const color = event.abilityId === "dashDart" || event.abilityId === "swiftVault" || event.abilityId === "speedBurst" ? 0xff9f1c
             : event.abilityId === "smokeDart" ? 0xa78bfa
               : event.abilityId === "healingDart" || event.abilityId === "healingPulse" ? 0x34d399
                 : event.abilityId === "collectionBolt" || event.abilityId === "doubleOrb" || event.abilityId === "riftLens" ? 0xfbbf24
                   : event.abilityId === "hourglass" ? 0x67e8f9
                     : 0x7dd3fc;
           this.burst(event.x, event.y, color, adaptivePerformance.mode === "ultra" ? 0 : LOW_POWER_MODE ? 5 : 28, LOW_POWER_MODE ? 110 : 180);
-          if (adaptivePerformance.mode === "normal") this.addShockwave(event.x, event.y, color, 0.42, event.abilityId === "healingPulse" || event.abilityId === "healingDart" ? (event.radius || 150) : event.abilityId === "rallyDart" || event.abilityId === "collectionBolt" ? 92 : event.abilityId === "hourglass" ? 176 : 138);
+          if (adaptivePerformance.mode === "normal") this.addShockwave(event.x, event.y, color, 0.42, event.abilityId === "healingPulse" || event.abilityId === "healingDart" ? (event.radius || 150) : event.abilityId === "collectionBolt" ? 92 : event.abilityId === "hourglass" ? 176 : 138);
         }
         if (event.type === "runnerProjectileFire") {
           playShooterOnlyDartSfx(event);
           const palette = this.runnerProjectilePalette(event.projectileType || event.abilityId);
-          this.burst(event.x, event.y, palette.mid, adaptivePerformance.mode === "ultra" ? 0 : LOW_POWER_MODE ? 4 : 12, LOW_POWER_MODE ? 90 : 135);
+          this.playSharedImpactFx(event, palette.mid, {
+            ringColor: palette.ring,
+            radius: 58,
+            burstNormal: 12,
+            burstLow: 4,
+            burstUltra: 0,
+            burstLife: LOW_POWER_MODE ? 90 : 135,
+            shockwave: false
+          });
         }
-        if (event.type === "rallyDartFire") {
-          this.burst(event.x, event.y, 0xff9f1c, adaptivePerformance.mode === "ultra" ? 0 : LOW_POWER_MODE ? 5 : 16, LOW_POWER_MODE ? 95 : 135);
-        }
-        if (event.type === "runnerProjectileExplode") {
-          playLocalizedRunnerProjectileImpactSfx(event);
-          const palette = this.runnerProjectilePalette(event.projectileType || event.abilityId);
-          const radius = Math.max(60, Number(event.radius || 110));
-          this.burst(event.x, event.y, palette.mid, adaptivePerformance.mode === "ultra" ? 0 : LOW_POWER_MODE ? 8 : 24, LOW_POWER_MODE ? 115 : 170);
-          if (adaptivePerformance.mode === "normal") this.addShockwave(event.x, event.y, palette.ring, 0.44, radius);
-        }
-        if (event.type === "rallyDartExplode") {
-          playLocalizedRallyDartBoostSfx(event);
-          this.burst(event.x, event.y, 0xff9f1c, adaptivePerformance.mode === "ultra" ? 0 : LOW_POWER_MODE ? 12 : 34, LOW_POWER_MODE ? 125 : 175);
-          this.addShockwave(event.x, event.y, 0xff9f1c, 0.74, event.radius || 116);
-          this.addShockwave(event.x, event.y, 0xffd089, 0.34, (event.radius || 116) * 0.68);
-        }
+        if (event.type === "runnerProjectileExplode") this.playRunnerProjectileImpactFx(event);
         if (event.type === "redOrbSlow" && adaptivePerformance.mode !== "ultra") {
           this.burst(event.x, event.y, 0xff3048, LOW_POWER_MODE ? 4 : 18, 95);
         }
@@ -7525,6 +8460,14 @@
         }
         // dotFull is now shown as the same under-player chat bubble used by the R chat wheel.
         if (event.type === "dotLoss" && adaptivePerformance.mode === "normal") this.burst(event.x, event.y, COLORS.collectibleDot, 14, 120);
+        if (event.type === "dartBoxCollected") {
+          playLocalizedDartBoxCollectedSfx(event);
+          this.burst(event.x, event.y, 0x7dd3fc, adaptivePerformance.mode === "ultra" ? 4 : LOW_POWER_MODE ? 18 : 52, LOW_POWER_MODE ? 150 : 230);
+          if (adaptivePerformance.mode !== "ultra") {
+            this.addShockwave(event.x, event.y, 0x38bdf8, 0.58, Number(event.radius || 220));
+            this.addShockwave(event.x, event.y, 0xe0faff, 0.28, Math.max(70, Number(event.radius || 220) * 0.55));
+          }
+        }
       }
     }
 
@@ -7853,6 +8796,7 @@
       }
       this.updateWallVision(dt);
       this.updateCollectibleDotVisuals(dt);
+      this.updateDartBoxVisuals(dt);
       this.maybeDrawDynamicWorld(dt);
       this.maybeDrawGeneratorLayer(dt);
       this.maybeUpdateScratchGraphics(dt);
@@ -7990,7 +8934,7 @@
       if (data.role === "survivor" && data.downed) speed = LOCAL_SPEEDS.downedCrawl;
       else if (data.role === "survivor" && data.hitBoost > 0) speed = LOCAL_SPEEDS.survivorBoost;
       if (data.role === "survivor" && (data.speedBurst || 0) > 0 && !data.downed) speed *= cfgNumber(perkEffectForActor(data, "speedBurst", "survivor")?.speedMultiplier, LOCAL_SPEEDS.survivorSpeedBurstMult);
-      if (data.role === "survivor" && (data.rallyBoost || 0) > 0 && !data.downed) speed *= Math.max(1, cfgNumber(data.rallyBoostMultiplier, 1.10));
+      if (data.role === "survivor" && (data.dashBoost || 0) > 0 && !data.downed) speed *= Math.max(1, cfgNumber(data.dashBoostMultiplier, 1.10));
       if (data.role === "survivor" && (data.orbSlow || data.voidSlow || 0) > 0) speed *= 0.58;
       if (data.role === "killer" && currentSnapshot?.objective?.voidBuffed) speed *= LOCAL_SPEEDS.killerEndgameMult;
       if (data.role === "killer" && (data.voidSpeedBoost || 0) > 0) speed *= cfgNumber(perkEffectForActor(data, "nullRush", "killer")?.speedMultiplier, 1.28);
@@ -8639,7 +9583,7 @@
         if (item.data?.role === "killer" && (item.data?.voidSpeedBoost || 0) > 0) {
           this.emitVoidRushTrail(item, item.data);
         }
-        if (item.data?.role === "survivor" && ((item.data?.speedBurst || 0) > 0 || (item.data?.rallyBoost || 0) > 0)) {
+        if (item.data?.role === "survivor" && ((item.data?.speedBurst || 0) > 0 || (item.data?.dashBoost || 0) > 0)) {
           this.emitSurvivorSpeedBurstTrail(item, item.data);
         }
         if (item.spawnScalePulse && item.spawnScalePulse > 0.001) {
@@ -8687,7 +9631,7 @@
           item.forceStyleRefresh = false;
           this.styleActor(item, item.data);
         }
-        this.drawRallyBoostAura(item, item.data);
+        this.drawDashBoostAura(item, item.data);
         if (item.nameText) {
           const isKiller = item.data?.role === "killer";
           item.nameText.setPosition(item.current.x, item.current.y + (isKiller ? 36 : 34));
@@ -8834,7 +9778,8 @@
       const hookKey = (map.hooks || []).map((h) => `${h.id}:${h.active ? 1 : 0}:${h.survivorId || ""}`).join("|");
       const gateKey = (map.gates || []).map((g) => `${g.id}:${g.open ? 1 : 0}:${Math.round((g.escapeProgress || 0) * 20)}`).join("|");
       const dotKey = (currentSnapshot?.collectibleDots || []).map((d) => d.id).join(",");
-      return `${hookKey}#${gateKey}#${dotKey}#rifts:${this.riftsAreComplete() ? 1 : 0}`;
+      const dartBoxKey = (currentSnapshot?.dartBoxes || []).map((b) => `${b.id}:${Math.round((b.progress || 0) * 20)}`).join(",");
+      return `${hookKey}#${gateKey}#${dotKey}#boxes:${dartBoxKey}#rifts:${this.riftsAreComplete() ? 1 : 0}`;
     }
 
     getGeneratorWorldKey() {
@@ -8855,10 +9800,11 @@
     maybeDrawDynamicWorld(dt) {
       this.dynamicRedrawTimer += dt;
       const animatingDots = !!this.collectibleDotsAnimating;
+      const animatingDartBoxes = !!this.dartBoxesAnimating;
       const animatingHooks = (currentSnapshot?.map?.hooks || this.map?.hooks || []).some((hook) => hook && hook.active !== false);
       const animatingGates = (currentSnapshot?.map?.gates || this.map?.gates || []).some((gate) => gate && gate.open);
-      const animated = animatingDots || animatingHooks || animatingGates;
-      const interval = 1 / (animatingDots ? performanceValue("dotFadeFps", DOT_FADE_VISUAL.FPS) : (animatingHooks || animatingGates) ? Math.min(12, performanceValue("dynamicWorldFps", PERFORMANCE.DYNAMIC_WORLD_FPS) + 3) : performanceValue("dynamicWorldFps", PERFORMANCE.DYNAMIC_WORLD_FPS));
+      const animated = animatingDots || animatingDartBoxes || animatingHooks || animatingGates;
+      const interval = 1 / ((animatingDots || animatingDartBoxes) ? performanceValue("dotFadeFps", DOT_FADE_VISUAL.FPS) : (animatingHooks || animatingGates) ? Math.min(12, performanceValue("dynamicWorldFps", PERFORMANCE.DYNAMIC_WORLD_FPS) + 3) : performanceValue("dynamicWorldFps", PERFORMANCE.DYNAMIC_WORLD_FPS));
       if (!this.needsDynamicRedraw && !animated && this.dynamicRedrawTimer < interval) return;
       if (this.dynamicRedrawTimer < interval) return;
       const key = this.getDynamicWorldKey();
@@ -9212,6 +10158,8 @@
             vy,
             speed,
             type: String(raw.type || raw.abilityId || "boost"),
+            abilityId: raw.abilityId || raw.type || null,
+            ownerId: raw.ownerId || null,
             radius: raw.radius,
             trail: [{ x: rawX, y: rawY }]
           };
@@ -9234,6 +10182,8 @@
         visual.vy = Number.isFinite(vy) ? vy : 0;
         visual.speed = speed;
         visual.type = String(raw.type || raw.abilityId || visual.type || "boost");
+        visual.abilityId = raw.abilityId || visual.abilityId || visual.type;
+        visual.ownerId = raw.ownerId || visual.ownerId || null;
         visual.radius = raw.radius;
 
         const maxLead = Math.max(36, Math.min(120, speed * 0.075));
@@ -9254,7 +10204,11 @@
       }
 
       for (const id of [...visuals.keys()]) {
-        if (!seen.has(id)) visuals.delete(id);
+        if (!seen.has(id)) {
+          const visual = visuals.get(id);
+          this.playMissingRunnerProjectileImpactFx(visual);
+          visuals.delete(id);
+        }
       }
 
       return [...visuals.values()];
@@ -9431,7 +10385,11 @@
         visual.duration = duration;
       }
       for (const id of [...visuals.keys()]) {
-        if (!seen.has(id)) visuals.delete(id);
+        if (!seen.has(id)) {
+          const visual = visuals.get(id);
+          this.playMissingRunnerProjectileImpactFx(visual);
+          visuals.delete(id);
+        }
       }
       return [...visuals.values()];
     }
@@ -9441,6 +10399,7 @@
       if (!g) return;
       const clouds = this.updateSmokeCloudVisuals(currentSnapshot?.smokeClouds || [], dt);
       g.clear();
+      this.lastSmokeHadClouds = clouds.length > 0;
       if (!clouds.length) return;
       const now = performance.now();
       for (const cloud of clouds) {
@@ -9518,8 +10477,20 @@
       const g = this.particleGraphics;
       if (!g) return;
       const visibleProjectiles = currentSnapshot?.runnerProjectiles || [];
-      const visibleSmokeClouds = currentSnapshot?.smokeClouds || [];
-      this.drawSmokeClouds(dt);
+      const smokeClouds = currentSnapshot?.smokeClouds || [];
+      const hasSmokeFx = smokeClouds.length > 0 || (this.smokeCloudVisuals?.size || 0) > 0;
+      if (hasSmokeFx) {
+        this.smokeRedrawTimer = (this.smokeRedrawTimer || 0) + dt;
+        const smokeInterval = 1 / Math.max(1, performanceValue("smokeFps", LOW_POWER_MODE ? 14 : 24));
+        if (this.smokeRedrawTimer >= smokeInterval) {
+          this.drawSmokeClouds(this.smokeRedrawTimer);
+          this.smokeRedrawTimer = 0;
+        }
+      } else if (this.smokeGraphics && (this.smokeLayerDirty || this.lastSmokeHadClouds)) {
+        this.smokeGraphics.clear();
+        this.lastSmokeHadClouds = false;
+        this.smokeLayerDirty = false;
+      }
       const hasFx = this.shockwaves.length > 0 || this.particles.length > 0 || visibleProjectiles.length > 0 || (this.runnerProjectileVisuals?.size || 0) > 0;
       if (!hasFx) {
         if (this.particleLayerDirty) {
@@ -9900,8 +10871,15 @@
       }
 
       const button = event.target?.closest?.("[data-perk-buy]");
-      if (!button) return;
-      buyPerkFromButton(button).catch((error) => toast(error.message || "Could not buy perk.", 2600));
+      if (button) {
+        buyPerkFromButton(button).catch((error) => toast(error.message || "Could not buy perk.", 2600));
+        return;
+      }
+
+      const card = event.target?.closest?.("#perksScreen .perks-content .perk-card");
+      if (card && !event.target?.closest?.("button, a, input, select, textarea, [role='button']")) {
+        openPerkInfoModal(card.dataset.perkId, card.dataset.perkRole || "survivor");
+      }
     });
 
     document.addEventListener("keydown", (event) => {
@@ -10378,6 +11356,17 @@
       playLocalizedDashAbilitySfx(event);
     });
 
+    function mergeActorDeltas(previousActors = [], nextActors = []) {
+      if (!Array.isArray(nextActors)) return Array.isArray(previousActors) ? previousActors : [];
+      if (!Array.isArray(previousActors) || !previousActors.length) return nextActors;
+      const previousById = new Map(previousActors.filter((actor) => actor?.id).map((actor) => [actor.id, actor]));
+      return nextActors.map((actor) => {
+        if (!actor?.id) return actor;
+        const previous = previousById.get(actor.id);
+        return previous ? { ...previous, ...actor } : actor;
+      });
+    }
+
     socket.on("snapshot", (snapshot) => {
       const arrivedAt = performance.now();
       if (snapshot?.seq && currentSnapshot?.seq && snapshot.seq <= currentSnapshot.seq) return;
@@ -10390,9 +11379,16 @@
       snapshot.clientArrivedAt = arrivedAt;
       if (currentSnapshot) {
         snapshot.map = { ...(currentSnapshot.map || {}), ...(snapshot.map || {}) };
+        snapshot.actors = ("actors" in snapshot)
+          ? mergeActorDeltas(currentSnapshot.actors || [], snapshot.actors || [])
+          : (currentSnapshot.actors || []);
         if (!("collectibleDots" in snapshot)) snapshot.collectibleDots = currentSnapshot.collectibleDots || [];
+        if (!("dartBoxes" in snapshot)) snapshot.dartBoxes = currentSnapshot.dartBoxes || [];
         if (!("runnerProjectiles" in snapshot)) snapshot.runnerProjectiles = currentSnapshot.runnerProjectiles || [];
         if (!("smokeClouds" in snapshot)) snapshot.smokeClouds = currentSnapshot.smokeClouds || [];
+        const viewerCanSeeScratchMarks = snapshot?.viewer?.role === "killer" || (snapshot?.viewer?.spectating && snapshot?.viewer?.spectateTargetId === SPECTATE_OVERVIEW_ID);
+        if (!viewerCanSeeScratchMarks) snapshot.scratchMarks = [];
+        else if (!("scratchMarks" in snapshot)) snapshot.scratchMarks = currentSnapshot.scratchMarks || [];
       }
       currentSnapshot = snapshot;
       updateMatchPauseOverlay(snapshot);

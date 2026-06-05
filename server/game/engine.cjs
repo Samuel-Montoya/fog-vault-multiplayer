@@ -135,7 +135,8 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
   const SNAPSHOT_RATE = PERF.snapshotRate;
   const BOT_THINK_RATE = PERF.botThinkRate;
   const MATCH_START_FREEZE_SECONDS = cfgNumber(GAMEPLAY_CONFIG.match?.startFreezeSeconds, 1.5);
-  const SCRATCH_MARK_MAX = cfgNumber(GAMEPLAY_CONFIG.match?.scratchMarkMax, 45);
+  const SCRATCH_MARK_MAX = cfgNumber(GAMEPLAY_CONFIG.match?.scratchMarkMax, 75);
+  const SCRATCH_MARK_TTL = Math.max(0.5, cfgNumber(GAMEPLAY_CONFIG.match?.scratchMarkTtl, 6.5));
   const MAX_SURVIVORS = cfgNumber(GAMEPLAY_CONFIG.match?.maxSurvivors, 4);
   const SURVIVOR_SKINS = new Set(["blueSquare", "yellowStar", "purplePentagon", "nebulaBloom", "eclipseWisp", "riftMoth", "signalDrone"]);
   const VOID_SKINS = new Set(["voidCore", "solarMaw", "azureRift", "bloodEclipse", "starlessWyrm", "lanternHusk", "abyssSiren", "crownedHollow", "staticNull", "riftSeraph"]);
@@ -222,6 +223,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
   const KILLER_LUNGE_HIT_RECOVERY = cfgNumber(GAMEPLAY_CONFIG.attack?.lungeHitRecoverySeconds, 1.85);
   const KILLER_ATTACK_COOLDOWN = cfgNumber(GAMEPLAY_CONFIG.attack?.cooldownSeconds, 0.24);
   const SURVIVOR_INVULN = cfgNumber(GAMEPLAY_CONFIG.survivor?.invulnerableSeconds, 1.45);
+  const HEALING_DART_PICKUP_INVULN = Math.max(1.5, cfgNumber(GAMEPLAY_CONFIG.survivor?.healingDartPickupInvulnSeconds, 1.5));
   const SURVIVOR_HIT_BOOST = cfgNumber(GAMEPLAY_CONFIG.survivor?.hitBoostDuration, 1.0);
   const SURVIVOR_VAULT_TIME = cfgNumber(GAMEPLAY_CONFIG.survivor?.vaultTime, 0.38);
   const SURVIVOR_WINDOW_VAULT_COOLDOWN = cfgNumber(GAMEPLAY_CONFIG.survivor?.windowVaultCooldown, 1.15);
@@ -288,9 +290,21 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
 
   function runnerClassWheelOrder(actor) {
     const classDef = runnerClassDef(actor?.runnerClass);
-    return Array.isArray(classDef?.wheelOrder) && classDef.wheelOrder.length
+    const rawOrder = Array.isArray(classDef?.wheelOrder) && classDef.wheelOrder.length
       ? classDef.wheelOrder
       : SURVIVOR_ABILITY_ORDER;
+
+    const activeIds = rawOrder
+      .map((id) => String(id || ""))
+      .filter((id) => {
+        if (!id || id === "cancel" || id === "moreSoon") return false;
+        if (id === String(classDef?.passive?.id || "")) return false;
+        const ability = SURVIVOR_ABILITY_DEFS[id];
+        return !(ability?.passive || ability?.disabled);
+      })
+      .slice(0, 3);
+
+    return [activeIds[0] || "moreSoon", activeIds[1] || "moreSoon", "cancel", activeIds[2] || "moreSoon"];
   }
 
   function runnerClassGrantsAbility(actor, abilityId) {
@@ -326,10 +340,43 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     return classLevelConfig(ability?.levels, actor) || { level: 1 };
   }
 
+  function shortenedAbilityCooldown(value) {
+    return Math.max(0, cfgNumber(value, 0));
+  }
+
+  function configuredAbilityCooldown(value, fallback = 30) {
+    return shortenedAbilityCooldown(cfgNumber(value, fallback));
+  }
+
+  function isDartAbilityDef(ability, effect = null) {
+    return !!(ability?.shootAbility || ability?.inputType === "m1" || ability?.projectileKind || effect?.projectileKind);
+  }
+
+  function configuredSurvivorAbilityCost(ability, effect, fallbackCost = 0) {
+    if (isDartAbilityDef(ability, effect)) return 0;
+    return Math.max(0, Math.floor(cfgNumber(fallbackCost, 0)));
+  }
+
+  function passivePerkIdForClass(classDef) {
+    if (classDef?.passive?.id) return String(classDef.passive.id);
+    const id = String(classDef?.id || "");
+    if (id === "orbCollector") return "orbMagnet";
+    if (id === "nebulizer") return "voidTrace";
+    if (id === "escapist") return "flowState";
+    if (id === "healer") return "fieldMedic";
+    return "";
+  }
+
   function runnerClassPassiveEffect(actor) {
-    const passive = runnerClassDef(actor?.runnerClass)?.passive || {};
-    const level = classLevelConfig(passive.levels, actor);
-    return level ? { ...passive, ...level } : passive;
+    const classDef = runnerClassDef(actor?.runnerClass);
+    const passive = classDef?.passive || {};
+    const passiveId = passivePerkIdForClass(classDef);
+    const passivePerk = passiveId ? perkConfigById(passiveId, "survivor") : null;
+    const boughtLevel = passivePerk ? actorPerkLevel(actor, passiveId, "survivor") : 0;
+    const boughtConfig = boughtLevel > 0 ? perkLevelConfig(passivePerk, boughtLevel) : null;
+    const autoConfig = passivePerk ? null : classLevelConfig(passive.levels, actor);
+    const level = boughtConfig || autoConfig;
+    return level ? { ...passive, ...(passivePerk || {}), ...level, id: passiveId || passive.id } : passive;
   }
 
   function normalizePerkRole(role) {
@@ -358,6 +405,20 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     return Math.max(1, Math.min(configured, levels.length ? Math.max(...levels) : configured));
   }
 
+  function perkDefaultLevel(perk) {
+    if (!perk) return 0;
+    const rawDefault = perk.defaultLevel ?? (perk.passive || perk.alwaysUnlocked ? 1 : 0);
+    const level = Math.floor(cfgNumber(rawDefault, 0));
+    if (level <= 0) return 0;
+    return Math.max(0, Math.min(perkMaxLevel(perk), level));
+  }
+
+  function perkEffectiveLevel(perk, storedLevel = 0) {
+    const maxLevel = perkMaxLevel(perk);
+    const boughtLevel = Math.max(0, Math.min(maxLevel, Math.floor(cfgNumber(storedLevel, 0))));
+    return Math.max(perkDefaultLevel(perk), boughtLevel);
+  }
+
   function perkLevelConfig(perk, level) {
     const target = Math.max(1, Math.floor(cfgNumber(level, 1)));
     return perkLevels(perk).find((row) => Math.floor(cfgNumber(row.level, 0)) === target) || null;
@@ -379,6 +440,16 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       }
       return out;
     }
+    for (const [configuredRole, roleDef] of Object.entries(RIFTRUNNER_PERKS.roles || {})) {
+      const normalizedRole = normalizePerkRole(configuredRole);
+      if (roleKey && normalizedRole !== roleKey) continue;
+      for (const perk of Object.values(roleDef?.perks || {})) {
+        const defaultLevel = perkDefaultLevel(perk);
+        if (defaultLevel <= 0) continue;
+        out.all[perk.id] = Math.max(out.all[perk.id] || 0, defaultLevel);
+        out[normalizedRole][perk.id] = Math.max(out[normalizedRole][perk.id] || 0, defaultLevel);
+      }
+    }
     const sources = [perks?.all, perks?.survivor, perks?.runner, perks?.killer, perks?.void, perks].filter(Boolean);
     for (const source of sources) {
       for (const [id, rawLevel] of Object.entries(source || {})) {
@@ -386,7 +457,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
         if (!perk) continue;
         const normalizedRole = normalizePerkRole(perk.role);
         if (roleKey && normalizedRole !== roleKey) continue;
-        const level = Math.max(0, Math.min(perkMaxLevel(perk), Math.floor(cfgNumber(rawLevel, 0))));
+        const level = perkEffectiveLevel(perk, rawLevel);
         if (level <= 0) continue;
         out.all[perk.id] = Math.max(out.all[perk.id] || 0, level);
         out[normalizedRole][perk.id] = Math.max(out[normalizedRole][perk.id] || 0, level);
@@ -410,7 +481,8 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       perks.all,
       perks
     ].filter(Boolean);
-    let best = roleKey === "survivor" ? classGrantedPerkLevel(actor, id) : 0;
+    const perk = perkConfigById(id, roleKey);
+    let best = Math.max(perkDefaultLevel(perk), roleKey === "survivor" ? classGrantedPerkLevel(actor, id) : 0);
     for (const source of sources) {
       const level = Math.floor(cfgNumber(source?.[id], 0));
       if (level > best) best = level;
@@ -440,12 +512,26 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
   const SURVIVOR_HOURGLASS_BACK_ANGLE_MULT = cfgNumber(GAMEPLAY_CONFIG.survivorAbilities?.hourglassBackAngleMultiplier, 1.0);
   const SURVIVOR_HOURGLASS_HIDES_SCRATCH = GAMEPLAY_CONFIG.survivorAbilities?.hourglassHidesScratchMarks !== false;
   const SURVIVOR_SPEED_BURST_MULT = cfgNumber(GAMEPLAY_CONFIG.survivorAbilities?.speedBurstSpeedMultiplier, 1.14);
-  const RALLY_DART_DEFAULT_SPEED_MULT = cfgNumber(GAMEPLAY_CONFIG.survivorAbilities?.rallyDartSpeedMultiplier, 1.10);
-  const RALLY_DART_DEFAULT_DURATION = cfgNumber(GAMEPLAY_CONFIG.survivorAbilities?.rallyDartDuration, 1.25);
-  const RALLY_DART_DEFAULT_RADIUS = cfgNumber(GAMEPLAY_CONFIG.survivorAbilities?.rallyDartRadius, 112);
-  const RALLY_DART_DEFAULT_PROJECTILE_SPEED = cfgNumber(GAMEPLAY_CONFIG.survivorAbilities?.rallyDartProjectileSpeed, 1040);
-  const RALLY_DART_DEFAULT_RANGE = cfgNumber(GAMEPLAY_CONFIG.survivorAbilities?.rallyDartRange, 620);
-  const RALLY_DART_DEFAULT_AIM_WINDOW = cfgNumber(GAMEPLAY_CONFIG.survivorAbilities?.rallyDartAimWindow, 5);
+  const DART_DEFAULT_SPEED_MULT = cfgNumber(
+    GAMEPLAY_CONFIG.survivorAbilities?.dartBoostSpeedMultiplier,
+    1.10
+  );
+  const DART_DEFAULT_DURATION = cfgNumber(
+    GAMEPLAY_CONFIG.survivorAbilities?.dartBoostDuration,
+    1.25
+  );
+  const DART_DEFAULT_RADIUS = cfgNumber(
+    GAMEPLAY_CONFIG.survivorAbilities?.dartRadius,
+    112
+  );
+  const DART_DEFAULT_PROJECTILE_SPEED = cfgNumber(
+    GAMEPLAY_CONFIG.survivorAbilities?.dartProjectileSpeed,
+    1040
+  );
+  const DART_DEFAULT_RANGE = cfgNumber(
+    GAMEPLAY_CONFIG.survivorAbilities?.dartRange,
+    620
+  );
   const VOID_SPEED_BUFF_MULT = cfgNumber(GAMEPLAY_CONFIG.voidAbilities?.speedBuffMultiplier, 1.28);
   const RED_ORB_SLOW_MULT = cfgNumber(GAMEPLAY_CONFIG.voidAbilities?.redOrbSlowMultiplier, 0.55);
   const RED_ORB_SLOW_SECONDS = cfgNumber(GAMEPLAY_CONFIG.voidAbilities?.redOrbSlowSeconds, 0.5);
@@ -461,10 +547,23 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
   const DOT_MAX_ON_MAP = cfgNumber(GAMEPLAY_CONFIG.orbs?.maxOnMap, 38);
   const DOT_RESPAWN_SECONDS = cfgNumber(GAMEPLAY_CONFIG.orbs?.respawnSeconds, 2.2);
   const DOT_RESPAWN_BATCH = cfgNumber(GAMEPLAY_CONFIG.orbs?.respawnBatch, 3);
+  const DART_AMMO_MAX = Math.max(1, Math.floor(cfgNumber(GAMEPLAY_CONFIG.dartBoxes?.maxAmmo, 3)));
+  const DART_COLLECTOR_AMMO_MAX = Math.max(DART_AMMO_MAX, Math.floor(cfgNumber(GAMEPLAY_CONFIG.dartBoxes?.collectorMaxAmmo, 15)));
+  const DART_FIRE_LOCKOUT_SECONDS = Math.max(0.05, cfgNumber(GAMEPLAY_CONFIG.dartBoxes?.fireLockoutSeconds, 0.5));
+  const DART_BOX_COLLECT_SECONDS = Math.max(0.25, cfgNumber(GAMEPLAY_CONFIG.dartBoxes?.collectSeconds, 2));
+  const DART_BOX_INTERACT_RADIUS = Math.max(32, cfgNumber(GAMEPLAY_CONFIG.dartBoxes?.interactRadius, 74));
+  const DART_BOX_AOE_RADIUS = Math.max(80, cfgNumber(GAMEPLAY_CONFIG.dartBoxes?.aoeRadius, 220));
+  const DART_BOX_MOVING_COLLECT_MULT = clamp(cfgNumber(GAMEPLAY_CONFIG.dartBoxes?.movingCollectMultiplier, 0.44), 0.1, 1);
+  const DART_BOX_MIN_TILE_SPACING = Math.max(1, cfgNumber(GAMEPLAY_CONFIG.dartBoxes?.minTileSpacing, 5.0));
+  const DART_BOX_INITIAL_MIN = Math.max(1, Math.floor(cfgNumber(GAMEPLAY_CONFIG.dartBoxes?.spawnMin, 3)));
+  const DART_BOX_MAX_ON_MAP = Math.max(1, Math.floor(cfgNumber(GAMEPLAY_CONFIG.dartBoxes?.maxOnMap, 5)));
+  const DART_BOX_SPAWN_FLOOR_RATIO = Math.max(0.0005, cfgNumber(GAMEPLAY_CONFIG.dartBoxes?.spawnFloorRatio, 0.0052));
+  const DART_BOX_RESPAWN_SECONDS = Math.max(5, cfgNumber(GAMEPLAY_CONFIG.dartBoxes?.respawnSeconds, 24));
   const TERROR_RADIUS = cfgNumber(GAMEPLAY_CONFIG.chase?.terrorRadius, 760);
   const CHASE_START_RADIUS = cfgNumber(GAMEPLAY_CONFIG.chase?.startRadius, 520);
   const CHASE_HOLD_SECONDS = cfgNumber(GAMEPLAY_CONFIG.chase?.holdSeconds, 3);
   const CLOSE_REVEAL_RADIUS = cfgNumber(GAMEPLAY_CONFIG.chase?.closeRevealRadius, 120);
+  const SURVIVOR_KILLER_CLOSE_REVEAL_RADIUS = cfgNumber(GAMEPLAY_CONFIG.chase?.survivorKillerCloseRevealRadius, CLOSE_REVEAL_RADIUS * 1.55);
   const SURVIVOR_CONE_LENGTH = cfgNumber(GAMEPLAY_CONFIG.survivor?.coneLength, 620);
   const SURVIVOR_CONE_ANGLE = cfgNumber(GAMEPLAY_CONFIG.survivor?.coneAngle, Math.PI / 2.6);
   const KILLER_CONE_LENGTH = cfgNumber(GAMEPLAY_CONFIG.void?.coneLength, 920);
@@ -522,6 +621,20 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     "I can't pick any more up.",
     "I'm getting full..."
   ];
+
+  const NO_DART_AMMO_CHAT_MESSAGES = CHAT_AUTOMATIC.noDartAmmo || [
+    "No ammo?!",
+    "I'm out of bolts...",
+    "Empty. Obviously.",
+    "I brought vibes, not bolts.",
+    "Click harder? Nope.",
+    "Bolt budget: zero.",
+    "Great. Space reload, please.",
+    "Nothing in the chamber.",
+    "I need a Dart Box.",
+    "My bolts have left me."
+  ];
+  const NO_DART_AMMO_CHAT_COOLDOWN = 3;
 
   const SURVIVOR_HIT_CHAT_LINES = CHAT_AUTOMATIC.hit || [
     "Ouch...!",
@@ -584,6 +697,10 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     return MATCH_START_SURVIVOR_LINES[Math.floor(Math.random() * MATCH_START_SURVIVOR_LINES.length)];
   }
 
+  function randomNoDartAmmoLine() {
+    return randomFrom(NO_DART_AMMO_CHAT_MESSAGES);
+  }
+
   function setActorChat(actor, message, game, duration = CHAT_MESSAGE_DURATION) {
     if (!actor || !message) return;
     actor.chatText = message;
@@ -638,6 +755,12 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     if (!actor) return;
     actor.voidAbilityCooldowns = {};
     actor.survivorAbilityCooldowns = {};
+    if (actor.role === "survivor") {
+      actor.runnerDartMaxAmmo = runnerDartMaxAmmo(actor);
+      actor.runnerDartAmmo = actor.runnerDartMaxAmmo;
+      actor.runnerDartReloadTimer = 0;
+      actor.runnerDartFireLockout = 0;
+    }
   }
 
   function getVoidAbilityDef(id, actor = null) {
@@ -651,12 +774,12 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     return applyAbilityTestingOverride({
       id: abilityId,
       name: ability.name || key,
-      cost: Math.max(0, Math.floor(cfgNumber(perk?.abilityCost ?? ability.cost, 0))),
+      cost: configuredSurvivorAbilityCost(ability, effect, perk?.abilityCost ?? ability.cost),
       duration: Math.max(0, cfgNumber(effect?.duration ?? ability.duration, 0)),
       radius: Math.max(0, cfgNumber(effect?.radius ?? ability.radius, 0)),
       stealPerRunner: Math.max(0, Math.floor(cfgNumber(effect?.stealPerRunner ?? ability.stealPerRunner, 1))),
       stealPercent: clamp(cfgNumber(effect?.stealPercent ?? ability.stealPercent, 0), 0, 1),
-      cooldown: Math.max(0, cfgNumber(perk?.cooldown ?? ability.cooldown, 20)),
+      cooldown: configuredAbilityCooldown(perk?.cooldown ?? ability.cooldown, 20),
       level,
       maxLevel: perkMaxLevel(perk || {}),
       effect,
@@ -745,16 +868,18 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       const levels = Array.isArray(ability.levels) ? ability.levels : [];
       const maxLevel = perk ? perkMaxLevel(perk) : Math.max(1, levels.length || 1);
       const perkLevel = perk ? actorPerkLevel(actor, abilityId, "survivor") : 0;
-      const level = perk
+      const testLevel = abilityTestingLevel(actor);
+      const forcedLevel = testLevel > 0 ? Math.min(maxLevel, testLevel) : 0;
+      const level = forcedLevel || (perk
         ? Math.max(0, Math.min(maxLevel, Math.floor(cfgNumber(perkLevel, 0))))
-        : Math.max(1, Math.floor(cfgNumber(fallbackEffect?.level, 1)));
+        : Math.max(1, Math.floor(cfgNumber(fallbackEffect?.level, 1))));
       const effect = perk
         ? (level > 0 ? perkLevelConfig(perk, level) : perkLevelConfig(perk, 1))
         : fallbackEffect;
       return applyAbilityTestingOverride({
         id: abilityId,
         name: ability.name || key,
-        cost: Math.max(0, Math.floor(cfgNumber(effect?.cost ?? perk?.abilityCost ?? ability.cost, 0))),
+        cost: configuredSurvivorAbilityCost(ability, effect, effect?.cost ?? perk?.abilityCost ?? ability.cost),
         duration: Math.max(0, cfgNumber(effect?.duration ?? effect?.boostDuration ?? ability.duration, 0)),
         radius: Math.max(0, cfgNumber(effect?.radius ?? ability.radius, 0)),
         projectileSpeed: Math.max(0, cfgNumber(effect?.projectileSpeed ?? ability.projectileSpeed, 0)),
@@ -765,7 +890,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
         projectileKind: ability.projectileKind || effect?.projectileKind ? String(effect?.projectileKind || ability.projectileKind) : "",
         hidesScratchMarks: !!(effect?.hidesScratchMarks ?? ability.hidesScratchMarks),
         scratchHideDuration: Math.max(0, cfgNumber(effect?.scratchHideDuration ?? effect?.duration ?? ability.scratchHideDuration ?? ability.duration, 0)),
-        cooldown: Math.max(0, cfgNumber(effect?.cooldown ?? perk?.cooldown ?? ability.cooldown, 30)),
+        cooldown: configuredAbilityCooldown(effect?.cooldown ?? perk?.cooldown ?? ability.cooldown, 30),
         level,
         maxLevel,
         effect,
@@ -790,7 +915,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       projectileKind: ability.projectileKind || effect?.projectileKind ? String(effect?.projectileKind || ability.projectileKind) : "",
       hidesScratchMarks: !!(effect?.hidesScratchMarks ?? ability.hidesScratchMarks),
       scratchHideDuration: Math.max(0, cfgNumber(effect?.scratchHideDuration ?? effect?.duration ?? ability.scratchHideDuration ?? ability.duration, 0)),
-      cooldown: Math.max(0, cfgNumber(perk?.cooldown ?? ability.cooldown, 30)),
+      cooldown: configuredAbilityCooldown(perk?.cooldown ?? ability.cooldown, 30),
       level,
       maxLevel: perkMaxLevel(perk || {}),
       effect,
@@ -860,7 +985,8 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
   function survivorCanSeeActor(game, viewer, actor, { allowCloseReveal = true } = {}) {
     if (!viewer || !actor) return false;
     const d = dist(viewer.x, viewer.y, actor.x, actor.y);
-    if (allowCloseReveal && d <= CLOSE_REVEAL_RADIUS) return segmentClear(game, viewer.x, viewer.y, actor.x, actor.y);
+    const closeRevealRadius = actor.role === "killer" ? SURVIVOR_KILLER_CLOSE_REVEAL_RADIUS : CLOSE_REVEAL_RADIUS;
+    if (allowCloseReveal && d <= closeRevealRadius) return segmentClear(game, viewer.x, viewer.y, actor.x, actor.y);
     for (const sample of survivorVisionSamplesForActor(actor)) {
       if (survivorCanSeePoint(game, viewer, sample.x, sample.y, { allowCloseReveal: false })) return true;
     }
@@ -904,6 +1030,17 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     return activeSmokeClouds(game).some((cloud) => smokeContainsPoint(cloud, viewer.x, viewer.y));
   }
 
+
+  function grantHealingDartPickupIframes(target) {
+    if (!target || target.role !== "survivor") return;
+    target.invuln = Math.max(cfgNumber(target.invuln, 0), HEALING_DART_PICKUP_INVULN);
+    target.reviveInvuln = Math.max(cfgNumber(target.reviveInvuln, 0), HEALING_DART_PICKUP_INVULN);
+  }
+
+  function clearReviveIframes(target) {
+    if (!target) return;
+    target.reviveInvuln = 0;
+  }
 
   function applyInstantHealProgress(game, healer, target, progressAmount) {
     if (!game || !healer || !target || healer.id === target.id || !isWoundedSurvivor(target)) return false;
@@ -988,11 +1125,97 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
   }
 
 
+  function nearestPointOnSegment(px, py, ax, ay, bx, by) {
+    const dx = bx - ax;
+    const dy = by - ay;
+    const lenSq = dx * dx + dy * dy;
+    if (!Number.isFinite(lenSq) || lenSq <= 0.0001) return { x: ax, y: ay, t: 0, distance: dist(px, py, ax, ay) };
+    const t = clamp(((px - ax) * dx + (py - ay) * dy) / lenSq, 0, 1);
+    const x = ax + dx * t;
+    const y = ay + dy * t;
+    return { x, y, t, distance: dist(px, py, x, y) };
+  }
+
+  function pointSegmentDistance(px, py, ax, ay, bx, by) {
+    return nearestPointOnSegment(px, py, ax, ay, bx, by).distance;
+  }
+
+
   function runnerProjectileAbilityIds(actor) {
     return runnerClassWheelOrder(actor)
       .map((id) => SURVIVOR_ABILITY_DEFS[id])
       .filter((ability) => ability && ability.shootAbility && !ability.disabled && !ability.cancel)
       .map((ability) => ability.id || ability.key);
+  }
+
+  function runnerDartMaxAmmoForClass(runnerClass) {
+    return normalizeRunnerClassId(runnerClass) === "orbCollector" ? DART_COLLECTOR_AMMO_MAX : DART_AMMO_MAX;
+  }
+
+  function runnerDartMaxAmmo(actor) {
+    return actor?.role === "survivor" ? runnerDartMaxAmmoForClass(actor.runnerClass) : 0;
+  }
+
+  function ensureRunnerDartAmmo(actor) {
+    if (!actor || actor.role !== "survivor") return 0;
+    const maxAmmo = runnerDartMaxAmmo(actor) || DART_AMMO_MAX;
+    const previousMax = Math.max(1, Math.floor(cfgNumber(actor.runnerDartMaxAmmo, maxAmmo)));
+    const rawAmmo = Number(actor.runnerDartAmmo);
+    actor.runnerDartMaxAmmo = maxAmmo;
+    if (!Number.isFinite(rawAmmo)) {
+      actor.runnerDartAmmo = maxAmmo;
+    } else if (previousMax !== maxAmmo && rawAmmo >= previousMax) {
+      actor.runnerDartAmmo = maxAmmo;
+    } else {
+      actor.runnerDartAmmo = clamp(Math.floor(cfgNumber(rawAmmo, maxAmmo)), 0, maxAmmo);
+    }
+    actor.runnerDartReloadTimer = 0;
+    actor.runnerDartFireLockout = Math.max(0, cfgNumber(actor.runnerDartFireLockout, 0));
+    return actor.runnerDartAmmo;
+  }
+
+  function activeRunnerDartAbility(actor) {
+    const id = runnerProjectileAbilityIds(actor)[0] || null;
+    return id ? getSurvivorAbilityDef(id, actor) : null;
+  }
+
+  function runnerDartReloadSeconds(actor, ability = null) {
+    const dartAbility = ability || activeRunnerDartAbility(actor);
+    return Math.max(0.25, cfgNumber(dartAbility?.cooldown, 10));
+  }
+
+  function startRunnerDartReload(actor, ability = null) {
+    if (!actor || actor.role !== "survivor") return;
+    ensureRunnerDartAmmo(actor);
+    actor.runnerDartReloadTimer = 0;
+  }
+
+  function spendRunnerDartAmmo(actor, ability = null) {
+    if (!actor || actor.role !== "survivor") return;
+    ensureRunnerDartAmmo(actor);
+    actor.runnerDartAmmo = clamp((actor.runnerDartAmmo || 0) - 1, 0, runnerDartMaxAmmo(actor));
+    actor.runnerDartReloadTimer = 0;
+    actor.runnerDartFireLockout = Math.max(cfgNumber(actor.runnerDartFireLockout, 0), DART_FIRE_LOCKOUT_SECONDS);
+  }
+
+  function refillRunnerDartAmmo(actor, source = "refill") {
+    if (!actor || actor.role !== "survivor") return false;
+    ensureRunnerDartAmmo(actor);
+    const maxAmmo = runnerDartMaxAmmo(actor);
+    const before = actor.runnerDartAmmo || 0;
+    actor.runnerDartAmmo = maxAmmo;
+    actor.runnerDartReloadTimer = 0;
+    return actor.runnerDartAmmo > before;
+  }
+
+  function updateRunnerDartAmmo(game, actor, dt) {
+    if (!actor || actor.role !== "survivor") return;
+    ensureRunnerDartAmmo(actor);
+    actor.runnerDartReloadTimer = 0;
+    if (abilityTestingEnabled(actor)) {
+      actor.runnerDartAmmo = runnerDartMaxAmmo(actor);
+      actor.runnerDartFireLockout = 0;
+    }
   }
 
   function runnerProjectileImpact(game, projectile, ax, ay, bx, by) {
@@ -1025,9 +1248,9 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
   }
 
   function applyRunnerBoost(game, sourceId, x, y, ability, reason = "impact") {
-    const radius = Math.max(0, cfgNumber(ability.radius, RALLY_DART_DEFAULT_RADIUS));
-    const duration = Math.max(0.1, cfgNumber(ability.boostDuration ?? ability.duration, RALLY_DART_DEFAULT_DURATION));
-    const speedMultiplier = Math.max(1, cfgNumber(ability.speedMultiplier, RALLY_DART_DEFAULT_SPEED_MULT));
+    const radius = Math.max(0, cfgNumber(ability.radius, DART_DEFAULT_RADIUS));
+    const duration = Math.max(0.1, cfgNumber(ability.boostDuration ?? ability.duration, DART_DEFAULT_DURATION));
+    const speedMultiplier = Math.max(1, cfgNumber(ability.speedMultiplier, DART_DEFAULT_SPEED_MULT));
     const hidesScratchMarks = !!ability.hidesScratchMarks;
     const scratchHideDuration = Math.max(0, cfgNumber(ability.scratchHideDuration, duration));
     let affected = 0;
@@ -1036,10 +1259,10 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       if (!target || target.role !== "survivor" || target.dead || target.escaped || target.hooked || target.downed) continue;
       if (dist(x, y, target.x, target.y) > radius) continue;
       if (!segmentClear(game, x, y, target.x, target.y)) continue;
-      target.rallyBoost = Math.max(target.rallyBoost || 0, duration);
-      target.rallyBoostMultiplier = Math.max(target.rallyBoostMultiplier || 1, speedMultiplier);
+      target.dashBoost = Math.max(target.dashBoost || 0, duration);
+      target.dashBoostMultiplier = Math.max(target.dashBoostMultiplier || 1, speedMultiplier);
       if (hidesScratchMarks && scratchHideDuration > 0) {
-        target.rallyDartScratchHidden = Math.max(target.rallyDartScratchHidden || 0, scratchHideDuration);
+        target.dartScratchHidden = Math.max(target.dartScratchHidden || 0, scratchHideDuration);
         if (Array.isArray(game.scratchMarks)) game.scratchMarks = game.scratchMarks.filter((mark) => mark.actorId !== target.id);
       }
       affected += 1;
@@ -1050,7 +1273,9 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       y,
       actorId: sourceId,
       survivorId: sourceId,
-      abilityId: ability.id || "dashDart",
+      ownerId: sourceId,
+      projectileId: ability.id || null,
+      abilityId: ability.abilityId || ability.type || "dashDart",
       projectileType: "boost",
       radius,
       duration,
@@ -1061,41 +1286,64 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       boostedIds,
       reason
     });
-    // Legacy event keeps old audio/visual hooks alive until the client fully forgets Rally Dart existed.
-    addEvent(game, "rallyDartExplode", {
-      x, y, actorId: sourceId, survivorId: sourceId, abilityId: ability.id || "dashDart", radius, duration, speedMultiplier, hidesScratchMarks, scratchHideDuration, affected, boostedIds, reason
+  }
+
+  function collectOrbByIndex(game, actor, dotIndex, source = "collectionBolt") {
+    if (!game || !actor || actor.role !== "survivor") return 0;
+    const maxDots = SURVIVOR_DOT_MAX;
+    if ((actor.dots || 0) >= maxDots) return 0;
+    const dot = game.collectibleDots?.[dotIndex];
+    if (!dot) return 0;
+    const dotsBefore = actor.dots || 0;
+    actor.dots = Math.min(maxDots, dotsBefore + 1);
+    if (actor.dots <= dotsBefore) return 0;
+    game.collectibleDots.splice(dotIndex, 1);
+    awardStat(actor, "orbsCollected", source === "collectionBoltBeam" ? "Collection Bolt beam" : source === "collectionBolt" ? "Collection Bolt" : "Orb collected", actor.dots - dotsBefore, "orb");
+    queueDotRespawns(game, 1);
+    addEvent(game, "dotPickup", {
+      x: dot.x,
+      y: dot.y,
+      actorId: actor.id,
+      survivorId: actor.id,
+      role: actor.role,
+      dotsBefore,
+      dotsAfter: actor.dots,
+      carriedDots: actor.dots,
+      carryMax: maxDots,
+      red: (game.redOrbs || 0) > 0,
+      source
     });
+    return 1;
   }
 
   function collectOrbsInRadius(game, actor, x, y, radius, source = "collectionBolt") {
     if (!game || !actor || actor.role !== "survivor") return 0;
-    const maxDots = SURVIVOR_DOT_MAX;
     let collected = 0;
     for (let i = game.collectibleDots.length - 1; i >= 0; i--) {
-      if ((actor.dots || 0) >= maxDots) break;
+      if ((actor.dots || 0) >= SURVIVOR_DOT_MAX) break;
       const dot = game.collectibleDots[i];
       if (!dot || dist(x, y, dot.x, dot.y) > radius) continue;
       if (!segmentClear(game, x, y, dot.x, dot.y)) continue;
-      const dotsBefore = actor.dots || 0;
-      actor.dots = Math.min(maxDots, dotsBefore + 1);
-      if (actor.dots <= dotsBefore) continue;
-      game.collectibleDots.splice(i, 1);
-      collected += 1;
-      awardStat(actor, "orbsCollected", source === "collectionBolt" ? "Collection Bolt" : "Orb collected", actor.dots - dotsBefore, "orb");
-      queueDotRespawns(game, 1);
-      addEvent(game, "dotPickup", {
-        x: dot.x,
-        y: dot.y,
-        actorId: actor.id,
-        survivorId: actor.id,
-        role: actor.role,
-        dotsBefore,
-        dotsAfter: actor.dots,
-        carriedDots: actor.dots,
-        carryMax: maxDots,
-        red: (game.redOrbs || 0) > 0,
-        source
-      });
+      collected += collectOrbByIndex(game, actor, i, source);
+    }
+    return collected;
+  }
+
+  function collectOrbsAlongSegment(game, actor, ax, ay, bx, by, radius, source = "collectionBoltBeam") {
+    if (!game || !actor || actor.role !== "survivor" || !(radius > 0)) return 0;
+    if (!Number.isFinite(ax) || !Number.isFinite(ay) || !Number.isFinite(bx) || !Number.isFinite(by)) return 0;
+    let collected = 0;
+    for (let i = game.collectibleDots.length - 1; i >= 0; i--) {
+      if ((actor.dots || 0) >= SURVIVOR_DOT_MAX) break;
+      const dot = game.collectibleDots[i];
+      if (!dot) continue;
+      const nearest = nearestPointOnSegment(dot.x, dot.y, ax, ay, bx, by);
+      if (nearest.distance > radius) continue;
+      // The bolt is the line segment. Only require the tiny perpendicular hop from the beam
+      // to the orb to be clear, instead of demanding both segment endpoints can see the orb.
+      // Endpoint LOS made valid beam pickups fail around walls/corners, because geometry is a goblin.
+      if (!segmentClear(game, nearest.x, nearest.y, dot.x, dot.y)) continue;
+      collected += collectOrbByIndex(game, actor, i, source);
     }
     return collected;
   }
@@ -1103,17 +1351,23 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
   function applyCollectionBolt(game, projectile, x, y, reason = "impact") {
     const actor = game.actors.get(projectile.ownerId);
     const radius = Math.max(0, cfgNumber(projectile.radius, 100));
-    const collected = collectOrbsInRadius(game, actor, x, y, radius, "collectionBolt");
+    const burstCollected = collectOrbsInRadius(game, actor, x, y, radius, "collectionBolt");
+    const beamCollected = Math.max(0, Math.floor(cfgNumber(projectile.beamCollected, 0)));
+    const collected = burstCollected + beamCollected;
     addEvent(game, "runnerProjectileExplode", {
       x,
       y,
       actorId: projectile.ownerId,
       survivorId: projectile.ownerId,
+      ownerId: projectile.ownerId,
+      projectileId: projectile.id || null,
       abilityId: projectile.abilityId || "collectionBolt",
       projectileType: "collect",
       radius,
       affected: collected,
       collected,
+      burstCollected,
+      beamCollected,
       reason
     });
   }
@@ -1137,6 +1391,8 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       y,
       actorId: projectile.ownerId,
       survivorId: projectile.ownerId,
+      ownerId: projectile.ownerId,
+      projectileId: projectile.id || null,
       abilityId: projectile.abilityId || "smokeDart",
       projectileType: "smoke",
       radius,
@@ -1163,6 +1419,38 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     return hadProgress || target.healingDartExecutionBlock > 0;
   }
 
+  function survivorHasManualHealingHelp(game, target) {
+    if (!game || !target || target.role !== "survivor") return false;
+    if ((target.healProgress || 0) > 0.001) return true;
+    if (Array.isArray(target.activeHealers) && target.activeHealers.length > 0) return true;
+    for (const actor of game.actors.values()) {
+      if (!actor || actor.role !== "survivor" || actor.id === target.id) continue;
+      if (actor.healingTargetId === target.id) return true;
+    }
+    return false;
+  }
+
+  function survivorHasManualUnhookHelp(game, target) {
+    if (!game || !target || target.role !== "survivor") return false;
+    if ((target.unhookProgress || 0) > 0.001) return true;
+    for (const actor of game.actors.values()) {
+      if (!actor || actor.role !== "survivor" || actor.id === target.id) continue;
+      if (actor.unhookTargetId === target.id) return true;
+    }
+    return false;
+  }
+
+  function stackTimedSupport(existing, next) {
+    if (!existing || typeof existing !== "object") return next;
+    return {
+      ...next,
+      remaining: Math.max(cfgNumber(existing.remaining, 0), cfgNumber(next.remaining, 0)),
+      totalProgress: Math.max(cfgNumber(existing.totalProgress, 0), cfgNumber(next.totalProgress, 0)),
+      progressPerSecond: Math.max(cfgNumber(existing.progressPerSecond, 0), cfgNumber(next.progressPerSecond, 0)),
+      canPickupDowned: !!(existing.canPickupDowned || next.canPickupDowned)
+    };
+  }
+
   function applyHealingDart(game, projectile, x, y, reason = "impact", targetId = null) {
     const owner = game.actors.get(projectile.ownerId);
     const effect = projectile.effect || {};
@@ -1185,26 +1473,51 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
 
       if (target.hooked && projectile.canUnhook) {
         const progress = clamp(cfgNumber(projectile.unhookProgress, effect.unhookProgress || 0.8), 0, 2);
-        target.healingDartUnhook = {
+        const isAlreadyBeingUnbound = survivorHasManualUnhookHelp(game, target);
+        const speedBoost = isAlreadyBeingUnbound ? 1.75 : 1;
+        target.healingDartUnhook = stackTimedSupport(target.healingDartUnhook, {
           rescuerId: projectile.ownerId,
           remaining: duration,
-          // Do not front-load unbind progress. The dart starts the rescue and lets it fill over time,
-          // otherwise level 3 becomes an instant rope-delete button. Humanity was not ready.
-          progressPerSecond: Math.max(0, progress / duration)
-        };
+          totalProgress: progress,
+          // Do not front-load unbind progress. The dart starts or boosts the rescue over time.
+          // If a Runner is already being unbound, this adds a clear rescue-speed boost instead of wasting the hit.
+          progressPerSecond: Math.max(0, (progress / duration) * speedBoost),
+          boostedManualAction: isAlreadyBeingUnbound
+        });
         affected += 1;
         continue;
       }
 
       const progress = clamp(cfgNumber(projectile.healProgress, effect.healProgress || 0.55), 0, 2);
       const canPickupDowned = !!projectile.canPickupDowned;
-      if (target.downed && canPickupDowned && resetDownedExecutionChannel(game, target, duration)) executionResets += 1;
-      target.healingDartHeal = {
+      if (target.downed && canPickupDowned) {
+        if (resetDownedExecutionChannel(game, target, 0)) executionResets += 1;
+        target.downed = false;
+        target.health = 1;
+        target.injured = true;
+        target.healProgress = 0;
+        target.hookProgress = 0;
+        target.healingDartHeal = null;
+        target.healingDartExecutionBlock = 0;
+        target.recovery = 0;
+        grantHealingDartPickupIframes(target);
+        target.hitBoost = Math.max(target.hitBoost || 0, SURVIVOR_HIT_BOOST * 0.55);
+        if (owner?.role === "survivor") awardStat(owner, "teammatesHealed", "Healing dart pickup", 1, "team");
+        addEvent(game, "healDone", { x: target.x, y: target.y, survivorId: target.id, healerId: owner?.id || null, source: "healingDartPickup" });
+        completedHeals += 1;
+        affected += 1;
+        continue;
+      }
+      const isAlreadyBeingHealed = survivorHasManualHealingHelp(game, target);
+      const speedBoost = isAlreadyBeingHealed ? 1.75 : 1;
+      target.healingDartHeal = stackTimedSupport(target.healingDartHeal, {
         healerId: projectile.ownerId,
         remaining: duration,
-        progressPerSecond: Math.max(0, progress / duration),
-        canPickupDowned
-      };
+        totalProgress: progress,
+        progressPerSecond: Math.max(0, (progress / duration) * speedBoost),
+        canPickupDowned,
+        boostedManualAction: isAlreadyBeingHealed
+      });
       affected += 1;
     }
 
@@ -1213,6 +1526,8 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       y,
       actorId: projectile.ownerId,
       survivorId: projectile.ownerId,
+      ownerId: projectile.ownerId,
+      projectileId: projectile.id || null,
       abilityId: projectile.abilityId || "healingDart",
       projectileType: "heal",
       radius,
@@ -1241,8 +1556,8 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       const projectile = projectiles[i];
       const prevX = projectile.x;
       const prevY = projectile.y;
-      const speed = Math.max(1, cfgNumber(projectile.speed, RALLY_DART_DEFAULT_PROJECTILE_SPEED));
-      const range = Math.max(0, cfgNumber(projectile.range, RALLY_DART_DEFAULT_RANGE));
+      const speed = Math.max(1, cfgNumber(projectile.speed, DART_DEFAULT_PROJECTILE_SPEED));
+      const range = Math.max(0, cfgNumber(projectile.range, DART_DEFAULT_RANGE));
       const traveled = Math.max(0, cfgNumber(projectile.traveled, 0));
       const remainingRange = Math.max(0, range - traveled);
       if (remainingRange <= 0.001) {
@@ -1259,6 +1574,17 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
         : Infinity;
       const runnerImpact = runnerProjectileImpact(game, projectile, prevX, prevY, nextX, nextY);
       const runnerImpactT = runnerImpact ? clamp(runnerImpact.t, 0, 1) : Infinity;
+      const impactT = Math.min(wallImpactT, runnerImpactT, 1);
+      if (String(projectile.kind || projectile.type || "") === "collect") {
+        const beamRadius = Math.max(0, cfgNumber(projectile.beamCollectRadius ?? projectile.effect?.beamCollectRadius, 0));
+        if (beamRadius > 0) {
+          const beamEndX = prevX + (nextX - prevX) * impactT;
+          const beamEndY = prevY + (nextY - prevY) * impactT;
+          const actor = game.actors.get(projectile.ownerId);
+          const beamCollected = collectOrbsAlongSegment(game, actor, prevX, prevY, beamEndX, beamEndY, beamRadius, "collectionBoltBeam");
+          if (beamCollected > 0) projectile.beamCollected = Math.max(0, cfgNumber(projectile.beamCollected, 0)) + beamCollected;
+        }
+      }
       projectile.age = (projectile.age || 0) + dt;
       if (runnerImpact && runnerImpactT <= wallImpactT) {
         explodeRunnerProjectile(game, projectile, runnerImpact.x, runnerImpact.y, "runner", runnerImpact.survivorId);
@@ -1293,13 +1619,20 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     if (!ability || !ability.projectileKind) return { ok: false, message: "No projectile ability is ready." };
     if (ability.locked) return { ok: false, message: `Unlock ${ability.name || "that ability"} first.` };
 
-    const cooldowns = actor.survivorAbilityCooldowns || (actor.survivorAbilityCooldowns = {});
-    const remainingCooldown = Math.max(0, cfgNumber(cooldowns[ability.id], 0));
-    if (remainingCooldown > 0) return { ok: false, message: `${ability.name} is cooling down for ${Math.ceil(remainingCooldown)}s.` };
-
-    const currentOrbs = Math.max(0, Math.floor(actor.dots || 0));
-    const directCost = Math.max(0, Math.floor(cfgNumber(ability.cost, 0)));
-    if (currentOrbs < directCost) return { ok: false, message: `${ability.name} needs ${directCost} orbs.` };
+    const testingAbilities = abilityTestingEnabled(actor);
+    ensureRunnerDartAmmo(actor);
+    const fireLockout = Math.max(0, cfgNumber(actor.runnerDartFireLockout, 0));
+    if (!testingAbilities && fireLockout > 0) {
+      return { ok: false, message: `${ability.name} is chambering for ${fireLockout.toFixed(1)}s.` };
+    }
+    if (!testingAbilities && (actor.runnerDartAmmo || 0) <= 0) {
+      const now = game.time || 0;
+      if (now >= cfgNumber(actor.noDartAmmoChatUntil, 0)) {
+        setActorChat(actor, randomNoDartAmmoLine(), game, 2.1);
+        actor.noDartAmmoChatUntil = now + NO_DART_AMMO_CHAT_COOLDOWN;
+      }
+      return { ok: false, noAmmo: true, message: `${ability.name} is out of dart ammo. Find a Dart Box.` };
+    }
 
     const rawTargetX = Number(payload.targetX);
     const rawTargetY = Number(payload.targetY);
@@ -1315,9 +1648,9 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     let dy = Math.sin(angle);
     if (!Number.isFinite(dx) || !Number.isFinite(dy)) return { ok: false, message: `Bad ${ability.name} aim.` };
 
-    const maxRange = Math.max(80, cfgNumber(ability.range, RALLY_DART_DEFAULT_RANGE));
-    const radius = Math.max(20, cfgNumber(ability.radius, RALLY_DART_DEFAULT_RADIUS));
-    const duration = Math.max(0.1, cfgNumber(ability.duration, RALLY_DART_DEFAULT_DURATION));
+    const maxRange = Math.max(80, cfgNumber(ability.range, DART_DEFAULT_RANGE));
+    const radius = Math.max(20, cfgNumber(ability.radius, DART_DEFAULT_RADIUS));
+    const duration = Math.max(0.1, cfgNumber(ability.duration, DART_DEFAULT_DURATION));
     const muzzleOffset = Math.max(PLAYER_SIZE * 0.68, 30);
     let startX = clamp(actor.x + dx * muzzleOffset, 0, game.map.width);
     let startY = clamp(actor.y + dy * muzzleOffset, 0, game.map.height);
@@ -1349,52 +1682,52 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       dx,
       dy,
       angle,
-      speed: Math.max(1, cfgNumber(ability.projectileSpeed, RALLY_DART_DEFAULT_PROJECTILE_SPEED)),
+      speed: Math.max(1, cfgNumber(ability.projectileSpeed, DART_DEFAULT_PROJECTILE_SPEED)),
       range: projectileRange,
       radius,
       duration,
       boostDuration: Math.max(0, cfgNumber(ability.boostDuration ?? effect.boostDuration ?? ability.duration, ability.duration)),
-      speedMultiplier: Math.max(1, cfgNumber(ability.speedMultiplier ?? effect.speedMultiplier, RALLY_DART_DEFAULT_SPEED_MULT)),
+      speedMultiplier: Math.max(1, cfgNumber(ability.speedMultiplier ?? effect.speedMultiplier, DART_DEFAULT_SPEED_MULT)),
       hidesScratchMarks: !!(ability.hidesScratchMarks || effect.hidesScratchMarks),
       scratchHideDuration: Math.max(0, cfgNumber(ability.scratchHideDuration ?? effect.scratchHideDuration ?? ability.duration, duration)),
       healProgress: Math.max(0, cfgNumber(effect.healProgress, 0)),
       unhookProgress: Math.max(0, cfgNumber(effect.unhookProgress, 0)),
       canUnhook: !!effect.canUnhook,
       canPickupDowned: !!effect.canPickupDowned,
+      beamCollectRadius: Math.max(0, cfgNumber(effect.beamCollectRadius ?? ability.beamCollectRadius, 0)),
+      beamCollected: 0,
       effect,
       traveled: 0,
       age: 0,
       ttl: 2
     };
 
-    actor.dots = clamp(currentOrbs - directCost, 0, SURVIVOR_DOT_MAX);
-    cooldowns[ability.id] = Math.max(0, cfgNumber(ability.cooldown, 30));
+    if (!testingAbilities) spendRunnerDartAmmo(actor, ability);
     awardStat(actor, "abilitiesUsed", "Ability used", 1, "team");
     addEvent(game, "runnerProjectileFire", {
       x: startX,
       y: startY,
       actorId: actor.id,
       survivorId: actor.id,
+      ownerId: actor.id,
+      projectileId: projectile.id,
       abilityId: ability.id,
       projectileType: projectile.kind,
       angle,
       radius: projectile.radius,
       duration: projectile.duration,
+      ammo: actor.runnerDartAmmo || 0,
+      maxAmmo: actor.runnerDartMaxAmmo || runnerDartMaxAmmo(actor),
+      reloadRemaining: 0,
+      fireLockoutRemaining: actor.runnerDartFireLockout || 0,
       speedMultiplier: projectile.speedMultiplier,
       hidesScratchMarks: projectile.hidesScratchMarks,
       scratchHideDuration: projectile.scratchHideDuration
     });
-    if (ability.id === "dashDart" || ability.id === "rallyDart") {
-      addEvent(game, "rallyDartFire", { x: startX, y: startY, actorId: actor.id, survivorId: actor.id, abilityId: ability.id, angle, radius: projectile.radius, duration: projectile.duration, speedMultiplier: projectile.speedMultiplier, hidesScratchMarks: projectile.hidesScratchMarks, scratchHideDuration: projectile.scratchHideDuration });
-    }
 
     game.runnerProjectiles = Array.isArray(game.runnerProjectiles) ? game.runnerProjectiles : [];
     game.runnerProjectiles.push(projectile);
     return { ok: true };
-  }
-
-  function fireRallyDart(game, actor, payload = {}) {
-    return fireRunnerShootAbility(game, actor, { ...payload, id: payload.id || payload.abilityId || "dashDart" });
   }
 
   function applySurvivorAbility(game, actor, abilityId) {
@@ -1482,7 +1815,6 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       speedBurst: actor.speedBurst || 0,
       doubleOrb: actor.doubleOrb || 0,
       swiftVaultReady: actor.swiftVaultReady || 0,
-      rallyDartArmed: 0,
       cooldown: cooldowns[ability.id] || 0
     });
     return { ok: true };
@@ -2372,6 +2704,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       unhookTargetId: null,
       injured: false,
       invuln: 0,
+      reviveInvuln: 0,
       hitBoost: 0,
       healProgress: 0,
       activeHealers: [],
@@ -2393,11 +2726,16 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       swiftVaultSpeedMultiplier: 1,
       healingDartHeal: null,
       healingDartUnhook: null,
-      rallyBoost: 0,
-      rallyBoostMultiplier: 1,
-      rallyDartScratchHidden: 0,
-      rallyDartArmed: null,
+      dashBoost: 0,
+      dashBoostMultiplier: 1,
+      dartScratchHidden: 0,
       survivorAbilityCooldowns: {},
+      runnerDartAmmo: role === "survivor" ? runnerDartMaxAmmoForClass(options.runnerClass) : 0,
+      runnerDartMaxAmmo: role === "survivor" ? runnerDartMaxAmmoForClass(options.runnerClass) : 0,
+      runnerDartReloadTimer: 0,
+      runnerDartFireLockout: 0,
+      dartBoxTargetId: null,
+      dartBoxProgress: 0,
       orbSlow: 0,
       voidSlow: 0,
       actionLock: 0,
@@ -2423,6 +2761,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       killerVisibleHold: 0,
       chatText: null,
       chatUntil: 0,
+      noDartAmmoChatUntil: 0,
       palletGraceId: null,
       palletGraceTime: 0,
       bot: {
@@ -2798,6 +3137,9 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       matchStartFreezeSeconds: MATCH_START_FREEZE_SECONDS,
       collectibleDots: [],
       runnerProjectiles: [],
+      dartBoxes: [],
+      dartBoxRespawnQueue: 0,
+      dartBoxRespawnTimer: DART_BOX_RESPAWN_SECONDS,
       smokeClouds: [],
       dotRespawnQueue: 0,
       redOrbs: 0,
@@ -2812,6 +3154,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     };
 
     seedInitialCollectibleDots(game);
+    seedInitialDartBoxes(game);
 
     let survivorSpawnIndex = 0;
     const spectatorPlayers = [];
@@ -2942,8 +3285,8 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
   }
 
   function addScratch(game, actor) {
-    if (actor?.role === "survivor" && ((actor.stealthStep || 0) > 0 || (actor.rallyDartScratchHidden || 0) > 0 || (SURVIVOR_HOURGLASS_HIDES_SCRATCH && (actor.hourglass || 0) > 0))) return;
-    game.scratchMarks.push({ id: uid("scratch"), actorId: actor.id, x: actor.x, y: actor.y, angle: actor.angle + (Math.random() - 0.5), ttl: 4.0, createdAt: game.time || 0 });
+    if (actor?.role === "survivor" && ((actor.stealthStep || 0) > 0 || (actor.dartScratchHidden || 0) > 0 || (SURVIVOR_HOURGLASS_HIDES_SCRATCH && (actor.hourglass || 0) > 0))) return;
+    game.scratchMarks.push({ id: uid("scratch"), actorId: actor.id, x: actor.x, y: actor.y, angle: actor.angle + (Math.random() - 0.5), ttl: SCRATCH_MARK_TTL, createdAt: game.time || 0 });
     if (game.scratchMarks.length > SCRATCH_MARK_MAX) game.scratchMarks.splice(0, game.scratchMarks.length - SCRATCH_MARK_MAX);
   }
 
@@ -2970,8 +3313,8 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
           const duration = Math.max(0.1, cfgNumber(actor.swiftVaultBoostDuration, 2));
           const multiplier = Math.max(1, cfgNumber(actor.swiftVaultSpeedMultiplier, 1.2));
           actor.swiftVaultReady = 0;
-          actor.rallyBoost = Math.max(actor.rallyBoost || 0, duration);
-          actor.rallyBoostMultiplier = Math.max(actor.rallyBoostMultiplier || 1, multiplier);
+          actor.dashBoost = Math.max(actor.dashBoost || 0, duration);
+          actor.dashBoostMultiplier = Math.max(actor.dashBoostMultiplier || 1, multiplier);
           addEvent(game, "survivorAbility", {
             x: actor.x,
             y: actor.y,
@@ -3051,7 +3394,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     if (actor.role === "killer" && actor.recovery > 0) speed *= KILLER_RECOVERY_SPEED_MULT;
     if (actor.role === "killer" && (actor.voidSpeedBoost || 0) > 0) speed *= cfgNumber(actorPerkEffect(actor, "nullRush", "killer")?.speedMultiplier, VOID_SPEED_BUFF_MULT);
     if (actor.role === "survivor" && (actor.speedBurst || 0) > 0 && !actor.downed) speed *= cfgNumber(actorPerkEffect(actor, "speedBurst", "survivor")?.speedMultiplier, SURVIVOR_SPEED_BURST_MULT);
-    if (actor.role === "survivor" && (actor.rallyBoost || 0) > 0 && !actor.downed) speed *= Math.max(1, cfgNumber(actor.rallyBoostMultiplier, RALLY_DART_DEFAULT_SPEED_MULT));
+    if (actor.role === "survivor" && (actor.dashBoost || 0) > 0 && !actor.downed) speed *= Math.max(1, cfgNumber(actor.dashBoostMultiplier, DART_DEFAULT_SPEED_MULT));
     if (actor.role === "survivor" && (actor.orbSlow || 0) > 0) speed *= cfgNumber(game.redOrbSlowMultiplier, RED_ORB_SLOW_MULT);
     if (actor.role === "survivor" && (actor.voidSlow || 0) > 0) speed *= GRAVITY_WELL_SLOW_MULT;
 
@@ -3357,6 +3700,35 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     killer.attackNeedsRelease = true;
   }
 
+  function clearHealingProgressInvolvingActor(game, interruptedActor) {
+    if (!game || !interruptedActor || interruptedActor.role !== "survivor") return;
+    const interruptedId = String(interruptedActor.id || "");
+
+    for (const actor of game.actors.values()) {
+      if (!actor || actor.role !== "survivor") continue;
+      const activeHealers = Array.isArray(actor.activeHealers) ? actor.activeHealers.map(String) : [];
+      const healingDartHealerId = actor.healingDartHeal?.healerId ? String(actor.healingDartHeal.healerId) : "";
+      const targetBeingHealedByInterrupted = String(actor.id || "") === String(interruptedActor.healingTargetId || "");
+      const normalHealingThisActor = actor === interruptedActor && ((actor.healProgress || 0) > 0 || activeHealers.length > 0 || actor.healingDartHeal);
+      const interruptedWasHealingThisActor = targetBeingHealedByInterrupted || activeHealers.includes(interruptedId) || String(actor.healingTargetId || "") === interruptedId || healingDartHealerId === interruptedId;
+
+      if (normalHealingThisActor || interruptedWasHealingThisActor) {
+        actor.healProgress = 0;
+        actor.activeHealers = [];
+        actor.healingDartHeal = null;
+      }
+
+      if (actor === interruptedActor || interruptedWasHealingThisActor) {
+        actor.healingTargetId = null;
+      }
+    }
+
+    interruptedActor.healProgress = 0;
+    interruptedActor.activeHealers = [];
+    interruptedActor.healingTargetId = null;
+    interruptedActor.healingDartHeal = null;
+  }
+
   function applyVoidStun(game, survivor, killer, pallet) {
     if (!shouldVoidStunKiller(killer, pallet)) return false;
 
@@ -3398,14 +3770,14 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     const willBeDowned = survivor.health <= 0;
     let autoChatMessage = null;
     let autoChatDuration = 2.65;
-    survivor.healProgress = 0;
-    survivor.activeHealers = [];
-    survivor.healingTargetId = null;
+    clearHealingProgressInvolvingActor(game, survivor);
     survivor.hookProgress = 0;
     survivor.unhookProgress = 0;
     survivor.dotDepositTargetId = null;
     survivor.dotDepositProgress = 0;
     survivor.dotDepositChain = 0;
+    survivor.dartBoxTargetId = null;
+    survivor.dartBoxProgress = 0;
     awardStat(killer, "injures", "Runner injured", 1, "void");
 
     if (willBeDowned) {
@@ -3415,6 +3787,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       survivor.downed = true;
       survivor.hitBoost = 0;
       survivor.invuln = 0;
+      clearReviveIframes(survivor);
       survivor.chaseHold = 0;
       survivor.input.sprint = false;
       autoChatMessage = randomSurvivorDownedLine(dotsBeforeHit > 0);
@@ -3442,11 +3815,13 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       });
     }
 
-    if (killer && dotsBeforeHit > 0) {
+    const orbsLostThisHit = willBeDowned ? Math.floor(dotsBeforeHit) : Math.ceil(dotsBeforeHit * 0.5);
+
+    if (killer && orbsLostThisHit > 0) {
       const before = Math.max(0, killer.dots || 0);
-      killer.dots = clamp(before + dotsBeforeHit, 0, KILLER_DOT_MAX);
+      killer.dots = clamp(before + orbsLostThisHit, 0, KILLER_DOT_MAX);
       const gainedForAbilities = Math.max(0, killer.dots - before);
-      const stolenForBank = Math.max(0, Math.floor(dotsBeforeHit));
+      const stolenForBank = Math.max(0, Math.floor(orbsLostThisHit));
       if (gainedForAbilities > 0) awardStat(killer, "orbsCollected", "Orbs collected", gainedForAbilities, "orb");
       // This is the permanent Void reward bucket. Loose map pickups stay as in-match ability fuel only.
       // Stolen hit-orbs are credited at match end, even if The Void was already at the ability-orb cap.
@@ -3459,11 +3834,12 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
         stolen: stolenForBank,
         gained: gainedForAbilities,
         carriedBefore: dotsBeforeHit,
+        carriedAfter: Math.max(0, dotsBeforeHit - orbsLostThisHit),
         voidDots: killer.dots
       });
     }
 
-    loseSurvivorDots(game, survivor, survivor.downed ? "stolenDowned" : "stolenHit");
+    loseSurvivorDots(game, survivor, survivor.downed ? "stolenDowned" : "stolenHit", orbsLostThisHit);
     setActorChat(survivor, autoChatMessage, game, autoChatDuration);
 
     if (killer && killer.attackState) killer.attackHasHit = true;
@@ -3673,6 +4049,9 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       } else {
         const rate = Math.max(0, cfgNumber(actor.healingDartHeal.progressPerSecond, 0));
         actor.healProgress = clamp((actor.healProgress || 0) + rate * dt, 0, 1);
+        if (actor.healingDartHeal.remaining <= 0 && cfgNumber(actor.healingDartHeal.totalProgress, 0) >= 1) {
+          actor.healProgress = 1;
+        }
         if (healer?.role === "survivor" && !actor.activeHealers?.includes(healer.id)) {
           actor.activeHealers = [...(actor.activeHealers || []), healer.id];
         }
@@ -3682,7 +4061,12 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
             actor.downed = false;
             actor.health = 1;
             actor.injured = true;
-            actor.invuln = Math.max(actor.invuln || 0, SURVIVOR_INVULN * 0.65);
+            if (actor.healingDartHeal?.canPickupDowned) {
+              grantHealingDartPickupIframes(actor);
+            } else {
+              actor.invuln = Math.max(actor.invuln || 0, SURVIVOR_INVULN * 0.65);
+              clearReviveIframes(actor);
+            }
             actor.hitBoost = Math.max(actor.hitBoost || 0, SURVIVOR_HIT_BOOST * 0.55);
             actor.hookProgress = 0;
             actor.healingDartExecutionBlock = 0;
@@ -3690,6 +4074,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
             actor.health = 2;
             actor.injured = false;
             actor.invuln = 0;
+            clearReviveIframes(actor);
           }
           actor.healProgress = 0;
           actor.healingDartHeal = null;
@@ -3708,6 +4093,9 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       } else {
         const rate = Math.max(0, cfgNumber(actor.healingDartUnhook.progressPerSecond, 0));
         actor.unhookProgress = clamp((actor.unhookProgress || 0) + rate * dt, 0, 1);
+        if (actor.healingDartUnhook.remaining <= 0 && cfgNumber(actor.healingDartUnhook.totalProgress, 0) >= 1) {
+          actor.unhookProgress = 1;
+        }
         if (actor.unhookProgress >= 1) {
           freeSurvivorFromHook(game, actor, [rescuer].filter(Boolean));
           actor.healingDartUnhook = null;
@@ -3730,6 +4118,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
   function updateTimers(game, dt) {
     for (const actor of game.actors.values()) {
       actor.invuln = Math.max(0, actor.invuln - dt);
+      actor.reviveInvuln = Math.max(0, cfgNumber(actor.reviveInvuln, 0) - dt);
       actor.hitBoost = Math.max(0, actor.hitBoost - dt);
       actor.recovery = Math.max(0, actor.recovery - dt);
       actor.voidStun = Math.max(0, (actor.voidStun || 0) - dt);
@@ -3747,9 +4136,10 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       actor.speedBurst = Math.max(0, (actor.speedBurst || 0) - dt);
       actor.doubleOrb = Math.max(0, (actor.doubleOrb || 0) - dt);
       actor.swiftVaultReady = Math.max(0, (actor.swiftVaultReady || 0) - dt);
-      actor.rallyBoost = Math.max(0, (actor.rallyBoost || 0) - dt);
-      actor.rallyDartScratchHidden = Math.max(0, (actor.rallyDartScratchHidden || 0) - dt);
-      if ((actor.rallyBoost || 0) <= 0) actor.rallyBoostMultiplier = 1;
+      actor.dashBoost = Math.max(0, (actor.dashBoost || 0) - dt);
+      actor.dartScratchHidden = Math.max(0, (actor.dartScratchHidden || 0) - dt);
+      actor.runnerDartFireLockout = Math.max(0, cfgNumber(actor.runnerDartFireLockout, 0) - dt);
+      if ((actor.dashBoost || 0) <= 0) actor.dashBoostMultiplier = 1;
       if (actor.survivorAbilityCooldowns) {
         for (const [abilityId, remaining] of Object.entries(actor.survivorAbilityCooldowns)) {
           const nextRemaining = Math.max(0, cfgNumber(remaining, 0) - dt);
@@ -3757,6 +4147,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
           else actor.survivorAbilityCooldowns[abilityId] = nextRemaining;
         }
       }
+      updateRunnerDartAmmo(game, actor, dt);
       updateRunnerTimedSupportEffects(game, actor, dt);
       actor.healingDartExecutionBlock = Math.max(0, cfgNumber(actor.healingDartExecutionBlock, 0) - dt);
       actor.orbSlow = Math.max(0, (actor.orbSlow || 0) - dt);
@@ -3941,6 +4332,199 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     }
   }
 
+
+  function dartBoxSpawnTargetCount(game) {
+    const floorTiles = countFloorTiles(game.map);
+    const ratioTarget = Math.round(floorTiles * DART_BOX_SPAWN_FLOOR_RATIO);
+    return clamp(ratioTarget, DART_BOX_INITIAL_MIN, DART_BOX_MAX_ON_MAP);
+  }
+
+  function dartBoxMinSpacingPixels(game) {
+    const tile = Math.max(1, cfgNumber(game?.map?.tile, 32));
+    return tile * DART_BOX_MIN_TILE_SPACING;
+  }
+
+  function dartBoxTooClose(game, spot) {
+    if (!game || !spot) return true;
+    const minSpacing = dartBoxMinSpacingPixels(game);
+    return (game.dartBoxes || []).some((box) => dist(box.x, box.y, spot.x, spot.y) < minSpacing);
+  }
+
+  function dartBoxCandidates(game) {
+    const tile = game.map.tile;
+    return enumerateFloorDotCandidates(game, { excludeExistingDots: false })
+      .filter((spot) => !dartBoxTooClose(game, spot))
+      .filter((spot) => !(game.collectibleDots || []).some((dot) => dist(dot.x, dot.y, spot.x, spot.y) < tile * 1.6));
+  }
+
+  function spawnDartBoxAt(game, spot) {
+    if (!game || !spot) return false;
+    game.dartBoxes = game.dartBoxes || [];
+    if (game.dartBoxes.length >= DART_BOX_MAX_ON_MAP) return false;
+    if (dartBoxTooClose(game, spot)) return false;
+    if (game.dartBoxes.some((box) => box.tileX === spot.tileX && box.tileY === spot.tileY)) return false;
+    game.dartBoxes.push({
+      id: uid("dartbox"),
+      x: spot.x,
+      y: spot.y,
+      tileX: spot.tileX,
+      tileY: spot.tileY,
+      progress: 0,
+      activeCollectorId: null
+    });
+    return true;
+  }
+
+  function spawnRandomDartBox(game) {
+    if (!game || (game.dartBoxes || []).length >= DART_BOX_MAX_ON_MAP) return false;
+    const candidates = dartBoxCandidates(game);
+    if (!candidates.length) return false;
+    const spot = candidates[Math.floor(Math.random() * candidates.length)];
+    return spawnDartBoxAt(game, spot);
+  }
+
+  function seedInitialDartBoxes(game) {
+    game.dartBoxes = [];
+    game.dartBoxRespawnQueue = 0;
+    game.dartBoxRespawnTimer = DART_BOX_RESPAWN_SECONDS;
+    const candidates = dartBoxCandidates(game);
+    for (let i = candidates.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+    }
+    const target = dartBoxSpawnTargetCount(game);
+    for (const spot of candidates) {
+      if ((game.dartBoxes || []).length >= target) break;
+      spawnDartBoxAt(game, spot);
+    }
+  }
+
+  function queueDartBoxRespawn(game, count = 1) {
+    if (!game || count <= 0) return;
+    game.dartBoxRespawnQueue = Math.min(DART_BOX_MAX_ON_MAP, (game.dartBoxRespawnQueue || 0) + count);
+    if (!Number.isFinite(game.dartBoxRespawnTimer)) game.dartBoxRespawnTimer = DART_BOX_RESPAWN_SECONDS;
+  }
+
+  function updateDartBoxRespawns(game, dt) {
+    if (!game) return;
+    game.dartBoxes = game.dartBoxes || [];
+    game.dartBoxRespawnQueue = Math.max(0, game.dartBoxRespawnQueue || 0);
+    const targetMinimum = Math.min(DART_BOX_INITIAL_MIN, DART_BOX_MAX_ON_MAP);
+    if (game.dartBoxes.length < targetMinimum && game.dartBoxRespawnQueue < DART_BOX_MAX_ON_MAP) {
+      game.dartBoxRespawnQueue = Math.min(DART_BOX_MAX_ON_MAP, game.dartBoxRespawnQueue + (targetMinimum - game.dartBoxes.length));
+    }
+    if (!game.dartBoxRespawnQueue || game.dartBoxes.length >= DART_BOX_MAX_ON_MAP) return;
+    game.dartBoxRespawnTimer = Math.max(0, (game.dartBoxRespawnTimer || DART_BOX_RESPAWN_SECONDS) - dt);
+    if (game.dartBoxRespawnTimer > 0) return;
+    game.dartBoxRespawnTimer = DART_BOX_RESPAWN_SECONDS;
+    if (spawnRandomDartBox(game)) game.dartBoxRespawnQueue = Math.max(0, game.dartBoxRespawnQueue - 1);
+  }
+
+  function isDartBoxCollector(actor) {
+    return !!(
+      actor
+      && actor.role === "survivor"
+      && !actor.dead
+      && !actor.escaped
+      && !actor.hooked
+      && !actor.downed
+      && !actor.vault
+      && actor.actionLock <= 0
+      && !actor.healingTargetId
+      && !actor.unhookTargetId
+      && !actor.dotDepositTargetId
+      && !(actor.activeHealers && actor.activeHealers.length > 0)
+    );
+  }
+
+  function clearDartBoxProgressForMissingTargets(game) {
+    const activeIds = new Set((game.dartBoxes || []).map((box) => box.id));
+    for (const actor of game.actors.values()) {
+      if (actor.role !== "survivor") continue;
+      if (actor.dartBoxTargetId && !activeIds.has(actor.dartBoxTargetId)) {
+        actor.dartBoxTargetId = null;
+        actor.dartBoxProgress = 0;
+      }
+    }
+  }
+
+  function nearestDartBoxForActor(game, actor) {
+    if (!isDartBoxCollector(actor)) return null;
+    let best = null;
+    let bestDist = Infinity;
+    for (const box of game.dartBoxes || []) {
+      const d = dist(actor.x, actor.y, box.x, box.y);
+      if (d > DART_BOX_INTERACT_RADIUS || d >= bestDist) continue;
+      if (!segmentClear(game, actor.x, actor.y, box.x, box.y)) continue;
+      best = box;
+      bestDist = d;
+    }
+    return best;
+  }
+
+  function replenishDartBoxAmmo(game, box, collector) {
+    const affected = [];
+    for (const runner of game.actors.values()) {
+      if (runner.role !== "survivor" || runner.dead || runner.escaped) continue;
+      if (dist(box.x, box.y, runner.x, runner.y) > DART_BOX_AOE_RADIUS) continue;
+      if (!segmentClear(game, box.x, box.y, runner.x, runner.y)) continue;
+      if (refillRunnerDartAmmo(runner, "dartBox")) affected.push(runner.id);
+    }
+    addEvent(game, "dartBoxCollected", {
+      x: box.x,
+      y: box.y,
+      boxId: box.id,
+      survivorId: collector?.id || null,
+      affected,
+      radius: DART_BOX_AOE_RADIUS,
+      ammo: Math.max(DART_AMMO_MAX, ...affected.map((id) => runnerDartMaxAmmo(game.actors.get(id))))
+    });
+    return affected;
+  }
+
+  function updateDartBoxes(game, dt) {
+    updateDartBoxRespawns(game, dt);
+    game.dartBoxes = game.dartBoxes || [];
+    if (!game.dartBoxes.length) return;
+    clearDartBoxProgressForMissingTargets(game);
+
+    const collectorsByBox = new Map();
+    for (const actor of game.actors.values()) {
+      if (actor.role !== "survivor") continue;
+      const box = nearestDartBoxForActor(game, actor);
+      if (!box) {
+        actor.dartBoxTargetId = null;
+        actor.dartBoxProgress = 0;
+        continue;
+      }
+      actor.dartBoxTargetId = box.id;
+      const movingCollectScale = actorHasMoveInput(actor) ? DART_BOX_MOVING_COLLECT_MULT : 1;
+      actor.dartBoxProgress = clamp((actor.dartBoxProgress || 0) + (dt * movingCollectScale) / DART_BOX_COLLECT_SECONDS, 0, 1);
+      actor.input.angle = Math.atan2(box.y - actor.y, box.x - actor.x);
+      if (!collectorsByBox.has(box.id)) collectorsByBox.set(box.id, { box, actors: [] });
+      collectorsByBox.get(box.id).actors.push(actor);
+    }
+
+    for (let i = game.dartBoxes.length - 1; i >= 0; i -= 1) {
+      const box = game.dartBoxes[i];
+      const entry = collectorsByBox.get(box.id);
+      const collectors = entry?.actors || [];
+      box.progress = collectors.length ? Math.max(...collectors.map((actor) => actor.dartBoxProgress || 0)) : Math.max(0, (box.progress || 0) - dt * 0.55);
+      box.activeCollectorId = collectors[0]?.id || null;
+      if (box.progress >= 1) {
+        replenishDartBoxAmmo(game, box, collectors[0] || null);
+        for (const actor of game.actors.values()) {
+          if (actor.dartBoxTargetId === box.id) {
+            actor.dartBoxTargetId = null;
+            actor.dartBoxProgress = 0;
+          }
+        }
+        game.dartBoxes.splice(i, 1);
+        queueDartBoxRespawn(game, 1);
+      }
+    }
+  }
+
   function actorCanPickupDots(actor) {
     if (!actor || actor.dead || actor.escaped || actor.hooked || actor.downed) return false;
     if (actor.role === "survivor") return (actor.dots || 0) < SURVIVOR_DOT_MAX;
@@ -3969,12 +4553,14 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     return SURVIVOR_DOT_PICKUP_RADIUS * Math.max(0.1, multiplier);
   }
 
-  function loseSurvivorDots(game, survivor, mode = "hit") {
+  function loseSurvivorDots(game, survivor, mode = "hit", requestedLost = null) {
     if (!survivor || survivor.role !== "survivor") return;
     const held = Math.max(0, survivor.dots || 0);
     if (!held) return;
 
-    const lost = held;
+    const requested = Number(requestedLost);
+    const lost = clamp(Number.isFinite(requested) ? Math.floor(requested) : held, 0, held);
+    if (lost <= 0) return;
 
     survivor.dots = Math.max(0, held - lost);
     survivor.dotDepositTargetId = null;
@@ -4416,6 +5002,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     survivor.healingTargetId = null;
     survivor.healingDartHeal = null;
     survivor.healingDartExecutionBlock = 0;
+    clearReviveIframes(survivor);
     survivor.input.up = survivor.input.down = survivor.input.left = survivor.input.right = false;
     addEvent(game, "hooked", { x: hook.x, y: hook.y, survivorId: survivor.id, hookId: hook.id, hookCount: survivor.hookCount });
   }
@@ -4432,6 +5019,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     survivor.health = 0;
     survivor.injured = true;
     survivor.invuln = 0;
+    clearReviveIframes(survivor);
     survivor.hitBoost = 0;
     survivor.healProgress = 0;
     survivor.hookProgress = 0;
@@ -4628,6 +5216,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
           target.health = 1;
           target.injured = true;
           target.invuln = Math.max(target.invuln || 0, SURVIVOR_INVULN * 0.65);
+          clearReviveIframes(target);
           target.hitBoost = Math.max(target.hitBoost || 0, SURVIVOR_HIT_BOOST * 0.55);
           target.hookProgress = 0;
           target.healingDartExecutionBlock = 0;
@@ -5275,6 +5864,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       if (actor.role !== "spectator") moveActor(game, actor, dt);
     }
     updateCollectibleDots(game, dt);
+    updateDartBoxes(game, dt);
     updateKillerAttack(game, killer, dt);
     for (const actor of game.actors.values()) {
       if (actor.role !== "spectator" && actor.input.action) handleAction(game, actor);
@@ -5444,9 +6034,9 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       skin: actorSkin,
       runnerClass: actor.role === "survivor" ? normalizeRunnerClassId(actor.runnerClass) : null,
       visible: !!visible,
-      x: Number(actor.x.toFixed(2)),
-      y: Number(actor.y.toFixed(2)),
-      angle: actor.angle,
+      x: Math.round((actor.x || 0) * 10) / 10,
+      y: Math.round((actor.y || 0) * 10) / 10,
+      angle: Number((actor.angle || 0).toFixed(2)),
       moving: !!(actor.vault || actorHasMoveInput(actor)),
       sprinting: actor.role === "survivor" && !!actor.input?.sprint && !!actorHasMoveInput(actor),
       health: actor.health,
@@ -5493,15 +6083,20 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       riftLens: actor.role === "survivor" ? actor.riftLens || 0 : 0,
       hourglass: actor.role === "survivor" ? actor.hourglass || 0 : 0,
       speedBurst: actor.role === "survivor" ? actor.speedBurst || 0 : 0,
-      rallyBoost: actor.role === "survivor" ? actor.rallyBoost || 0 : 0,
-      rallyBoostMultiplier: actor.role === "survivor" ? actor.rallyBoostMultiplier || 1 : 1,
-      rallyDartScratchHidden: actor.role === "survivor" ? actor.rallyDartScratchHidden || 0 : 0,
-      rallyDartArmed: 0,
+      dashBoost: actor.role === "survivor" ? actor.dashBoost || 0 : 0,
+      dashBoostMultiplier: actor.role === "survivor" ? actor.dashBoostMultiplier || 1 : 1,
+      dartScratchHidden: actor.role === "survivor" ? actor.dartScratchHidden || 0 : 0,
       doubleOrb: actor.role === "survivor" ? actor.doubleOrb || 0 : 0,
       swiftVaultReady: actor.role === "survivor" ? actor.swiftVaultReady || 0 : 0,
       survivorAbilityCooldowns: actor.role === "survivor" && isSelf ? Object.fromEntries(
         Object.entries(actor.survivorAbilityCooldowns || {}).map(([id, remaining]) => [id, Number(Math.max(0, remaining || 0).toFixed(2))])
       ) : {},
+      runnerDartAmmo: actor.role === "survivor" && isSelf ? Math.max(0, Math.floor(cfgNumber(actor.runnerDartAmmo, runnerDartMaxAmmo(actor)))) : 0,
+      runnerDartMaxAmmo: actor.role === "survivor" && isSelf ? runnerDartMaxAmmo(actor) : 0,
+      runnerDartReloadRemaining: 0,
+      runnerDartFireLockoutRemaining: actor.role === "survivor" && isSelf ? Number(Math.max(0, cfgNumber(actor.runnerDartFireLockout, 0)).toFixed(2)) : 0,
+      dartBoxTargetId: actor.role === "survivor" ? actor.dartBoxTargetId || null : null,
+      dartBoxProgress: actor.role === "survivor" ? quantizedProgress(actor.dartBoxProgress || 0) : 0,
       orbSlow: actor.role === "survivor" ? actor.orbSlow || 0 : 0,
       voidSlow: actor.role === "survivor" ? actor.voidSlow || 0 : 0,
       attackState: actor.attackState,
@@ -5521,6 +6116,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       windowVaultCooldown: actor.role === "survivor" && isSelf ? Number((actor.windowVaultCooldown || 0).toFixed(2)) : 0,
       breaking: !!actor.breakTarget,
       invuln: actor.invuln,
+      reviveInvuln: actor.role === "survivor" ? actor.reviveInvuln || 0 : 0,
       hitBoost: actor.hitBoost,
       healProgress: actor.healProgress || 0,
       activeHealers: actor.activeHealers || [],
@@ -5571,6 +6167,22 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     return (game.collectibleDots || []).filter((dot) => canViewerSeeCollectibleDot(game, viewer, dot));
   }
 
+  function canViewerSeeDartBox(game, viewer, box) {
+    if (!viewer || !box || viewer.dead || viewer.escaped || viewer.hooked) return false;
+    if (viewer.role === "spectatorOverview") return true;
+    if (smokeBlocksViewerPoint(game, viewer, box.x, box.y)) return false;
+    if (viewer.role === "survivor") return survivorCanSeePoint(game, viewer, box.x, box.y, { allowCloseReveal: true });
+    const d = dist(viewer.x, viewer.y, box.x, box.y);
+    if (d <= CLOSE_REVEAL_RADIUS) return segmentClear(game, viewer.x, viewer.y, box.x, box.y);
+    if (d > KILLER_CONE_LENGTH) return false;
+    return coneSees(viewer, { x: box.x, y: box.y }, KILLER_CONE_LENGTH, KILLER_CONE_ANGLE) && segmentClear(game, viewer.x, viewer.y, box.x, box.y);
+  }
+
+  function visibleDartBoxesForViewer(game, viewer) {
+    if (!viewer) return [];
+    return (game.dartBoxes || []).filter((box) => canViewerSeeDartBox(game, viewer, box));
+  }
+
   function serializeGeneratorForViewer(game, viewer, gen) {
     const showDetails = canViewerSeeGeneratorDetails(game, viewer, gen);
     const repairing = showDetails && !!(gen.repairing || (gen.activeRepairers && gen.activeRepairers.length));
@@ -5599,6 +6211,117 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     return items.map(mapper).join("|");
   }
 
+  function compactValueKey(value) {
+    if (value == null) return value;
+    if (typeof value !== "object") return value;
+    try { return JSON.stringify(value); }
+    catch { return String(value); }
+  }
+
+  function compactActorSnapshotsForSocket(cache, actors) {
+    if (!cache || !Array.isArray(actors) || !actors.length) return actors;
+    const previousById = cache.actorsById instanceof Map ? cache.actorsById : null;
+    const nextById = new Map();
+    const compacted = actors.map((actor) => {
+      if (!actor || !actor.id) return actor;
+      nextById.set(actor.id, actor);
+      const previous = previousById?.get(actor.id);
+      if (!previous) return actor;
+      const delta = { id: actor.id };
+      for (const [key, value] of Object.entries(actor)) {
+        if (key === "id") continue;
+        if (compactValueKey(previous[key]) !== compactValueKey(value)) delta[key] = value;
+      }
+      return Object.keys(delta).length <= 1 ? { id: actor.id } : delta;
+    });
+    cache.actorsById = nextById;
+    return compacted;
+  }
+
+  function visibleWorldPointForViewer(game, viewer, x, y, options = {}) {
+    if (!viewer || !Number.isFinite(x) || !Number.isFinite(y)) return false;
+    if (viewer.role === "spectatorOverview") return true;
+    if (viewer.dead || viewer.escaped || viewer.hooked) return false;
+    if (smokeBlocksViewerPoint(game, viewer, x, y)) return false;
+    const radius = Math.max(0, cfgNumber(options.radius, 0));
+    const d = dist(viewer.x, viewer.y, x, y);
+    if (d <= CLOSE_REVEAL_RADIUS + radius) return segmentClear(game, viewer.x, viewer.y, x, y);
+    if (viewer.role === "survivor") return survivorCanSeePoint(game, viewer, x, y, { allowCloseReveal: options.allowCloseReveal !== false });
+    if (viewer.role === "killer") {
+      if (d > KILLER_CONE_LENGTH + radius) return false;
+      return coneSees(viewer, { x, y }, KILLER_CONE_LENGTH + radius, KILLER_CONE_ANGLE) && segmentClear(game, viewer.x, viewer.y, x, y);
+    }
+    return false;
+  }
+
+  function visibleRunnerProjectilesForViewer(game, viewer, socketId, spectatorOverview = false) {
+    const projectiles = Array.isArray(game?.runnerProjectiles) ? game.runnerProjectiles : [];
+    if (spectatorOverview) return projectiles;
+    if (!viewer) return [];
+    return projectiles.filter((p) => {
+      if (!p) return false;
+      if (String(p.ownerId || "") === String(socketId || viewer.id || "")) return true;
+      return visibleWorldPointForViewer(game, viewer, p.x, p.y, { radius: 18, allowCloseReveal: true });
+    });
+  }
+
+  function viewerInsideSmokeCloud(viewer, cloud) {
+    return !!(viewer && cloud && smokeContainsPoint(cloud, viewer.x, viewer.y));
+  }
+
+  function visibleSmokeCloudsForViewer(game, viewer, spectatorOverview = false) {
+    const clouds = Array.isArray(game?.smokeClouds) ? game.smokeClouds : [];
+    if (spectatorOverview) return clouds;
+    if (!viewer || viewer.dead || viewer.escaped || viewer.hooked) return [];
+    return clouds.filter((cloud) => {
+      if (!cloud) return false;
+      if (viewerInsideSmokeCloud(viewer, cloud)) return true;
+      const radius = Math.max(0, cfgNumber(cloud.radius, 0));
+      const d = dist(viewer.x, viewer.y, cloud.x, cloud.y);
+      if (d <= CLOSE_REVEAL_RADIUS + Math.min(radius, 140)) return segmentClear(game, viewer.x, viewer.y, cloud.x, cloud.y);
+      if (viewer.role === "survivor") return survivorCanSeePoint(game, viewer, cloud.x, cloud.y, { allowCloseReveal: true });
+      if (viewer.role === "killer") {
+        if (d > KILLER_CONE_LENGTH + Math.min(radius, 140)) return false;
+        return coneSees(viewer, { x: cloud.x, y: cloud.y }, KILLER_CONE_LENGTH + Math.min(radius, 140), KILLER_CONE_ANGLE)
+          && segmentClear(game, viewer.x, viewer.y, cloud.x, cloud.y);
+      }
+      return false;
+    });
+  }
+
+  const GLOBAL_EVENT_TYPES = new Set(["genDone", "voidOpen", "escape"]);
+  const LOCAL_EVENT_RANGE = Math.max(900, cfgNumber(GAMEPLAY_CONFIG.server?.eventSendRange, 1250));
+
+  function eventActorIds(event) {
+    const ids = [];
+    for (const key of ["actorId", "survivorId", "killerId", "healerId", "targetId", "ownerId", "collectorId"]) {
+      if (event?.[key]) ids.push(String(event[key]));
+    }
+    if (Array.isArray(event?.affected)) {
+      for (const id of event.affected) if (id) ids.push(String(id));
+    }
+    if (Array.isArray(event?.boostedIds)) {
+      for (const id of event.boostedIds) if (id) ids.push(String(id));
+    }
+    return ids;
+  }
+
+  function eventVisibleToViewer(game, viewer, socketId, event, spectatorOverview = false) {
+    if (!event) return false;
+    if (spectatorOverview || GLOBAL_EVENT_TYPES.has(event.type)) return true;
+    const ids = eventActorIds(event);
+    const viewerIds = new Set([String(socketId || ""), String(viewer?.id || "")]);
+    if (ids.some((id) => viewerIds.has(id))) return true;
+    if (!viewer || !Number.isFinite(event.x) || !Number.isFinite(event.y)) return true;
+    return dist(viewer.x, viewer.y, event.x, event.y) <= LOCAL_EVENT_RANGE;
+  }
+
+  function eventsForViewer(game, viewer, socketId, spectatorOverview = false) {
+    const events = Array.isArray(game?.events) ? game.events : [];
+    if (!events.length) return [];
+    return events.filter((event) => eventVisibleToViewer(game, viewer, socketId, event, spectatorOverview));
+  }
+
   function trimUnchangedSnapshotForSocket(game, socketId, snapshot) {
     if (!game || !socketId || !snapshot?.map) return snapshot;
     const cache = game.snapshotClientCache || (game.snapshotClientCache = new Map());
@@ -5611,10 +6334,17 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       hooks: snapshotListKey(map.hooks, (h) => `${h.id}:${h.active ? 1 : 0}:${h.survivorId || ""}`),
       dots: snapshotListKey(snapshot.collectibleDots, (d) => `${d.id}:${d.red ? 1 : 0}`),
       runnerProjectiles: snapshotListKey(snapshot.runnerProjectiles, (p) => `${p.id}:${Math.round(p.x)}:${Math.round(p.y)}:${p.type || ""}`),
-      smokeClouds: snapshotListKey(snapshot.smokeClouds, (c) => `${c.id}:${Math.round(c.x)}:${Math.round(c.y)}:${Math.round(c.radius)}`)
+      dartBoxes: snapshotListKey(snapshot.dartBoxes, (b) => `${b.id}:${Math.round(b.x)}:${Math.round(b.y)}:${Math.round((b.progress || 0) * 20)}`),
+      smokeClouds: snapshotListKey(snapshot.smokeClouds, (c) => `${c.id}:${Math.round(c.x)}:${Math.round(c.y)}:${Math.round(c.radius)}`),
+      scratchMarks: snapshotListKey(snapshot.scratchMarks, (s) => s.id)
     };
-    cache.set(socketId, keys);
-    if (!previous) return snapshot;
+    const nextCache = { ...keys, actorsById: previous?.actorsById instanceof Map ? previous.actorsById : null };
+    cache.set(socketId, nextCache);
+    if (!previous) {
+      nextCache.actorsById = new Map((snapshot.actors || []).filter(Boolean).map((actor) => [actor.id, actor]));
+      return snapshot;
+    }
+    snapshot.actors = compactActorSnapshotsForSocket(nextCache, snapshot.actors);
 
     const nextMap = { ...map };
     if (previous.pallets === keys.pallets) delete nextMap.pallets;
@@ -5624,7 +6354,9 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     snapshot.map = nextMap;
     if (previous.dots === keys.dots) delete snapshot.collectibleDots;
     if (previous.runnerProjectiles === keys.runnerProjectiles) delete snapshot.runnerProjectiles;
+    if (previous.dartBoxes === keys.dartBoxes) delete snapshot.dartBoxes;
     if (previous.smokeClouds === keys.smokeClouds) delete snapshot.smokeClouds;
+    if (previous.scratchMarks === keys.scratchMarks) delete snapshot.scratchMarks;
     return snapshot;
   }
 
@@ -5725,7 +6457,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
             const target = { x: s.x, y: s.y };
             return coneSees(pov, target, KILLER_SCRATCH_MARK_VISIBILITY_RANGE, KILLER_CONE_ANGLE) && segmentClear(game, pov.x, pov.y, s.x, s.y);
           })
-        : game.scratchMarks.filter((s) => dist(pov?.x || 0, pov?.y || 0, s.x, s.y) < 180);
+        : [];
 
     const doneGenerators = map.generators.reduce((count, g) => count + (g.done ? 1 : 0), 0);
     const requiredGenerators = game.requiredGenerators;
@@ -5771,8 +6503,14 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
         canPause: canSocketControlPause(lobby, socketId)
       } : { id: socketId, role: null, spectating: false, spectateTargetId: null, canPlay: false, canPause: false },
       actors,
-      events: game.events.slice(),
-      scratchMarks: visibleScratchMarks.map((s) => ({ id: s.id, x: s.x, y: s.y, angle: s.angle, ttl: s.ttl })),
+      events: eventsForViewer(game, pov, socketId, spectatorOverview),
+      scratchMarks: visibleScratchMarks.map((s) => ({
+        id: s.id,
+        x: Math.round((s.x || 0) * 10) / 10,
+        y: Math.round((s.y || 0) * 10) / 10,
+        angle: Number((s.angle || 0).toFixed(2)),
+        expiresAt: Number(((s.createdAt || 0) + SCRATCH_MARK_TTL).toFixed(3))
+      })),
       objective: {
         doneGenerators,
         requiredGenerators,
@@ -5786,25 +6524,33 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
         voidSpeedMultiplier: (game.riftEndgameActive || riftsComplete) ? KILLER_ENDGAME_SPEED_MULT : 1
       },
       collectibleDots: visibleCollectibleDotsForViewer(game, pov).map((d) => ({ id: d.id, x: Math.round(d.x), y: Math.round(d.y), red: (game.redOrbs || 0) > 0 })),
-      runnerProjectiles: (game.runnerProjectiles || []).map((p) => ({
+      dartBoxes: visibleDartBoxesForViewer(game, pov).map((box) => ({
+        id: box.id,
+        x: Math.round(box.x),
+        y: Math.round(box.y),
+        progress: quantizedProgress(box.progress || 0),
+        active: !!box.activeCollectorId,
+        radius: DART_BOX_AOE_RADIUS
+      })),
+      runnerProjectiles: visibleRunnerProjectilesForViewer(game, pov, socketId, spectatorOverview).map((p) => ({
         id: p.id,
         type: p.kind || p.type || "runnerProjectile",
         abilityId: p.abilityId || p.type || null,
         ownerId: p.ownerId,
-        x: Number((p.x || 0).toFixed(2)),
-        y: Number((p.y || 0).toFixed(2)),
-        angle: Number((p.angle || 0).toFixed(3)),
-        speed: Math.round(p.speed || RALLY_DART_DEFAULT_PROJECTILE_SPEED),
-        radius: Math.round(p.radius || RALLY_DART_DEFAULT_RADIUS)
+        x: Math.round((p.x || 0) * 10) / 10,
+        y: Math.round((p.y || 0) * 10) / 10,
+        angle: Number((p.angle || 0).toFixed(2)),
+        speed: Math.round(p.speed || DART_DEFAULT_PROJECTILE_SPEED),
+        radius: Math.round(p.radius || DART_DEFAULT_RADIUS)
       })),
-      smokeClouds: (game.smokeClouds || []).map((c) => ({
+      smokeClouds: visibleSmokeCloudsForViewer(game, pov, spectatorOverview).map((c) => ({
         id: c.id,
         ownerId: c.ownerId,
-        x: Number((c.x || 0).toFixed(2)),
-        y: Number((c.y || 0).toFixed(2)),
+        x: Math.round((c.x || 0) * 10) / 10,
+        y: Math.round((c.y || 0) * 10) / 10,
         radius: Math.round(c.radius || 0),
-        duration: Number((c.duration || 0).toFixed(2)),
-        remaining: Number((c.remaining || 0).toFixed(2))
+        duration: Number((c.duration || 0).toFixed(1)),
+        remaining: Number((c.remaining || 0).toFixed(1))
       })),
       voidEffects: {
         redOrbs: Number((game.redOrbs || 0).toFixed(2)),
@@ -5884,7 +6630,6 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     applyVoidAbility,
     applySurvivorAbility,
     fireRunnerShootAbility,
-    fireRallyDart,
     getChatWheelMessagesForActor,
     setActorChat,
     nowMs
