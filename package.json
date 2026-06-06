@@ -12,23 +12,24 @@
     "check": "npm run lint && npm run build",
     "start:server": "node server.cjs",
     "db:init": "node scripts/init-db.cjs",
-    "db:schema": "node scripts/init-db.cjs"
+    "db:schema": "node scripts/init-db.cjs",
+    "size:css": "node scripts/analyze-css-size.cjs"
   },
   "dependencies": {
     "@babel/core": "^7.29.0",
     "@rolldown/plugin-babel": "^0.2.3",
     "@vitejs/plugin-react": "^6.0.1",
     "babel-plugin-react-compiler": "^1.0.0",
+    "bcryptjs": "^3.0.3",
     "express": "^5.2.1",
+    "fastpriorityqueue": "^0.7.4",
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.16.3",
     "phaser": "^4.1.0",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "socket.io": "^4.8.3",
-    "vite": "^8.0.12",
-    "fastpriorityqueue": "^0.7.4",
-    "pg": "^8.16.3",
-    "bcryptjs": "^3.0.3",
-    "jsonwebtoken": "^9.0.2"
+    "vite": "^8.0.12"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

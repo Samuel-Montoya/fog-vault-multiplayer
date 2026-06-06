@@ -1,0 +1,209 @@
+/* Shared skin previews. One reusable visual system for shop, lobby, HUD, and end screen. */
+:where(.rr-skin-preview, .skin-preview) {
+  --rr-skin-size: 44px;
+  --rr-skin-ring: rgba(230, 238, 255, 0.68);
+  --rr-skin-shadow: 0 0 20px rgba(103, 232, 249, 0.24), inset 0 -8px 14px rgba(0, 0, 0, 0.28);
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: var(--rr-skin-size);
+  height: var(--rr-skin-size);
+  min-width: var(--rr-skin-size);
+  min-height: var(--rr-skin-size);
+  border: 2px solid var(--rr-skin-ring);
+  border-radius: 999px;
+  overflow: hidden;
+  background-color: rgba(10, 8, 24, 0.92);
+  background-size: cover;
+  background-position: center;
+  box-shadow: var(--rr-skin-shadow);
+}
+
+:where(.rr-skin-preview, .skin-preview)::before,
+:where(.rr-skin-preview, .skin-preview)::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
+}
+
+:where(.rr-skin-preview, .skin-preview)::before {
+  inset: 13%;
+  border-radius: inherit;
+  background: radial-gradient(circle at 34% 28%, rgba(255,255,255,0.72), transparent 23%);
+  mix-blend-mode: screen;
+  opacity: 0.7;
+}
+
+:where(.rr-skin-preview, .skin-preview)::after {
+  inset: 0;
+  border-radius: inherit;
+  background:
+    radial-gradient(circle at 50% 115%, rgba(0,0,0,0.44), transparent 46%),
+    linear-gradient(140deg, rgba(255,255,255,0.16), transparent 32% 72%, rgba(0,0,0,0.18));
+}
+
+.rr-skin-preview--store { --rr-skin-size: 76px; }
+.rr-skin-preview--lobby { --rr-skin-size: 40px; }
+.rr-skin-preview--hud-status { --rr-skin-size: 42px; }
+.rr-skin-preview--role-hud { --rr-skin-size: 38px; }
+.rr-skin-preview--end { --rr-skin-size: 44px; }
+
+:where(.rr-skin-preview, .skin-preview).skin-square {
+  background: radial-gradient(circle at 35% 30%, #e0f2fe 0 18%, #38bdf8 19% 58%, #6366f1 59% 100%);
+  box-shadow: 0 0 20px rgba(56, 189, 248, 0.28), inset 0 -8px 14px rgba(0,0,0,0.28);
+}
+
+:where(.rr-skin-preview, .skin-preview).skin-star {
+  background: radial-gradient(circle at 35% 30%, #fffbeb 0 18%, #facc15 19% 58%, #fb7185 59% 100%);
+  box-shadow: 0 0 22px rgba(250, 204, 21, 0.32), inset 0 -8px 14px rgba(0,0,0,0.26);
+}
+
+:where(.rr-skin-preview, .skin-preview).skin-pentagon {
+  background: radial-gradient(circle at 35% 30%, #f5f3ff 0 18%, #a78bfa 19% 58%, #22d3ee 59% 100%);
+  box-shadow: 0 0 22px rgba(167, 139, 250, 0.30), inset 0 -8px 14px rgba(0,0,0,0.28);
+}
+
+:where(.rr-skin-preview, .skin-preview).skin-nebula {
+  background: radial-gradient(circle at 42% 38%, #fff1f8 0 14%, #ec4899 15% 44%, #38bdf8 45% 68%, #4c1d95 69% 100%);
+  box-shadow: 0 0 24px rgba(236, 72, 153, 0.30), inset 0 -8px 14px rgba(0,0,0,0.28);
+}
+
+:where(.rr-skin-preview, .skin-preview).skin-eclipse {
+  background: radial-gradient(circle at 32% 36%, #ccfbf1 0 13%, #14b8a6 14% 48%, #020617 49% 66%, #4c1d95 67% 100%);
+  box-shadow: 0 0 22px rgba(20, 184, 166, 0.30), inset 0 -8px 14px rgba(0,0,0,0.30);
+}
+
+:where(.rr-skin-preview, .skin-preview).skin-moth {
+  background: radial-gradient(circle at 28% 36%, #eff6ff 0 13%, #60a5fa 14% 45%, #c084fc 46% 72%, #111827 73% 100%);
+  box-shadow: 0 0 22px rgba(96, 165, 250, 0.30), inset 0 -8px 14px rgba(0,0,0,0.30);
+}
+
+:where(.rr-skin-preview, .skin-preview).skin-drone {
+  background: radial-gradient(circle at 42% 32%, #ecfdf5 0 13%, #34d399 14% 48%, #fbbf24 49% 68%, #064e3b 69% 100%);
+  box-shadow: 0 0 22px rgba(52, 211, 153, 0.30), inset 0 -8px 14px rgba(0,0,0,0.30);
+}
+
+:where(.rr-skin-preview, .skin-preview).skin-void-core {
+  background:
+    radial-gradient(circle at 32% 28%, #f5d0fe 0 10%, transparent 11%),
+    radial-gradient(circle at 50% 52%, #7c3aed 0 20%, #32105f 21% 54%, #020008 55% 100%);
+  box-shadow: 0 0 24px rgba(168, 85, 247, 0.32), inset 0 -8px 14px rgba(0,0,0,0.34);
+}
+
+:where(.rr-skin-preview, .skin-preview).skin-void-solar {
+  background:
+    radial-gradient(circle at 34% 28%, #fff7ad 0 12%, transparent 13%),
+    radial-gradient(circle at 58% 56%, #facc15 0 20%, #b45309 21% 54%, #130900 55% 100%);
+  box-shadow: 0 0 24px rgba(250, 204, 21, 0.34), inset 0 -8px 14px rgba(0,0,0,0.32);
+}
+
+:where(.rr-skin-preview, .skin-preview).skin-void-azure {
+  background:
+    linear-gradient(132deg, transparent 43%, rgba(224,242,254,0.92) 44% 49%, transparent 50%),
+    radial-gradient(circle at 42% 38%, #38bdf8 0 18%, #0e7490 19% 54%, #020617 55% 100%);
+  box-shadow: 0 0 24px rgba(56, 189, 248, 0.34), inset 0 -8px 14px rgba(0,0,0,0.30);
+}
+
+:where(.rr-skin-preview, .skin-preview).skin-void-eclipse {
+  background:
+    radial-gradient(circle at 62% 42%, #070006 0 26%, transparent 27%),
+    radial-gradient(circle at 44% 42%, #ff3b6a 0 19%, #7f1d1d 20% 54%, #070006 55% 100%);
+  box-shadow: 0 0 24px rgba(255, 59, 106, 0.34), inset 0 -8px 14px rgba(0,0,0,0.34);
+}
+
+:where(.rr-skin-preview, .skin-preview).skin-void-wyrm {
+  background:
+    radial-gradient(ellipse at 50% 42%, transparent 0 26%, rgba(34,211,238,0.9) 27% 31%, transparent 32%),
+    radial-gradient(circle at 42% 36%, #c4b5fd 0 12%, #4338ca 13% 46%, #02030a 47% 100%);
+  box-shadow: 0 0 24px rgba(196, 181, 253, 0.30), inset 0 -8px 14px rgba(0,0,0,0.30);
+}
+
+:where(.rr-skin-preview, .skin-preview).skin-void-lantern {
+  background:
+    linear-gradient(90deg, transparent 45%, rgba(255,247,173,0.72) 46% 54%, transparent 55%),
+    radial-gradient(ellipse at 50% 58%, #fff7ad 0 16%, #f59e0b 17% 35%, #3a1c05 36% 70%, #140b00 71% 100%);
+  box-shadow: 0 0 24px rgba(245, 158, 11, 0.34), inset 0 -8px 14px rgba(0,0,0,0.34);
+}
+
+:where(.rr-skin-preview, .skin-preview).skin-void-siren {
+  background:
+    radial-gradient(ellipse at 18% 42%, rgba(125,211,252,0.88) 0 13%, transparent 14%),
+    radial-gradient(ellipse at 82% 42%, rgba(125,211,252,0.88) 0 13%, transparent 14%),
+    radial-gradient(circle at 48% 44%, #e0faff 0 9%, #38bdf8 10% 34%, #075985 35% 62%, #001018 63% 100%);
+  box-shadow: 0 0 24px rgba(56, 189, 248, 0.34), inset 0 -8px 14px rgba(0,0,0,0.34);
+}
+
+:where(.rr-skin-preview, .skin-preview).skin-void-crowned {
+  background:
+    linear-gradient(160deg, transparent 34%, rgba(251,191,36,0.82) 35% 42%, transparent 43%),
+    linear-gradient(20deg, transparent 35%, rgba(251,191,36,0.82) 36% 43%, transparent 44%),
+    radial-gradient(circle at 50% 52%, #fef08a 0 10%, #4c1d95 11% 48%, #06030d 49% 100%);
+  box-shadow: 0 0 24px rgba(251, 191, 36, 0.32), inset 0 -8px 14px rgba(0,0,0,0.34);
+}
+
+:where(.rr-skin-preview, .skin-preview).skin-void-static {
+  background:
+    linear-gradient(90deg, transparent 16%, rgba(248,250,252,0.82) 17% 20%, transparent 21% 46%, rgba(163,230,53,0.7) 47% 51%, transparent 52%),
+    linear-gradient(0deg, transparent 22%, rgba(163,230,53,0.7) 23% 27%, transparent 28% 71%, rgba(248,250,252,0.5) 72% 75%, transparent 76%),
+    radial-gradient(circle at 50% 48%, #d9f99d 0 9%, #475569 10% 42%, #020617 43% 100%);
+  box-shadow: 0 0 24px rgba(163, 230, 53, 0.32), inset 0 -8px 14px rgba(0,0,0,0.34);
+}
+
+:where(.rr-skin-preview, .skin-preview).skin-void-seraph {
+  background:
+    radial-gradient(ellipse at 17% 50%, transparent 0 20%, rgba(103,232,249,0.86) 21% 27%, transparent 28%),
+    radial-gradient(ellipse at 83% 50%, transparent 0 20%, rgba(192,132,252,0.86) 21% 27%, transparent 28%),
+    radial-gradient(ellipse at 50% 19%, transparent 0 18%, rgba(245,208,254,0.86) 19% 25%, transparent 26%),
+    radial-gradient(circle at 50% 50%, #f5d0fe 0 9%, #7e22ce 10% 42%, #080316 43% 100%);
+  box-shadow: 0 0 24px rgba(192, 132, 252, 0.36), inset 0 -8px 14px rgba(0,0,0,0.34);
+}
+
+:where(.rr-skin-preview, .skin-preview).skin-spectator {
+  background: radial-gradient(circle at 40% 36%, #f8fafc 0 12%, #94a3b8 13% 46%, #475569 47% 72%, #020617 73% 100%);
+  box-shadow: 0 0 20px rgba(148, 163, 184, 0.28), inset 0 -8px 14px rgba(0,0,0,0.30);
+}
+
+.survivor-portrait.rr-skin-preview,
+.survivor-portrait.skin-preview {
+  width: 42px !important;
+  height: 42px !important;
+  min-width: 42px !important;
+  min-height: 42px !important;
+  border-width: 2px !important;
+  border-radius: 999px !important;
+}
+
+.killer-portrait.rr-skin-preview,
+.killer-portrait.skin-preview {
+  --rr-skin-ring: rgba(216, 180, 254, 0.72);
+}
+
+#roleHudSkin.rr-skin-preview,
+#roleHudSkin.skin-preview,
+.role-hud-skin.rr-skin-preview {
+  width: 38px !important;
+  height: 38px !important;
+  min-width: 38px !important;
+  min-height: 38px !important;
+}
+
+#lobbyScreen .player-item .lobby-player-skin-preview.rr-skin-preview,
+#lobbyScreen .player-item .lobby-player-skin-preview.skin-preview,
+#lobbyScreen .lobby-selected-skin-preview.rr-skin-preview,
+#lobbyScreen .lobby-selected-skin-preview.skin-preview {
+  border-radius: 999px !important;
+  border: 2px solid rgba(230, 238, 255, 0.68) !important;
+  background-size: cover !important;
+  background-position: center !important;
+}
+
+#lobbyScreen .player-item .lobby-player-skin-preview {
+  width: 40px !important;
+  height: 40px !important;
+}
+
+#lobbyScreen .lobby-selected-skin-preview {
+  width: 46px !important;
+  height: 46px !important;
+}

@@ -6289,7 +6289,10 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     });
   }
 
-  const GLOBAL_EVENT_TYPES = new Set(["genDone", "voidOpen", "escape"]);
+  // State-change events should be delivered to every viewer, not only nearby players.
+  // The client also has state-transition fallbacks, but broadcasting these keeps
+  // match announcements timely and avoids range-based "someone got bound and nobody heard" moments.
+  const GLOBAL_EVENT_TYPES = new Set(["genDone", "voidOpen", "escape", "hooked", "unhooked", "death", "execute"]);
   const LOCAL_EVENT_RANGE = Math.max(900, cfgNumber(GAMEPLAY_CONFIG.server?.eventSendRange, 1250));
 
   function eventActorIds(event) {

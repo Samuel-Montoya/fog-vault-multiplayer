@@ -1,3 +1,4 @@
+import SkinPreview from "./SkinPreview"
 import "../styles/skins.css"
 
 function skinButtonClassName({ lobbyOnlyOwned }) {
@@ -22,7 +23,7 @@ export default function SkinButton({ skin, compact = false, role = "runner", lob
       data-lobby-owned-only={lobbyOnlyOwned ? "true" : undefined}
       type="button"
     >
-      <span className={`skin-preview ${skin.className}`} aria-hidden="true" />
+      <SkinPreview skin={skin} role={role} variant="store" />
       <span className="skin-copy">
         <span>{label}</span>
         <small className="skin-price" data-skin-price-label title={price > 0 ? `${price} orbs` : "Owned"}>

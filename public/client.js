@@ -944,6 +944,7 @@
     blueSquare: {
       id: "blueSquare",
       label: "Azure Orbit",
+      className: "skin-square",
       shape: "orbit",
       color: 0x38bdf8,
       accent: 0x818cf8,
@@ -953,6 +954,7 @@
     yellowStar: {
       id: "yellowStar",
       label: "Solar Sprite",
+      className: "skin-star",
       shape: "sprite",
       color: 0xfacc15,
       accent: 0xfb7185,
@@ -962,6 +964,7 @@
     purplePentagon: {
       id: "purplePentagon",
       label: "Prism Ghost",
+      className: "skin-pentagon",
       shape: "prism",
       color: 0xa78bfa,
       accent: 0x22d3ee,
@@ -971,6 +974,7 @@
     nebulaBloom: {
       id: "nebulaBloom",
       label: "Nebula Bloom",
+      className: "skin-nebula",
       shape: "bloom",
       color: 0xec4899,
       accent: 0x38bdf8,
@@ -980,6 +984,7 @@
     eclipseWisp: {
       id: "eclipseWisp",
       label: "Eclipse Wisp",
+      className: "skin-eclipse",
       shape: "wisp",
       color: 0x14b8a6,
       accent: 0x4c1d95,
@@ -989,6 +994,7 @@
     riftMoth: {
       id: "riftMoth",
       label: "Night Moth",
+      className: "skin-moth",
       shape: "moth",
       color: 0x60a5fa,
       accent: 0xc084fc,
@@ -998,6 +1004,7 @@
     signalDrone: {
       id: "signalDrone",
       label: "Signal Drone",
+      className: "skin-drone",
       shape: "drone",
       color: 0x34d399,
       accent: 0xfbbf24,
@@ -1027,6 +1034,7 @@
     voidCore: {
       id: "voidCore",
       label: "Void Core",
+      className: "skin-void-core",
       shape: "core",
       dark: 0x020008,
       base: 0x120022,
@@ -1039,6 +1047,7 @@
     solarMaw: {
       id: "solarMaw",
       label: "Solar Maw",
+      className: "skin-void-solar",
       shape: "maw",
       dark: 0x130900,
       base: 0x3b1900,
@@ -1051,6 +1060,7 @@
     azureRift: {
       id: "azureRift",
       label: "Azure Rift",
+      className: "skin-void-azure",
       shape: "rift",
       dark: 0x020617,
       base: 0x082f49,
@@ -1063,6 +1073,7 @@
     bloodEclipse: {
       id: "bloodEclipse",
       label: "Blood Eclipse",
+      className: "skin-void-eclipse",
       shape: "eclipse",
       dark: 0x070006,
       base: 0x2b0714,
@@ -1075,6 +1086,7 @@
     starlessWyrm: {
       id: "starlessWyrm",
       label: "Starless Wyrm",
+      className: "skin-void-wyrm",
       shape: "wyrm",
       dark: 0x02030a,
       base: 0x111827,
@@ -1087,6 +1099,7 @@
     lanternHusk: {
       id: "lanternHusk",
       label: "Lantern Husk",
+      className: "skin-void-lantern",
       shape: "lantern",
       dark: 0x140b00,
       base: 0x3a1c05,
@@ -1099,6 +1112,7 @@
     abyssSiren: {
       id: "abyssSiren",
       label: "Abyss Siren",
+      className: "skin-void-siren",
       shape: "siren",
       dark: 0x001018,
       base: 0x03253d,
@@ -1111,6 +1125,7 @@
     crownedHollow: {
       id: "crownedHollow",
       label: "Crowned Hollow",
+      className: "skin-void-crowned",
       shape: "crowned",
       dark: 0x06030d,
       base: 0x1d1238,
@@ -1123,6 +1138,7 @@
     staticNull: {
       id: "staticNull",
       label: "Static Null",
+      className: "skin-void-static",
       shape: "static",
       dark: 0x020617,
       base: 0x0f172a,
@@ -1135,6 +1151,7 @@
     riftSeraph: {
       id: "riftSeraph",
       label: "Rift Seraph",
+      className: "skin-void-seraph",
       shape: "seraph",
       dark: 0x080316,
       base: 0x241048,
@@ -1158,6 +1175,20 @@
     return `#${hex}`;
   }
 
+
+  function clearSkinPreviewClasses(element) {
+    if (!element) return;
+    [...element.classList].forEach((className) => {
+      if (className.startsWith("skin-") && className !== "skin-preview") element.classList.remove(className);
+    });
+  }
+
+  function applySkinPreviewClass(element, skin, role = "runner") {
+    if (!element || !skin) return;
+    clearSkinPreviewClasses(element);
+    element.classList.add("rr-skin-preview", "skin-preview", skin.className || (role === "void" ? "skin-void-core" : role === "spectator" ? "skin-spectator" : "skin-square"));
+  }
+
   function applyRoleHudSkin(actor, hudRole = "survivor") {
     const preview = ui.roleHudSkin || document.getElementById("roleHudSkin");
     if (!preview) return;
@@ -1170,6 +1201,8 @@
         ? { id: "spectator", label: "Spectator", shape: "spectator", color: 0x94a3b8, accent: 0xc4b5fd, glow: 0xe2e8f0, outline: 0xf8fafc }
         : getSurvivorSkin(actor?.skin || selectedSkin);
 
+    const previewRole = isVoid ? "void" : isSpectator ? "spectator" : "runner";
+    applySkinPreviewClass(preview, skin, previewRole);
     preview.dataset.skinRole = isVoid ? "void" : isSpectator ? "spectator" : "survivor";
     preview.dataset.skinShape = String(skin.shape || (isVoid ? "core" : "orbit"));
     preview.dataset.skinId = String(skin.id || "default");
@@ -3301,17 +3334,44 @@
     window.setTimeout(() => card.remove(), ANNOUNCEMENT_LIFETIME_MS);
   }
 
+  const seenMatchAnnouncementKeys = new Map();
+  const MATCH_ANNOUNCEMENT_DEDUPE_MS = 4500;
+
+  function pruneMatchAnnouncementKeys(now = performance.now()) {
+    for (const [key, until] of seenMatchAnnouncementKeys) {
+      if (until <= now) seenMatchAnnouncementKeys.delete(key);
+    }
+  }
+
+  function markMatchAnnouncementKey(key) {
+    if (!key) return false;
+    const now = performance.now();
+    pruneMatchAnnouncementKeys(now);
+    if ((seenMatchAnnouncementKeys.get(key) || 0) > now) return false;
+    seenMatchAnnouncementKeys.set(key, now + MATCH_ANNOUNCEMENT_DEDUPE_MS);
+    return true;
+  }
+
+  function boundAnnouncementKey(survivorId, hookCount = 0) {
+    return `bound:${survivorId || "unknown"}:${Number(hookCount || 0) || 0}`;
+  }
+
+  function pushBoundAnnouncement(survivorId, hookCount = 0) {
+    if (!survivorId || survivorId === myId) return;
+    if (!markMatchAnnouncementKey(boundAnnouncementKey(survivorId, hookCount))) return;
+    const name = actorNameFromSnapshot(survivorId, "A Runner");
+    pushMatchAnnouncement({
+      kind: "hook",
+      title: `${name} was bound`,
+      detail: "They need a rescue."
+    });
+  }
+
   function announceMatchEvent(event) {
     if (!event || !event.type) return;
 
     if (event.type === "hooked") {
-      if (event.survivorId === myId) return;
-      const name = actorNameFromSnapshot(event.survivorId, "A Runner");
-      pushMatchAnnouncement({
-        kind: "hook",
-        title: `${name} was bound`,
-        detail: "They need a rescue."
-      });
+      pushBoundAnnouncement(event.survivorId, event.hookCount || 0);
       return;
     }
 
@@ -6656,6 +6716,33 @@
       }
     }
 
+    syncStateDrivenMatchAnnouncements(snapshot) {
+      const actors = Array.isArray(snapshot?.actors) ? snapshot.actors : [];
+      const nextState = new Map();
+      for (const actor of actors) {
+        if (!actor || actor.role !== "survivor" || !actor.id) continue;
+        nextState.set(actor.id, {
+          hooked: !!actor.hooked && !actor.dead && !actor.escaped,
+          hookCount: Number(actor.hookCount || 0) || 0,
+          dead: !!actor.dead,
+          escaped: !!actor.escaped
+        });
+      }
+
+      if (!this.lastMatchAnnouncementActorState) {
+        this.lastMatchAnnouncementActorState = nextState;
+        return;
+      }
+
+      for (const [id, state] of nextState) {
+        const previous = this.lastMatchAnnouncementActorState.get(id);
+        if (!previous) continue;
+        const newlyBound = state.hooked && (!previous.hooked || previous.hookCount !== state.hookCount);
+        if (newlyBound) pushBoundAnnouncement(id, state.hookCount);
+      }
+      this.lastMatchAnnouncementActorState = nextState;
+    }
+
     applySnapshot(snapshot) {
       currentSnapshot = snapshot;
       this.matchStartFreezeRemaining = Math.max(0, Number(snapshot.matchStartFreezeRemaining || 0));
@@ -6681,6 +6768,7 @@
       this.updateActorTargets(snapshot.actors || []);
       if (!this.spawnInPlayed && this.actors.has(myId)) this.playLocalSpawnIn();
       this.handleEvents(snapshot.events || []);
+      this.syncStateDrivenMatchAnnouncements(snapshot);
       this.updateHud(snapshot);
       const localActor = (snapshot.actors || []).find((a) => a.id === myId);
       if (!finalMatchResult && snapshot.phase === "game" && localActor?.role === "survivor" && localActor.escaped && !this.localEscapeScreenShown && activeScreenName === "game") {

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import { cacheEndScreenSkin, findHudSkin } from "../utils/endScreenSkinCache"
 import { getPerkIconSrc } from "../utils/perkIconPaths"
+import SkinPreview from "./SkinPreview"
 import "../styles/game_hud.css"
 
 const VOID_ABILITY_WHEEL_FALLBACK = [
@@ -544,7 +545,7 @@ function SpectateHintCard({ show }) {
 function KillerChatCard({ killerChat }) {
   return killerChat ? (
     <div className="survivor-status-card killer-chat-card has-chat">
-      <div className={killerChat.skinClassName} title={killerChat.skinLabel} aria-hidden="true" />
+      <SkinPreview skin={killerChat.skin} role={killerChat.skinRole || "void"} variant="hud-status" className="survivor-portrait killer-portrait survivor-skin-portrait" />
       <div className="survivor-meta">
         <div className="survivor-name-row">
           <span className="survivor-name">{killerChat.name}</span>
@@ -562,7 +563,7 @@ function KillerChatCard({ killerChat }) {
 function SurvivorStatusCard({ actor, myId }) {
   return (
     <div className={`${actor.className}${actor.chat ? " has-chat" : ""}`}>
-      <div className={actor.skinClassName} title={actor.skinLabel} aria-hidden="true" />
+      <SkinPreview skin={actor.skin} role={actor.skinRole || "runner"} variant="hud-status" className="survivor-portrait survivor-skin-portrait" />
       <div className="survivor-meta">
         <div className="survivor-name-row">
           <span className="survivor-name">{actor.name}</span>
@@ -792,8 +793,8 @@ export function SurvivorStatusHud() {
             chat: visibleChatTextForActor(actor),
             action: actionLabel(actor),
             dotsHeld: Math.min(SURVIVOR_DOT_MAX, actor.dots || 0),
-            skinClassName: `survivor-portrait skin-preview survivor-skin-portrait ${skin.className}`,
-            skinLabel: skin.label,
+            skin,
+            skinRole: "runner",
             depositText: actor.dotDepositTargetId
               ? ` • feeding ${Math.round((actor.dotDepositProgress || 0) * 100)}%`
               : ""
@@ -812,8 +813,8 @@ export function SurvivorStatusHud() {
               return {
                 name: killer.name || "The Void",
                 chat: visibleChatTextForActor(killer),
-                skinClassName: `survivor-portrait killer-portrait skin-preview survivor-skin-portrait ${skin.className}`,
-                skinLabel: skin.label
+                skin,
+                skinRole: "void"
               }
             })()
           : null
@@ -1099,24 +1100,7 @@ export function BotDebugOverlay() {
 
 
 function RoleHudSkinPreview() {
-  return (
-    <div
-      id="roleHudSkin"
-      className="role-hud-skin"
-      data-skin-role="survivor"
-      data-skin-shape="orbit"
-      style={{
-        "--skin-base": "#38bdf8",
-        "--skin-accent": "#818cf8",
-        "--skin-glow": "#bae6fd",
-        "--skin-outline": "#f0f9ff"
-      }}
-      aria-hidden="true"
-    >
-      <span className="role-hud-skin-core" />
-      <span className="role-hud-skin-accent" />
-    </div>
-  )
+  return <SkinPreview id="roleHudSkin" role="runner" variant="role-hud" className="role-hud-skin" />
 }
 
 function RoleHudCard() {
