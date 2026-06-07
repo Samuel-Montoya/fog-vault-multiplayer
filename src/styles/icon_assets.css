@@ -9,7 +9,6 @@ img.orb-wallet-icon,
 .side-option-icon img,
 .skin-store-icon img,
 .role-icon img,
-.lobby-role-img,
 .button-role-img,
 .section-title-icon,
 .role-hud-img,
@@ -122,24 +121,6 @@ img.void-orb-icon,
 .lobby-role-mark::after {
   display: none !important;
   content: none !important;
-}
-
-.lobby-role-img {
-  grid-area: 1 / 1;
-  width: 74%;
-  height: 74%;
-  opacity: 0;
-  filter: drop-shadow(0 0 15px rgba(186, 145, 255, 0.62));
-}
-
-.lobby-role-mark.survivor .lobby-role-runner-img,
-.lobby-role-mark.runner .lobby-role-runner-img {
-  opacity: 1;
-}
-
-.lobby-role-mark.killer .lobby-role-void-img,
-.lobby-role-mark.void .lobby-role-void-img {
-  opacity: 1;
 }
 
 .button-role-img {
@@ -275,7 +256,6 @@ img.void-orb-icon {
 .side-option-icon img,
 .skin-store-icon img,
 .role-icon img,
-.lobby-role-img,
 .section-title-icon,
 .role-hud-img {
   width: 100% !important;

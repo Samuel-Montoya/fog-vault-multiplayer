@@ -197,11 +197,11 @@
   font-size: var(--rr-label) !important;
 }
 
-.io-screen:not(.menu-screen) h1,
+/* .io-screen:not(.menu-screen) h1,
 .skins-title-block h1,
 #playScreen .play-hero-panel h1 {
   font-size: var(--rr-title-lg) !important;
-}
+} */
 
 .screen-copy,
 .skins-title-block p,
@@ -335,10 +335,10 @@
   margin-bottom: clamp(16px, 2.5vh, 28px) !important;
 }
 
-#playScreen .play-hero-panel h1 {
+/* #playScreen .play-hero-panel h1 {
   line-height: 0.92 !important;
   letter-spacing: clamp(0.09em, 0.35vw, 0.16em) !important;
-}
+} */
 
 #playScreen .play-step-panel,
 #playScreen .play-lobbies-panel {

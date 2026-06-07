@@ -404,6 +404,7 @@
     0 1px 0 rgba(255,255,255,0.16),
     0 20px 60px rgba(0,0,0,0.44),
     0 0 62px rgba(151, 97, 255, 0.24);
+    font-family: var(--font-display);
 }
 
 .main-menu-title p {
@@ -420,6 +421,7 @@
   line-height: 1;
   text-transform: uppercase;
   text-shadow: 0 8px 34px rgba(0,0,0,0.32);
+   font-family: var(--font-display);
 }
 
 .main-menu-title p::before,

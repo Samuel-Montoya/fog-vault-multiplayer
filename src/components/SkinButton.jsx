@@ -9,9 +9,8 @@ function skinPriceLabel(price) {
   return price > 0 ? `BUY - ${price.toLocaleString()}` : "OWNED"
 }
 
-export default function SkinButton({ skin, compact = false, role = "runner", lobbyOnlyOwned = false }) {
+export default function SkinButton({ skin, role = "runner", lobbyOnlyOwned = false }) {
   const price = Number(skin.price || 0)
-  const label = compact ? skin.label.replace(" ", " ") : skin.label
 
   return (
     <button
@@ -22,10 +21,10 @@ export default function SkinButton({ skin, compact = false, role = "runner", lob
       data-skin-label={skin.label}
       data-lobby-owned-only={lobbyOnlyOwned ? "true" : undefined}
       type="button"
-    >
-      <SkinPreview skin={skin} role={role} variant="store" />
+      >
+      <SkinPreview skin={skin} role={role} variant={lobbyOnlyOwned ? "lobby" : "store"} />
       <span className="skin-copy">
-        <span>{label}</span>
+        <span>{skin.label}</span>
         <small className="skin-price" data-skin-price-label title={price > 0 ? `${price} orbs` : "Owned"}>
           {skinPriceLabel(price)}
         </small>

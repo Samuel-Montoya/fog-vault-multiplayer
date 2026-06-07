@@ -128,7 +128,7 @@ export default function MainMenu() {
 
         <header className="main-menu-title" aria-label="RiftRunner">
           <h1>RiftRunner</h1>
-          <p>Escape The Void</p>
+          <p>Escape<br/>The Void</p>
         </header>
 
         <SideSelectPanel />

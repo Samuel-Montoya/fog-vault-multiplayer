@@ -1242,7 +1242,6 @@
     quickJoinBtn: document.getElementById("quickJoinBtn"),
     createLobbyBtn: document.getElementById("createLobbyBtn"),
     lobbyList: document.getElementById("lobbyList"),
-    lobbyTitle: document.getElementById("lobbyTitle"),
     lobbyRoleMark: document.getElementById("lobbyRoleMark"),
     playersList: document.getElementById("playersList"),
     beSurvivorBtn: document.getElementById("beSurvivorBtn"),
@@ -11058,7 +11057,6 @@
 
   function renderLobbyState(state) {
     currentLobbyState = state;
-    ui.lobbyTitle.textContent = state.name || "Lobby";
     ui.playersList.innerHTML = "";
 
     const players = state.players || [];

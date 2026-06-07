@@ -182,7 +182,7 @@
   margin-bottom: 28px;
 }
 
-#playScreen .play-hero-panel h1 {
+/* #playScreen .play-hero-panel h1 {
   margin: 0;
   color: #fff;
   font-size: clamp(2.9rem, 5.6vw, 6.4rem);
@@ -191,7 +191,7 @@
   text-transform: uppercase;
   font-style: italic;
   text-shadow: 0 0 22px rgba(255, 255, 255, 0.22), 0 0 38px rgba(128, 77, 255, 0.32);
-}
+} */
 
 #playScreen .play-hero-panel p {
   width: min(1180px, 100%);
@@ -666,10 +666,10 @@
     padding: 18px !important;
   }
 
-  #playScreen .play-hero-panel h1 {
+  /* #playScreen .play-hero-panel h1 {
     font-size: clamp(2.1rem, 12vw, 4rem);
     letter-spacing: 0.10em;
-  }
+  } */
 
   #playScreen .play-hero-panel p {
     white-space: normal;

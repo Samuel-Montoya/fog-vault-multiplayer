@@ -1585,3 +1585,160 @@
 #perkInfoModal .perk-info-header .perk-info-kicker::after {
   content: "";
 }
+
+/* Perks compact layout. Perks page owns its scale here. */
+#perksScreen.perks-page-screen .perks-page-stage {
+  gap: clamp(8px, 1vh, 12px);
+  padding: clamp(12px, 1.6vh, 22px) clamp(22px, 2.8vw, 46px) clamp(14px, 1.8vh, 24px);
+}
+
+#perksScreen.perks-page-screen .perks-back-btn {
+  min-width: 100px;
+  min-height: 34px;
+  padding: 8px 12px;
+  font-size: 11px;
+}
+
+#perksScreen.perks-page-screen .perks-title-block {
+  padding: clamp(10px, 1.1vh, 15px) clamp(14px, 1.4vw, 22px);
+  border-radius: 14px;
+}
+
+#perksScreen.perks-page-screen .perks-title-block h1 {
+  margin: 4px 0;
+  font-size: clamp(20px, 1.55vw, 28px);
+  line-height: 0.98;
+}
+
+#perksScreen.perks-page-screen .perks-title-block p {
+  max-width: 760px;
+  font-size: clamp(11px, 0.76vw, 13px);
+  line-height: 1.36;
+}
+
+#perksScreen.perks-page-screen .perks-content {
+  grid-template-columns: clamp(188px, 14vw, 236px) minmax(0, 1fr);
+  gap: clamp(10px, 1.1vw, 18px);
+}
+
+#perksScreen.perks-page-screen .perks-class-tabs {
+  gap: 7px;
+  padding: 9px;
+}
+
+#perksScreen.perks-page-screen .perks-class-tab {
+  min-height: 46px;
+  grid-template-columns: 32px minmax(0, 1fr);
+  gap: 9px;
+  padding: 8px 9px;
+}
+
+#perksScreen.perks-page-screen .perks-tab-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 11px;
+  font-size: 17px;
+}
+
+#perksScreen.perks-page-screen .perks-active-panel {
+  gap: 10px;
+  padding: clamp(11px, 1.1vw, 16px);
+}
+
+#perksScreen.perks-page-screen .perks-active-header {
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 10px;
+  padding: 11px 12px;
+}
+
+#perksScreen.perks-page-screen .perks-active-emblem {
+  width: 44px;
+  height: 44px;
+  font-size: 22px;
+}
+
+#perksScreen.perks-page-screen .perks-active-copy h2 {
+  margin: 2px 0;
+  font-size: clamp(19px, 1.45vw, 26px);
+}
+
+#perksScreen.perks-page-screen .perks-active-grid {
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+#perksScreen.perks-page-screen .perk-card {
+  gap: 8px;
+  padding: 11px;
+  border-radius: 14px;
+  cursor: pointer;
+}
+
+#perksScreen.perks-page-screen .perk-card-top {
+  grid-template-columns: 42px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+#perksScreen.perks-page-screen .perk-icon,
+#perksScreen.perks-page-screen .perk-icon.perk-active-emblem {
+  width: 42px;
+  height: 42px;
+  max-width: 42px;
+  max-height: 42px;
+  border-radius: 13px;
+}
+
+#perksScreen.perks-page-screen .perk-card-body {
+  grid-template-columns: 1fr;
+  gap: 9px;
+}
+
+#perksScreen.perks-page-screen .perk-card-description,
+#perksScreen.perks-page-screen .perk-card-upgrades,
+#perksScreen.perks-page-screen .perk-upgrade-panel {
+  padding: 10px 11px;
+  border-radius: 11px;
+}
+
+#perksScreen.perks-page-screen .perk-card-description .perk-summary,
+#perksScreen.perks-page-screen .perk-upgrade-copy {
+  font-size: 11px;
+  line-height: 1.36;
+}
+
+#perksScreen.perks-page-screen .perk-card-upgrades {
+  gap: 8px;
+  grid-template-columns: 1fr;
+}
+
+#perksScreen.perks-page-screen .perk-info-btn {
+  min-width: 70px;
+  min-height: 30px;
+  padding: 7px 10px;
+  font-size: 10px;
+}
+
+#perksScreen.perks-page-screen .perk-buy-btn,
+#perksScreen.perks-page-screen .perk-card > button.perk-buy-btn {
+  min-width: 140px;
+  min-height: 36px;
+  padding: 8px 13px;
+  font-size: 11px;
+}
+
+@media (max-width: 1500px) {
+  #perksScreen.perks-page-screen .perk-card-body {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  #perksScreen.perks-page-screen .perks-page-stage {
+    padding: 12px;
+  }
+
+  #perksScreen.perks-page-screen .perks-content {
+    grid-template-columns: 1fr;
+  }
+}

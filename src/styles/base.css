@@ -107,6 +107,15 @@ button:disabled {
   height: 100%;
 }
 
+body.is-game-screen .rift-ui-shell {
+  pointer-events: none;
+}
+
+body.is-game-screen #gameWrap,
+body.is-game-screen #gameWrap canvas {
+  cursor: crosshair;
+}
+
 .screen {
   position: fixed;
   inset: 0;

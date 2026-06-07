@@ -25,10 +25,9 @@ import {
   SurvivorStatusHud,
   VoidAbilityHud
 } from "./components/GameHud"
-import "./styles/background_image_only.css"
+// import "./styles/background_image_only.css"
 import "./styles/icon_assets.css"
-import "./styles/responsive_layout.css"
-import "./styles/lobby_game_ui_update.css"
+// import "./styles/responsive_layout.css"
 
 const MENU_SCREENS = [
   { key: "menu", Component: MainMenu },
