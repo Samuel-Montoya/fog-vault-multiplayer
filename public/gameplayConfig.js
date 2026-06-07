@@ -288,6 +288,16 @@ const GAMEPLAY_CONFIG = {
     respawnSeconds: 24
   },
 
+  ffa: {
+    maxPlayers: 5,
+    killLimit: 10,
+    respawnSeconds: 3,
+    shotCooldown: 1,
+    projectileSpeed: 820,
+    projectileRange: 760,
+    projectileRadius: 18
+  },
+
   hook: {
     channelTime: 1.35,
     executeTime: 2.15,

@@ -69,6 +69,31 @@ const GAME_MAPS = {
       "X.........K.........X",
       "XXXXXXXXXXXXXXXXXXXX"
     ]
+  },
+
+  ffaTest: {
+    name: "Void Shooter Arena",
+    mode: "ffa",
+    tile: 78,
+    requiredGenerators: 0,
+    spawnedGenerators: 0,
+    rows: [
+      "XXXXXXXXXXXXXXXXXXXXXXXX",
+      "X.P..................P.X",
+      "X......................X",
+      "X.................X....X",
+      "X..XXX+XXX........X....X",
+      "X.................+....X",
+      "X.................X....X",
+      "X....X.....P......X....X",
+      "X....X.................X",
+      "X....+.................X",
+      "X....X.......XXX+XXX...X",
+      "X....X.................X",
+      "X......................X",
+      "X.P..................P.X",
+      "XXXXXXXXXXXXXXXXXXXXXXXX"
+    ]
   }
 };
 

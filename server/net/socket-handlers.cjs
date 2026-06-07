@@ -3,6 +3,7 @@ function registerSocketHandlers(context) {
     io,
     maxConnections: MAX_CONNECTIONS,
     maxSurvivors: MAX_SURVIVORS,
+    maxFfaPlayers: MAX_FFA_PLAYERS = 5,
     lobbies,
     socketToLobby,
     serverMetrics,
@@ -36,6 +37,7 @@ function registerSocketHandlers(context) {
     applyVoidAbility,
     applySurvivorAbility,
     fireRunnerShootAbility,
+    fireFfaShot,
     getChatWheelMessagesForActor,
     setActorChat,
     nowMs
@@ -72,7 +74,7 @@ function registerSocketHandlers(context) {
   }
 
   function skinForSocket(socket, role, skin) {
-    const roleKey = role === "killer" ? "void" : role === "survivor" ? "runner" : "spectator";
+    const roleKey = role === "killer" ? "void" : (role === "survivor" || role === "ffa") ? "runner" : "spectator";
     if (roleKey === "spectator") return "spectatorEye";
     const sanitized = roleKey === "void" ? sanitizeVoidSkin(skin) : sanitizeSkin(skin);
     if (!accountService?.authAvailable?.() || !accountService?.sanitizeOwnedSkin) return sanitized;
@@ -172,8 +174,10 @@ function registerSocketHandlers(context) {
     socket.on("createLobby", ({ name, role, playerName, skin, mapId, runnerClass } = {}) => {
       if (!allowSocketEvent(socket, "lobby")) return;
       try {
-        const lobby = createLobby(name, mapId);
-        joinLobby(socket, lobby, role, playerName, skinForSocket(socket, role, skin), runnerClass || socket.data.account?.selectedRunnerClass);
+        const roleValue = role === "ffa" ? "ffa" : role === "killer" ? "killer" : "survivor";
+        const mode = roleValue === "ffa" ? "ffa" : "standard";
+        const lobby = createLobby(name || (mode === "ffa" ? "Free-For-All" : undefined), mapId, mode);
+        joinLobby(socket, lobby, roleValue, playerName, skinForSocket(socket, roleValue, skin), roleValue === "survivor" ? (runnerClass || socket.data.account?.selectedRunnerClass) : null);
       } catch (error) {
         console.error("Failed to create lobby", error);
         socket.emit("toast", { type: "error", message: error.message || "Failed to create lobby." });
@@ -204,13 +208,11 @@ function registerSocketHandlers(context) {
       if (!allowSocketEvent(socket, "lobby")) return;
       try {
         const available = [...lobbies.values()].filter((l) => l.phase === "lobby");
-        const roleValue = role === "killer" ? "killer" : "survivor";
-        const lobby = available.find((l) => {
-          const players = [...l.players.values()];
-          if (roleValue === "killer") return true;
-          return players.filter((p) => p.role === "survivor").length < MAX_SURVIVORS;
-        }) || createLobby("Open Lobby", mapId);
-        joinLobby(socket, lobby, roleValue, playerName, skinForSocket(socket, roleValue, skin), runnerClass || socket.data.account?.selectedRunnerClass);
+        const roleValue = role === "ffa" ? "ffa" : role === "killer" ? "killer" : "survivor";
+        const lobby = roleValue === "ffa"
+          ? (available.find((l) => l.mode === "ffa" && [...l.players.values()].filter((p) => p.role === "ffa").length < MAX_FFA_PLAYERS) || createLobby("Free-For-All", mapId, "ffa"))
+          : (available.find((l) => (l.mode || "standard") !== "ffa" && (roleValue === "killer" || [...l.players.values()].filter((p) => p.role === "survivor").length < MAX_SURVIVORS)) || createLobby("Open Lobby", mapId, "standard"));
+        joinLobby(socket, lobby, roleValue, playerName, skinForSocket(socket, roleValue, skin), roleValue === "survivor" ? (runnerClass || socket.data.account?.selectedRunnerClass) : null);
       } catch (error) {
         console.error("Failed to quick join", error);
         socket.emit("toast", { type: "error", message: error.message || "Failed to quick join." });
@@ -229,7 +231,7 @@ function registerSocketHandlers(context) {
       const player = lobby.players.get(socket.id);
       if (!player) return;
 
-      const nextRole = role === "spectator" ? "spectator" : role === "killer" ? "killer" : "survivor";
+      const nextRole = role === "spectator" ? "spectator" : role === "ffa" ? "ffa" : role === "killer" ? "killer" : "survivor";
 
       if (player.role === "spectator" && nextRole !== "spectator") {
         socket.emit("toast", { type: "info", message: "Spectators cannot switch into a playable role from this lobby." });
@@ -237,7 +239,7 @@ function registerSocketHandlers(context) {
       }
 
       if (!canChangeRole(lobby, player, nextRole)) {
-        socket.emit("toast", { type: "error", message: nextRole === "killer" ? "Could not select The Void." : nextRole === "spectator" ? "Could not join as spectator." : "Runner slots are full." });
+        socket.emit("toast", { type: "error", message: nextRole === "killer" ? "Could not select The Void." : nextRole === "ffa" ? "Could not select Free-For-All." : nextRole === "spectator" ? "Could not join as spectator." : "Runner slots are full." });
         return;
       }
 
@@ -273,7 +275,7 @@ function registerSocketHandlers(context) {
       const lobby = lobbies.get(socketToLobby.get(socket.id));
       if (!lobby || lobby.phase !== "lobby") return;
       const player = lobby.players.get(socket.id);
-      if (!player || (player.role !== "survivor" && player.role !== "killer")) return;
+      if (!player || (player.role !== "survivor" && player.role !== "killer" && player.role !== "ffa")) return;
       player.skin = skinForSocket(socket, player.role, skin);
       player.ready = false;
       touchLobby(lobby);
@@ -474,6 +476,17 @@ function registerSocketHandlers(context) {
         ? fireRunnerShootAbility(lobby.game, actor, payload)
         : { ok: false, message: "Runner projectile ability is not ready." };
       if (!result.ok && !result.noAmmo) socket.emit("toast", { type: "error", message: result.message || "Runner projectile ability cannot be fired." });
+    });
+
+    socket.on("ffaShoot", (payload = {}) => {
+      if (!allowSocketEvent(socket, "action")) return;
+      const lobby = lobbies.get(socketToLobby.get(socket.id));
+      if (!lobby || !lobby.game || lobby.game.phase !== "game") return;
+      const actor = lobby.game.actors.get(socket.id);
+      const result = typeof fireFfaShot === "function"
+        ? fireFfaShot(lobby.game, actor, payload)
+        : { ok: false, message: "Free-For-All shot is not ready." };
+      if (!result.ok) socket.emit("toast", { type: "error", message: result.message || "Void Shot cannot be fired." });
     });
 
     socket.on("chatWheel", (payload = {}) => {

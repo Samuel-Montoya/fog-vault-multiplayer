@@ -456,9 +456,11 @@ function AbilityHudShell({ type }) {
           </div>
         </div>
         <ActiveAbilityEffects effects={hud.effects} className={config.effectsClassName} />
+      </div>
+      <div className={`ability-controls-corner is-${type === "void" ? "void" : "runner"}`} aria-label="Ability controls">
+        <AbilityReadinessStrip abilities={hud.abilities} role={type === "void" ? "void" : "runner"} />
         <AbilityHoldHint />
       </div>
-      <AbilityReadinessStrip abilities={hud.abilities} role={type === "void" ? "void" : "runner"} />
     </>
   ) : null
 }
@@ -1076,9 +1078,6 @@ export function BotDebugOverlay() {
 
   return (
     <div className={`bot-debug-overlay ${enabled ? "is-enabled" : ""}`} aria-hidden={!enabled}>
-      <div className="bot-debug-toggle-hint">
-        <kbd>[</kbd> bot debug {enabled ? "on" : "off"}
-      </div>
       {bots.map((actor) => {
         const point = projectBotDebugPoint(actor, snapshot, frame.detail)
         if (point.hidden) return null
@@ -1112,7 +1111,6 @@ function RoleHudCard() {
       <div className="role-hud-copy">
         <span>Playing as</span>
         <h2 id="roleLabel">Runner</h2>
-        <p id="controlsLabel">Controls</p>
         <div id="fpsCounterRow" className="fps-counter-row">
           <span>FPS</span>
           <b id="fpsText">--</b>
@@ -1158,6 +1156,7 @@ export function GameHud() {
         <RoleHudCard />
         <HudDataBridge />
       </div>
+      <RiftCounterCard />
       <MatchAnnouncementRegion />
       <HorrorFxOverlay />
     </>

@@ -252,7 +252,7 @@
 
   // Minimal vision knobs. The map itself is dark; there is no simulated fog RenderTexture.
   // Instead, gameplay objects fade in when they are inside the local POV cone / near bubble,
-  // and a tiny additive cone graphic gives the player readable direction without GPU soup.
+  // and a small additive cone graphic gives the player readable direction.
   const LIGHTING = {
     MAP_DARKNESS: cfgNumber(GAMEPLAY_CONFIG.lighting?.mapDarkness, 0.38),          // 0 = no fog, 0.85 = very dark outside vision
     // Use the same cone values as gameplay visibility by default.
@@ -749,7 +749,7 @@
 
   // Visual generator tuning. Put your actual SVG at public/gen.svg.
   // The fallback canvas texture below keeps the game from collapsing if the file is missing,
-  // because browsers are apparently dramatic about absent art assets.
+  // Handle missing art assets gracefully.
   const GROUND_VISUAL = {
     TILE_SIZE: 72,
     BASE: 0x090a10,
@@ -1246,6 +1246,7 @@
     playersList: document.getElementById("playersList"),
     beSurvivorBtn: document.getElementById("beSurvivorBtn"),
     beKillerBtn: document.getElementById("beKillerBtn"),
+    beFfaBtn: document.getElementById("beFfaBtn"),
     beSpectatorBtn: document.getElementById("beSpectatorBtn"),
     runnerClassPanel: document.getElementById("runnerClassPanel"),
     runnerClassBtns: [...document.querySelectorAll("[data-runner-class]")],
@@ -1260,7 +1261,6 @@
     horrorFx: document.getElementById("horrorFx"),
     roleLabel: document.getElementById("roleLabel"),
     roleHudSkin: document.getElementById("roleHudSkin"),
-    controlsLabel: document.getElementById("controlsLabel"),
     genText: document.getElementById("genText"),
     bigGenCounter: document.getElementById("bigGenCounter"),
     bigGenText: document.getElementById("bigGenText"),
@@ -1332,7 +1332,7 @@
     body.classList.remove("survivor-hit-impact", "survivor-hit-heavy");
 
     // Restart the impact animation for rapid back-to-back hits. It only runs on hits,
-    // so this tiny forced reflow is cheaper than making every frame do interpretive dance.
+    // This forced reflow is cheaper than recalculating every frame.
     void body.offsetWidth;
 
     if (heavy) body.classList.add("survivor-hit-heavy");
@@ -2540,7 +2540,7 @@
     const roleKey = normalizePerkRole(role || "survivor");
     if (!id) return false;
     if (!currentAccount || !authToken) {
-      toast("Login or Play as Guest first. The perk goblin requires paperwork.", 2600);
+      toast("Login or Play as Guest first to unlock perks.", 2600);
       return false;
     }
     const perk = publicPerkById(id, roleKey);
@@ -2716,7 +2716,7 @@
     if (!skinId) return false;
     if (skinIsOwned(role, skinId)) return true;
     if (!currentAccount || !authToken) {
-      toast("Login or Play as Guest first, tiny capitalism gate and all.", 2600);
+      toast("Login or Play as Guest first to buy skins.", 2600);
       return false;
     }
     const shopSkin = shopSkinForButton(button);
@@ -2747,33 +2747,35 @@
   }
 
   function setLobbySkinPickerVisibility(role = selectedRole) {
-    const showRunner = role === "survivor";
+    const showRunner = role === "survivor" || role === "ffa";
     const showVoid = role === "killer";
+    const showClasses = role === "survivor";
     ui.lobbySkinPicker?.classList.toggle("hidden", !showRunner);
     ui.lobbySkinPicker?.setAttribute("aria-hidden", showRunner ? "false" : "true");
     ui.voidLobbySkinPicker?.classList.toggle("hidden", !showVoid);
     ui.voidLobbySkinPicker?.setAttribute("aria-hidden", showVoid ? "false" : "true");
-    ui.runnerClassPanel?.classList.toggle("hidden", !showRunner);
-    ui.runnerClassPanel?.setAttribute("aria-hidden", showRunner ? "false" : "true");
+    ui.runnerClassPanel?.classList.toggle("hidden", !showClasses);
+    ui.runnerClassPanel?.setAttribute("aria-hidden", showClasses ? "false" : "true");
     syncRunnerClassUi();
   }
 
   function syncLobbyRoleButtons(role = selectedRole) {
-    const lobbyRole = role === "spectator" ? "spectator" : role === "killer" ? "killer" : "survivor";
+    const lobbyRole = role === "spectator" ? "spectator" : role === "killer" ? "killer" : role === "ffa" ? "ffa" : "survivor";
     ui.beKillerBtn?.classList.toggle("selected", lobbyRole === "killer");
     ui.beSurvivorBtn?.classList.toggle("selected", lobbyRole === "survivor");
+    ui.beFfaBtn?.classList.toggle("selected", lobbyRole === "ffa");
     ui.beSpectatorBtn?.classList.toggle("selected", lobbyRole === "spectator");
     setLobbySkinPickerVisibility(lobbyRole);
     if (ui.lobbyRoleMark) {
       ui.lobbyRoleMark.classList.toggle("killer", lobbyRole === "killer");
-      ui.lobbyRoleMark.classList.toggle("survivor", lobbyRole === "survivor");
+      ui.lobbyRoleMark.classList.toggle("survivor", lobbyRole === "survivor" || lobbyRole === "ffa");
       ui.lobbyRoleMark.classList.toggle("spectator", lobbyRole === "spectator");
-      ui.lobbyRoleMark.setAttribute("aria-label", lobbyRole === "killer" ? "Playing as The Void" : lobbyRole === "spectator" ? "Joining as Spectator" : "Playing as Runner");
+      ui.lobbyRoleMark.setAttribute("aria-label", lobbyRole === "killer" ? "Playing as The Void" : lobbyRole === "spectator" ? "Joining as Spectator" : lobbyRole === "ffa" ? "Playing Free-For-All" : "Playing as Runner");
     }
   }
 
   function setSelectedRole(role) {
-    selectedRole = role === "killer" ? "killer" : "survivor";
+    selectedRole = role === "killer" ? "killer" : role === "ffa" ? "ffa" : "survivor";
     ui.roleBtns.forEach((b) => b.classList.toggle("selected", b.dataset.role === selectedRole));
     syncLobbyRoleButtons(selectedRole);
   }
@@ -3369,6 +3371,17 @@
   function announceMatchEvent(event) {
     if (!event || !event.type) return;
 
+    if (event.type === "ffaKill") {
+      const title = event.text || `${actorNameFromSnapshot(event.killerId, "Someone")} shot down ${actorNameFromSnapshot(event.survivorId, "someone")}`;
+      if (!markMatchAnnouncementKey(`ffaKill:${event.killerId || "?"}:${event.survivorId || "?"}:${event.createdAt || "?"}`)) return;
+      pushMatchAnnouncement({
+        kind: "death",
+        title,
+        detail: `${event.killerKills || 0} / ${event.killLimit || 10} kills`
+      });
+      return;
+    }
+
     if (event.type === "hooked") {
       pushBoundAnnouncement(event.survivorId, event.hookCount || 0);
       return;
@@ -3520,8 +3533,48 @@
       || null;
   }
 
+  function isFfaSnapshot(snapshot = currentSnapshot) {
+    return snapshot?.mode === "ffa" || snapshot?.objective?.mode === "ffa";
+  }
+
+  function isFfaActor(actor = getLocalPlayerData()) {
+    return !!(actor && actor.role === "survivor" && (actor.gameMode === "ffa" || actor.lobbyRole === "ffa" || isFfaSnapshot()));
+  }
+
+  function ffaVoidShooterAbility(actor = getLocalPlayerData()) {
+    const cooldownRemaining = Math.max(0, Number(actor?.ffaShotCooldownRemaining || 0));
+    return {
+      id: "voidShooter",
+      name: "Void Shot",
+      shortName: "M1 Shot",
+      cost: 0,
+      summary: "Shoots one clean projectile. No splash. No mercy. Humans demanded this.",
+      accent: "orange",
+      cancel: false,
+      disabled: false,
+      passive: false,
+      cooldown: 1,
+      cooldownRemaining,
+      ammo: null,
+      maxAmmo: null,
+      reloadRemaining: 0,
+      fireLockoutRemaining: cooldownRemaining,
+      available: cooldownRemaining <= 0,
+      locked: false,
+      level: 1,
+      maxLevel: 1,
+      duration: 0,
+      inputType: "m1",
+      shootAbility: true,
+      testMode: false,
+      testLevel: 0,
+      active: false
+    };
+  }
+
   function runnerShootAbilityForActor(actor = getLocalPlayerData()) {
     if (!actor || actor.role !== "survivor" || actor.dead || actor.escaped || actor.hooked || actor.downed) return null;
+    if (isFfaActor(actor)) return ffaVoidShooterAbility(actor);
     return getAbilityListForActor(actor).find((ability) => ability
       && ability.shootAbility
       // Intentionally do NOT require ability.available here.
@@ -3548,7 +3601,8 @@
     const angle = hasTarget
       ? Math.atan2(targetY - me.y, targetX - me.x)
       : input.angle;
-    socket.emit("runnerShootAbilityFire", hasTarget ? { id: ability.id, angle, targetX, targetY } : { id: ability.id, angle });
+    if (isFfaActor(me)) socket.emit("ffaShoot", hasTarget ? { angle, targetX, targetY } : { angle });
+    else socket.emit("runnerShootAbilityFire", hasTarget ? { id: ability.id, angle, targetX, targetY } : { id: ability.id, angle });
     return true;
   }
 
@@ -3790,6 +3844,7 @@
   }
 
   function getAbilityListForActor(actor = getLocalPlayerData()) {
+    if (isFfaActor(actor)) return [ffaVoidShooterAbility(actor)];
     if (actor?.role === "survivor") return normalizeAbilityList(runnerClassWheelOrder(actor), SURVIVOR_ABILITIES, actor, "survivor");
     return normalizeAbilityList(VOID_ABILITY_ORDER, VOID_ABILITIES, actor, "killer");
   }
@@ -3799,7 +3854,7 @@
     const role = me?.role === "survivor" ? "survivor" : "killer";
     return {
       role,
-      title: role === "survivor" ? "Runner abilities" : "Void abilities",
+      title: isFfaActor(me) ? "Void Shooter" : role === "survivor" ? "Runner abilities" : "Void abilities",
       orbs: Math.max(0, Math.floor(me?.dots || 0)),
       abilities: getAbilityListForActor(me),
       pointer: Number.isFinite(pointerEvent?.clientX) && Number.isFinite(pointerEvent?.clientY)
@@ -3885,11 +3940,11 @@
     window.dispatchEvent(new CustomEvent("riftrunner:runner-ability-hud", {
       detail: {
         visible: isRunner,
-        orbs: isRunner ? Math.max(0, Math.floor(me.dots || 0)) : 0,
-        dartAmmo: isRunner ? Math.max(0, Math.floor(me.runnerDartAmmo || 0)) : 0,
-        dartMaxAmmo: isRunner ? Math.max(1, Math.floor(me.runnerDartMaxAmmo || 3)) : 3,
+        orbs: isRunner && !isFfaActor(me) ? Math.max(0, Math.floor(me.dots || 0)) : 0,
+        dartAmmo: isRunner && !isFfaActor(me) ? Math.max(0, Math.floor(me.runnerDartAmmo || 0)) : 0,
+        dartMaxAmmo: isRunner && !isFfaActor(me) ? Math.max(1, Math.floor(me.runnerDartMaxAmmo || 3)) : 0,
         dartReloadRemaining: 0,
-        dartFireLockoutRemaining: isRunner ? Math.max(0, Number(me.runnerDartFireLockoutRemaining || 0)) : 0,
+        dartFireLockoutRemaining: isRunner ? Math.max(0, Number(isFfaActor(me) ? me.ffaShotCooldownRemaining : me.runnerDartFireLockoutRemaining || 0)) : 0,
         effects: runnerEffects,
         abilities: isRunner ? getAbilityListForActor(me).filter((ability) => ability && !ability.cancel && !ability.passive && !ability.disabled) : []
       }
@@ -3898,7 +3953,7 @@
     if (reactAbilityWheelOpen && (isVoid || isRunner)) {
       dispatchAbilityWheelEvent("riftrunner:ability-update", {
         role: me.role === "survivor" ? "survivor" : "killer",
-        title: me.role === "survivor" ? "Runner abilities" : "Void abilities",
+        title: isFfaActor(me) ? "Void Shooter" : me.role === "survivor" ? "Runner abilities" : "Void abilities",
         orbs: Math.max(0, Math.floor(me.dots || 0)),
         abilities: getAbilityListForActor(me)
       });
@@ -4001,7 +4056,7 @@
 
     // Continuous movement gets a steady input stream so the server never coasts
     // on stale intent. Aiming-only changes are still rate-limited, because sending
-    // 60 tiny mouse-angle packets per second is how sockets become a leaf blower.
+    // Throttle mouse-angle packets so the socket stays stable.
     if (force || isOneShot || (changed && elapsed >= minInterval) || (active && elapsed >= minInterval) || (changed && elapsed >= INPUT_HEARTBEAT_MS)) {
       emitInputPayload(payload, signature, now);
     }
@@ -5670,13 +5725,7 @@
           }
           g.strokePath();
         }
-        g.fillStyle(0xff3b6a, 0.035);
-        for (let i = 0; i < 42; i++) {
-          const x = hash2(i * 17, i + 4) * this.map.width;
-          const y = hash2(i + 101, i * 29) * this.map.height;
-          const r = 16 + hash2(i + 44, i + 88) * 42;
-          g.fillCircle(x, y, r);
-        }
+        // Removed the old random crimson floor blobs so the arena background stays clean.
       } else {
         this.drawStaticArenaGrid(g, 0, 0, this.map.width, this.map.height, this.map.tile || 72, 0x172541, 0.32);
         this.drawStaticArenaGrid(g, 0, 0, this.map.width, this.map.height, (this.map.tile || 72) * 4, 0x315082, 0.18);
@@ -6013,7 +6062,8 @@
             progress: 0,
             active: false,
             radius: Number(box.radius || 220),
-            phase: hash2(Math.floor(box.x), Math.floor(box.y)) * Math.PI * 2
+            phase: hash2(Math.floor(box.x), Math.floor(box.y)) * Math.PI * 2,
+            type: String(box.type || "dart")
           };
           this.dartBoxVisuals.set(box.id, visual);
           animating = true;
@@ -6022,6 +6072,7 @@
         visual.y = lerp(visual.y, box.y, dampAlpha(12, dt));
         visual.progress = lerp(visual.progress || 0, Number(box.progress || 0), dampAlpha(14, dt));
         visual.active = !!box.active;
+        visual.type = String(box.type || visual.type || "dart");
         visual.radius = Number(box.radius || visual.radius || 220);
         visual.targetAlpha = 1;
         if (visual.active || (visual.progress || 0) > 0.001) animating = true;
@@ -6058,14 +6109,19 @@
       const base = 15 + pulse * 2.4;
       const activeGlow = box.active || progress > 0.01;
 
-      // Blue cosmic cache: not ammo, because apparently bullets in space weren't dramatic enough.
-      g.fillStyle(0x0f2c66, (0.18 + pulse * 0.10) * alpha);
+      const isHealBox = String(box.type || "") === "heal";
+      const outer = isHealBox ? 0x064e3b : 0x0f2c66;
+      const mid = isHealBox ? 0x22c55e : 0x38bdf8;
+      const core = isHealBox ? 0xdcfce7 : 0xdff9ff;
+      const glow = isHealBox ? 0x86efac : 0x7dd3fc;
+      // Blue cache for darts, green cache for heals.
+      g.fillStyle(outer, (0.18 + pulse * 0.10) * alpha);
       g.fillCircle(box.x, box.y, base * 2.2);
-      g.fillStyle(0x38bdf8, (0.18 + pulse * 0.13) * alpha);
+      g.fillStyle(mid, (0.18 + pulse * 0.13) * alpha);
       g.fillCircle(box.x, box.y, base * 1.45);
-      g.fillStyle(0xdff9ff, 0.92 * alpha);
+      g.fillStyle(core, 0.92 * alpha);
       g.fillCircle(box.x, box.y, base * 0.52);
-      g.fillStyle(0x7dd3fc, 0.74 * alpha);
+      g.fillStyle(glow, 0.74 * alpha);
       g.fillCircle(box.x, box.y, base * 0.88);
       g.fillStyle(0xffffff, 0.60 * alpha);
       g.fillCircle(box.x - base * 0.18, box.y - base * 0.20, base * 0.18);
@@ -6076,18 +6132,18 @@
         const r = base * (1.25 + (i % 2) * 0.18);
         const sx = box.x + Math.cos(a) * r;
         const sy = box.y + Math.sin(a) * r;
-        this.drawRunnerProjectileStar(g, sx, sy, LOW_POWER_MODE ? 2.2 : 3.0, i % 2 ? 0x7dd3fc : 0xe0faff, 0.25 * alpha, -a);
+        this.drawRunnerProjectileStar(g, sx, sy, LOW_POWER_MODE ? 2.2 : 3.0, isHealBox ? (i % 2 ? 0x86efac : 0xdcfce7) : (i % 2 ? 0x7dd3fc : 0xe0faff), 0.25 * alpha, -a);
       }
 
-      g.lineStyle(2, 0x93eaff, (0.42 + pulse * 0.22) * alpha);
+      g.lineStyle(2, isHealBox ? 0x86efac : 0x93eaff, (0.42 + pulse * 0.22) * alpha);
       g.strokeCircle(box.x, box.y, base * 1.18);
       if (activeGlow) {
         const aoePulse = 0.5 + Math.sin(now / 520 + (box.phase || 0)) * 0.5;
-        g.fillStyle(0x0ea5e9, (0.035 + aoePulse * 0.025) * alpha);
+        g.fillStyle(isHealBox ? 0x16a34a : 0x0ea5e9, (0.035 + aoePulse * 0.025) * alpha);
         g.fillCircle(box.x, box.y, Math.max(70, Number(box.radius || 220)));
-        g.lineStyle(LOW_POWER_MODE ? 1.2 : 1.8, 0x7dd3fc, (0.18 + aoePulse * 0.18) * alpha);
+        g.lineStyle(LOW_POWER_MODE ? 1.2 : 1.8, isHealBox ? 0x86efac : 0x7dd3fc, (0.18 + aoePulse * 0.18) * alpha);
         g.strokeCircle(box.x, box.y, Math.max(70, Number(box.radius || 220)));
-        g.lineStyle(3, 0xe0faff, 0.70 * alpha);
+        g.lineStyle(3, isHealBox ? 0xdcfce7 : 0xe0faff, 0.70 * alpha);
         g.beginPath();
         g.arc(box.x, box.y, base * 1.75, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress, false);
         g.strokePath();
@@ -6669,7 +6725,7 @@
       g.fillEllipse(gate.x, gate.y + 8, 96, 72);
 
       if (open) {
-        // Low-cost animated void portal: a few circles and rotating satellites, not a GPU sermon.
+        // Low-cost animated void portal using a few circles and rotating satellites.
         g.fillStyle(0xa855f7, 0.10 + pulse * 0.05);
         g.fillCircle(gate.x, gate.y, 58 + pulse * 8);
         g.lineStyle(2, 0x22d3ee, 0.34 + pulse * 0.22);
@@ -6783,14 +6839,19 @@
 
       const now = performance.now();
       const objective = snapshot.objective || {};
-      const done = objective.doneGenerators ?? objective.completed ?? 0;
-      const required = objective.requiredGenerators ?? objective.required ?? objective.totalGenerators ?? objective.total ?? 0;
-      const total = objective.totalGenerators ?? objective.total ?? required;
-      const escapeOpen = objective.escapeOpen ?? objective.gatesPowered ?? false;
+      const ffaMode = snapshot?.mode === "ffa" || objective.mode === "ffa";
+      const ffaScoreboard = Array.isArray(objective.scoreboard) ? objective.scoreboard : [];
+      const ffaLeader = ffaScoreboard[0] || null;
+      const myFfaScore = ffaScoreboard.find((entry) => entry.id === me.id) || { kills: me.kills || 0, deaths: me.deaths || 0, respawnRemaining: me.respawnRemaining || 0 };
+      const ffaKillLimit = Number(objective.killLimit || snapshot.killLimit || 10);
+      const done = ffaMode ? Number(myFfaScore.kills || 0) : (objective.doneGenerators ?? objective.completed ?? 0);
+      const required = ffaMode ? ffaKillLimit : (objective.requiredGenerators ?? objective.required ?? objective.totalGenerators ?? objective.total ?? 0);
+      const total = ffaMode ? ffaKillLimit : (objective.totalGenerators ?? objective.total ?? required);
+      const escapeOpen = ffaMode ? false : (objective.escapeOpen ?? objective.gatesPowered ?? false);
       const hudKey = JSON.stringify({
-        self: [me.id, me.role, me.skin, me.runnerClass, me.runnerLevel, me.health, me.dots, me.injured, me.downed, me.hooked, me.dead, me.escaped, me.escapeProgress, me.escapeGateId, me.chase, me.hookProgress, me.healProgress, me.generatorKickTargetId, me.generatorKickProgress, me.voidStun, me.voidSpeedBoost],
-        objective: [done, required, total, escapeOpen],
-        survivors: (snapshot.actors || []).filter((a) => a.role === "survivor").map((a) => [a.id, a.health, a.dots, a.injured, a.downed, a.hooked, a.dead, a.escaped, a.escapeProgress, a.escapeGateId, a.chase, a.hookProgress, a.healProgress, a.hookCount, a.chatText]),
+        self: [me.id, me.role, me.lobbyRole, me.gameMode, me.skin, me.runnerClass, me.runnerLevel, me.health, me.dots, me.kills, me.deaths, me.respawnRemaining, me.ffaShotCooldownRemaining, me.injured, me.downed, me.hooked, me.dead, me.escaped, me.escapeProgress, me.escapeGateId, me.chase, me.hookProgress, me.healProgress, me.generatorKickTargetId, me.generatorKickProgress, me.voidStun, me.voidSpeedBoost],
+        objective: [ffaMode, done, required, total, escapeOpen, ffaLeader?.id || null, ffaLeader?.kills || 0, ffaScoreboard.map((entry) => `${entry.id}:${entry.kills}:${entry.deaths}:${entry.dead ? 1 : 0}:${entry.respawnRemaining || 0}`).join("|")],
+        survivors: (snapshot.actors || []).filter((a) => a.role === "survivor").map((a) => [a.id, a.lobbyRole, a.gameMode, a.health, a.dots, a.kills, a.deaths, a.respawnRemaining, a.injured, a.downed, a.hooked, a.dead, a.escaped, a.escapeProgress, a.escapeGateId, a.chase, a.hookProgress, a.healProgress, a.hookCount, a.chatText]),
         killerChat: (snapshot.actors || []).find((a) => a.role === "killer")?.chatText || null,
         dots: (snapshot.collectibleDots || []).map((d) => d.id).join(","),
         redOrbs: snapshot.voidEffects?.redOrbs || 0,
@@ -6801,21 +6862,25 @@
       this.lastHudKey = hudKey;
       this.lastHudRenderAt = now;
       renderSurvivorStatusHud(snapshot);
-      const hudRole = me.role === "killer" ? "killer" : me.role === "spectator" ? "spectator" : "survivor";
+      const hudRole = ffaMode ? "ffa" : me.role === "killer" ? "killer" : me.role === "spectator" ? "spectator" : "survivor";
       ui.hud.dataset.role = hudRole;
-      applyRoleHudSkin(me, hudRole);
-      ui.roleLabel.textContent = hudRole === "killer" ? "The Void" : hudRole === "spectator" ? "Spectator" : `${runnerClassLabel(me.runnerClass)} Runner`;
-      ui.controlsLabel.textContent = hudRole === "killer"
-        ? "WASD move • Mouse aim • M1 attack/lunge • Space vault/break • hold E bind/execute/kick Rift • hold Q abilities • hold R chat"
-        : hudRole === "spectator"
-          ? "Tab / Shift+Tab — switch camera • overview after players"
-          : "WASD move • Shift sprint • Mouse flashlight • Space vault/drop • hold Q abilities • collect orbs, stand near active Rifts to deposit • stand still near teammates to heal/rescue • hold R chat";
+      applyRoleHudSkin(me, hudRole === "ffa" ? "survivor" : hudRole);
+      ui.roleLabel.textContent = hudRole === "ffa" ? "Void Shooter" : hudRole === "killer" ? "The Void" : hudRole === "spectator" ? "Spectator" : `${runnerClassLabel(me.runnerClass)} Runner`;
       const shownDone = Math.min(done, required);
-      ui.genText.textContent = `${shownDone} / ${required}${total > required ? ` (${total} on map)` : ""}`;
+      ui.genText.textContent = ffaMode
+        ? `${shownDone} / ${required} kills${ffaLeader ? ` • Leader: ${ffaLeader.name || "Shooter"} ${ffaLeader.kills || 0}` : ""}`
+        : `${shownDone} / ${required}${total > required ? ` (${total} on map)` : ""}`;
       if (ui.bigGenText) ui.bigGenText.textContent = `${shownDone} / ${required}`;
       ui.bigGenCounter?.classList.toggle("is-complete", required > 0 && shownDone >= required);
-      ui.gateText.textContent = escapeOpen ? "Open" : "Sealed";
-      if (me.role === "killer") {
+      const bigGenLabel = ui.bigGenCounter?.querySelector?.(".big-gen-copy span");
+      if (bigGenLabel) bigGenLabel.textContent = ffaMode ? "Kills" : "Rifts sealed";
+      ui.gateText.textContent = ffaMode ? "FFA" : escapeOpen ? "Open" : "Sealed";
+      if (ffaMode) {
+        const respawn = Math.ceil(Number(myFfaScore.respawnRemaining || me.respawnRemaining || 0));
+        if (me.dead || me.downed || respawn > 0) ui.healthText.textContent = `Respawning ${Math.max(1, respawn)}s`;
+        else if (me.injured || Number(me.health || 0) <= 1) ui.healthText.textContent = `Injured • ${myFfaScore.kills || 0} kills`;
+        else ui.healthText.textContent = `Full health • ${myFfaScore.kills || 0} kills`;
+      } else if (me.role === "killer") {
         const actors = snapshot.actors || [];
         const hookingTarget = actors.find((a) => a.id === me.hookActionTargetId);
         const readyTarget = actors.find((a) => a.id === me.hookReadyTargetId);
@@ -6841,13 +6906,11 @@
           : target
             ? `Spectating: ${target.name || (target.role === "killer" ? "The Void" : "Runner")}`
             : "Spectating";
-        ui.controlsLabel.textContent = "Tab / Shift+Tab — switch camera • overview after players";
       } else if (me.dead) {
         const target = (snapshot.actors || []).find((a) => a.id === this.resolveSpectateTargetId());
         ui.healthText.textContent = target
           ? `Spectating: ${target.name || "Runner"}`
           : "Dead";
-        ui.controlsLabel.textContent = "Tab / Shift+Tab — switch teammate camera";
       } else ui.healthText.textContent = survivorStateLabel(me);
       const fxActor = this.getPovSurvivorData() || me;
       updateHorrorFx(snapshot, fxActor, { terror: this.terrorBlend, chase: this.chaseBlend });
@@ -7508,10 +7571,10 @@
         const shadowColor = voidSkin.shadow || 0x05020a;
         const highlightColor = voidSkin.highlight || 0xf5d0fe;
 
-        // The Void: layered cursed core. Skin palettes change silhouette details too,
+        // The Void: layered core. Skin palettes change silhouette details too,
         // because a "skin" that is only a recolor is barely a costume, it's accounting.
 
-        // Kept simple circles only, because scary should not require a GPU funeral.
+        // Keep the draw calls simple for stable performance.
         item.body.fillStyle(darkColor, 0.98);
         item.body.fillCircle(0, 0, coreR + 6 + pulse * 1.4);
         item.body.fillStyle(baseColor, 0.94);
@@ -8404,6 +8467,11 @@
             if (this.recentHookIndicators.length > 8) this.recentHookIndicators.splice(0, this.recentHookIndicators.length - 8);
           }
         }
+        if (event.type === "ffaKill") {
+          playLocalizedHit(event);
+          this.burst(event.x, event.y, 0xfb923c, adaptivePerformance.mode === "ultra" ? 4 : LOW_POWER_MODE ? 14 : 44, LOW_POWER_MODE ? 130 : 210);
+          if (event.survivorId === myId) this.cameras.main.shake(LOW_POWER_MODE ? 170 : 230, (LOW_POWER_MODE ? 0.0042 : 0.0064) * performanceValue("shakeScale", 1));
+        }
         if (event.type === "execute" || event.type === "death") {
           playSfx("dead");
           if (event.survivorId === myId) {
@@ -8418,21 +8486,21 @@
           if (event.vaultType === "pallet") playSfx("palletVault");
           else playSfx("windowVault");
         }
-        if (["hit", "death", "execute", "downed", "hooked", "unhooked"].includes(event.type)) {
-          const heavy = event.type === "death" || event.type === "execute" || event.type === "downed" || event.type === "hooked";
+        if (["hit", "death", "execute", "downed", "hooked", "unhooked", "ffaHit", "ffaKill"].includes(event.type)) {
+          const heavy = event.type === "death" || event.type === "execute" || event.type === "downed" || event.type === "hooked" || event.type === "ffaKill";
           const hookBurstHidden = event.type === "hooked"
             && this.getPovSurvivorData()?.role === "killer"
             && !this.killerCanRevealWorldPoint(event.x, event.y);
           const isLocalSurvivorEvent = event.survivorId === myId;
           if (!hookBurstHidden && (adaptivePerformance.mode !== "ultra" || isLocalSurvivorEvent)) {
-            const color = event.type === "unhooked" ? 0x75d5ff : event.type === "hooked" ? COLORS.hook : COLORS.blood;
+            const color = event.type === "unhooked" ? 0x75d5ff : event.type === "hooked" ? COLORS.hook : event.type === "ffaKill" ? 0xfb923c : COLORS.blood;
             const baseCount = event.type === "hooked" ? 52 : event.type === "execute" || event.type === "death" ? 62 : 38;
             const fxCount = adaptivePerformance.mode === "ultra" ? 5 : LOW_POWER_MODE ? Math.ceil(baseCount * 0.32) : baseCount;
             this.burst(event.x, event.y, color, fxCount, event.type === "unhooked" ? 140 : 220);
           }
 
-          const shouldShakeForImpact = (event.type === "hit" || event.type === "downed") && isLocalSurvivorEvent;
-          const shouldShakeForStateChange = ["death", "execute", "hooked"].includes(event.type) && isLocalSurvivorEvent;
+          const shouldShakeForImpact = (event.type === "hit" || event.type === "downed" || event.type === "ffaHit") && isLocalSurvivorEvent;
+          const shouldShakeForStateChange = ["death", "execute", "hooked", "ffaKill"].includes(event.type) && isLocalSurvivorEvent;
           if (shouldShakeForImpact || shouldShakeForStateChange) {
             const impactDuration = shouldShakeForImpact
               ? (heavy ? (LOW_POWER_MODE ? 220 : 280) : (LOW_POWER_MODE ? 130 : 175))
@@ -10306,6 +10374,7 @@
       if (key === "smoke") return { outer: 0x1b1236, mid: 0x8b5cf6, core: 0xf5e9ff, ring: 0xc4b5fd };
       if (key === "collect") return { outer: 0x7c3f00, mid: 0xfbbf24, core: 0xfff7d1, ring: 0xfacc15 };
       if (key === "heal") return { outer: 0x064e3b, mid: 0x34d399, core: 0xd1fae5, ring: 0x6ee7b7 };
+      if (key === "ffaShot" || key === "voidShooter") return { outer: 0x4c1d95, mid: 0xfb923c, core: 0xffedd5, ring: 0xf97316 };
       if (key === "boost") return { outer: 0x7c2d12, mid: 0xff9f1c, core: 0xffedd5, ring: 0xfb923c };
       return { outer: 0xff8b2b, mid: 0xffb347, core: 0xfff4c4, ring: 0xffc05a };
     }
@@ -10784,8 +10853,11 @@
     ui.endStats.innerHTML = sorted.map((actor) => {
       const stats = actor.stats || {};
       const isVoid = actor.role === "killer";
-      const state = isVoid
-        ? "The Void"
+      const isFfa = actor.gameMode === "ffa" || actor.lobbyRole === "ffa" || actor.role === "ffa";
+      const state = isFfa
+        ? "Void Shooter"
+        : isVoid
+          ? "The Void"
         : stats.escaped || actor.escaped
           ? "Escaped"
           : actor.dead
@@ -10796,8 +10868,16 @@
                 ? "Downed"
                 : "Lost";
       const progressionItems = progressionStatItems(actor);
-      const statHtml = isVoid
+      const statHtml = isFfa
         ? [
+            statItem("Kills", stats.kills || 0),
+            statItem("Deaths", stats.deaths || 0),
+            statItem("Shots fired", stats.shotsFired || 0),
+            statItem("Hits", stats.shotHits || 0),
+            statItem("Heal boxes", stats.healBoxes || 0)
+          ].join("")
+        : isVoid
+          ? [
             statItem("Runners consumed", stats.deaths || 0),
             statItem("Binds", stats.hooks || 0),
             statItem("Downs", stats.downs || 0),
@@ -10820,13 +10900,13 @@
           ].join("");
 
       return `
-        <article class="end-stat-card ${isVoid ? "is-void" : "is-runner"}${actor.id === myId ? " is-you" : ""}">
+        <article class="end-stat-card ${isVoid ? "is-void" : isFfa ? "is-ffa" : "is-runner"}${actor.id === myId ? " is-you" : ""}">
           <div class="end-stat-head">
             <div>
-              <strong>${escapeHtml(actor.name || (isVoid ? "The Void" : "Runner"))}</strong>
+              <strong>${escapeHtml(actor.name || (isVoid ? "The Void" : isFfa ? "Void Shooter" : "Runner"))}</strong>
               <span>${escapeHtml(state)}${actor.id === myId ? " • You" : ""}</span>
             </div>
-            <i>${escapeHtml(isVoid ? "VOID" : "RUNNER")}</i>
+            <i>${escapeHtml(isVoid ? "VOID" : isFfa ? "FFA" : "RUNNER")}</i>
           </div>
           <div class="end-stat-grid">${statHtml}</div>
         </article>
@@ -10841,6 +10921,7 @@
 
   function showFinalMatchScreen({ winner, reason, escapedCount = 0, finalActors = [] }) {
     const me = getFinalActorData(finalActors);
+    const isFfaResult = winner === "ffa" || String(winner || "").startsWith("ffa:") || finalActors.some((actor) => actor.gameMode === "ffa" || actor.lobbyRole === "ffa" || actor.role === "ffa");
     const localSurvivor = me?.role === "survivor";
     const localEscaped = localSurvivor && !!me.escaped;
     const localPerished = localSurvivor && !localEscaped && !!escapedCount && (me.dead || me.hooked || me.downed);
@@ -10848,7 +10929,13 @@
     ui.spectateBtn?.classList.add("hidden");
     renderFinalStats(finalActors);
 
-    if (localEscaped) {
+    if (isFfaResult) {
+      const winningId = String(winner || "").startsWith("ffa:") ? String(winner).slice(4) : null;
+      const champ = finalActors.find((actor) => actor.id === winningId) || [...finalActors].sort((a, b) => (b.stats?.kills || 0) - (a.stats?.kills || 0))[0];
+      const won = champ?.id && champ.id === myId;
+      if (ui.winnerText) ui.winnerText.textContent = won ? "You Win FFA" : `${champ?.name || "Void Shooter"} Wins FFA`;
+      if (ui.reasonText) ui.reasonText.textContent = reason || "First to 10 kills wins.";
+    } else if (localEscaped) {
       if (ui.winnerText) ui.winnerText.textContent = "You Escaped";
       if (ui.reasonText) ui.reasonText.textContent = "You slipped through the void. The run is over.";
     } else if (localPerished) {
@@ -10919,7 +11006,7 @@
           if (!ok) return;
           setSelectedSkin(btn.dataset.skin || "blueSquare");
           const mine = currentLobbyState?.players?.find((p) => p.id === myId);
-          if (socket && mine?.role === "survivor") {
+          if (socket && (mine?.role === "survivor" || mine?.role === "ffa")) {
             socket.emit("setSkin", { skin: selectedSkin });
           }
         } catch (error) {
@@ -10977,6 +11064,7 @@
     ui.createLobbyBtn.addEventListener("click", () => socket.emit("createLobby", { role: selectedRole, playerName: getName(), skin: skinForSelectedRole(), runnerClass: selectedRunnerClass }));
     ui.beSurvivorBtn.addEventListener("click", () => socket.emit("setRole", { role: "survivor", skin: selectedSkin, runnerClass: selectedRunnerClass }));
     ui.beKillerBtn.addEventListener("click", () => socket.emit("setRole", { role: "killer", skin: selectedVoidSkin }));
+    ui.beFfaBtn?.addEventListener("click", () => socket.emit("setRole", { role: "ffa", skin: selectedSkin }));
     ui.beSpectatorBtn?.addEventListener("click", () => socket.emit("setRole", { role: "spectator" }));
     ui.readyBtn.addEventListener("click", () => {
       const mine = currentLobbyState?.players?.find((p) => p.id === myId);
@@ -11027,18 +11115,28 @@
       const item = document.createElement("div");
       item.className = "lobby-item";
       const left = document.createElement("div");
-      const voidCount = Number.isFinite(Number(lobby.killerCount)) ? Number(lobby.killerCount) : (lobby.killer ? 1 : 0);
+      const isFfaLobby = lobby.mode === "ffa";
       const spectatorCount = Math.max(0, Math.floor(Number(lobby.spectators || 0)));
-      const voidLabel = `${voidCount} Void player${voidCount === 1 ? "" : "s"}`;
       const spectatorLabel = spectatorCount ? ` • ${spectatorCount} Spectator${spectatorCount === 1 ? "" : "s"}` : "";
       const phaseLabel = lobby.phase === "game" ? "In progress" : "Waiting";
-      left.innerHTML = `<strong>${escapeHtml(lobby.name)}</strong><small>${escapeHtml(lobby.mapName || "Map")} • ${phaseLabel} • ${lobby.survivors}/${lobby.maxSurvivors} Runners • ${voidLabel}${spectatorLabel}</small>`;
+      if (isFfaLobby) {
+        const ffaCount = Math.max(0, Math.floor(Number(lobby.ffaCount || 0)));
+        const maxFfa = Math.max(1, Math.floor(Number(lobby.maxFfaPlayers || 5)));
+        left.innerHTML = `<strong>${escapeHtml(lobby.name)}</strong><small>${escapeHtml(lobby.mapName || "Arena")} • Free-For-All • ${phaseLabel} • ${ffaCount}/${maxFfa} Void Shooters • First to ${escapeHtml(lobby.killLimit || 10)}${spectatorLabel}</small>`;
+      } else {
+        const voidCount = Number.isFinite(Number(lobby.killerCount)) ? Number(lobby.killerCount) : (lobby.killer ? 1 : 0);
+        const voidLabel = `${voidCount} Void player${voidCount === 1 ? "" : "s"}`;
+        left.innerHTML = `<strong>${escapeHtml(lobby.name)}</strong><small>${escapeHtml(lobby.mapName || "Map")} • ${phaseLabel} • ${lobby.survivors}/${lobby.maxSurvivors} Runners • ${voidLabel}${spectatorLabel}</small>`;
+      }
       const actions = document.createElement("div");
       actions.className = "lobby-item-actions";
       const button = document.createElement("button");
-      button.textContent = lobby.phase === "lobby" ? "Join" : "In Run";
+      button.textContent = lobby.phase === "lobby" ? (isFfaLobby ? "Join FFA" : "Join") : "In Run";
       button.disabled = lobby.phase !== "lobby";
-      button.addEventListener("click", () => socket.emit("joinLobby", { lobbyId: lobby.id, role: selectedRole, playerName: getName(), skin: skinForSelectedRole(), runnerClass: selectedRunnerClass }));
+      button.addEventListener("click", () => {
+        const roleToJoin = isFfaLobby ? "ffa" : selectedRole === "ffa" ? "survivor" : selectedRole;
+        socket.emit("joinLobby", { lobbyId: lobby.id, role: roleToJoin, playerName: getName(), skin: skinForSelectedRole(roleToJoin), runnerClass: selectedRunnerClass });
+      });
       const spectateButton = document.createElement("button");
       spectateButton.type = "button";
       spectateButton.className = "spectate-lobby-btn";
@@ -11060,25 +11158,37 @@
     ui.playersList.innerHTML = "";
 
     const players = state.players || [];
+    const mode = state.mode === "ffa" ? "ffa" : "standard";
+    const isFfaLobby = mode === "ffa";
+    ui.lobbyScreen?.classList.toggle("is-ffa-lobby", isFfaLobby);
     const voidCount = players.filter((player) => player.role === "killer").length;
     const survivorCount = players.filter((player) => player.role === "survivor").length;
+    const ffaCount = players.filter((player) => player.role === "ffa").length;
     const maxSurvivors = Number.isFinite(Number(state.maxSurvivors)) ? Number(state.maxSurvivors) : 4;
+    const maxFfaPlayers = Number.isFinite(Number(state.maxFfaPlayers)) ? Number(state.maxFfaPlayers) : 5;
     const requiredHumanPlayers = players.filter((player) => !player.isBot && player.role !== "spectator");
     const allRequiredHumansReady = requiredHumanPlayers.every((player) => !!player.ready);
-    const canStartRun = allRequiredHumansReady && voidCount === 1 && survivorCount >= 1;
+    const canStartRun = isFfaLobby
+      ? allRequiredHumansReady && ffaCount >= 2 && ffaCount <= maxFfaPlayers
+      : allRequiredHumansReady && voidCount === 1 && survivorCount >= 1;
     const spectatorCount = players.filter((player) => player.role === "spectator").length;
-    const statusLine = `${survivorCount}/${maxSurvivors} Runners • ${voidCount} Void player${voidCount === 1 ? "" : "s"}${spectatorCount ? ` • ${spectatorCount} Spectator${spectatorCount === 1 ? "" : "s"}` : ""}`;
-    const subtitle = voidCount === 1
-      ? `${statusLine}. Players ready up to start. Spectators are auto-ready and optional.`
-      : `${statusLine}. The run needs exactly 1 Void. Spectators are auto-ready and optional.`;
+    const statusLine = isFfaLobby
+      ? `${ffaCount}/${maxFfaPlayers} Void Shooters • First to ${state.killLimit || 10}${spectatorCount ? ` • ${spectatorCount} Spectator${spectatorCount === 1 ? "" : "s"}` : ""}`
+      : `${survivorCount}/${maxSurvivors} Runners • ${voidCount} Void player${voidCount === 1 ? "" : "s"}${spectatorCount ? ` • ${spectatorCount} Spectator${spectatorCount === 1 ? "" : "s"}` : ""}`;
+    const subtitle = isFfaLobby
+      ? `${statusLine}. No rifts. No orbs. Just fast little nightmare paintball.`
+      : voidCount === 1
+        ? `${statusLine}. Players ready up to start. Spectators are auto-ready and optional.`
+        : `${statusLine}. The run needs exactly 1 Void. Spectators are auto-ready and optional.`;
     const lobbySubtitle = document.getElementById("lobbySubtitle");
     if (lobbySubtitle) lobbySubtitle.textContent = subtitle;
 
     const renderPlayerRow = (player) => {
       const item = document.createElement("div");
       const isKiller = player.role === "killer";
+      const isFfa = player.role === "ffa";
       const isSpectator = player.role === "spectator";
-      item.className = `player-item ${isKiller ? "is-killer" : isSpectator ? "is-spectator" : "is-survivor"}${player.id === myId ? " is-you" : ""}${player.isBot ? " is-bot" : ""}`;
+      item.className = `player-item ${isKiller ? "is-killer" : isSpectator ? "is-spectator" : isFfa ? "is-ffa" : "is-survivor"}${player.id === myId ? " is-you" : ""}${player.isBot ? " is-bot" : ""}`;
 
       const emblem = document.createElement("span");
       emblem.className = `player-role-emblem ${isKiller ? "killer" : isSpectator ? "spectator" : "survivor"}`;
@@ -11099,7 +11209,7 @@
       const meta = document.createElement("small");
       const roleName = document.createElement("span");
       roleName.className = "player-role-name";
-      roleName.textContent = `${isKiller ? "The Void" : isSpectator ? "Spectator" : "Runner"}${player.isBot ? " bot" : ""}`;
+      roleName.textContent = `${isKiller ? "The Void" : isSpectator ? "Spectator" : isFfa ? "Void Shooter" : "Runner"}${player.isBot ? " bot" : ""}`;
 
       const dot = document.createElement("span");
       dot.className = "player-dot";
@@ -11111,7 +11221,7 @@
       skin.title = skinName;
       skin.textContent = skinName;
 
-      if (!isKiller && !isSpectator) {
+      if (!isKiller && !isSpectator && !isFfa) {
         const classDot = document.createElement("span");
         classDot.className = "player-dot";
         classDot.textContent = "•";
@@ -11120,6 +11230,14 @@
         runnerClass.textContent = runnerClassLabel(player.runnerClass);
         runnerClass.title = `${runnerClassLabel(player.runnerClass)} class`;
         meta.append(roleName, dot, skin, classDot, runnerClass);
+      } else if (isFfa) {
+        const classDot = document.createElement("span");
+        classDot.className = "player-dot";
+        classDot.textContent = "•";
+        const shooterClass = document.createElement("span");
+        shooterClass.className = "player-class-name class-void-shooter";
+        shooterClass.textContent = "Void Shooter";
+        meta.append(roleName, dot, skin, classDot, shooterClass);
       } else {
         meta.append(roleName, dot, skin);
       }
@@ -11130,7 +11248,9 @@
       ready.className = `player-ready ${isReady ? "is-ready" : ""}${isSpectator ? " is-spectator-ready" : ""}`;
       ready.textContent = isSpectator ? "Auto Ready" : isReady ? "Ready" : "Not ready";
 
-      item.append(emblem, summary, ready);
+      const rowActions = document.createElement("div");
+      rowActions.className = "player-row-actions";
+      rowActions.appendChild(ready);
 
       if (player.isBot) {
         const kick = document.createElement("button");
@@ -11139,9 +11259,10 @@
         kick.textContent = "Kick";
         kick.title = `Kick ${player.name || "bot"}`;
         kick.addEventListener("click", () => socket.emit("removeBot", { botId: player.id }));
-        item.appendChild(kick);
+        rowActions.appendChild(kick);
       }
 
+      item.append(emblem, summary, rowActions);
       return item;
     };
 
@@ -11179,15 +11300,20 @@
 
     const voidPlayers = players.filter((player) => player.role === "killer");
     const survivorPlayers = players.filter((player) => player.role === "survivor");
+    const ffaPlayers = players.filter((player) => player.role === "ffa");
     const spectatorPlayers = players.filter((player) => player.role === "spectator");
-    appendPlayerGroup("Void player", `${voidPlayers.length} selected`, "void-group", voidPlayers);
-    appendPlayerGroup("Runners", `${survivorPlayers.length}/${maxSurvivors}`, "survivor-group", survivorPlayers);
+    if (isFfaLobby) {
+      appendPlayerGroup("Void Shooters", `${ffaPlayers.length}/${maxFfaPlayers}`, "survivor-group ffa-group", ffaPlayers);
+    } else {
+      appendPlayerGroup("Void player", `${voidPlayers.length} selected`, "void-group", voidPlayers);
+      appendPlayerGroup("Runners", `${survivorPlayers.length}/${maxSurvivors}`, "survivor-group", survivorPlayers);
+    }
     if (spectatorPlayers.length) appendPlayerGroup("Spectators", `${spectatorPlayers.length} watching`, "spectator-group", spectatorPlayers);
     const mine = players.find((p) => p.id === myId);
     const iAmSpectator = mine?.role === "spectator";
-    if (mine?.role === "killer" || mine?.role === "survivor") setSelectedRole(mine.role);
+    if (mine?.role === "killer" || mine?.role === "survivor" || mine?.role === "ffa") setSelectedRole(mine.role);
     else if (iAmSpectator) syncLobbyRoleButtons("spectator");
-    if (mine?.role === "survivor" && SURVIVOR_SKINS[mine.skin]) {
+    if ((mine?.role === "survivor" || mine?.role === "ffa") && SURVIVOR_SKINS[mine.skin]) {
       setSelectedSkin(mine.skin);
       selectedRunnerClass = normalizeRunnerClassId(mine.runnerClass || selectedRunnerClass);
       syncRunnerClassUi({ preferAccount: false });
@@ -11198,20 +11324,24 @@
     ui.readyBtn.dataset.readyState = iAmSpectator ? "spectator" : mine?.ready ? "unready" : "ready";
     ui.readyBtn.disabled = !!iAmSpectator;
     ui.readyBtn.title = iAmSpectator ? "Spectators are always ready and do not count toward starting the run." : "Toggle ready status.";
-    ui.beKillerBtn.disabled = !!iAmSpectator;
-    ui.beSurvivorBtn.disabled = !!iAmSpectator;
+    ui.beKillerBtn.disabled = !!iAmSpectator || state.mode === "ffa";
+    ui.beSurvivorBtn.disabled = !!iAmSpectator || state.mode === "ffa";
+    if (ui.beFfaBtn) ui.beFfaBtn.disabled = !!iAmSpectator || state.mode !== "ffa";
     if (ui.beSpectatorBtn) {
       ui.beSpectatorBtn.disabled = !!iAmSpectator;
       ui.beSpectatorBtn.title = iAmSpectator
         ? "You are already joining this lobby as an auto-ready spectator."
         : "Join this lobby as a spectator. You will load into the run without controlling a character.";
     }
-    ui.addBotSurvivorBtn.disabled = false;
-    ui.addBotKillerBtn.disabled = false;
+    ui.addBotSurvivorBtn.disabled = isFfaLobby;
+    ui.addBotKillerBtn.disabled = isFfaLobby;
     setLobbySkinPickerVisibility(iAmSpectator ? "spectator" : selectedRole);
     if (ui.startBtn) {
       ui.startBtn.disabled = !canStartRun;
-      ui.startBtn.title = canStartRun ? "Start the run. Spectators will load in watching instead of playing." : "Need exactly 1 Void, at least 1 Runner, and every playable human ready. Spectators are optional and do not block the match.";
+      ui.startBtn.textContent = isFfaLobby ? "Start FFA" : "Start Run";
+      ui.startBtn.title = canStartRun
+        ? (isFfaLobby ? "Start the Free-For-All. First Void Shooter to 10 kills wins." : "Start the run. Spectators will load in watching instead of playing.")
+        : (isFfaLobby ? "Need at least 2 Void Shooters and every playable human ready." : "Need exactly 1 Void, at least 1 Runner, and every playable human ready. Spectators are optional and do not block the match.");
     }
   }
 

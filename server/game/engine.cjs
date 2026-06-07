@@ -138,6 +138,15 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
   const SCRATCH_MARK_MAX = cfgNumber(GAMEPLAY_CONFIG.match?.scratchMarkMax, 75);
   const SCRATCH_MARK_TTL = Math.max(0.5, cfgNumber(GAMEPLAY_CONFIG.match?.scratchMarkTtl, 6.5));
   const MAX_SURVIVORS = cfgNumber(GAMEPLAY_CONFIG.match?.maxSurvivors, 4);
+  const GAME_MODE_STANDARD = "standard";
+  const GAME_MODE_FFA = "ffa";
+  const FFA_MAX_PLAYERS = Math.max(2, Math.floor(cfgNumber(GAMEPLAY_CONFIG.ffa?.maxPlayers, 5)));
+  const FFA_KILL_LIMIT = Math.max(1, Math.floor(cfgNumber(GAMEPLAY_CONFIG.ffa?.killLimit, 10)));
+  const FFA_RESPAWN_SECONDS = Math.max(0.5, cfgNumber(GAMEPLAY_CONFIG.ffa?.respawnSeconds, 3));
+  const FFA_SHOT_COOLDOWN = Math.max(0.05, cfgNumber(GAMEPLAY_CONFIG.ffa?.shotCooldown, 1));
+  const FFA_PROJECTILE_SPEED = Math.max(120, cfgNumber(GAMEPLAY_CONFIG.ffa?.projectileSpeed, 820));
+  const FFA_PROJECTILE_RANGE = Math.max(160, cfgNumber(GAMEPLAY_CONFIG.ffa?.projectileRange, 760));
+  const FFA_PROJECTILE_RADIUS = Math.max(8, cfgNumber(GAMEPLAY_CONFIG.ffa?.projectileRadius, 18));
   const SURVIVOR_SKINS = new Set(["blueSquare", "yellowStar", "purplePentagon", "nebulaBloom", "eclipseWisp", "riftMoth", "signalDrone"]);
   const VOID_SKINS = new Set(["voidCore", "solarMaw", "azureRift", "bloodEclipse", "starlessWyrm", "lanternHusk", "abyssSiren", "crownedHollow", "staticNull", "riftSeraph"]);
   function sanitizeSkin(value) {
@@ -149,8 +158,24 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
   }
   function sanitizeRoleSkin(role, value) {
     if (role === "killer") return sanitizeVoidSkin(value);
-    if (role === "survivor") return sanitizeSkin(value);
+    if (role === "survivor" || role === "ffa") return sanitizeSkin(value);
     return "spectatorEye";
+  }
+
+  function normalizeLobbyMode(value) {
+    return value === GAME_MODE_FFA || value === "freeForAll" || value === "free-for-all" ? GAME_MODE_FFA : GAME_MODE_STANDARD;
+  }
+
+  function isFfaLobby(lobby) {
+    return normalizeLobbyMode(lobby?.mode) === GAME_MODE_FFA;
+  }
+
+  function isFfaGame(game) {
+    return normalizeLobbyMode(game?.mode) === GAME_MODE_FFA;
+  }
+
+  function isFfaActor(actor) {
+    return !!(actor && (actor.gameMode === GAME_MODE_FFA || actor.lobbyRole === GAME_MODE_FFA));
   }
 
   const serverMetrics = {
@@ -534,6 +559,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
   );
   const VOID_SPEED_BUFF_MULT = cfgNumber(GAMEPLAY_CONFIG.voidAbilities?.speedBuffMultiplier, 1.28);
   const RED_ORB_SLOW_MULT = cfgNumber(GAMEPLAY_CONFIG.voidAbilities?.redOrbSlowMultiplier, 0.55);
+  const GRAVITY_WELL_SLOW_MULT = cfgNumber(GAMEPLAY_CONFIG.voidAbilities?.gravityWellSlowMultiplier, 0.58);
   const RED_ORB_SLOW_SECONDS = cfgNumber(GAMEPLAY_CONFIG.voidAbilities?.redOrbSlowSeconds, 0.5);
   const DOT_DEPOSIT_DISTANCE = cfgNumber(GAMEPLAY_CONFIG.rift?.depositDistance, 96);
   const DOT_DEPOSIT_SECONDS = cfgNumber(GAMEPLAY_CONFIG.rift?.depositSecondsPerOrb, 1.5);
@@ -1224,7 +1250,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     const kind = String(projectile.kind || projectile.type || "");
     const canHitDowned = kind === "heal";
     const canHitHooked = kind === "heal" && !!projectile.canUnhook;
-    const hitsRunners = kind === "boost" || kind === "heal";
+    const hitsRunners = kind === "boost" || kind === "heal" || kind === "ffaShot";
     const hitsAnyLivePlayer = kind === "smoke";
     if (!hitsRunners && !hitsAnyLivePlayer) return null;
     let best = null;
@@ -1235,6 +1261,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       if (hitsRunners && target.role !== "survivor") continue;
       if (target.dead || target.escaped) continue;
       if (target.hooked && !canHitHooked && kind !== "smoke") continue;
+      if (kind === "ffaShot" && (target.downed || target.hooked || isFfaActor(target) === false)) continue;
       if (target.downed && !canHitDowned && kind !== "boost" && kind !== "smoke") continue;
       const targetRadius = target.role === "killer"
         ? Math.max(24, Math.min(56, KILLER_SIZE * 0.58))
@@ -1546,6 +1573,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     if (kind === "collect") return applyCollectionBolt(game, projectile, x, y, reason);
     if (kind === "smoke") return addSmokeCloud(game, projectile, x, y, reason);
     if (kind === "heal") return applyHealingDart(game, projectile, x, y, reason, targetId);
+    if (kind === "ffaShot") return applyFfaShotHit(game, projectile, x, y, reason, targetId);
     return applyRunnerBoost(game, projectile.ownerId, x, y, projectile, reason);
   }
 
@@ -1725,6 +1753,188 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       scratchHideDuration: projectile.scratchHideDuration
     });
 
+    game.runnerProjectiles = Array.isArray(game.runnerProjectiles) ? game.runnerProjectiles : [];
+    game.runnerProjectiles.push(projectile);
+    return { ok: true };
+  }
+
+  function chooseFfaRespawnSpot(game, actor) {
+    const spawns = Array.isArray(game?.map?.survivorSpawns) && game.map.survivorSpawns.length
+      ? game.map.survivorSpawns
+      : [{ x: game.map.width / 2, y: game.map.height / 2 }];
+    const liveOpponents = [...game.actors.values()].filter((other) => other && other.id !== actor.id && isFfaActor(other) && !other.dead && !other.downed && !other.escaped);
+    let best = spawns[0];
+    let bestScore = -Infinity;
+    for (const spawn of spawns) {
+      const nearest = liveOpponents.length
+        ? Math.min(...liveOpponents.map((other) => dist(spawn.x, spawn.y, other.x, other.y)))
+        : 99999;
+      const score = nearest + Math.random() * 12;
+      if (score > bestScore) {
+        bestScore = score;
+        best = spawn;
+      }
+    }
+    return { x: best.x, y: best.y };
+  }
+
+  function respawnFfaActor(game, actor) {
+    if (!game || !actor || !isFfaActor(actor)) return;
+    const spot = chooseFfaRespawnSpot(game, actor);
+    actor.x = spot.x;
+    actor.y = spot.y;
+    actor.health = 2;
+    actor.injured = false;
+    actor.dead = false;
+    actor.downed = false;
+    actor.escaped = false;
+    actor.hooked = false;
+    actor.invuln = Math.max(actor.invuln || 0, 1.1);
+    actor.hitBoost = 0;
+    actor.healProgress = 0;
+    actor.hookProgress = 0;
+    actor.recovery = 0;
+    actor.ffaRespawnTimer = 0;
+    actor.actionLock = 0;
+    actor.vault = null;
+    resetInput(actor.input);
+    addEvent(game, "ffaRespawn", { x: actor.x, y: actor.y, survivorId: actor.id, actorId: actor.id });
+  }
+
+  function applyFfaShotHit(game, projectile, x, y, reason = "impact", targetId = null) {
+    addEvent(game, "runnerProjectileExplode", {
+      x,
+      y,
+      actorId: projectile.ownerId,
+      survivorId: projectile.ownerId,
+      ownerId: projectile.ownerId,
+      projectileId: projectile.id || null,
+      abilityId: "voidShooter",
+      projectileType: "ffaShot",
+      radius: FFA_PROJECTILE_RADIUS,
+      affected: targetId ? 1 : 0,
+      reason
+    });
+    if (!isFfaGame(game) || !targetId) return;
+    const shooter = game.actors.get(projectile.ownerId);
+    const target = game.actors.get(targetId);
+    if (!shooter || !target || !isFfaActor(shooter) || !isFfaActor(target)) return;
+    if (target.dead || target.downed || target.escaped || target.invuln > 0) return;
+    awardStat(shooter, "shotHits", "Shot landed", 1, "hit");
+
+    if ((target.health || 2) > 1) {
+      target.health = 1;
+      target.injured = true;
+      target.invuln = Math.max(target.invuln || 0, 0.25);
+      target.hitBoost = Math.max(target.hitBoost || 0, SURVIVOR_HIT_BOOST * 0.55);
+      addEvent(game, "ffaHit", {
+        x: target.x,
+        y: target.y,
+        survivorId: target.id,
+        actorId: shooter.id,
+        killerId: shooter.id,
+        playerName: shooter.name,
+        otherPlayerName: target.name
+      });
+      return;
+    }
+
+    target.health = 0;
+    target.injured = true;
+    target.downed = true;
+    target.dead = true;
+    target.ffaRespawnTimer = FFA_RESPAWN_SECONDS;
+    target.actionLock = 0;
+    target.vault = null;
+    target.healingTargetId = null;
+    target.unhookTargetId = null;
+    target.dartBoxTargetId = null;
+    target.dartBoxProgress = 0;
+    resetInput(target.input);
+    awardStat(shooter, "kills", "Elimination", 1, "kill");
+    awardStat(target, "deaths", "Death", 1, "death");
+    shooter.killScore = Math.max(shooter.killScore || 0, Math.floor(shooter.stats?.kills || 0));
+    addEvent(game, "ffaKill", {
+      x: target.x,
+      y: target.y,
+      killerId: shooter.id,
+      actorId: shooter.id,
+      survivorId: target.id,
+      playerName: shooter.name,
+      otherPlayerName: target.name,
+      text: `${shooter.name || "Someone"} shot down ${target.name || "someone"}!`,
+      killerKills: shooter.killScore,
+      killLimit: FFA_KILL_LIMIT
+    });
+    const lobby = lobbyForGame(game);
+    if (lobby) checkWinConditions(lobby);
+  }
+
+  function fireFfaShot(game, actor, payload = {}) {
+    if (!game || !actor || !isFfaGame(game) || !isFfaActor(actor)) return { ok: false, message: "Only Void Shooters can fire that." };
+    if ((game.time || 0) < (game.matchStartFreezeSeconds || MATCH_START_FREEZE_SECONDS)) return { ok: false, message: "The arena has not started yet." };
+    if (actor.dead || actor.escaped || actor.hooked || actor.downed || actor.vault || actor.actionLock > 0) return { ok: false, message: "You cannot shoot right now." };
+    const cooldown = Math.max(0, cfgNumber(actor.ffaShotCooldown, 0));
+    if (cooldown > 0) return { ok: false, message: `Void Shot is cooling down for ${cooldown.toFixed(1)}s.` };
+
+    const rawTargetX = Number(payload.targetX);
+    const rawTargetY = Number(payload.targetY);
+    const hasTarget = Number.isFinite(rawTargetX) && Number.isFinite(rawTargetY);
+    const targetX = hasTarget ? clamp(rawTargetX, 0, game.map.width) : null;
+    const targetY = hasTarget ? clamp(rawTargetY, 0, game.map.height) : null;
+    let angle = Number(payload.angle);
+    if (hasTarget && dist(actor.x, actor.y, targetX, targetY) > 0.001) angle = Math.atan2(targetY - actor.y, targetX - actor.x);
+    if (!Number.isFinite(angle)) angle = Number(actor.input?.angle);
+    if (!Number.isFinite(angle)) angle = actor.angle || 0;
+    const dx = Math.cos(angle);
+    const dy = Math.sin(angle);
+    if (!Number.isFinite(dx) || !Number.isFinite(dy)) return { ok: false, message: "Bad shot aim." };
+
+    const muzzleOffset = Math.max(PLAYER_SIZE * 0.68, 30);
+    let startX = clamp(actor.x + dx * muzzleOffset, 0, game.map.width);
+    let startY = clamp(actor.y + dy * muzzleOffset, 0, game.map.height);
+    if (!segmentClear(game, actor.x, actor.y, startX, startY)) {
+      startX = clamp(actor.x, 0, game.map.width);
+      startY = clamp(actor.y, 0, game.map.height);
+    }
+    const projectile = {
+      id: uid("ffashot"),
+      type: "ffaShot",
+      abilityId: "voidShooter",
+      kind: "ffaShot",
+      ownerId: actor.id,
+      x: startX,
+      y: startY,
+      dx,
+      dy,
+      angle,
+      speed: FFA_PROJECTILE_SPEED,
+      range: FFA_PROJECTILE_RANGE,
+      radius: FFA_PROJECTILE_RADIUS,
+      duration: 0,
+      traveled: 0,
+      age: 0,
+      ttl: 1.8
+    };
+    actor.ffaShotCooldown = FFA_SHOT_COOLDOWN;
+    awardStat(actor, "shotsFired", "Shot fired", 1, "shot");
+    addEvent(game, "runnerProjectileFire", {
+      x: startX,
+      y: startY,
+      actorId: actor.id,
+      survivorId: actor.id,
+      ownerId: actor.id,
+      projectileId: projectile.id,
+      abilityId: "voidShooter",
+      projectileType: "ffaShot",
+      angle,
+      radius: projectile.radius,
+      duration: 0,
+      ammo: null,
+      maxAmmo: null,
+      reloadRemaining: 0,
+      fireLockoutRemaining: actor.ffaShotCooldown
+    });
     game.runnerProjectiles = Array.isArray(game.runnerProjectiles) ? game.runnerProjectiles : [];
     game.runnerProjectiles.push(projectile);
     return { ok: true };
@@ -2205,12 +2415,19 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     return entries[0]?.[0] || null;
   }
 
-  function resolveMapSelection(requestedMapId) {
+  function resolveMapSelection(requestedMapId, mode = GAME_MODE_STANDARD) {
     const maps = getMapRegistry();
     const entries = getMapEntries();
     const requestedId = typeof requestedMapId === "string" ? requestedMapId.trim() : "";
-    const fallbackId = getDefaultMapId();
-    const mapId = entries.some(([id]) => id === requestedId) ? requestedId : fallbackId;
+    const lobbyMode = normalizeLobbyMode(mode);
+    const requestedEntry = entries.find(([id]) => id === requestedId);
+    const requestedMode = requestedEntry ? normalizeLobbyMode(requestedEntry[1]?.mode) : null;
+    const ffaEntry = entries.find(([id, def]) => id === "ffaTest" || normalizeLobbyMode(def?.mode) === GAME_MODE_FFA);
+    const standardEntry = entries.find(([id, def]) => normalizeLobbyMode(def?.mode) !== GAME_MODE_FFA && id === getDefaultMapId())
+      || entries.find(([, def]) => normalizeLobbyMode(def?.mode) !== GAME_MODE_FFA);
+    const fallbackId = lobbyMode === GAME_MODE_FFA ? (ffaEntry?.[0] || standardEntry?.[0] || getDefaultMapId()) : (standardEntry?.[0] || getDefaultMapId());
+    const requestedMatchesMode = requestedEntry && (lobbyMode === GAME_MODE_FFA ? requestedMode === GAME_MODE_FFA : requestedMode !== GAME_MODE_FFA);
+    const mapId = requestedMatchesMode ? requestedEntry[0] : fallbackId;
 
     if (!mapId || !maps[mapId]) return null;
     return { id: mapId, def: maps[mapId] };
@@ -2220,6 +2437,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     return getMapEntries().map(([id, mapDef]) => ({
       id,
       name: mapDef.name || id,
+      mode: normalizeLobbyMode(mapDef.mode),
       requiredGenerators: mapDef.requiredGenerators ?? mapDef.requiredRifts ?? mapDef.requiredGens ?? mapDef.required ?? null
     }));
   }
@@ -2558,6 +2776,15 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     if (role === "spectator") {
       return {};
     }
+    if (role === "ffa") {
+      return {
+        kills: 0,
+        deaths: 0,
+        shotsFired: 0,
+        shotHits: 0,
+        healBoxes: 0
+      };
+    }
     if (role === "killer") {
       return {
         riftsKicked: 0,
@@ -2584,7 +2811,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
 
   function ensureMatchStats(actor) {
     if (!actor) return createMatchStats("survivor");
-    const defaults = createMatchStats(actor.role);
+    const defaults = createMatchStats(isFfaActor(actor) ? "ffa" : actor.role);
     actor.stats = { ...defaults, ...(actor.stats || {}) };
     return actor.stats;
   }
@@ -2612,6 +2839,15 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
 
   function serializeMatchStats(actor) {
     const stats = ensureMatchStats(actor);
+    if (isFfaActor(actor)) {
+      return {
+        kills: Math.floor(stats.kills || 0),
+        deaths: Math.floor(stats.deaths || 0),
+        shotsFired: Math.floor(stats.shotsFired || 0),
+        shotHits: Math.floor(stats.shotHits || 0),
+        healBoxes: Math.floor(stats.healBoxes || 0)
+      };
+    }
     if (actor.role === "killer") {
       return {
         riftsKicked: Math.floor(stats.riftsKicked || 0),
@@ -2639,21 +2875,26 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
   function getLobbySummary(lobby) {
     const players = [...lobby.players.values()];
     const survivors = players.filter((p) => p.role === "survivor").length;
+    const ffaCount = players.filter((p) => p.role === "ffa").length;
     const killerCount = players.filter((p) => p.role === "killer").length;
     const spectators = players.filter((p) => p.role === "spectator").length;
     const killer = killerCount > 0;
     return {
       id: lobby.id,
+      mode: normalizeLobbyMode(lobby.mode),
       name: lobby.name,
       mapId: lobby.mapId,
       mapName: lobby.mapName,
       phase: lobby.phase,
       playerCount: players.length,
       survivors,
+      ffaCount,
       killer,
       killerCount,
       spectators,
       maxSurvivors: MAX_SURVIVORS,
+      maxFfaPlayers: FFA_MAX_PLAYERS,
+      killLimit: FFA_KILL_LIMIT,
       hostId: lobby.hostId || null,
       createdAt: lobby.createdAt
     };
@@ -2673,8 +2914,10 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       isBot: !!options.isBot,
       accountId: options.accountId || null,
       role,
-      skin: sanitizeRoleSkin(role, options.skin),
-      runnerClass: role === "survivor" ? normalizeRunnerClassId(options.runnerClass) : null,
+      lobbyRole: options.lobbyRole || role,
+      gameMode: normalizeLobbyMode(options.gameMode),
+      skin: sanitizeRoleSkin(options.lobbyRole || role, options.skin),
+      runnerClass: role === "survivor" && normalizeLobbyMode(options.gameMode) !== GAME_MODE_FFA ? normalizeRunnerClassId(options.runnerClass) : null,
       runnerLevel: Math.max(1, Math.floor(cfgNumber(options.runnerLevel, 1))),
       perkLevels: normalizePerkLevelMap(options.perkLevels, role, !!options.isBot),
       botDebugEnabled: !!options.botDebugEnabled,
@@ -2730,8 +2973,11 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       dashBoostMultiplier: 1,
       dartScratchHidden: 0,
       survivorAbilityCooldowns: {},
-      runnerDartAmmo: role === "survivor" ? runnerDartMaxAmmoForClass(options.runnerClass) : 0,
-      runnerDartMaxAmmo: role === "survivor" ? runnerDartMaxAmmoForClass(options.runnerClass) : 0,
+      runnerDartAmmo: role === "survivor" && normalizeLobbyMode(options.gameMode) !== GAME_MODE_FFA ? runnerDartMaxAmmoForClass(options.runnerClass) : 0,
+      runnerDartMaxAmmo: role === "survivor" && normalizeLobbyMode(options.gameMode) !== GAME_MODE_FFA ? runnerDartMaxAmmoForClass(options.runnerClass) : 0,
+      ffaShotCooldown: 0,
+      ffaRespawnTimer: 0,
+      killScore: 0,
       runnerDartReloadTimer: 0,
       runnerDartFireLockout: 0,
       dartBoxTargetId: null,
@@ -2798,13 +3044,15 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     };
   }
 
-  function createLobby(name, requestedMapId) {
+  function createLobby(name, requestedMapId, mode = GAME_MODE_STANDARD) {
     cleanupStaleLobbies();
     if (lobbies.size >= MAX_LOBBIES) {
       throw new Error("The server has reached the lobby limit. Try again after a match ends.");
     }
 
-    const selection = resolveMapSelection(requestedMapId);
+    const lobbyMode = normalizeLobbyMode(mode);
+    const requested = requestedMapId || (lobbyMode === GAME_MODE_FFA ? "ffaTest" : null);
+    const selection = resolveMapSelection(requested, lobbyMode);
     if (!selection) {
       throw new Error("Cannot create a lobby because public/maps.js does not contain any valid maps.");
     }
@@ -2813,7 +3061,8 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     const createdAt = nowMs();
     const lobby = {
       id,
-      name: sanitizeLobbyName(name),
+      mode: lobbyMode,
+      name: sanitizeLobbyName(name || (lobbyMode === GAME_MODE_FFA ? "Free-For-All" : "Open Lobby")),
       mapId: selection.id,
       mapName: selection.def.name || selection.id,
       phase: "lobby",
@@ -2848,6 +3097,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
 
   function normalizeRequestedRole(requestedRole) {
     if (requestedRole === "killer") return "killer";
+    if (requestedRole === "ffa") return "ffa";
     if (requestedRole === "spectator") return "spectator";
     return "survivor";
   }
@@ -2931,13 +3181,26 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
   }
 
   function joinLobby(socket, lobby, requestedRole, name, skin, runnerClass = null) {
-    const role = normalizeRequestedRole(requestedRole);
+    let role = normalizeRequestedRole(requestedRole);
     if (role === "spectator") return joinSpectatorLobby(socket, lobby, name);
+
+    if (!lobby || lobby.phase !== "lobby") {
+      socket.emit("toast", { type: "error", message: "That lobby is already in a run." });
+      return false;
+    }
+
+    const ffaLobby = isFfaLobby(lobby);
+    if (ffaLobby) role = "ffa";
+    if (!ffaLobby && role === "ffa") {
+      socket.emit("toast", { type: "error", message: "Free-For-All uses its own lobby." });
+      return false;
+    }
 
     leaveCurrentLobby(socket);
 
     const players = [...lobby.players.values()];
     const survivorCount = players.filter((p) => p.role === "survivor").length;
+    const ffaCount = players.filter((p) => p.role === "ffa").length;
 
     // Multiple players are allowed to queue as The Void in the lobby.
     // The hard rule is enforced only when the match starts: exactly one Void.
@@ -2945,8 +3208,8 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       socket.emit("toast", { type: "error", message: "This lobby already has four Runners." });
       return false;
     }
-    if (lobby.phase !== "lobby") {
-      socket.emit("toast", { type: "error", message: "That lobby is already in a run." });
+    if (role === "ffa" && ffaCount >= FFA_MAX_PLAYERS) {
+      socket.emit("toast", { type: "error", message: "This Free-For-All arena is full." });
       return false;
     }
 
@@ -2954,7 +3217,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     const player = makePlayer(socket, role, name, {
       isBot: false,
       skin,
-      runnerClass: runnerClass || account?.selectedRunnerClass || RUNNER_CLASS_DEFAULT_ID,
+      runnerClass: role === "survivor" ? (runnerClass || account?.selectedRunnerClass || RUNNER_CLASS_DEFAULT_ID) : null,
       runnerLevel: account?.runnerLevel || account?.progression?.runner?.level || 1,
       accountId: account?.id || null,
       perkLevels: account?.perks || null,
@@ -3009,11 +3272,14 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
   function broadcastLobbyState(lobby) {
     io.to(lobby.id).emit("lobbyState", {
       id: lobby.id,
+      mode: normalizeLobbyMode(lobby.mode),
       name: lobby.name,
       phase: lobby.phase,
       mapId: lobby.mapId,
       mapName: lobby.mapName,
       maxSurvivors: MAX_SURVIVORS,
+      maxFfaPlayers: FFA_MAX_PLAYERS,
+      killLimit: FFA_KILL_LIMIT,
       hostId: lobby.hostId || null,
       players: [...lobby.players.values()].map((p) => ({
         id: p.id,
@@ -3030,6 +3296,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
 
   function addBotToLobby(lobby, role) {
     if (!lobby || lobby.phase !== "lobby") return { ok: false, message: "Bots can only be added in the lobby." };
+    if (isFfaLobby(lobby)) return { ok: false, message: "FFA bots are not wired yet. Terrifying, I know: actual humans required." };
     const roleValue = role === "killer" ? "killer" : "survivor";
     const players = [...lobby.players.values()];
     if (roleValue === "survivor" && players.filter((p) => p.role === "survivor").length >= MAX_SURVIVORS) {
@@ -3064,12 +3331,155 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     if (role === player.role) return true;
     const players = [...lobby.players.values()].filter((p) => p.id !== player.id);
     if (role === "spectator") return true;
+    if (isFfaLobby(lobby)) return role === "ffa" && players.filter((p) => p.role === "ffa").length < FFA_MAX_PLAYERS;
+    if (role === "ffa") return false;
     if (role === "killer") return true;
     if (role === "survivor") return players.filter((p) => p.role === "survivor").length < MAX_SURVIVORS;
     return false;
   }
 
+  function startFfaGame(lobby) {
+    const players = [...lobby.players.values()];
+    const shooters = players.filter((p) => p.role === "ffa");
+    if (lobby.phase !== "lobby") return false;
+    if (shooters.length < 2) {
+      io.to(lobby.id).emit("toast", { type: "error", message: "Need at least 2 Void Shooters to start Free-For-All." });
+      return false;
+    }
+    if (shooters.length > FFA_MAX_PLAYERS) {
+      io.to(lobby.id).emit("toast", { type: "error", message: `Free-For-All supports up to ${FFA_MAX_PLAYERS} players.` });
+      return false;
+    }
+
+    for (const player of players) {
+      if (player.role === "spectator" || player.isBot) player.ready = true;
+    }
+
+    const unreadyHumans = players.filter((player) => player.role !== "spectator" && !player.isBot && !player.ready);
+    if (unreadyHumans.length > 0) {
+      const names = unreadyHumans.slice(0, 3).map((player) => player.name || "Player").join(", ");
+      const more = unreadyHumans.length > 3 ? ` +${unreadyHumans.length - 3} more` : "";
+      io.to(lobby.id).emit("toast", {
+        type: "error",
+        message: `Everyone has to ready up before FFA starts. Waiting on ${names}${more}.`
+      });
+      broadcastLobbyState(lobby);
+      return false;
+    }
+
+    const selection = resolveMapSelection(lobby.mapId, GAME_MODE_FFA);
+    if (!selection) {
+      io.to(lobby.id).emit("toast", { type: "error", message: "No valid Free-For-All map was found. Check public/maps.js." });
+      return false;
+    }
+
+    lobby.mapId = selection.id;
+    lobby.mapName = selection.def.name || selection.id;
+    const map = parseMap(selection.def);
+    map.id = selection.id;
+    map.requiredGenerators = 0;
+    map.generators = [];
+    map.gates = [];
+    map.hooks = [];
+    const mapAnalysis = buildMapAnalysis(selection.id, selection.def);
+    const game = {
+      mode: GAME_MODE_FFA,
+      map,
+      mapAnalysis,
+      matchId: uid("match"),
+      phase: "game",
+      startedAt: nowMs(),
+      endedAt: null,
+      winner: null,
+      endReason: "",
+      actors: new Map(),
+      events: [],
+      particles: [],
+      scratchMarks: [],
+      snapshotSeq: 0,
+      pathCache: new Map(),
+      pathCacheEpoch: 0,
+      requiredGenerators: 0,
+      killLimit: FFA_KILL_LIMIT,
+      escapeOpen: false,
+      riftEndgameActive: false,
+      time: 0,
+      botThinkAccumulator: 0,
+      matchStartFreezeSeconds: MATCH_START_FREEZE_SECONDS,
+      collectibleDots: [],
+      runnerProjectiles: [],
+      dartBoxes: [],
+      dartBoxRespawnQueue: 0,
+      dartBoxRespawnTimer: DART_BOX_RESPAWN_SECONDS,
+      smokeClouds: [],
+      dotRespawnQueue: 0,
+      redOrbs: 0,
+      redOrbSlowMultiplier: RED_ORB_SLOW_MULT,
+      redOrbSlowSeconds: RED_ORB_SLOW_SECONDS,
+      runnerReveal: 0,
+      dotRespawnTimer: DOT_RESPAWN_SECONDS,
+      paused: false,
+      pausedBy: null,
+      pausedByName: null,
+      pausedAt: null
+    };
+
+    seedInitialDartBoxes(game);
+
+    let spawnIndex = 0;
+    const spectatorPlayers = [];
+    for (const player of players) {
+      if (player.role === "spectator") {
+        spectatorPlayers.push(player);
+        continue;
+      }
+      if (player.role !== "ffa") continue;
+      const actor = makePlayer({ id: player.id }, "survivor", player.name, {
+        isBot: !!player.isBot,
+        skin: player.skin,
+        runnerClass: null,
+        runnerLevel: player.runnerLevel || 1,
+        accountId: player.accountId || null,
+        perkLevels: player.perkLevels || null,
+        botDebugEnabled: !!player.botDebugEnabled,
+        lobbyRole: "ffa",
+        gameMode: GAME_MODE_FFA
+      });
+      actor.ready = player.ready;
+      actor.gameMode = GAME_MODE_FFA;
+      actor.lobbyRole = "ffa";
+      actor.runnerClass = null;
+      actor.stats = createMatchStats("ffa");
+      actor.killScore = 0;
+      actor.runnerDartAmmo = 0;
+      actor.runnerDartMaxAmmo = 0;
+      const spawn = map.survivorSpawns[spawnIndex % map.survivorSpawns.length];
+      spawnIndex += 1;
+      actor.x = spawn.x;
+      actor.y = spawn.y;
+      setActorChat(actor, "Void Shooter online.", game, 2.2);
+      game.actors.set(actor.id, actor);
+    }
+
+    for (const player of spectatorPlayers) {
+      const spectator = makePlayer({ id: player.id }, "spectator", player.name, { isBot: false, botDebugEnabled: !!player.botDebugEnabled });
+      spectator.ready = true;
+      placeSpectatorNearTarget(game, spectator);
+      game.actors.set(spectator.id, spectator);
+    }
+
+    lobby.phase = "game";
+    lobby.game = game;
+    touchLobby(lobby);
+    for (const player of lobby.players.values()) player.ready = player.role === "spectator";
+    io.to(lobby.id).emit("gameStarted", serializeMapForClient(map, game));
+    broadcastLobbyState(lobby);
+    broadcastLobbyList();
+    return true;
+}
+
   function startGame(lobby) {
+    if (isFfaLobby(lobby)) return startFfaGame(lobby);
     const players = [...lobby.players.values()];
     const killers = players.filter((p) => p.role === "killer");
     const survivors = players.filter((p) => p.role === "survivor");
@@ -3204,30 +3614,33 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     lobby.game = game;
     touchLobby(lobby);
     for (const player of lobby.players.values()) player.ready = player.role === "spectator";
-    io.to(lobby.id).emit("gameStarted", serializeMapForClient(map));
+    io.to(lobby.id).emit("gameStarted", serializeMapForClient(map, game));
     broadcastLobbyState(lobby);
     broadcastLobbyList();
     return true;
   }
 
-  function serializeMapForClient(map) {
+  function serializeMapForClient(map, game = null) {
+    const ffa = isFfaGame(game);
     return {
       name: map.name,
+      mode: ffa ? GAME_MODE_FFA : GAME_MODE_STANDARD,
+      killLimit: ffa ? FFA_KILL_LIMIT : null,
       startFreezeSeconds: MATCH_START_FREEZE_SECONDS,
       tile: map.tile,
       width: map.width,
       height: map.height,
       rows: map.rawRows,
-      requiredGenerators: map.requiredGenerators,
-      totalGenerators: map.generators.length,
-      generatorCandidateCount: map.generatorCandidateCount || map.generators.length,
-      spawnedGenerators: map.spawnedGenerators || map.generators.length,
+      requiredGenerators: ffa ? 0 : map.requiredGenerators,
+      totalGenerators: ffa ? 0 : map.generators.length,
+      generatorCandidateCount: ffa ? 0 : (map.generatorCandidateCount || map.generators.length),
+      spawnedGenerators: ffa ? 0 : (map.spawnedGenerators || map.generators.length),
       walls: map.walls.map(stripRect),
       windows: map.windows.map((w) => ({ ...stripRect(w), orientation: w.orientation })),
       pallets: map.pallets.map((p) => ({ ...stripRect(p), orientation: p.orientation, state: p.state, broken: p.broken })),
-      generators: map.generators.map((g) => ({ id: g.id, x: g.x, y: g.y, progress: g.progress, done: g.done })),
-      gates: map.gates.map((g) => ({ id: g.id, x: g.x, y: g.y, open: g.open })),
-      hooks: (map.hooks || []).map((h) => ({ id: h.id, x: h.x, y: h.y, survivorId: h.survivorId, active: h.active }))
+      generators: ffa ? [] : map.generators.map((g) => ({ id: g.id, x: g.x, y: g.y, progress: g.progress, done: g.done })),
+      gates: ffa ? [] : map.gates.map((g) => ({ id: g.id, x: g.x, y: g.y, open: g.open })),
+      hooks: ffa ? [] : (map.hooks || []).map((h) => ({ id: h.id, x: h.x, y: h.y, survivorId: h.survivorId, active: h.active }))
     };
   }
 
@@ -4139,6 +4552,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       actor.dashBoost = Math.max(0, (actor.dashBoost || 0) - dt);
       actor.dartScratchHidden = Math.max(0, (actor.dartScratchHidden || 0) - dt);
       actor.runnerDartFireLockout = Math.max(0, cfgNumber(actor.runnerDartFireLockout, 0) - dt);
+      actor.ffaShotCooldown = Math.max(0, cfgNumber(actor.ffaShotCooldown, 0) - dt);
       if ((actor.dashBoost || 0) <= 0) actor.dashBoostMultiplier = 1;
       if (actor.survivorAbilityCooldowns) {
         for (const [abilityId, remaining] of Object.entries(actor.survivorAbilityCooldowns)) {
@@ -4364,7 +4778,8 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     if (dartBoxTooClose(game, spot)) return false;
     if (game.dartBoxes.some((box) => box.tileX === spot.tileX && box.tileY === spot.tileY)) return false;
     game.dartBoxes.push({
-      id: uid("dartbox"),
+      id: uid(isFfaGame(game) ? "healbox" : "dartbox"),
+      type: isFfaGame(game) ? "heal" : "dart",
       x: spot.x,
       y: spot.y,
       tileX: spot.tileX,
@@ -4464,20 +4879,31 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
 
   function replenishDartBoxAmmo(game, box, collector) {
     const affected = [];
+    const isHealBox = isFfaGame(game) || box?.type === "heal";
     for (const runner of game.actors.values()) {
-      if (runner.role !== "survivor" || runner.dead || runner.escaped) continue;
+      if (runner.role !== "survivor" || runner.dead || runner.escaped || runner.hooked || runner.downed) continue;
       if (dist(box.x, box.y, runner.x, runner.y) > DART_BOX_AOE_RADIUS) continue;
       if (!segmentClear(game, box.x, box.y, runner.x, runner.y)) continue;
-      if (refillRunnerDartAmmo(runner, "dartBox")) affected.push(runner.id);
+      if (isHealBox) {
+        if ((runner.health || 2) < 2 || runner.injured) {
+          runner.health = Math.min(2, Math.max(1, Number(runner.health || 1) + 1));
+          if (runner.health >= 2) runner.injured = false;
+          runner.invuln = Math.max(runner.invuln || 0, 0.35);
+          affected.push(runner.id);
+        }
+      } else if (refillRunnerDartAmmo(runner, "dartBox")) affected.push(runner.id);
     }
-    addEvent(game, "dartBoxCollected", {
+    if (isHealBox && collector) awardStat(collector, "healBoxes", "Heal box", 1, "heal");
+    addEvent(game, isHealBox ? "healBoxCollected" : "dartBoxCollected", {
       x: box.x,
       y: box.y,
       boxId: box.id,
+      boxType: isHealBox ? "heal" : "dart",
       survivorId: collector?.id || null,
+      actorId: collector?.id || null,
       affected,
       radius: DART_BOX_AOE_RADIUS,
-      ammo: Math.max(DART_AMMO_MAX, ...affected.map((id) => runnerDartMaxAmmo(game.actors.get(id))))
+      ammo: isHealBox ? null : Math.max(DART_AMMO_MAX, ...affected.map((id) => runnerDartMaxAmmo(game.actors.get(id))))
     });
     return affected;
   }
@@ -5474,6 +5900,14 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
   function checkWinConditions(lobby) {
     const game = lobby.game;
     if (!game || game.phase !== "game") return;
+    if (isFfaGame(game)) {
+      const shooters = [...game.actors.values()].filter((p) => isFfaActor(p));
+      const winner = shooters.find((p) => Math.floor(p.stats?.kills || 0) >= FFA_KILL_LIMIT);
+      if (winner) {
+        endGame(lobby, `ffa:${winner.id}`, `${winner.name || "Void Shooter"} wins Free-For-All with ${Math.floor(winner.stats?.kills || 0)} kills.`);
+      }
+      return;
+    }
     const survivors = [...game.actors.values()].filter((p) => p.role === "survivor");
     if (!survivors.length) return;
 
@@ -5514,6 +5948,9 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
 
   function accountRewardForActor(actor) {
     const stats = ensureMatchStats(actor);
+    if (isFfaActor(actor)) {
+      return { amount: 0, source: "ffa", toastLabel: "FFA orbs" };
+    }
     if (actor.role === "survivor") {
       return {
         amount: Math.max(0, Math.floor(Number(stats.orbsDeposited || 0))),
@@ -5632,6 +6069,10 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       id: p.id,
       name: p.name,
       role: p.role,
+      lobbyRole: p.lobbyRole || p.role,
+      gameMode: p.gameMode || game.mode || GAME_MODE_STANDARD,
+      kills: Math.floor(p.stats?.kills || 0),
+      deaths: Math.floor(p.stats?.deaths || 0),
       dead: !!p.dead,
       escaped: !!p.escaped,
       downed: !!p.downed,
@@ -5821,6 +6262,27 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     getMapAnalysis: (game) => game?.mapAnalysis || null
   });
 
+  function updateFfaRespawns(game, dt) {
+    if (!isFfaGame(game)) return;
+    for (const actor of game.actors.values()) {
+      if (!isFfaActor(actor)) continue;
+      if (actor.dead || actor.downed || Number(actor.health || 0) <= 0) {
+        actor.ffaRespawnTimer = Math.max(0, cfgNumber(actor.ffaRespawnTimer || FFA_RESPAWN_SECONDS, FFA_RESPAWN_SECONDS) - dt);
+        if (actor.ffaRespawnTimer <= 0) respawnFfaActor(game, actor);
+      }
+    }
+  }
+
+  function clearOneShotInputs(game) {
+    if (!game?.actors) return;
+    for (const actor of game.actors.values()) {
+      if (!actor?.input) continue;
+      actor.input.action = false;
+      actor.input.attack = false;
+      actor.input.attackReleased = false;
+    }
+  }
+
   function updateGame(lobby, dt) {
     const game = lobby.game;
     if (!game || game.phase !== "game") return;
@@ -5846,6 +6308,22 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
         actor.attackTimer = 0;
         actor.attackCharge = 0;
       }
+      return;
+    }
+
+    if (isFfaGame(game)) {
+      updateTimers(game, dt);
+      updateRunnerProjectiles(game, dt);
+      updateDartBoxes(game, dt);
+      updateFfaRespawns(game, dt);
+      for (const actor of game.actors.values()) {
+        if (actor.role !== "spectator") moveActor(game, actor, dt);
+      }
+      for (const actor of game.actors.values()) {
+        if (actor.role !== "spectator" && actor.input.action) handleAction(game, actor);
+      }
+      checkWinConditions(lobby);
+      clearOneShotInputs(game);
       return;
     }
 
@@ -5945,6 +6423,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
   function isActorVisibleToViewer(game, viewer, actor) {
     if (!viewer || !actor) return false;
     if (viewer.id === actor.id) return true;
+    if (isFfaGame(game)) return !actor.dead && !actor.escaped && actor.role !== "spectator";
     if (viewer.role === "spectatorOverview") return !actor.dead && !actor.escaped;
     if (actor.dead || actor.escaped) return false;
     if (smokeRevealsKillerToViewer(game, viewer, actor)) return true;
@@ -6016,7 +6495,8 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
   }
 
   function serializeActor(game, actor, visible = true, options = {}) {
-    const actorSkin = sanitizeRoleSkin(actor.role, actor.skin);
+    const lobbyRole = actor.lobbyRole || actor.role;
+    const actorSkin = sanitizeRoleSkin(lobbyRole, actor.skin);
     const isSelf = !!options.isSelf;
     const sendDebug = !!options.sendBotDebug && !!actor.isBot;
     const debugPayload = sendDebug ? serializeBotAiDebug(game, actor) : null;
@@ -6030,9 +6510,11 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       id: actor.id,
       name: actor.name,
       role: actor.role,
+      lobbyRole,
+      gameMode: actor.gameMode || game.mode || GAME_MODE_STANDARD,
       isBot: !!actor.isBot,
       skin: actorSkin,
-      runnerClass: actor.role === "survivor" ? normalizeRunnerClassId(actor.runnerClass) : null,
+      runnerClass: actor.role === "survivor" && !isFfaActor(actor) ? normalizeRunnerClassId(actor.runnerClass) : null,
       visible: !!visible,
       x: Math.round((actor.x || 0) * 10) / 10,
       y: Math.round((actor.y || 0) * 10) / 10,
@@ -6049,6 +6531,9 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       hookId: actor.hookId || null,
       hookCount: actor.hookCount || 0,
       hookProgress: actor.hookProgress || 0,
+      kills: Math.floor(actor.stats?.kills || 0),
+      deaths: Math.floor(actor.stats?.deaths || 0),
+      respawnRemaining: isFfaActor(actor) ? Number(Math.max(0, actor.ffaRespawnTimer || 0).toFixed(2)) : 0,
       unhookProgress: actor.unhookProgress || 0,
       escapeProgress: actor.role === "survivor" ? quantizedProgress((actor.escapeProgress || 0) / GATE_ESCAPE_TIME) : 0,
       escapeGateId: actor.role === "survivor" ? actor.escapeGateId || null : null,
@@ -6088,13 +6573,14 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       dartScratchHidden: actor.role === "survivor" ? actor.dartScratchHidden || 0 : 0,
       doubleOrb: actor.role === "survivor" ? actor.doubleOrb || 0 : 0,
       swiftVaultReady: actor.role === "survivor" ? actor.swiftVaultReady || 0 : 0,
-      survivorAbilityCooldowns: actor.role === "survivor" && isSelf ? Object.fromEntries(
+      survivorAbilityCooldowns: actor.role === "survivor" && isSelf && !isFfaActor(actor) ? Object.fromEntries(
         Object.entries(actor.survivorAbilityCooldowns || {}).map(([id, remaining]) => [id, Number(Math.max(0, remaining || 0).toFixed(2))])
       ) : {},
-      runnerDartAmmo: actor.role === "survivor" && isSelf ? Math.max(0, Math.floor(cfgNumber(actor.runnerDartAmmo, runnerDartMaxAmmo(actor)))) : 0,
-      runnerDartMaxAmmo: actor.role === "survivor" && isSelf ? runnerDartMaxAmmo(actor) : 0,
+      ffaShotCooldownRemaining: actor.role === "survivor" && isSelf && isFfaActor(actor) ? Number(Math.max(0, cfgNumber(actor.ffaShotCooldown, 0)).toFixed(2)) : 0,
+      runnerDartAmmo: actor.role === "survivor" && isSelf && !isFfaActor(actor) ? Math.max(0, Math.floor(cfgNumber(actor.runnerDartAmmo, runnerDartMaxAmmo(actor)))) : 0,
+      runnerDartMaxAmmo: actor.role === "survivor" && isSelf && !isFfaActor(actor) ? runnerDartMaxAmmo(actor) : 0,
       runnerDartReloadRemaining: 0,
-      runnerDartFireLockoutRemaining: actor.role === "survivor" && isSelf ? Number(Math.max(0, cfgNumber(actor.runnerDartFireLockout, 0)).toFixed(2)) : 0,
+      runnerDartFireLockoutRemaining: actor.role === "survivor" && isSelf ? Number(Math.max(0, cfgNumber(isFfaActor(actor) ? actor.ffaShotCooldown : actor.runnerDartFireLockout, 0)).toFixed(2)) : 0,
       dartBoxTargetId: actor.role === "survivor" ? actor.dartBoxTargetId || null : null,
       dartBoxProgress: actor.role === "survivor" ? quantizedProgress(actor.dartBoxProgress || 0) : 0,
       orbSlow: actor.role === "survivor" ? actor.orbSlow || 0 : 0,
@@ -6163,6 +6649,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
   }
 
   function visibleCollectibleDotsForViewer(game, viewer) {
+    if (isFfaGame(game)) return [];
     if (!viewer) return [];
     return (game.collectibleDots || []).filter((dot) => canViewerSeeCollectibleDot(game, viewer, dot));
   }
@@ -6179,6 +6666,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
   }
 
   function visibleDartBoxesForViewer(game, viewer) {
+    if (isFfaGame(game)) return game.dartBoxes || [];
     if (!viewer) return [];
     return (game.dartBoxes || []).filter((box) => canViewerSeeDartBox(game, viewer, box));
   }
@@ -6256,7 +6744,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
 
   function visibleRunnerProjectilesForViewer(game, viewer, socketId, spectatorOverview = false) {
     const projectiles = Array.isArray(game?.runnerProjectiles) ? game.runnerProjectiles : [];
-    if (spectatorOverview) return projectiles;
+    if (isFfaGame(game) || spectatorOverview) return projectiles;
     if (!viewer) return [];
     return projectiles.filter((p) => {
       if (!p) return false;
@@ -6292,7 +6780,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
   // State-change events should be delivered to every viewer, not only nearby players.
   // The client also has state-transition fallbacks, but broadcasting these keeps
   // match announcements timely and avoids range-based "someone got bound and nobody heard" moments.
-  const GLOBAL_EVENT_TYPES = new Set(["genDone", "voidOpen", "escape", "hooked", "unhooked", "death", "execute"]);
+  const GLOBAL_EVENT_TYPES = new Set(["genDone", "voidOpen", "escape", "hooked", "unhooked", "death", "execute", "ffaHit", "ffaKill", "ffaRespawn", "healBoxCollected"]);
   const LOCAL_EVENT_RANGE = Math.max(900, cfgNumber(GAMEPLAY_CONFIG.server?.eventSendRange, 1250));
 
   function eventActorIds(event) {
@@ -6337,7 +6825,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       hooks: snapshotListKey(map.hooks, (h) => `${h.id}:${h.active ? 1 : 0}:${h.survivorId || ""}`),
       dots: snapshotListKey(snapshot.collectibleDots, (d) => `${d.id}:${d.red ? 1 : 0}`),
       runnerProjectiles: snapshotListKey(snapshot.runnerProjectiles, (p) => `${p.id}:${Math.round(p.x)}:${Math.round(p.y)}:${p.type || ""}`),
-      dartBoxes: snapshotListKey(snapshot.dartBoxes, (b) => `${b.id}:${Math.round(b.x)}:${Math.round(b.y)}:${Math.round((b.progress || 0) * 20)}`),
+      dartBoxes: snapshotListKey(snapshot.dartBoxes, (b) => `${b.id}:${Math.round(b.x)}:${Math.round(b.y)}:${Math.round((b.progress || 0) * 20)}:${b.type || ""}`),
       smokeClouds: snapshotListKey(snapshot.smokeClouds, (c) => `${c.id}:${Math.round(c.x)}:${Math.round(c.y)}:${Math.round(c.radius)}`),
       scratchMarks: snapshotListKey(snapshot.scratchMarks, (s) => s.id)
     };
@@ -6462,12 +6950,26 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
           })
         : [];
 
-    const doneGenerators = map.generators.reduce((count, g) => count + (g.done ? 1 : 0), 0);
-    const requiredGenerators = game.requiredGenerators;
-    const riftsComplete = areRiftsComplete(game);
+    const ffaMode = isFfaGame(game);
+    const doneGenerators = ffaMode ? 0 : map.generators.reduce((count, g) => count + (g.done ? 1 : 0), 0);
+    const requiredGenerators = ffaMode ? 0 : game.requiredGenerators;
+    const riftsComplete = ffaMode ? false : areRiftsComplete(game);
+    const ffaScoreboard = ffaMode ? [...game.actors.values()]
+      .filter((actor) => isFfaActor(actor))
+      .map((actor) => ({
+        id: actor.id,
+        name: actor.name,
+        kills: Math.floor(actor.stats?.kills || 0),
+        deaths: Math.floor(actor.stats?.deaths || 0),
+        dead: !!actor.dead,
+        respawnRemaining: Number(Math.max(0, actor.ffaRespawnTimer || 0).toFixed(2))
+      }))
+      .sort((a, b) => b.kills - a.kills || a.deaths - b.deaths || a.name.localeCompare(b.name)) : [];
 
     const snapshot = {
       lobbyId: lobby.id,
+      mode: ffaMode ? GAME_MODE_FFA : GAME_MODE_STANDARD,
+      killLimit: ffaMode ? FFA_KILL_LIMIT : null,
       seq: game.snapshotSeq || 0,
       serverTime: Number((game.time || 0).toFixed(3)),
       paused: !!game.paused,
@@ -6480,9 +6982,9 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
         height: map.height,
         tile: map.tile,
         pallets: map.pallets.map((p) => ({ id: p.id, x: p.x, y: p.y, w: p.w, h: p.h, orientation: p.orientation, state: p.state, broken: p.broken })),
-        generators: visibleGeneratorsForSnapshot(game, spectatorOverview).map((g) => serializeGeneratorForViewer(game, pov, g)),
-        riftsHidden: riftsComplete,
-        gates: map.gates.map((g) => ({
+        generators: ffaMode ? [] : visibleGeneratorsForSnapshot(game, spectatorOverview).map((g) => serializeGeneratorForViewer(game, pov, g)),
+        riftsHidden: ffaMode ? true : riftsComplete,
+        gates: ffaMode ? [] : map.gates.map((g) => ({
           id: g.id,
           x: g.x,
           y: g.y,
@@ -6491,7 +6993,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
             .filter((a) => a.role === "survivor" && !a.dead && !a.escaped && a.escapeGateId === g.id)
             .map((a) => quantizedProgress((a.escapeProgress || 0) / GATE_ESCAPE_TIME)))
         })),
-        hooks: hooksForSnapshot(game, pov)
+        hooks: ffaMode ? [] : hooksForSnapshot(game, pov)
       },
       phase: game.phase,
       winner: game.winner,
@@ -6515,11 +7017,14 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
         expiresAt: Number(((s.createdAt || 0) + SCRATCH_MARK_TTL).toFixed(3))
       })),
       objective: {
+        mode: ffaMode ? GAME_MODE_FFA : GAME_MODE_STANDARD,
+        killLimit: ffaMode ? FFA_KILL_LIMIT : null,
+        scoreboard: ffaScoreboard,
         doneGenerators,
         requiredGenerators,
-        totalGenerators: map.generators.length,
-        generatorCandidateCount: map.generatorCandidateCount || map.generators.length,
-        spawnedGenerators: map.spawnedGenerators || map.generators.length,
+        totalGenerators: ffaMode ? 0 : map.generators.length,
+        generatorCandidateCount: ffaMode ? 0 : (map.generatorCandidateCount || map.generators.length),
+        spawnedGenerators: ffaMode ? 0 : (map.spawnedGenerators || map.generators.length),
         remainingGenerators: Math.max(0, requiredGenerators - doneGenerators),
         riftsHidden: riftsComplete,
         escapeOpen: game.escapeOpen,
@@ -6533,6 +7038,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
         y: Math.round(box.y),
         progress: quantizedProgress(box.progress || 0),
         active: !!box.activeCollectorId,
+        type: box.type || (ffaMode ? "heal" : "dart"),
         radius: DART_BOX_AOE_RADIUS
       })),
       runnerProjectiles: visibleRunnerProjectilesForViewer(game, pov, socketId, spectatorOverview).map((p) => ({
@@ -6600,6 +7106,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     io,
     maxConnections: MAX_CONNECTIONS,
     maxSurvivors: MAX_SURVIVORS,
+    maxFfaPlayers: FFA_MAX_PLAYERS,
     lobbies,
     socketToLobby,
     serverMetrics,
@@ -6633,6 +7140,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     applyVoidAbility,
     applySurvivorAbility,
     fireRunnerShootAbility,
+    fireFfaShot,
     getChatWheelMessagesForActor,
     setActorChat,
     nowMs

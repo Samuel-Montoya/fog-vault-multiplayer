@@ -19,6 +19,14 @@ const ROLE_OPTIONS = [
     icon: "/images/void.png",
     title: "The Void",
     summary: "Hunt, bind, consume."
+  },
+  {
+    role: "ffa",
+    className: "ffa-choice",
+    iconClassName: "ffa-role-icon",
+    icon: "/images/void.png",
+    title: "Free-For-All",
+    summary: "Void Shooter. First to 10."
   }
 ]
 

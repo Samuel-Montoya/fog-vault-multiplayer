@@ -191,8 +191,9 @@
 #lobbyScreen .player-item .lobby-player-skin-preview.rr-skin-preview,
 #lobbyScreen .player-item .lobby-player-skin-preview.skin-preview,
 #lobbyScreen .lobby-selected-skin-preview.rr-skin-preview,
-#lobbyScreen .lobby-selected-skin-preview.skin-preview {
-  border-radius: 999px !important;
+#lobbyScreen .lobby-selected-skin-preview.skin-preview,
+#lobbyScreen .rr-skin-preview.skin-preview.rr-skin-preview--lobby.rr-skin-preview--runner.skin-star {
+  border-radius: 0 !important;
   border: 2px solid rgba(230, 238, 255, 0.68) !important;
   background-size: cover !important;
   background-position: center !important;
@@ -211,4 +212,14 @@
   min-height: 46px !important;
   display: block !important;
   z-index: 1;
+}
+
+
+#lobbyScreen .rr-skin-preview--lobby.rr-skin-preview,
+#lobbyScreen .rr-skin-preview--lobby.skin-preview,
+#lobbyScreen .rr-skin-preview--lobby.rr-skin-preview::before,
+#lobbyScreen .rr-skin-preview--lobby.rr-skin-preview::after,
+#lobbyScreen .rr-skin-preview--lobby.skin-preview::before,
+#lobbyScreen .rr-skin-preview--lobby.skin-preview::after {
+  border-radius: 0 !important;
 }
