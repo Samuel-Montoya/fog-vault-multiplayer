@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
 import AccountBadge from "./AccountBadge"
-import { showMenuScreen } from "../utils/screenNavigation"
-import "../styles/classes.css"
+import BackButton from "./shared/BackButton"
 
 const PLACEHOLDER_PERK_ICON = "/images/speed_burst.png"
 
@@ -25,10 +24,18 @@ const FALLBACK_RUNNER_CLASS_CONFIG = {
       shortName: "Nebula",
       accent: "purple",
       icon: "☁",
-      summary: "Control Runner that creates void-smoke cover and team safety.",
-      detail: "Smoke hides everything inside from outsiders. Runners inside the cloud can see through it.",
-      wheelOrder: ["smokeDart", "voidTrace", "cancel", "moreSoon"],
-      passive: { label: "Void Trace", detail: "While inside smoke, reveal The Void through the haze.", levels: [{ level: 1, label: "Reveal The Void inside smoke within 440px" }] }
+      summary: "Control Runner that turns smoke into a fast escape lane and punishes greedy chases.",
+      detail: "Smoke blocks vision both ways. Void Swirl drops a red trap that slows The Void when he steps through it.",
+      wheelOrder: ["smokeDart", "voidSwirl", "cancel", "moreSoon"],
+      passive: {
+        label: "Vapor Trail",
+        detail: "While inside smoke, gain speed and erase scratch marks.",
+        levels: [
+          { level: 1, label: "1.2x boost · 2s duration" },
+          { level: 2, label: "1.4x boost · 3s duration" },
+          { level: 3, label: "1.8x boost · 4s duration" }
+        ]
+      }
     },
     escapist: {
       id: "escapist",
@@ -54,7 +61,48 @@ const FALLBACK_RUNNER_CLASS_CONFIG = {
       passive: { label: "Field Medic", detail: "Faster heals and unbinds.", levels: [{ level: 1, label: "5% faster heals and unbinds" }] }
     }
   },
-  abilities: {}
+  abilities: {
+    smokeDart: {
+      id: "smokeDart",
+      classAbility: true,
+      classId: "nebulizer",
+      name: "Smoke Dart",
+      shortName: "Smoke",
+      accent: "purple",
+      cost: 0,
+      cooldown: 30,
+      duration: 5,
+      radius: 132,
+      inputType: "m1",
+      shootAbility: true,
+      summary: "M1 fires a purple dart that blooms into two-way vision-blocking smoke.",
+      levels: [
+        { level: 1, cooldown: 30, duration: 5, radius: 132, label: "Small smoke" },
+        { level: 2, cooldown: 20, duration: 7, radius: 170, label: "Medium smoke" },
+        { level: 3, cooldown: 10, duration: 10, radius: 220, label: "Large smoke" }
+      ]
+    },
+    voidSwirl: {
+      id: "voidSwirl",
+      classAbility: true,
+      classId: "nebulizer",
+      name: "Void Swirl",
+      shortName: "Swirl",
+      accent: "red",
+      cost: 5,
+      cooldown: 30,
+      duration: 6,
+      radius: 74,
+      inputType: "q",
+      summary: "Q drops a red swirl trap that slows The Void when he walks over it.",
+      detail: "Place it on chase routes, smoke edges, or tight corners to punish The Void for pushing through.",
+      levels: [
+        { level: 1, cooldown: 30, duration: 6, radius: 74, slowMultiplier: 0.75, slowDuration: 1.25, label: "Small swirl · 25% slow for 1.25s" },
+        { level: 2, cooldown: 20, duration: 7, radius: 88, slowMultiplier: 0.65, slowDuration: 1.75, label: "Medium swirl · 35% slow for 1.75s" },
+        { level: 3, cooldown: 10, duration: 8, radius: 104, slowMultiplier: 0.55, slowDuration: 2.25, label: "Large swirl · 45% slow for 2.25s" }
+      ]
+    }
+  }
 }
 
 const CLASS_ORDER = ["orbCollector", "nebulizer", "escapist", "healer"]
@@ -65,8 +113,8 @@ const CLASS_COPY = {
     footer: "Best for players who want to carry rift progress and keep the team supplied."
   },
   nebulizer: {
-    tags: ["Smoke Cover", "Void Tracking", "Rescue Control"],
-    footer: "Best for cutting sightlines, hiding saves, and forcing The Void to guess."
+    tags: ["Smoke Cover", "Void Swirl", "Trap Control"],
+    footer: "Best for cutting sightlines, sprinting through smoke, and forcing The Void to either slow down or lose the route."
   },
   escapist: {
     tags: ["Mobility", "Fast Vaults", "Team Boosts"],
@@ -122,7 +170,7 @@ function abilityMeta(entry) {
     cooldown ? `${cooldown} cooldown` : null,
     duration ? `${duration} duration` : null,
     radius && radius > 0 ? `${Math.round(radius)}px radius` : null,
-    entry?.inputType === "m1" || entry?.shootAbility ? "M1" : null
+    entry?.inputType === "m1" || entry?.shootAbility ? "M1" : entry?.inputType === "q" ? "Q" : null
   ].filter(Boolean)
 }
 
@@ -176,24 +224,10 @@ function featuresForClass(runnerClass, config) {
   return [passiveFeatureForClass(runnerClass), ...abilities].filter(Boolean)
 }
 
-function PageBackButton() {
-  return (
-    <button
-      className="text-btn menu-back-btn rr-back-btn classes-back-button"
-      data-screen="menu"
-      data-screen-nav="menu"
-      type="button"
-      onClick={() => showMenuScreen("menu")}
-    >
-      ← Back
-    </button>
-  )
-}
-
 function ClassesTopBar() {
   return (
     <div className="classes-top-bar">
-      <PageBackButton />
+      <BackButton className="classes-back-button" />
       <AccountBadge panelId="classes" className="classes-account-badge" />
     </div>
   )
@@ -291,6 +325,14 @@ function ClassesHint() {
   )
 }
 
+function handleClassesWheel(event) {
+  const scrollNode = event.currentTarget
+  if (!scrollNode || scrollNode.scrollHeight <= scrollNode.clientHeight) return
+
+  event.stopPropagation()
+  scrollNode.scrollTop += event.deltaY
+}
+
 export default function ClassesScreen() {
   const [config, setConfig] = useState(() => readRunnerClassConfig())
 
@@ -305,21 +347,23 @@ export default function ClassesScreen() {
 
   return (
     <div id="classesScreen" className="screen io-screen classes-screen">
-      <div className="classes-page-shell">
-        <ClassesTopBar />
-        <ClassesHero />
+      <div className="classes-scroll-region" onWheel={handleClassesWheel}>
+        <div className="classes-page-shell">
+          <ClassesTopBar />
+          <ClassesHero />
 
-        <main className="runner-class-grid" aria-label="Runner class list">
-          {classes.map((runnerClass) => (
-            <RunnerClassCard
-              runnerClass={runnerClass}
-              config={config}
-              key={runnerClass.id}
-            />
-          ))}
-        </main>
+          <main className="runner-class-grid" aria-label="Runner class list">
+            {classes.map((runnerClass) => (
+              <RunnerClassCard
+                runnerClass={runnerClass}
+                config={config}
+                key={runnerClass.id}
+              />
+            ))}
+          </main>
 
-        <ClassesHint />
+          <ClassesHint />
+        </div>
       </div>
     </div>
   )

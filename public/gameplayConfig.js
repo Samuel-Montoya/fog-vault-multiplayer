@@ -255,7 +255,11 @@ const GAMEPLAY_CONFIG = {
     hourglassBackAngleMultiplier: 1.0,
     // Hourglass now also hides scratch marks, replacing Stealth Step.
     hourglassHidesScratchMarks: true,
-    speedBurstSpeedMultiplier: 1.14
+    speedBurstSpeedMultiplier: 1.14,
+    voidSwirlRadius: 74,
+    voidSwirlDuration: 6,
+    voidSwirlSlowMultiplier: 0.65,
+    voidSwirlSlowSeconds: 1.75
   },
 
   orbs: {
@@ -293,9 +297,11 @@ const GAMEPLAY_CONFIG = {
     killLimit: 10,
     respawnSeconds: 3,
     shotCooldown: 1,
-    projectileSpeed: 820,
-    projectileRange: 760,
-    projectileRadius: 18
+    // FFA should feel like a fast arena shooter, not mailing a grape across the map.
+    projectileSpeed: 9000,
+    projectileRange: 1150,
+    projectileRadius: 18,
+    healBoxRespawnSeconds: 2
   },
 
   hook: {

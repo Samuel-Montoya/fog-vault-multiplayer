@@ -1,7 +1,15 @@
-/* SettingsScreen.jsx: option cards and audio controls. */
-.settings-card,
-.option-list,
-.option-card,
+.settings-card {
+  position: relative;
+}
+
+.option-list {
+  position: relative;
+}
+
+.option-card {
+  position: relative;
+}
+
 .volume-control {
   position: relative;
 }

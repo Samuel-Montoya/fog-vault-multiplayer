@@ -1,17 +1,17 @@
-/* SkinButton.jsx + SkinScreen.jsx: skin shop grids, previews, locked states, and lobby-style preview rows. */
-/* Full-width pages: shops, perks, lobby. The tiny card era has ended, mourned by nobody. */
+/* SkinButton.jsx + SkinScreen.jsx: skin shop grids,
+previews,
+locked states,
+and lobby-style preview rows. */
+/* Full-width pages: shops,
+perks,
+lobby. The tiny card era has ended,
+mourned by nobody. */
 .io-screen:not(.menu-screen) {
   align-items: stretch;
   justify-content: center;
   padding: clamp(14px, 2vw, 26px);
 }
 
-.io-screen:not(.menu-screen)::before {
-  background:
-    linear-gradient(180deg, rgba(106, 126, 151, 0.60), rgba(32, 45, 64, 0.42)),
-    radial-gradient(circle at 78% 32%, rgba(103,232,249,0.11), transparent 28%),
-    linear-gradient(90deg, rgba(0,0,0,0.50), transparent 56%);
-}
 
 .io-screen:not(.menu-screen) .void-card,
 .full-menu-card,
@@ -209,7 +209,7 @@
   }
 
   .perks-card .perk-shop-layout,
-  .lobby-workspace {
+.lobby-workspace {
     grid-template-columns: 1fr;
   }
 
@@ -225,11 +225,11 @@
   }
 
   .main-menu-logo,
-  .main-menu-account,
-  .floating-menu-actions,
-  .main-menu-hero-copy,
-  .menu-footer-strip,
-  .version-badge {
+.main-menu-account,
+.floating-menu-actions,
+.main-menu-hero-copy,
+.menu-footer-strip,
+.version-badge {
     position: relative;
     inset: auto;
     left: auto;
@@ -239,8 +239,8 @@
   }
 
   .main-menu-account,
-  .floating-menu-actions,
-  .main-menu-hero-copy {
+.floating-menu-actions,
+.main-menu-hero-copy {
     width: 100%;
     max-width: none;
   }
@@ -272,19 +272,19 @@
   }
 
   .floating-menu-actions .menu-action,
-  .floating-menu-actions .coffee-link,
-  .floating-menu-actions .menu-action.primary,
-  .floating-menu-actions .coffee-link:visited {
+.floating-menu-actions .coffee-link,
+.floating-menu-actions .menu-action.primary,
+.floating-menu-actions .coffee-link:visited {
     font-size: clamp(28px, 10vw, 48px);
   }
 
   .main-menu-account .auth-form,
-  .main-menu-account .auth-actions {
+.main-menu-account .auth-actions {
     grid-template-columns: 1fr;
   }
 
   .shop-shell .big-skin-picker,
-  .perks-card .perk-shop-grid {
+.perks-card .perk-shop-grid {
     grid-template-columns: 1fr;
   }
 }
@@ -305,16 +305,6 @@
     linear-gradient(135deg, #07040d 0%, #12081c 54%, #08040f 100%);
 }
 
-#playScreen.io-screen:not(.menu-screen)::before,
-#skinScreen.io-screen:not(.menu-screen)::before,
-#perksScreen.io-screen:not(.menu-screen)::before,
-#optionsScreen.io-screen:not(.menu-screen)::before,
-#howScreen.io-screen:not(.menu-screen)::before,
-#lobbyScreen.io-screen:not(.menu-screen)::before {
-  background:
-    radial-gradient(circle at 80% 12%, rgba(255,255,255,0.12), transparent 11%),
-    linear-gradient(90deg, rgba(0,0,0,0.44), transparent 54%, rgba(0,0,0,0.32));
-}
 
 #playScreen .void-card,
 #skinScreen .void-card,
@@ -335,15 +325,6 @@
   backdrop-filter: blur(20px) saturate(1.08);
 }
 
-#playScreen .void-card::before,
-#skinScreen .void-card::before,
-#perksScreen .void-card::before,
-#optionsScreen .void-card::before,
-#howScreen .void-card::before,
-#lobbyScreen .void-card::before {
-  border-radius: inherit;
-  background: linear-gradient(90deg, rgba(255,255,255,0.20), transparent 42%) top / 100% 1px no-repeat;
-}
 
 #playScreen h1,
 #skinScreen h1,
@@ -436,12 +417,12 @@
   }
 
   .aero-logo,
-  .aero-account-dock,
-  .aero-top-icons,
-  .aero-menu-cluster,
-  .aero-hero-copy,
-  .aero-footer-strip,
-  .aero-main-menu .version-badge {
+.aero-account-dock,
+.aero-top-icons,
+.aero-menu-cluster,
+.aero-hero-copy,
+.aero-footer-strip,
+.aero-main-menu .version-badge {
     position: relative;
     inset: auto;
     left: auto;
@@ -466,11 +447,6 @@
     font-size: clamp(54px, 15vw, 92px);
   }
 
-  .aero-logo .portal-brand-lockup h1::after {
-    margin-top: 18px;
-    font-size: clamp(14px, 4.5vw, 24px);
-    letter-spacing: 0.28em;
-  }
 
   .aero-top-icons {
     flex-direction: row;
@@ -482,21 +458,21 @@
   }
 
   .aero-duelyst-nav .menu-action,
-  .aero-duelyst-nav .coffee-link,
-  .aero-duelyst-nav .menu-action.primary,
-  .aero-duelyst-nav .coffee-link:visited {
+.aero-duelyst-nav .coffee-link,
+.aero-duelyst-nav .menu-action.primary,
+.aero-duelyst-nav .coffee-link:visited {
     min-height: 56px;
     padding-left: 42px;
     font-size: 19px;
   }
 
   .aero-account-dock .auth-form,
-  .aero-account-dock .auth-actions {
+.aero-account-dock .auth-actions {
     grid-template-columns: 1fr;
   }
 
   #lobbyScreen .lobby-workspace,
-  .perks-card .perk-shop-layout {
+.perks-card .perk-shop-layout {
     grid-template-columns: 1fr;
   }
 
@@ -524,18 +500,6 @@
   overflow: hidden;
 }
 
-#skinScreen .shop-shell .skin-btn::before {
-  content: "";
-  position: absolute;
-  inset: 8px auto 8px 8px;
-  width: 78px;
-  border-radius: 18px;
-  background:
-    radial-gradient(circle at 34% 24%, rgba(255,255,255,0.18), transparent 28%),
-    linear-gradient(135deg, rgba(167,139,250,0.16), rgba(255,255,255,0.035));
-  border: 1px solid rgba(255,255,255,0.08);
-  pointer-events: none;
-}
 
 #skinScreen .shop-shell .skin-preview {
   position: relative !important;
@@ -622,9 +586,6 @@
     padding: 12px 14px;
   }
 
-  #skinScreen .shop-shell .skin-btn::before {
-    width: 68px;
-  }
 
   #skinScreen .shop-shell .skin-preview {
     flex-basis: 48px;
@@ -646,16 +607,6 @@
   background: transparent !important;
 }
 
-#playScreen.io-screen:not(.menu-screen)::before,
-#skinScreen.io-screen:not(.menu-screen)::before,
-#perksScreen.io-screen:not(.menu-screen)::before,
-#optionsScreen.io-screen:not(.menu-screen)::before,
-#howScreen.io-screen:not(.menu-screen)::before,
-#lobbyScreen.io-screen:not(.menu-screen)::before {
-  background:
-    linear-gradient(90deg, rgba(0,0,0,0.54), transparent 54%, rgba(0,0,0,0.38)),
-    radial-gradient(circle at 50% 42%, rgba(151, 89, 255, 0.18), transparent 34%) !important;
-}
 
 #playScreen .void-card,
 #skinScreen .void-card,
@@ -722,11 +673,6 @@
   overflow: hidden;
 }
 
-#skinScreen.skin-page-screen::before {
-  background:
-    linear-gradient(90deg, rgba(2, 1, 8, 0.48), rgba(2, 1, 8, 0.18) 46%, rgba(2, 1, 8, 0.38)),
-    linear-gradient(180deg, rgba(0, 0, 0, 0.14), rgba(0, 0, 0, 0.36)) !important;
-}
 
 .skins-page-stage {
   position: relative;
@@ -740,18 +686,6 @@
   isolation: isolate;
 }
 
-.skins-page-stage::before {
-  content: "";
-  position: absolute;
-  left: clamp(16px, 2vw, 42px);
-  right: clamp(16px, 2vw, 42px);
-  bottom: clamp(92px, 9vh, 126px);
-  z-index: -1;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(180, 99, 255, 0.70), transparent);
-  box-shadow: 0 0 24px rgba(158, 87, 255, 0.46);
-  opacity: 0.72;
-}
 
 .skins-back-btn {
   position: relative;
@@ -811,15 +745,6 @@
     0 0 26px rgba(159, 95, 255, 0.34);
 }
 
-.skins-title-block h1::after {
-  content: "";
-  display: block;
-  width: min(420px, 38vw);
-  height: 2px;
-  margin-top: clamp(10px, 1.2vh, 16px);
-  background: linear-gradient(90deg, rgba(180, 95, 255, 0.78), transparent);
-  box-shadow: 0 0 16px rgba(174, 95, 255, 0.48);
-}
 
 .skins-title-block p {
   max-width: 760px;
@@ -862,24 +787,6 @@
   position: relative;
 }
 
-.skins-page-hero .account-panel-top > div:first-child::before {
-  content: "R";
-  position: absolute;
-  left: 0;
-  top: 50%;
-  width: 64px;
-  height: 64px;
-  display: grid;
-  place-items: center;
-  border: 2px solid rgba(231, 214, 255, 0.82);
-  border-radius: 18px;
-  background:
-    radial-gradient(circle at 50% 50%, rgba(172, 88, 255, 0.92), rgba(68, 24, 127, 0.62) 58%, rgba(8, 4, 19, 0.82));
-  color: rgba(255,255,255,0.92);
-  box-shadow: 0 0 24px rgba(176, 87, 255, 0.76), inset 0 0 18px rgba(255,255,255,0.10);
-  transform: translateY(-50%) rotate(45deg);
-  font-size: 27px;
-}
 
 .skins-page-hero .account-eyebrow {
   color: rgba(214, 190, 255, 0.84);
@@ -968,23 +875,6 @@
   border-radius: 14px;
 }
 
-
-.skin-store-section::before,
-.skin-store-section::after {
-  content: "";
-  position: absolute;
-  left: 28px;
-  right: 28px;
-  height: 1px;
-  pointer-events: none;
-  background: linear-gradient(90deg, rgba(190, 133, 255, 0.70), transparent 72%);
-}
-
-.skin-store-section::before { top: 0; }
-.skin-store-section::after {
-  bottom: 0;
-  opacity: 0.40;
-}
 
 .skin-store-section-head {
   display: flex;
@@ -1079,17 +969,6 @@
   transition: transform 140ms ease, border-color 140ms ease, box-shadow 140ms ease, background 140ms ease, color 140ms ease;
 }
 
-#skinScreen .skin-store-grid .skin-btn::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  border-radius: inherit;
-  background:
-    linear-gradient(90deg, rgba(183, 99, 255, 0.16), transparent 34%, rgba(255,255,255,0.035)),
-    linear-gradient(180deg, rgba(255,255,255,0.055), transparent 48%);
-  opacity: 0.52;
-}
 
 #skinScreen .skin-store-grid .skin-btn:hover,
 #skinScreen .skin-store-grid .skin-btn:focus-visible {
@@ -1271,8 +1150,8 @@
   }
 
   .skins-page-hero .account-panel-top,
-  .skin-store-section-head,
-  .skins-footer-strip {
+.skin-store-section-head,
+.skins-footer-strip {
     align-items: stretch;
     flex-direction: column;
   }
@@ -1282,11 +1161,6 @@
     padding-top: 78px;
   }
 
-  .skins-page-hero .account-panel-top > div:first-child::before {
-    left: 4px;
-    top: 0;
-    transform: rotate(45deg);
-  }
 
   .skin-store-kicker {
     white-space: normal;
@@ -1360,10 +1234,6 @@
   line-height: 0.82 !important;
 }
 
-#skinScreen.skin-page-screen .skins-page-stage .skins-title-block h1::after {
-  width: min(330px, 30vw) !important;
-  margin-top: clamp(8px, 0.9vh, 12px) !important;
-}
 
 #skinScreen.skin-page-screen .skins-page-stage .skins-title-block p {
   font-size: clamp(12px, 0.82vw, 15px) !important;
@@ -1407,7 +1277,9 @@
   max-width: 100% !important;
 }
 
-/* Skins full-width shop polish: wide like Perks, readable names, sane buy states. */
+/* Skins full-width shop polish: wide like Perks,
+readable names,
+sane buy states. */
 #skinScreen.skin-page-screen {
   width: 100vw !important;
   min-width: 0 !important;
@@ -1664,12 +1536,13 @@
   }
 
   #skinScreen.skin-page-screen .skin-store-grid,
-  #skinScreen.skin-page-screen .skin-picker.skin-store-grid {
+#skinScreen.skin-page-screen .skin-picker.skin-store-grid {
     grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)) !important;
   }
 }
 
-/* Final skin shop buy labels: always show the price, then color by affordability. */
+/* Final skin shop buy labels: always show the price,
+then color by affordability. */
 #skinScreen.skin-page-screen .skin-store-grid .skin-price {
   min-width: clamp(108px, 7.8vw, 132px) !important;
   max-width: none !important;

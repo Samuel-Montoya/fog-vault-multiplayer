@@ -1,48 +1,25 @@
-/* Play screen: clean desktop sizing with FFA included. */
 #playScreen.play-screen {
-  --play-panel: rgba(8, 5, 21, 0.62);
-  --play-border: rgba(205, 178, 255, 0.20);
-  --play-cyan: #67e8f9;
-  --play-purple: #a78bfa;
-  --play-red: #ff3b6a;
-  --play-gold: #ffd36a;
   position: relative;
-  align-items: stretch !important;
-  justify-content: center !important;
-  min-height: 100vh;
-  padding: 24px 38px 70px !important;
-  overflow: hidden;
+  align-items: stretch;
+  justify-content: center;
+  padding: 24px 38px 70px;
   color: rgba(255, 255, 255, 0.94);
-  background: transparent !important;
+  background: transparent;
 }
 
-#playScreen.play-screen::before,
+#playScreen.play-screen::before {
+  display: none;
+  content: none;
+}
+
 #playScreen.play-screen::after {
-  display: none !important;
-  content: none !important;
+  display: none;
+  content: none;
 }
 
 #playScreen .play-back-btn {
-  position: absolute;
   left: 34px;
   top: 24px;
-  z-index: 6;
-  min-width: 118px;
-  height: 42px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  padding: 0 16px;
-  border: 1px solid rgba(191, 129, 255, 0.32);
-  border-radius: 4px;
-  background: rgba(8, 5, 20, 0.78);
-  color: rgba(255, 255, 255, 0.86);
-  box-shadow: 0 0 22px rgba(133, 59, 255, 0.13);
-  font-size: 12px;
-  font-weight: 950;
-  letter-spacing: 0.13em;
-  text-transform: uppercase;
 }
 
 #playScreen .play-account-wrap {
@@ -51,8 +28,8 @@
   right: 38px;
   z-index: 6;
   width: 34vw;
-  max-width: 620px;
   min-width: 360px;
+  max-width: 620px;
   display: grid;
   justify-items: end;
 }
@@ -63,9 +40,9 @@
   margin: 0;
   padding: 13px 15px;
   border: 1px solid rgba(184, 109, 255, 0.28);
-  border-radius: 4px;
+  border-radius: var(--rr-radius);
   background: rgba(7, 5, 20, 0.70);
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  box-shadow: var(--rr-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.05);
   backdrop-filter: blur(16px);
 }
 
@@ -88,18 +65,18 @@
   min-width: 120px;
   padding: 7px 12px;
   border-color: rgba(255, 214, 94, 0.30);
-  border-radius: 3px;
+  border-radius: var(--rr-radius-sm);
   background: rgba(255, 214, 94, 0.07);
 }
 
 #playScreen .compact-account-panel .orb-wallet b {
-  color: var(--play-gold);
+  color: var(--rr-gold);
   font-size: 22px;
 }
 
 #playScreen .compact-account-panel .auth-form {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  grid-template-columns: 1fr 1fr auto;
   align-items: end;
   gap: 8px;
 }
@@ -113,43 +90,44 @@
 #playScreen .compact-account-panel input {
   min-height: 34px;
   padding: 0 11px;
-  border-radius: 3px;
+  border-radius: var(--rr-radius-sm);
   font-size: 11px;
 }
 
-#playScreen .compact-account-panel button,
-#playScreen .compact-account-panel .account-actions button {
+#playScreen .compact-account-panel button {
   min-height: 34px;
-  padding: 8px 11px;
-  border-radius: 3px;
+  padding: 0 11px;
+  border-radius: var(--rr-radius-sm);
   font-size: 10px;
-  letter-spacing: 0.12em;
+}
+
+#playScreen .compact-account-panel .auth-actions button {
+  min-height: 34px;
+  padding: 0 11px;
+  border-radius: var(--rr-radius-sm);
+  font-size: 10px;
 }
 
 #playScreen .play-page-frame {
   position: relative;
   z-index: 3;
-  width: 92vw;
-  height: 78vh;
-  margin: 78px auto 0;
+  width: 94vw;
+  height: calc(100vh - 94px);
+  margin: 0 auto;
+  padding-top: 86px;
   display: grid;
-  grid-template-columns: 360px minmax(0, 1fr);
+  grid-template-columns: minmax(370px, 31vw) minmax(0, 1fr);
   grid-template-rows: auto auto minmax(0, 1fr);
-  gap: 14px;
+  gap: 16px;
 }
 
 #playScreen .play-hero-panel {
-  border: 1px solid var(--play-border);
-  border-radius: 4px;
-  background: var(--play-panel);
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.34), inset 0 1px 0 rgba(255, 255, 255, 0.05);
-  backdrop-filter: blur(16px);
   grid-column: 1 / 2;
-  grid-row: 1 / 2;
-  display: grid;
-  align-content: center;
-  gap: 9px;
-  min-height: 142px;
+  border: 1px solid rgba(205, 178, 255, 0.18);
+  border-radius: var(--rr-radius);
+  background: rgba(8, 5, 21, 0.54);
+  box-shadow: var(--rr-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(16px);
   padding: 22px;
 }
 
@@ -157,214 +135,153 @@
   margin: 0;
   color: #fff;
   font-family: var(--font-display);
-  font-size: 34px;
+  font-size: 38px;
   line-height: 1;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
 }
 
 #playScreen .play-hero-panel p {
-  max-width: 310px;
-  margin: 0;
+  max-width: 560px;
+  margin: 12px 0 0;
   color: rgba(218, 226, 236, 0.68);
-  font-size: 13px;
-  font-weight: 800;
+  font-size: 14px;
+  font-weight: 700;
   line-height: 1.45;
 }
 
 #playScreen .play-title-line {
-  width: 180px;
+  width: 100%;
   height: 2px;
-  margin-top: 4px;
-  background: linear-gradient(90deg, var(--play-purple), transparent);
-  box-shadow: 0 0 16px rgba(167, 139, 250, 0.46);
+  margin-top: 18px;
+  background: linear-gradient(90deg, rgba(103, 232, 249, 0.85), rgba(167, 139, 250, 0.60), transparent);
+  box-shadow: 0 0 20px rgba(103, 232, 249, 0.24);
 }
 
 #playScreen .play-step-panel {
-  border: 1px solid var(--play-border);
-  border-radius: 4px;
-  background: var(--play-panel);
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.34), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(205, 178, 255, 0.18);
+  border-radius: var(--rr-radius);
+  background: rgba(8, 5, 21, 0.62);
+  box-shadow: var(--rr-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.05);
   backdrop-filter: blur(16px);
-  display: grid;
-  gap: 10px;
-  padding: 16px;
 }
 
 #playScreen .play-role-panel {
   grid-column: 1 / 2;
-  grid-row: 2 / 4;
-  align-content: start;
+  padding: 16px;
 }
 
 #playScreen .play-join-panel {
+  grid-column: 1 / 2;
+  padding: 16px;
+}
+
+#playScreen .play-lobbies-panel {
   grid-column: 2 / 3;
-  grid-row: 1 / 2;
-  align-content: center;
-  min-height: 142px;
+  border: 1px solid rgba(205, 178, 255, 0.18);
+  border-radius: var(--rr-radius);
+  background: rgba(8, 5, 21, 0.62);
+  box-shadow: var(--rr-shadow), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(16px);
+  grid-row: 1 / 4;
+  min-height: 0;
+  padding: 18px;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: 12px;
 }
 
 #playScreen .play-step-label {
-  color: rgba(255, 255, 255, 0.72);
+  margin-bottom: 11px;
+  color: rgba(255, 255, 255, 0.76);
   font-size: 11px;
-  font-weight: 1000;
+  font-weight: 950;
   letter-spacing: 0.16em;
   text-transform: uppercase;
 }
 
-#playScreen .play-role-select {
+#playScreen .role-select {
   display: grid;
   gap: 10px;
 }
 
 #playScreen .role-btn {
-  position: relative;
+  width: 100%;
   min-height: 84px;
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 4px;
-  background: rgba(7, 9, 22, 0.76);
-  color: rgba(255, 255, 255, 0.80);
+  justify-content: flex-start;
+  gap: 14px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--role-tone) 38%, transparent);
+  border-radius: var(--rr-radius);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--role-tone) 14%, transparent), rgba(255, 255, 255, 0.035)), rgba(7, 5, 19, 0.72);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
   text-align: left;
 }
 
 #playScreen .role-btn.selected {
-  border-color: rgba(103, 232, 249, 0.44);
-  background: linear-gradient(135deg, rgba(103, 232, 249, 0.14), rgba(167, 139, 250, 0.10)), rgba(7, 9, 22, 0.84);
-  color: #fff;
-  box-shadow: 0 0 28px rgba(103, 232, 249, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.06);
-}
-
-#playScreen .role-btn.void-choice.selected,
-#playScreen .role-btn.ffa-choice.selected {
-  border-color: rgba(255, 59, 106, 0.46);
-  box-shadow: 0 0 28px rgba(255, 59, 106, 0.13), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  border-color: color-mix(in srgb, var(--role-tone) 72%, white 8%);
+  box-shadow: 0 0 26px color-mix(in srgb, var(--role-tone) 18%, transparent), inset 0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 
 #playScreen .role-icon {
-  width: 46px;
-  height: 46px;
-  flex: 0 0 46px;
+  flex: 0 0 58px;
+  width: 58px;
+  height: 58px;
   display: grid;
   place-items: center;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.055);
-  overflow: hidden;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  overflow: visible;
 }
 
 #playScreen .role-icon img {
-  width: 38px;
-  height: 38px;
+  width: 100%;
+  height: 100%;
   object-fit: contain;
 }
 
-#playScreen .void-role-icon,
-#playScreen .ffa-role-icon {
-  border-color: rgba(255, 59, 106, 0.22);
-  background: rgba(255, 59, 106, 0.06);
-}
-
-#playScreen .survivor-role-icon {
-  border-color: rgba(103, 232, 249, 0.22);
-  background: rgba(103, 232, 249, 0.055);
-}
-
 #playScreen .role-copy {
-  display: grid;
-  flex: 1 1 auto;
-  gap: 4px;
   min-width: 0;
+  display: grid;
+  gap: 5px;
 }
 
 #playScreen .role-copy strong {
-  overflow: hidden;
-  color: inherit;
+  color: #fff;
   font-family: var(--font-display);
   font-size: 18px;
-  letter-spacing: 0.05em;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  letter-spacing: 0.04em;
 }
 
 #playScreen .role-copy small {
-  color: rgba(218, 226, 236, 0.62);
+  color: rgba(218, 226, 236, 0.64);
   font-size: 12px;
-  font-weight: 850;
-  line-height: 1.35;
+  font-weight: 800;
 }
 
 #playScreen .role-selected-mark {
-  display: grid;
-  place-items: center;
-  width: 24px;
-  height: 24px;
-  flex: 0 0 24px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 3px;
-  background: rgba(255, 255, 255, 0.055);
-  color: rgba(255, 255, 255, 0.38);
-  font-size: 12px;
-  font-weight: 1000;
+  margin-left: auto;
+  color: var(--role-tone);
+  font-weight: 950;
+  opacity: 0;
 }
 
 #playScreen .role-btn.selected .role-selected-mark {
-  border-color: rgba(255, 211, 106, 0.32);
-  background: rgba(255, 211, 106, 0.12);
-  color: #ffd36a;
-}
-
-#playScreen .play-join-grid {
-  display: grid;
-  gap: 12px;
+  opacity: 1;
 }
 
 #playScreen .play-actions {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(3, 1fr);
   gap: 10px;
 }
 
-#playScreen .play-actions button {
-  min-height: 58px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 9px;
-  padding: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 4px;
-  background: rgba(10, 8, 25, 0.78);
-  color: rgba(255, 255, 255, 0.82);
-  font-size: 12px;
-  font-weight: 950;
-  letter-spacing: 0.10em;
-  text-transform: uppercase;
-}
-
-#playScreen .play-actions button.primary {
-  border-color: rgba(103, 232, 249, 0.42);
-  background: linear-gradient(135deg, rgba(103, 232, 249, 0.18), rgba(167, 139, 250, 0.10)), rgba(10, 8, 25, 0.86);
-  color: #fff;
-  box-shadow: 0 0 28px rgba(103, 232, 249, 0.12);
-}
-
-#playScreen .play-lobbies-panel {
-  border: 1px solid var(--play-border);
-  border-radius: 4px;
-  background: var(--play-panel);
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.34), inset 0 1px 0 rgba(255, 255, 255, 0.05);
-  backdrop-filter: blur(16px);
-  grid-column: 2 / 3;
-  grid-row: 2 / 4;
-  min-height: 0;
-  display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
-  gap: 10px;
-  padding: 16px;
+#playScreen .play-actions .rr-action-btn {
+  width: 100%;
+  min-width: 0;
 }
 
 #playScreen .play-lobbies-heading {
@@ -378,149 +295,138 @@
   margin: 0;
   color: #fff;
   font-family: var(--font-display);
-  font-size: 24px;
-  line-height: 1;
-  letter-spacing: 0.05em;
+  font-size: 26px;
+  letter-spacing: 0.04em;
 }
 
 #playScreen .play-lobbies-heading span {
   color: rgba(218, 226, 236, 0.58);
-  font-size: 11px;
-  font-weight: 950;
-  letter-spacing: 0.12em;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
 #playScreen .play-lobby-table-head {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1.2fr) 110px 116px;
+  grid-template-columns: 1.3fr 1.2fr 0.6fr 0.9fr;
   gap: 10px;
-  padding: 0 8px;
-  color: rgba(218, 226, 236, 0.52);
+  padding: 0 10px;
+  color: rgba(218, 226, 236, 0.50);
   font-size: 10px;
-  font-weight: 1000;
-  letter-spacing: 0.12em;
+  font-weight: 950;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
 }
 
 #playScreen .lobby-list {
   min-height: 0;
+  overflow: auto;
   display: grid;
   align-content: start;
-  gap: 8px;
-  overflow: auto;
+  gap: 10px;
   padding-right: 4px;
 }
 
 #playScreen .lobby-list.empty {
+  display: grid;
   place-items: center;
-  border: 1px dashed rgba(255, 255, 255, 0.13);
-  border-radius: 4px;
-  color: rgba(218, 226, 236, 0.56);
+  min-height: 240px;
+  border: 1px dashed rgba(205, 178, 255, 0.20);
+  border-radius: var(--rr-radius);
+  color: rgba(218, 226, 236, 0.60);
   font-size: 13px;
-  font-weight: 850;
+  font-weight: 800;
 }
 
 #playScreen .lobby-item {
-  min-height: 58px;
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1.2fr) 110px 116px;
+  grid-template-columns: 1fr auto;
   align-items: center;
-  gap: 10px;
-  padding: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.10);
-  border-radius: 4px;
-  background: rgba(6, 8, 20, 0.72);
-}
-
-#playScreen .lobby-item > div:first-child {
-  min-width: 0;
-  overflow: hidden;
+  gap: 12px;
+  padding: 12px;
+  border: 1px solid rgba(205, 178, 255, 0.16);
+  border-radius: var(--rr-radius);
+  background: rgba(255, 255, 255, 0.045);
 }
 
 #playScreen .lobby-item strong {
   display: block;
-  overflow: hidden;
   color: #fff;
-  font-size: 13px;
-  font-weight: 950;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: 15px;
 }
 
-#playScreen .lobby-item small,
-#playScreen .lobby-item span {
-  color: rgba(218, 226, 236, 0.60);
-  font-size: 11px;
-  font-weight: 850;
+#playScreen .lobby-item small {
+  display: block;
+  margin-top: 4px;
+  color: rgba(218, 226, 236, 0.62);
+  font-size: 12px;
+  font-weight: 750;
 }
 
 #playScreen .lobby-item-actions {
   display: flex;
-  justify-content: flex-end;
-  gap: 7px;
+  gap: 8px;
 }
 
-#playScreen .lobby-item-actions button,
+#playScreen .lobby-item-actions button {
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: var(--rr-radius-sm);
+  font-size: 11px;
+}
+
 #playScreen .spectate-lobby-btn {
-  min-height: 34px;
-  padding: 7px 10px;
-  border-radius: 4px;
-  font-size: 10px;
-  letter-spacing: 0.09em;
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: var(--rr-radius-sm);
+  font-size: 11px;
 }
 
 #playScreen .play-bottom-strip {
   position: absolute;
   left: 50%;
   bottom: 18px;
-  z-index: 4;
-  display: inline-flex;
-  align-items: center;
-  gap: 11px;
-  max-width: 72vw;
-  padding: 9px 14px;
+  z-index: 5;
   transform: translateX(-50%);
+  width: 52vw;
+  min-width: 520px;
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 0 18px;
   border: 1px solid rgba(255, 211, 106, 0.18);
-  border-radius: 3px;
-  background: rgba(7, 5, 20, 0.70);
-  color: rgba(248, 251, 255, 0.74);
-  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.30);
-  backdrop-filter: blur(14px);
+  border-radius: var(--rr-radius);
+  background: rgba(10, 8, 18, 0.74);
+  box-shadow: 0 16px 52px rgba(0, 0, 0, 0.28);
+  color: rgba(218, 226, 236, 0.66);
   font-size: 11px;
   font-weight: 850;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+#playScreen .strip-orb {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+}
+
+#playScreen .strip-orb img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 #playScreen .play-bottom-strip strong {
-  color: #fff;
-  font-weight: 950;
+  color: rgba(255, 211, 106, 0.88);
 }
 
 #playScreen .play-bottom-strip i {
   width: 1px;
   height: 16px;
   background: rgba(255, 255, 255, 0.14);
-}
-
-#playScreen .strip-orb {
-  width: 24px;
-  height: 24px;
-  display: grid;
-  place-items: center;
-}
-
-#playScreen .strip-orb img {
-  width: 22px;
-  height: 22px;
-  object-fit: contain;
-}
-
-#playScreen ::-webkit-scrollbar {
-  width: 8px;
-}
-
-#playScreen ::-webkit-scrollbar-thumb {
-  border-radius: 3px;
-  background: rgba(167, 139, 250, 0.28);
 }

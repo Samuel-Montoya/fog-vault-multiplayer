@@ -1805,6 +1805,7 @@
     const id = String(perk?.id || "").toLowerCase();
     const classId = String(perk?.classId || "").toLowerCase();
     if (/heal/.test(id) || classId === "healer") return "✚";
+    if (id === "voidswirl") return "🌀";
     if (/smoke|voidtrace|nebul/.test(id) || classId === "nebulizer") return "☁";
     if (/dash|swift|vault|escape/.test(id) || classId === "escapist") return "➟";
     if (/collect|double|orb/.test(id) || classId === "orbcollector") return "✦";
@@ -1873,9 +1874,11 @@
       case "doubleOrb":
         return "Turn normal orb pickups into bonus pickups for a short window. Higher tiers raise the proc chance, duration, and bonus-orb range.";
       case "voidTrace":
-        return "Passive: while standing inside smoke, reveal The Void through the haze. Higher tiers improve how far that smoke-read reaches.";
+        return "Passive: while inside smoke, gain a speed boost and erase scratch marks. Level 1 is 1.2x for 2s, Level 2 is 1.4x for 3s, and Level 3 is 1.8x for 4s.";
       case "smokeDart":
-        return "Fire a purple dart that blooms into void smoke. Players outside cannot see into it, and players inside are trapped inside that same vision space.";
+        return "Fire a purple dart that blooms into a two-way void-smoke wall. Outsiders cannot see in, and insiders cannot see out.";
+      case "voidSwirl":
+        return "Drop a red void swirl trap at your feet. The Void is slowed when he steps into it, and higher tiers increase the trap size, uptime, and slow strength.";
       case "flowState":
         return "Passive: vault windows and pallets faster, making chase routes smoother and harder for The Void to punish.";
       case "dashDart":
@@ -1902,6 +1905,7 @@
     if (role === "killer") return "Void perk";
     if (perk?.passive) return "Runner passive";
     if (perk?.inputType === "m1" || perk?.shootAbility || perk?.projectileKind) return "Runner Dart (M1)";
+    if (perk?.inputType === "q" || perk?.classAbility) return "Runner Q Ability";
     return "Runner perk";
   }
 
@@ -1920,8 +1924,12 @@
     switch (id) {
       case "orbMagnet":
         return `${tierName} Upgrade: increases your passive orb pickup radius to ${perkPassiveStrengthWord(row.orbPickupRadiusMultiplier, rowLevel).toLowerCase()}.`;
-      case "voidTrace":
-        return `${tierName} Upgrade: improves how far you can reveal The Void while standing inside smoke.`;
+      case "voidTrace": {
+        const mult = Number(row.vaporTrailSpeedMultiplier || 0);
+        const boost = mult > 1 ? `${mult.toFixed(1)}x speed boost` : "speed boost";
+        const time = Number(row.vaporTrailDuration || row.duration || 0) > 0 ? formatSeconds(row.vaporTrailDuration || row.duration) : "a short time";
+        return `${tierName} Upgrade: while inside smoke, gives a ${boost}, lasts ${time}, and erases scratch marks.`;
+      }
       case "flowState":
         return `${tierName} Upgrade: makes window and pallet vaults ${perkPassiveStrengthWord(row.vaultSpeedMultiplier, rowLevel).toLowerCase()} faster.`;
       case "fieldMedic":
@@ -1940,6 +1948,11 @@
       }
       case "smokeDart":
         return `${tierName} Upgrade: creates a ${radiusWord.toLowerCase()} void-smoke radius for ${duration || "a short time"}.`;
+      case "voidSwirl": {
+        const slow = Math.round((1 - Number(row.slowMultiplier || 1)) * 100);
+        const slowTime = Number(row.slowDuration || 0) > 0 ? formatSeconds(row.slowDuration) : "briefly";
+        return `${tierName} Upgrade: drops a ${radiusWord.toLowerCase()} red swirl for ${duration || "a short time"}. The Void is slowed by ${slow}% for ${slowTime}.`;
+      }
       case "dashDart": {
         const boostText = speedBoostWord ? `${speedBoostWord.toLowerCase()} speed boost` : "speed boost";
         const special = row.hidesScratchMarks ? " It also hides scratch marks while boosted." : "";
@@ -1993,11 +2006,14 @@
         add("Passive", "This is always active on Collector once unlocked. No button press needed.");
         add("Best use", "Run close to loose orbs while pathing to rifts instead of stopping for every pickup.");
         break;
-      case "voidTrace":
-        add("Upgrade", `Improves your smoke-read to ${perkPassiveStrengthWord(row.smokeKillerRevealRadius, rowLevel).toLowerCase()} reveal reach.`);
-        add("Passive", "This is always active on Nebulizer while you are standing inside smoke.");
-        add("Best use", "Use smoke as cover while still tracking where The Void is moving inside the cloud.");
+      case "voidTrace": {
+        const mult = Number(row.vaporTrailSpeedMultiplier || 0);
+        const time = Number(row.vaporTrailDuration || row.duration || 0) > 0 ? formatSeconds(row.vaporTrailDuration || row.duration) : "a short time";
+        add("Upgrade", `While inside smoke, gain ${mult > 1 ? `${mult.toFixed(1)}x` : "bonus"} speed for ${time}.`);
+        add("Passive", "Scratch marks disappear while Vapor Trail is active.");
+        add("Best use", "Throw smoke through a chase route, sprint through the cloud, and leave The Void with nothing useful to track.");
         break;
+      }
       case "flowState":
         add("Upgrade", `Makes your window and pallet vaults ${perkPassiveStrengthWord(row.vaultSpeedMultiplier, rowLevel).toLowerCase()} faster.`);
         add("Passive", "This is always active on Escapist once unlocked. No ability charge needed.");
@@ -2029,6 +2045,15 @@
         if (rangeWord || dartSpeedWord) add("Bolt feel", `${rangeWord ? `${rangeWord} range` : ""}${rangeWord && dartSpeedWord ? " · " : ""}${dartSpeedWord ? `${dartSpeedWord} travel speed` : ""}.`);
         if (cooldown) add("Cooldown", `${cooldown} before the next smoke shot.`);
         break;
+      case "voidSwirl": {
+        const slow = Math.round((1 - Number(row.slowMultiplier || 1)) * 100);
+        const slowTime = Number(row.slowDuration || 0) > 0 ? formatSeconds(row.slowDuration) : "briefly";
+        add("Trap", `Drops a ${radiusWord.toLowerCase()} red swirl at your feet.`);
+        if (duration) add("Uptime", `The swirl waits for The Void for ${duration}.`);
+        add("Slow", `The Void is slowed by ${slow}% for ${slowTime} when triggered.`);
+        if (cooldown) add("Cooldown", `${cooldown} before the next Void Swirl.`);
+        break;
+      }
       case "dashDart":
         add("Upgrade", `Gives Runners in the radius a ${speedBoostWord ? speedBoostWord.toLowerCase() : "strong"} speed boost.`);
         if (duration) add("Duration", `The speed boost lasts ${duration}.`);
@@ -2109,7 +2134,8 @@
     if (effect.canPickupDowned) parts.push("picks up downed Runners");
     else if (effect.canUnhook) parts.push("can unbind");
     if (effect.orbPickupRadiusMultiplier) parts.push(`${perkPassiveStrengthWord(effect.orbPickupRadiusMultiplier, currentLevel)} pickup radius`);
-    if (effect.smokeKillerRevealRadius) parts.push(`${perkPassiveStrengthWord(effect.smokeKillerRevealRadius, currentLevel)} smoke reveal`);
+    if (effect.vaporTrailSpeedMultiplier) parts.push(`${Number(effect.vaporTrailSpeedMultiplier).toFixed(1)}x boost in smoke`);
+    if (effect.vaporTrailDuration) parts.push(`${formatSeconds(effect.vaporTrailDuration)} duration`);
     if (effect.vaultSpeedMultiplier) parts.push(`${perkPassiveStrengthWord(effect.vaultSpeedMultiplier, currentLevel)} vault speed`);
     if (effect.healActionSpeedMultiplier || effect.unhookActionSpeedMultiplier) parts.push(`${perkPassiveStrengthWord(effect.healActionSpeedMultiplier || effect.unhookActionSpeedMultiplier, currentLevel)} support speed`);
     if (effect.speedMultiplier) parts.push(`${perkSpeedBoostWord(effect.speedMultiplier) || "Medium"} speed boost`);
@@ -2117,7 +2143,7 @@
     if (effect.projectileSpeed) parts.push(`${perkDartSpeedWord(effect.projectileSpeed) || "Medium"} dart speed`);
     if (effect.range) parts.push(`${perkRangeWord(effect.range) || "Medium"} range`);
     if (effect.slowMultiplier) parts.push(`${Math.round((1 - Number(effect.slowMultiplier)) * 100)}% slow`);
-    if (effect.slowSeconds) parts.push(`${formatSeconds(effect.slowSeconds)} slow`);
+    if (effect.slowSeconds || effect.slowDuration) parts.push(`${formatSeconds(effect.slowSeconds || effect.slowDuration)} slow`);
     if (effect.hidesScratchMarks) parts.push("hides scratch marks");
     return [...new Set(parts.filter(Boolean))].slice(0, 6).join(" · ") || "Level effect configured.";
   }
@@ -2170,9 +2196,10 @@
     if (Number(levelRow.backLengthMultiplier || 0) > 0) values.push({ label: "Rear view", value: "Longer" });
     if (Number(levelRow.backAngleMultiplier || 0) > 0) values.push({ label: "Rear width", value: "Wider" });
     if (Number(levelRow.slowMultiplier || 0) > 0 && Number(levelRow.slowMultiplier) < 1) values.push({ label: "Slow", value: `${Math.round((1 - Number(levelRow.slowMultiplier)) * 100)}%` });
-    if (Number(levelRow.slowSeconds || 0) > 0) values.push({ label: "Slow time", value: formatSeconds(levelRow.slowSeconds) });
+    if (Number(levelRow.slowSeconds || levelRow.slowDuration || 0) > 0) values.push({ label: "Slow time", value: formatSeconds(levelRow.slowSeconds || levelRow.slowDuration) });
     if (levelRow.orbPickupRadiusMultiplier) values.push({ label: "Pickup radius", value: perkPassiveStrengthWord(levelRow.orbPickupRadiusMultiplier, levelRow.level) });
-    if (levelRow.smokeKillerRevealRadius) values.push({ label: "Smoke reveal", value: perkPassiveStrengthWord(levelRow.smokeKillerRevealRadius, levelRow.level) });
+    if (levelRow.vaporTrailSpeedMultiplier) values.push({ label: "Boost in smoke", value: `${Number(levelRow.vaporTrailSpeedMultiplier).toFixed(1)}x` });
+    if (levelRow.vaporTrailDuration) values.push({ label: "Duration", value: formatSeconds(levelRow.vaporTrailDuration) });
     if (levelRow.vaultSpeedMultiplier) values.push({ label: "Vault speed", value: perkPassiveStrengthWord(levelRow.vaultSpeedMultiplier, levelRow.level) });
     if (levelRow.healActionSpeedMultiplier || levelRow.unhookActionSpeedMultiplier) values.push({ label: "Support speed", value: perkPassiveStrengthWord(levelRow.healActionSpeedMultiplier || levelRow.unhookActionSpeedMultiplier, levelRow.level) });
     return values;
@@ -2200,9 +2227,9 @@
         ];
       case "voidTrace":
         return [
-          { label: "Passive", text: "Nebulizer can read The Void through smoke while standing inside a smoke cloud." },
-          { label: "Scaling", text: "Higher tiers improve the reveal reach inside smoke." },
-          { label: "Best use", text: "Hide your team in smoke without completely losing track of The Void." }
+          { label: "Passive", text: "While inside smoke, Nebulizer gains speed and scratch marks disappear." },
+          { label: "Scaling", text: "Level 1 is 1.2x for 2s, Level 2 is 1.4x for 3s, and Level 3 is 1.8x for 4s." },
+          { label: "Best use", text: "Cut through smoke during chase, break tracking, and disappear before The Void can re-read the route." }
         ];
       case "flowState":
         return [
@@ -2229,8 +2256,14 @@
         ];
       case "smokeDart":
         return [
-          { label: "Purpose", text: "Create a void-smoke radius that blocks vision between inside and outside." },
+          { label: "Purpose", text: "Create a void-smoke radius that blocks all vision between inside and outside." },
           { label: "Scaling", text: "Higher tiers create larger smoke that lasts longer." }
+        ];
+      case "voidSwirl":
+        return [
+          { label: "Purpose", text: "Drop a red swirl trap that slows The Void when he steps through it." },
+          { label: "Scaling", text: "Higher tiers increase radius, uptime, slow strength, and slow duration." },
+          { label: "Best use", text: "Place it behind you in chase, on pallet paths, or near smoke edges so The Void has to choose between losing speed or losing the route." }
         ];
       case "dashDart":
         return [
@@ -2492,7 +2525,7 @@
         infoButton.dataset.perkInfo = id;
         infoButton.dataset.perkRole = role;
         infoButton.setAttribute("aria-label", `View ${perk.name || id} perk details`);
-        infoButton.textContent = "Details";
+        infoButton.textContent = "View More Details";
         const headerActions = document.createElement("div");
         headerActions.className = "perk-card-actions";
         headerActions.append(status.parentElement, infoButton);
@@ -3324,11 +3357,17 @@
     const card = document.createElement("div");
     card.className = `match-announcement ${kind ? `is-${kind}` : ""}`;
     card.innerHTML = `
-      <div class="match-announcement-rune" aria-hidden="true"></div>
+      <div class="match-announcement-sheen" aria-hidden="true"></div>
+      <div class="match-announcement-rune" aria-hidden="true">
+        <span class="match-announcement-rune-core"></span>
+        <span class="match-announcement-rune-ring match-announcement-rune-ring-a"></span>
+        <span class="match-announcement-rune-ring match-announcement-rune-ring-b"></span>
+      </div>
       <div class="match-announcement-copy">
         <strong>${escapeHtml(title)}</strong>
         ${detail ? `<span>${escapeHtml(detail)}</span>` : ""}
       </div>
+      <div class="match-announcement-bottom-line" aria-hidden="true"></div>
     `;
     root.appendChild(card);
     window.setTimeout(() => card.classList.add("leaving"), ANNOUNCEMENT_LIFETIME_MS - 520);
@@ -3723,13 +3762,14 @@
     if (roleKey === "survivor" && base.classAbility) {
       const perk = perkConfigById(base.id || id, roleKey) || publicPerkById(base.id || id, roleKey);
       const fallbackEffect = runnerClassAbilityLevelConfig(base, actor);
+      const fallbackLevel = Math.max(1, Math.floor(Number(fallbackEffect?.level || 1)));
       const perkLevel = perk ? actorPerkLevel(actor, base.id || id, roleKey) : 0;
       const maxLevel = perk ? perkMaxLevel(perk) : Math.max(1, Array.isArray(base.levels) ? base.levels.length : 1);
       const forcedLevel = testingAbilities ? Math.min(maxLevel, testLevel) : 0;
-      const level = forcedLevel || (perk ? Math.max(0, Math.min(maxLevel, Math.floor(Number(perkLevel || 0)))) : Math.max(1, Math.floor(Number(fallbackEffect?.level || 1))));
-      const locked = !testingAbilities && !!perk && level <= 0;
+      const level = forcedLevel || Math.max(1, Math.min(maxLevel, Math.floor(Number(perkLevel || fallbackLevel || 1))));
+      const locked = false;
       const effect = perk
-        ? (level > 0 ? perkLevelConfig(perk, level) : perkLevelConfig(perk, 1))
+        ? (perkLevelConfig(perk, level) || fallbackEffect || perkLevelConfig(perk, 1))
         : fallbackEffect;
       const duration = Number(effect?.duration ?? effect?.boostDuration ?? base.duration ?? 0);
       const abilityCost = abilityCostForDisplay(base, effect, effect?.cost ?? perk?.abilityCost ?? base.cost ?? 0, testingAbilities);
@@ -3891,6 +3931,22 @@
     reactAbilityWheelRole = null;
   }
 
+  function getQuickQAbilities(actor = getLocalPlayerData()) {
+    return getAbilityListForActor(actor).filter((ability) => {
+      if (!ability || ability.cancel || ability.passive || ability.disabled) return false;
+      if (ability.inputType === "m1" || ability.shootAbility) return false;
+      return ability.id !== "moreSoon";
+    }).slice(0, 2);
+  }
+
+  function triggerQuickQAbility(slotIndex) {
+    const me = getLocalPlayerData();
+    const ability = getQuickQAbilities(me)[slotIndex];
+    if (!ability) return false;
+    sendAbilitySelection({ id: ability.id });
+    return true;
+  }
+
   function sendAbilitySelection(selection) {
     let abilityId = String(selection?.id || selection || "");
     const me = getLocalPlayerData();
@@ -3937,6 +3993,7 @@
     if (isRunner && (me.doubleOrb || 0) > 0) runnerEffects.push({ id: "doubleOrb", label: "double orb", time: me.doubleOrb });
     if (isRunner && (me.swiftVaultReady || 0) > 0) runnerEffects.push({ id: "swiftVault", label: "swift vault", time: me.swiftVaultReady });
     if (isRunner && (me.dashBoost || 0) > 0) runnerEffects.push({ id: "dashBoost", label: "dash boost", time: me.dashBoost });
+    if (isRunner && (me.nebulizerVaporTrail || 0) > 0) runnerEffects.push({ id: "vaporTrail", label: "vapor trail", time: me.nebulizerVaporTrail });
     window.dispatchEvent(new CustomEvent("riftrunner:runner-ability-hud", {
       detail: {
         visible: isRunner,
@@ -6867,51 +6924,54 @@
       applyRoleHudSkin(me, hudRole === "ffa" ? "survivor" : hudRole);
       ui.roleLabel.textContent = hudRole === "ffa" ? "Void Shooter" : hudRole === "killer" ? "The Void" : hudRole === "spectator" ? "Spectator" : `${runnerClassLabel(me.runnerClass)} Runner`;
       const shownDone = Math.min(done, required);
-      ui.genText.textContent = ffaMode
+      const hudSummaryText = ffaMode
         ? `${shownDone} / ${required} kills${ffaLeader ? ` • Leader: ${ffaLeader.name || "Shooter"} ${ffaLeader.kills || 0}` : ""}`
         : `${shownDone} / ${required}${total > required ? ` (${total} on map)` : ""}`;
+      if (ui.genText) ui.genText.textContent = hudSummaryText;
       if (ui.bigGenText) ui.bigGenText.textContent = `${shownDone} / ${required}`;
       ui.bigGenCounter?.classList.toggle("is-complete", required > 0 && shownDone >= required);
       const bigGenLabel = ui.bigGenCounter?.querySelector?.(".big-gen-copy span");
       if (bigGenLabel) bigGenLabel.textContent = ffaMode ? "Kills" : "Rifts sealed";
-      ui.gateText.textContent = ffaMode ? "FFA" : escapeOpen ? "Open" : "Sealed";
+      if (ui.gateText) ui.gateText.textContent = ffaMode ? "FFA" : escapeOpen ? "Open" : "Sealed";
+      let healthSummaryText = survivorStateLabel(me);
       if (ffaMode) {
         const respawn = Math.ceil(Number(myFfaScore.respawnRemaining || me.respawnRemaining || 0));
-        if (me.dead || me.downed || respawn > 0) ui.healthText.textContent = `Respawning ${Math.max(1, respawn)}s`;
-        else if (me.injured || Number(me.health || 0) <= 1) ui.healthText.textContent = `Injured • ${myFfaScore.kills || 0} kills`;
-        else ui.healthText.textContent = `Full health • ${myFfaScore.kills || 0} kills`;
+        if (me.dead || me.downed || respawn > 0) healthSummaryText = `Respawning ${Math.max(1, respawn)}s`;
+        else if (me.injured || Number(me.health || 0) <= 1) healthSummaryText = `Injured • ${myFfaScore.kills || 0} kills`;
+        else healthSummaryText = `Full health • ${myFfaScore.kills || 0} kills`;
       } else if (me.role === "killer") {
         const actors = snapshot.actors || [];
         const hookingTarget = actors.find((a) => a.id === me.hookActionTargetId);
         const readyTarget = actors.find((a) => a.id === me.hookReadyTargetId);
         if ((me.voidStun || 0) > 0) {
-          ui.healthText.textContent = `Stunned ${Math.ceil(me.voidStun || 0)}s`;
+          healthSummaryText = `Stunned ${Math.ceil(me.voidStun || 0)}s`;
         } else if (hookingTarget) {
           const executing = me.hookActionType === "execute" || (hookingTarget.hookCount || 0) >= 2;
-          ui.healthText.textContent = `${executing ? "Executing" : "Binding"} ${hookingTarget.name || "runner"} ${Math.round((hookingTarget.hookProgress || 0) * 100)}%`;
+          healthSummaryText = `${executing ? "Executing" : "Binding"} ${hookingTarget.name || "runner"} ${Math.round((hookingTarget.hookProgress || 0) * 100)}%`;
         } else if (readyTarget) {
           const executeReady = (readyTarget.hookCount || 0) >= 2;
-          ui.healthText.textContent = `Hold E: ${executeReady ? "Execute" : "bind"} ${readyTarget.name || "Runner"}`;
+          healthSummaryText = `Hold E: ${executeReady ? "Execute" : "bind"} ${readyTarget.name || "Runner"}`;
         } else if (me.generatorKickTargetId) {
-          ui.healthText.textContent = `Kicking rift ${Math.round((me.generatorKickProgress || 0) * 100)}%`;
+          healthSummaryText = `Kicking rift ${Math.round((me.generatorKickProgress || 0) * 100)}%`;
         } else {
           const kickable = (snapshot.map?.generators || []).some((gen) => !gen.done && !gen.kickLocked && (gen.progress || 0) > 0 && Math.hypot((me.x || 0) - gen.x, (me.y || 0) - gen.y) < 92);
-          ui.healthText.textContent = kickable ? "Hold E: Kick rift" : "The Void";
+          healthSummaryText = kickable ? "Hold E: Kick rift" : "The Void";
         }
       } else if (me.role === "spectator") {
         const targetId = this.resolveSpectateTargetId();
         const target = (snapshot.actors || []).find((a) => a.id === targetId);
-        ui.healthText.textContent = targetId === SPECTATE_OVERVIEW_ID
+        healthSummaryText = targetId === SPECTATE_OVERVIEW_ID
           ? "Spectating: Full Map Overview"
           : target
             ? `Spectating: ${target.name || (target.role === "killer" ? "The Void" : "Runner")}`
             : "Spectating";
       } else if (me.dead) {
         const target = (snapshot.actors || []).find((a) => a.id === this.resolveSpectateTargetId());
-        ui.healthText.textContent = target
+        healthSummaryText = target
           ? `Spectating: ${target.name || "Runner"}`
           : "Dead";
-      } else ui.healthText.textContent = survivorStateLabel(me);
+      }
+      if (ui.healthText) ui.healthText.textContent = healthSummaryText;
       const fxActor = this.getPovSurvivorData() || me;
       updateHorrorFx(snapshot, fxActor, { terror: this.terrorBlend, chase: this.chaseBlend });
     }
@@ -8088,7 +8148,8 @@
       if (!item?.boostAura || data?.role !== "survivor") return;
 
       const alphaBase = clamp(item.visionAlpha ?? 0, 0, 1);
-      const active = (data.dashBoost || 0) > 0
+      const vaporTrailActive = (data.nebulizerVaporTrail || 0) > 0;
+      const active = ((data.dashBoost || 0) > 0 || vaporTrailActive)
         && !data.dead
         && !data.escaped
         && !data.hooked
@@ -8113,7 +8174,12 @@
       item.boostAura.setPosition(item.current.x, item.current.y);
       item.boostAura.setRotation(0);
 
-      item.boostAura.lineStyle(ultra ? 2 : 2.6, 0xff9f1c, coreAlpha);
+      const coreColor = vaporTrailActive ? 0xa855f7 : 0xff9f1c;
+      const outerColor = vaporTrailActive ? 0xd8b4fe : 0xffd27a;
+      const sparkA = vaporTrailActive ? 0xc084fc : 0xffb347;
+      const sparkB = vaporTrailActive ? 0x7c3aed : 0xff6b00;
+
+      item.boostAura.lineStyle(ultra ? 2 : 2.6, coreColor, coreAlpha);
       item.boostAura.beginPath();
       for (let i = 0; i <= points; i += 1) {
         const t = i / points;
@@ -8128,7 +8194,7 @@
       item.boostAura.strokePath();
 
       if (!ultra) {
-        item.boostAura.lineStyle(1.1, 0xffd27a, outerAlpha * 0.72);
+        item.boostAura.lineStyle(1.1, outerColor, outerAlpha * 0.72);
         item.boostAura.beginPath();
         for (let i = 0; i <= points; i += 1) {
           const t = i / points;
@@ -8155,7 +8221,7 @@
         const ky = Math.sin(angle + 0.14) * kink;
         const ox = Math.cos(angle - 0.08) * outer;
         const oy = Math.sin(angle - 0.08) * outer;
-        item.boostAura.lineStyle(ultra ? 1.3 : 1.7, i % 2 ? 0xffb347 : 0xff6b00, outerAlpha * (0.78 + (i % 2) * 0.22));
+        item.boostAura.lineStyle(ultra ? 1.3 : 1.7, i % 2 ? sparkA : sparkB, outerAlpha * (0.78 + (i % 2) * 0.22));
         item.boostAura.beginPath();
         item.boostAura.moveTo(ix, iy);
         item.boostAura.lineTo(kx, ky);
@@ -8244,7 +8310,8 @@
     }
 
     emitSurvivorSpeedBurstTrail(item, data) {
-      if (!item || !data || data.role !== "survivor" || !(data.speedBurst > 0) || data.dead || data.escaped || data.downed || data.hooked) return;
+      const vaporTrailActive = (data?.nebulizerVaporTrail || 0) > 0;
+      if (!item || !data || data.role !== "survivor" || !((data.speedBurst || 0) > 0 || vaporTrailActive) || data.dead || data.escaped || data.downed || data.hooked) return;
       const now = performance.now();
       const gap = performanceValue("survivorSpeedBurstTrailGapMs", LOW_POWER_MODE ? 145 : 82);
       const count = Math.max(0, Math.floor(performanceValue("survivorSpeedBurstTrailCount", LOW_POWER_MODE ? 1 : 2)));
@@ -8256,8 +8323,8 @@
       const baseX = item.current?.x ?? data.x ?? 0;
       const baseY = item.current?.y ?? data.y ?? 0;
       const skin = getSurvivorSkin(data.skin);
-      const color = data.health <= 1 || data.injured ? COLORS.survivorInjured : (skin?.color || COLORS.survivor);
-      const alpha = performanceValue("survivorSpeedBurstTrailAlpha", LOW_POWER_MODE ? 0.24 : 0.36);
+      const color = vaporTrailActive ? 0xa855f7 : (data.health <= 1 || data.injured ? COLORS.survivorInjured : (skin?.color || COLORS.survivor));
+      const alpha = performanceValue("survivorSpeedBurstTrailAlpha", LOW_POWER_MODE ? 0.24 : 0.36) * (vaporTrailActive ? 1.16 : 1);
 
       for (let i = 0; i < count; i += 1) {
         const side = (Math.random() - 0.5) * 20;
@@ -8554,6 +8621,7 @@
           playLocalizedDashAbilitySfx(event);
           const color = event.abilityId === "dashDart" || event.abilityId === "swiftVault" || event.abilityId === "speedBurst" ? 0xff9f1c
             : event.abilityId === "smokeDart" ? 0xa78bfa
+              : event.abilityId === "voidSwirl" ? 0xef4444
               : event.abilityId === "healingDart" || event.abilityId === "healingPulse" ? 0x34d399
                 : event.abilityId === "collectionBolt" || event.abilityId === "doubleOrb" || event.abilityId === "riftLens" ? 0xfbbf24
                   : event.abilityId === "hourglass" ? 0x67e8f9
@@ -8577,6 +8645,10 @@
         if (event.type === "runnerProjectileExplode") this.playRunnerProjectileImpactFx(event);
         if (event.type === "redOrbSlow" && adaptivePerformance.mode !== "ultra") {
           this.burst(event.x, event.y, 0xff3048, LOW_POWER_MODE ? 4 : 18, 95);
+        }
+        if (event.type === "voidSwirlTriggered" && adaptivePerformance.mode !== "ultra") {
+          this.burst(event.x, event.y, 0xef4444, LOW_POWER_MODE ? 7 : 26, 130);
+          if (adaptivePerformance.mode === "normal") this.addShockwave(event.x, event.y, 0xff1f3a, 0.48, event.radius || 100);
         }
         if (event.type === "voidOrbSteal" && adaptivePerformance.mode !== "ultra") {
           this.burst(event.x, event.y, 0xfbbf24, LOW_POWER_MODE ? 4 : 20, 105);
@@ -9459,12 +9531,45 @@
       ];
     }
 
+    smokeCloudContainsPoint(cloud, x, y, padding = 0) {
+      if (!cloud || !Number.isFinite(x) || !Number.isFinite(y)) return false;
+      const radius = Math.max(0, Number(cloud.radius || 0) + Number(padding || 0));
+      if (radius <= 0) return false;
+      return Math.hypot(Number(cloud.x || 0) - x, Number(cloud.y || 0) - y) <= radius;
+    }
+
+    smokeBlocksPointForSubject(subject, worldX, worldY, padding = 0) {
+      if (!subject || this.isSpectatorOverviewMode()) return false;
+      const clouds = Array.isArray(currentSnapshot?.smokeClouds) ? currentSnapshot.smokeClouds : [];
+      if (!clouds.length) return false;
+      const sourceX = subject.current?.x ?? subject.container?.x ?? 0;
+      const sourceY = subject.current?.y ?? subject.container?.y ?? 0;
+      const sourceClouds = clouds.filter((cloud) => this.smokeCloudContainsPoint(cloud, sourceX, sourceY, 2));
+      if (sourceClouds.length) {
+        return !sourceClouds.some((cloud) => this.smokeCloudContainsPoint(cloud, worldX, worldY, padding));
+      }
+      return clouds.some((cloud) => this.smokeCloudContainsPoint(cloud, worldX, worldY, padding));
+    }
+
+    smokeWallVisibilityFactor(item, subject) {
+      if (!item || !subject) return 1;
+      const samples = Array.isArray(item.samples) && item.samples.length
+        ? item.samples
+        : [{ x: item.centerX ?? (item.rect?.x || 0) + (item.rect?.w || 0) / 2, y: item.centerY ?? (item.rect?.y || 0) + (item.rect?.h || 0) / 2 }];
+      let visible = 0;
+      for (const sample of samples) {
+        if (!this.smokeBlocksPointForSubject(subject, sample.x, sample.y, item.radius ? Math.min(10, item.radius * 0.08) : 0)) visible += 1;
+      }
+      return clamp(visible / Math.max(1, samples.length), 0, 1);
+    }
+
     computeSinglePointVisionAlpha(worldX, worldY, subject) {
       if (!subject) return 0;
       const role = subject.data?.role || "survivor";
       const sourceX = subject.current?.x ?? subject.container?.x ?? 0;
       const sourceY = subject.current?.y ?? subject.container?.y ?? 0;
       const facing = subject.current?.angle ?? subject.container?.rotation ?? 0;
+      if (this.smokeBlocksPointForSubject(subject, worldX, worldY, ACTOR_VISION.POINT_RADIUS * 0.35)) return 0;
       const hourglassActive = role === "survivor" && (subject?.data?.hourglass || 0) > 0;
       const length = (role === "killer" ? LIGHTING.KILLER_LENGTH : survivorVisionLengthForData(subject?.data)) + WALL_VISION.CONE_EXTRA_LENGTH;
       const coneAngle = (role === "killer" ? LIGHTING.KILLER_ANGLE : survivorVisionAngleForData(subject?.data)) + WALL_VISION.CONE_EXTRA_ANGLE;
@@ -9497,6 +9602,7 @@
       const sourceY = subject?.current?.y ?? subject?.container?.y ?? 0;
       let best = 0;
       for (const sample of this.actorVisionSamplePoints(worldX, worldY, ACTOR_VISION.POINT_RADIUS)) {
+        if (this.smokeBlocksPointForSubject(subject, sample.x, sample.y, ACTOR_VISION.POINT_RADIUS * 0.25)) continue;
         if (!this.hasClearWallLineOfSight(sourceX, sourceY, sample.x, sample.y)) continue;
         best = Math.max(best, this.computeSinglePointVisionAlpha(sample.x, sample.y, subject));
       }
@@ -9636,9 +9742,10 @@
       const nearRadius = role === "killer" ? WALL_VISION.KILLER_NEAR_RADIUS : WALL_VISION.SURVIVOR_NEAR_RADIUS;
 
       if (role !== "killer") this.killerWallVisionStableKey = "";
-      if (role === "killer" && (LOW_POWER_MODE || adaptivePerformance.mode !== "normal")) {
+      if (role === "killer" && (LOW_POWER_MODE || adaptivePerformance.mode !== "normal") && !(currentSnapshot?.smokeClouds || []).length) {
         // Low-performance Void POV does not need per-frame wall fading math. The Void
-        // should read the whole arena while local prediction gets the CPU budget.
+        // should read the whole arena while local prediction gets the CPU budget. Smoke still
+        // cuts vision, because fair play beats cheap wizard X-ray nonsense.
         this.applyKillerFullWallVisionIfStable();
         return;
       }
@@ -9656,16 +9763,21 @@
         if (shouldRecompute) {
           if (!hasSubject) {
             item.targetAlpha = 0;
-          } else if (role === "killer" || item.outerWall) {
-            // Killer gets normal map readability. Survivors get the cone/near-bubble horror effect.
-            // Outer boundary walls stay visible for everyone so the map edge never becomes invisible collision nonsense.
-            item.targetAlpha = 1;
           } else {
-            const forwardAlpha = this.computeWallVisionAlpha(item, worldX, worldY, facing, length, coneAngle, nearRadius);
-            const backAlpha = hourglassActive
-              ? this.computeWallVisionAlpha(item, worldX, worldY, facing + Math.PI, backLength, backConeAngle, nearRadius)
-              : 0;
-            item.targetAlpha = Math.max(forwardAlpha, backAlpha);
+            const smokeFactor = this.smokeWallVisibilityFactor(item, subject);
+            if (smokeFactor <= 0.001) {
+              item.targetAlpha = 0;
+            } else if (role === "killer" || item.outerWall) {
+              // Killer gets normal map readability. Survivors get the cone/near-bubble horror effect.
+              // Smoke still walls off anything on the other side of the cloud.
+              item.targetAlpha = smokeFactor;
+            } else {
+              const forwardAlpha = this.computeWallVisionAlpha(item, worldX, worldY, facing, length, coneAngle, nearRadius);
+              const backAlpha = hourglassActive
+                ? this.computeWallVisionAlpha(item, worldX, worldY, facing + Math.PI, backLength, backConeAngle, nearRadius)
+                : 0;
+              item.targetAlpha = Math.max(forwardAlpha, backAlpha) * smokeFactor;
+            }
           }
         }
 
@@ -9738,7 +9850,7 @@
         if (item.data?.role === "killer" && (item.data?.voidSpeedBoost || 0) > 0) {
           this.emitVoidRushTrail(item, item.data);
         }
-        if (item.data?.role === "survivor" && ((item.data?.speedBurst || 0) > 0 || (item.data?.dashBoost || 0) > 0)) {
+        if (item.data?.role === "survivor" && ((item.data?.speedBurst || 0) > 0 || (item.data?.dashBoost || 0) > 0 || (item.data?.nebulizerVaporTrail || 0) > 0)) {
           this.emitSurvivorSpeedBurstTrail(item, item.data);
         }
         if (item.spawnScalePulse && item.spawnScalePulse > 0.001) {
@@ -10301,6 +10413,8 @@
         const speed = Math.max(900, Number(raw.speed || 1500));
         const rawX = Number(raw.x);
         const rawY = Number(raw.y);
+        const projectileType = String(raw.type || raw.abilityId || "boost");
+        const isFfaShotVisual = projectileType === "ffaShot" || projectileType === "voidShooter";
         let visual = visuals.get(id);
 
         if (!visual) {
@@ -10312,7 +10426,7 @@
             vx,
             vy,
             speed,
-            type: String(raw.type || raw.abilityId || "boost"),
+            type: projectileType,
             abilityId: raw.abilityId || raw.type || null,
             ownerId: raw.ownerId || null,
             radius: raw.radius,
@@ -10322,12 +10436,13 @@
         }
 
         const distanceToServer = Math.hypot(rawX - visual.x, rawY - visual.y);
-        if (distanceToServer > 210) {
+        const snapDistance = isFfaShotVisual ? 560 : 210;
+        if (distanceToServer > snapDistance) {
           visual.x = rawX;
           visual.y = rawY;
           visual.trail = [{ x: rawX, y: rawY }];
         } else {
-          const correction = 1 - Math.exp(-safeDt * 24);
+          const correction = 1 - Math.exp(-safeDt * (isFfaShotVisual ? 34 : 24));
           visual.x += (rawX - visual.x) * correction;
           visual.y += (rawY - visual.y) * correction;
         }
@@ -10336,12 +10451,14 @@
         visual.vx = Number.isFinite(vx) ? vx : 1;
         visual.vy = Number.isFinite(vy) ? vy : 0;
         visual.speed = speed;
-        visual.type = String(raw.type || raw.abilityId || visual.type || "boost");
+        visual.type = projectileType || visual.type || "boost";
         visual.abilityId = raw.abilityId || visual.abilityId || visual.type;
         visual.ownerId = raw.ownerId || visual.ownerId || null;
         visual.radius = raw.radius;
 
-        const maxLead = Math.max(36, Math.min(120, speed * 0.075));
+        const maxLead = isFfaShotVisual
+          ? Math.max(170, Math.min(440, speed * 0.06))
+          : Math.max(36, Math.min(120, speed * 0.075));
         const currentLead = (visual.x - rawX) * visual.vx + (visual.y - rawY) * visual.vy;
         const travelStep = Math.min(speed * safeDt, Math.max(0, maxLead - currentLead));
         if (travelStep > 0) {
@@ -10469,16 +10586,6 @@
         g.fillCircle(projectile.x, projectile.y, cometRadius * 0.56);
         g.fillStyle(0xffffff, 0.44);
         g.fillCircle(projectile.x - vx * 1.4, projectile.y - vy * 1.4, Math.max(1.4, cometRadius * 0.18));
-        g.lineStyle(ultra ? 1.4 : 2.0, palette.ring, 0.48 * swirl);
-        g.strokeCircle(projectile.x, projectile.y, cometRadius * 1.46);
-        if (!ultra) {
-          for (let i = 0; i < (LOW_POWER_MODE ? 2 : 3); i += 1) {
-            const a = now / (330 + i * 50) + i * 2.1;
-            const ox = Math.cos(a) * (cometRadius * (1.25 + i * 0.22));
-            const oy = Math.sin(a) * (cometRadius * (0.95 + i * 0.16));
-            this.drawRunnerProjectileStar(g, projectile.x + ox, projectile.y + oy, LOW_POWER_MODE ? 2.0 : 2.6, i % 2 === 0 ? 0xf8f0ff : 0xd8b4fe, 0.12 + 0.06 * i, -a);
-          }
-        }
         return;
       }
 
@@ -10507,6 +10614,69 @@
       }
     }
 
+    drawVoidSwirl(g, swirl) {
+      if (!g || !swirl || !Number.isFinite(swirl.x) || !Number.isFinite(swirl.y)) return;
+      const now = performance.now();
+      const radius = Math.max(16, Number(swirl.radius || 72));
+      const duration = Math.max(0.1, Number(swirl.duration || 6));
+      const remaining = Math.max(0, Number(swirl.remaining || duration));
+      const lifeRatio = clamp(remaining / duration, 0, 1);
+      const fadeIn = clamp((duration - remaining) / 0.22, 0, 1);
+      const alpha = Math.min(lifeRatio, fadeIn) * (LOW_POWER_MODE ? 0.68 : 0.88);
+      if (alpha <= 0.01) return;
+      const phase = now / (LOW_POWER_MODE ? 520 : 380) + hash2(Math.round(swirl.x), Math.round(swirl.y)) * Math.PI * 2;
+      const pulse = 1 + Math.sin(now / 260 + phase) * 0.04;
+      const r = radius * pulse;
+
+      // Void Swirl is a trap spot, not an oval puddle. Everything here is drawn from circles.
+      g.fillStyle(0x250207, alpha * 0.44);
+      g.fillCircle(swirl.x, swirl.y, r * 1.02);
+      g.fillStyle(0x4a0510, alpha * 0.26);
+      g.fillCircle(swirl.x, swirl.y, r * 0.74);
+      g.fillStyle(0x7f1d1d, alpha * 0.16);
+      g.fillCircle(swirl.x, swirl.y, r * 0.46);
+
+      const arms = LOW_POWER_MODE || adaptivePerformance.mode === "ultra" ? 3 : 4;
+      for (let i = 0; i < arms; i += 1) {
+        const spin = phase + i * (Math.PI * 2 / arms);
+        const steps = LOW_POWER_MODE ? 12 : 18;
+        g.lineStyle(i % 2 ? 2.1 : 2.8, i % 2 ? 0xfb7185 : 0xef4444, alpha * (i % 2 ? 0.52 : 0.68));
+        g.beginPath();
+        for (let s = 0; s <= steps; s += 1) {
+          const t = s / steps;
+          const a = spin + t * Math.PI * 1.42;
+          const rr = r * (0.10 + t * 0.74);
+          const x = swirl.x + Math.cos(a) * rr;
+          const y = swirl.y + Math.sin(a) * rr;
+          if (s === 0) g.moveTo(x, y);
+          else g.lineTo(x, y);
+        }
+        g.strokePath();
+      }
+
+      const ringAlpha = alpha * (0.30 + Math.sin(now / 180 + phase) * 0.09);
+      g.lineStyle(LOW_POWER_MODE ? 1.4 : 2.0, 0xffccd5, ringAlpha);
+      g.strokeCircle(swirl.x, swirl.y, r * 0.98);
+      g.lineStyle(LOW_POWER_MODE ? 2 : 3, 0x7f1d1d, alpha * 0.32);
+      g.strokeCircle(swirl.x, swirl.y, r * 0.66);
+
+      if (!LOW_POWER_MODE && adaptivePerformance.mode === "normal") {
+        for (let i = 0; i < 5; i += 1) {
+          const a = phase * 1.3 + i * 1.31;
+          const sparkR = r * (0.24 + (i % 3) * 0.16);
+          const x = swirl.x + Math.cos(a) * sparkR;
+          const y = swirl.y + Math.sin(a * 1.08) * sparkR;
+          this.drawRunnerProjectileStar(g, x, y, 1.7 + (i % 2) * 0.7, i % 2 ? 0xffccd5 : 0xff4d6d, alpha * 0.34, -a);
+        }
+      }
+    }
+
+    drawVoidSwirls(g, swirls) {
+      const list = Array.isArray(swirls) ? swirls : [];
+      if (!g || !list.length) return;
+      for (const swirl of list) this.drawVoidSwirl(g, swirl);
+    }
+
     updateSmokeCloudVisuals(rawClouds, dt) {
       const visuals = this.smokeCloudVisuals || (this.smokeCloudVisuals = new Map());
       const seen = new Set();
@@ -10528,6 +10698,7 @@
             targetRadius: radius,
             remaining,
             duration,
+            viewerInside: !!raw.viewerInside,
             phase: Math.random() * Math.PI * 2
           };
           visuals.set(id, visual);
@@ -10539,6 +10710,7 @@
         visual.targetRadius = radius;
         visual.remaining = remaining;
         visual.duration = duration;
+        visual.viewerInside = !!raw.viewerInside;
       }
       for (const id of [...visuals.keys()]) {
         if (!seen.has(id)) {
@@ -10559,73 +10731,67 @@
       if (!clouds.length) return;
       const now = performance.now();
       for (const cloud of clouds) {
+        const viewerInside = !!cloud.viewerInside;
         const lifeRatio = clamp(cloud.remaining / Math.max(0.1, cloud.duration), 0, 1);
-        const fadeIn = clamp((cloud.duration - cloud.remaining) / 0.45, 0, 1);
-        const alpha = (0.18 + 0.30 * Math.min(lifeRatio, fadeIn));
-        const breathe = 1 + Math.sin(now / 620 + cloud.phase) * 0.024;
+        const fadeIn = clamp((cloud.duration - cloud.remaining) / 0.35, 0, 1);
+        const strength = Math.min(lifeRatio, fadeIn);
+        const alpha = viewerInside ? (0.16 + 0.18 * strength) : (0.38 + 0.34 * strength);
+        const breathe = 1 + Math.sin(now / 620 + cloud.phase) * (viewerInside ? 0.018 : 0.026);
         const radius = cloud.radius * breathe;
         const rimPuffs = adaptivePerformance.mode === "ultra" ? 8 : LOW_POWER_MODE ? 12 : 18;
-        const innerPuffs = adaptivePerformance.mode === "ultra" ? 7 : LOW_POWER_MODE ? 11 : 16;
-        const dustCount = adaptivePerformance.mode === "ultra" ? 10 : LOW_POWER_MODE ? 14 : 24;
+        const innerPuffs = adaptivePerformance.mode === "ultra" ? 6 : LOW_POWER_MODE ? 9 : 14;
+        const dustCount = adaptivePerformance.mode === "ultra" ? 8 : LOW_POWER_MODE ? 12 : 20;
+        const rimAlpha = viewerInside ? alpha * 0.46 : alpha * 0.74;
+        const coreAlpha = viewerInside ? alpha * 0.16 : alpha * 0.66;
 
-        // Deep outer void haze.
-        g.fillStyle(0x12081f, alpha * 0.22);
-        g.fillCircle(cloud.x, cloud.y, radius * 1.20);
-        g.fillStyle(0x251041, alpha * 0.20);
-        g.fillCircle(cloud.x, cloud.y, radius * 1.08);
+        // Solid occulting body. From outside, this is a blackout dome, not a cute transparent sticker.
+        g.fillStyle(0x090511, coreAlpha * 0.95);
+        g.fillCircle(cloud.x, cloud.y, radius * 1.04);
+        g.fillStyle(0x140724, coreAlpha * 0.72);
+        g.fillCircle(cloud.x, cloud.y, radius * 0.92);
+        g.fillStyle(0x2e1065, viewerInside ? alpha * 0.10 : alpha * 0.20);
+        g.fillCircle(cloud.x - radius * 0.04, cloud.y + radius * 0.03, radius * 0.70);
 
-        // Nebula glow bed.
-        g.fillStyle(0x6d28d9, alpha * 0.12);
-        g.fillCircle(cloud.x, cloud.y, radius * 0.98);
-        g.fillStyle(0xc084fc, alpha * 0.09);
-        g.fillCircle(cloud.x, cloud.y, radius * 0.78);
-
-        // Circumference wisps: the edge of the smoke blooms into void-space cloudlets.
+        // Breathing rim that makes the cloud read as a playable boundary.
         for (let i = 0; i < rimPuffs; i += 1) {
           const t = i / Math.max(1, rimPuffs);
-          const angle = cloud.phase * 0.6 + Math.PI * 2 * t + now / (3600 + i * 42);
-          const wobble = Math.sin(now / (760 + i * 21) + i * 1.13) * radius * 0.04;
-          const orbit = radius * (0.84 + (i % 4) * 0.04) + wobble;
+          const angle = cloud.phase * 0.6 + Math.PI * 2 * t + now / (3200 + i * 51);
+          const wobble = Math.sin(now / (700 + i * 29) + i * 1.13) * radius * 0.045;
+          const orbit = radius * (0.86 + (i % 4) * 0.035) + wobble;
           const px = cloud.x + Math.cos(angle) * orbit;
           const py = cloud.y + Math.sin(angle) * orbit;
-          const puffRadius = radius * (LOW_POWER_MODE ? 0.16 : 0.18) + (i % 3) * radius * 0.025;
-          const color = i % 4 === 0 ? 0xede9fe : i % 4 === 1 ? 0xd8b4fe : i % 4 === 2 ? 0xa78bfa : 0xf5e9ff;
-          g.fillStyle(color, alpha * (i % 2 === 0 ? 0.16 : 0.12));
+          const puffRadius = radius * (LOW_POWER_MODE ? 0.15 : 0.17) + (i % 3) * radius * 0.022;
+          const color = i % 4 === 0 ? 0xede9fe : i % 4 === 1 ? 0xc084fc : i % 4 === 2 ? 0x7c3aed : 0xf5e9ff;
+          g.fillStyle(color, rimAlpha * (i % 2 === 0 ? 0.28 : 0.20));
           g.fillCircle(px, py, puffRadius);
         }
 
-        // Interior nebula puffs.
+        // Interior churning, intentionally cheaper than particles because the smoke can be spammed.
         for (let i = 0; i < innerPuffs; i += 1) {
           const t = innerPuffs <= 1 ? 0 : i / (innerPuffs - 1);
-          const angle = cloud.phase + now / (1300 + i * 80) + Math.PI * 2 * t;
-          const orbit = radius * (0.08 + (i % 5) * 0.09 + Math.sin(now / (980 + i * 40) + i) * 0.018);
+          const angle = cloud.phase + now / (1150 + i * 88) + Math.PI * 2 * t;
+          const orbit = radius * (0.08 + (i % 5) * 0.085 + Math.sin(now / (940 + i * 44) + i) * 0.015);
           const px = cloud.x + Math.cos(angle) * orbit;
-          const py = cloud.y + Math.sin(angle) * orbit * (0.78 + (i % 2) * 0.16);
-          const puffRadius = radius * (0.14 + (i % 4) * 0.05 + (1 - t) * 0.05);
-          const color = i % 4 === 0 ? 0xffffff : i % 4 === 1 ? 0xf5e9ff : i % 4 === 2 ? 0xc4b5fd : 0x8b5cf6;
-          g.fillStyle(color, alpha * (i % 3 === 0 ? 0.15 : i % 3 === 1 ? 0.11 : 0.08));
+          const py = cloud.y + Math.sin(angle * 1.08) * orbit * (0.78 + (i % 2) * 0.15);
+          const puffRadius = radius * (0.12 + (i % 4) * 0.045 + (1 - t) * 0.04);
+          const color = i % 4 === 0 ? 0x312e81 : i % 4 === 1 ? 0x581c87 : i % 4 === 2 ? 0x7e22ce : 0x111827;
+          g.fillStyle(color, viewerInside ? alpha * 0.08 : alpha * 0.15);
           g.fillCircle(px, py, puffRadius);
         }
 
-        // Star-dust / cosmic specks suspended inside.
+        // Tiny void embers, just enough motion to feel alive without turning the renderer into soup.
         for (let i = 0; i < dustCount; i += 1) {
-          const angle = cloud.phase * 1.2 + i * 0.91 + now / (5000 + i * 35);
-          const orbit = radius * (0.12 + ((i * 17) % 100) / 100 * 0.62);
+          const angle = cloud.phase * 1.2 + i * 0.91 + now / (4500 + i * 41);
+          const orbit = radius * (0.16 + ((i * 17) % 100) / 100 * 0.62);
           const px = cloud.x + Math.cos(angle) * orbit;
           const py = cloud.y + Math.sin(angle * 1.12) * orbit * 0.84;
-          const starSize = adaptivePerformance.mode === "ultra" ? 0.7 : LOW_POWER_MODE ? 0.9 : 1.2;
-          const starAlpha = alpha * (0.10 + ((i % 5) * 0.02));
+          const starSize = adaptivePerformance.mode === "ultra" ? 0.7 : LOW_POWER_MODE ? 0.9 : 1.15;
+          const starAlpha = (viewerInside ? alpha * 0.12 : alpha * 0.20) * (0.6 + (i % 5) * 0.10);
           g.fillStyle(i % 4 === 0 ? 0xffffff : i % 4 === 1 ? 0xf5e9ff : 0xc4b5fd, starAlpha);
           g.fillCircle(px, py, starSize);
         }
 
-        // Core swirl and perimeter shimmer.
-        g.fillStyle(0x4c1d95, alpha * 0.10);
-        g.fillCircle(cloud.x - radius * 0.06, cloud.y + radius * 0.04, radius * 0.52);
-        g.fillStyle(0xffffff, alpha * 0.05);
-        g.fillCircle(cloud.x + radius * 0.10, cloud.y - radius * 0.05, radius * 0.26);
-        g.lineStyle(LOW_POWER_MODE ? 1.2 : 1.8, 0xe9d5ff, alpha * 0.16);
-        g.strokeCircle(cloud.x, cloud.y, radius * 1.02);
+        // Keep the boundary smoky instead of drawing obvious outer rings around the cloud.
       }
     }
 
@@ -10633,6 +10799,7 @@
       const g = this.particleGraphics;
       if (!g) return;
       const visibleProjectiles = currentSnapshot?.runnerProjectiles || [];
+      const visibleSwirls = currentSnapshot?.voidSwirls || [];
       const smokeClouds = currentSnapshot?.smokeClouds || [];
       const hasSmokeFx = smokeClouds.length > 0 || (this.smokeCloudVisuals?.size || 0) > 0;
       if (hasSmokeFx) {
@@ -10647,7 +10814,7 @@
         this.lastSmokeHadClouds = false;
         this.smokeLayerDirty = false;
       }
-      const hasFx = this.shockwaves.length > 0 || this.particles.length > 0 || visibleProjectiles.length > 0 || (this.runnerProjectileVisuals?.size || 0) > 0;
+      const hasFx = this.shockwaves.length > 0 || this.particles.length > 0 || visibleProjectiles.length > 0 || visibleSwirls.length > 0 || (this.runnerProjectileVisuals?.size || 0) > 0;
       if (!hasFx) {
         if (this.particleLayerDirty) {
           g.clear();
@@ -10664,6 +10831,7 @@
       this.particleLayerDirty = true;
       g.clear();
       const projectileVisuals = this.updateRunnerProjectileVisuals(visibleProjectiles, stepDt);
+      this.drawVoidSwirls(g, visibleSwirls);
       for (const projectile of projectileVisuals) {
         this.drawRunnerProjectile(g, projectile);
       }
@@ -11137,17 +11305,7 @@
         const roleToJoin = isFfaLobby ? "ffa" : selectedRole === "ffa" ? "survivor" : selectedRole;
         socket.emit("joinLobby", { lobbyId: lobby.id, role: roleToJoin, playerName: getName(), skin: skinForSelectedRole(roleToJoin), runnerClass: selectedRunnerClass });
       });
-      const spectateButton = document.createElement("button");
-      spectateButton.type = "button";
-      spectateButton.className = "spectate-lobby-btn";
-      spectateButton.dataset.action = "join-spectator";
-      spectateButton.textContent = "Join as Spectator";
-      spectateButton.setAttribute("aria-label", `Join ${lobby.name || "this lobby"} as a spectator`);
-      spectateButton.title = lobby.phase === "game"
-        ? "Join this active run as a watch-only spectator."
-        : "Join this lobby as an auto-ready spectator. Spectators are optional and do not block match start.";
-      spectateButton.addEventListener("click", () => socket.emit("spectateLobby", { lobbyId: lobby.id, playerName: getName() || "Spectator" }));
-      actions.append(button, spectateButton);
+      actions.append(button);
       item.append(left, actions);
       ui.lobbyList.appendChild(item);
     }
@@ -11405,6 +11563,14 @@
         if (!e.repeat) openReactAbilityWheel(e);
         return;
       }
+      if ((e.code === "Digit1" || e.code === "Numpad1" || e.code === "Digit2" || e.code === "Numpad2") && activeScreenName === "game") {
+        const slotIndex = e.code === "Digit2" || e.code === "Numpad2" ? 1 : 0;
+        if (getQuickQAbilities().length > slotIndex) {
+          e.preventDefault();
+          if (!e.repeat) triggerQuickQAbility(slotIndex);
+          return;
+        }
+      }
       if (e.code === "Escape" && activeScreenName === "game" && phaserScene?.isSpectating()) {
         e.preventDefault();
         if (isDedicatedSpectator()) {
@@ -11602,6 +11768,7 @@
         if (!("dartBoxes" in snapshot)) snapshot.dartBoxes = currentSnapshot.dartBoxes || [];
         if (!("runnerProjectiles" in snapshot)) snapshot.runnerProjectiles = currentSnapshot.runnerProjectiles || [];
         if (!("smokeClouds" in snapshot)) snapshot.smokeClouds = currentSnapshot.smokeClouds || [];
+        if (!("voidSwirls" in snapshot)) snapshot.voidSwirls = currentSnapshot.voidSwirls || [];
         const viewerCanSeeScratchMarks = snapshot?.viewer?.role === "killer" || (snapshot?.viewer?.spectating && snapshot?.viewer?.spectateTargetId === SPECTATE_OVERVIEW_ID);
         if (!viewerCanSeeScratchMarks) snapshot.scratchMarks = [];
         else if (!("scratchMarks" in snapshot)) snapshot.scratchMarks = currentSnapshot.scratchMarks || [];

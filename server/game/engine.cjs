@@ -144,9 +144,10 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
   const FFA_KILL_LIMIT = Math.max(1, Math.floor(cfgNumber(GAMEPLAY_CONFIG.ffa?.killLimit, 10)));
   const FFA_RESPAWN_SECONDS = Math.max(0.5, cfgNumber(GAMEPLAY_CONFIG.ffa?.respawnSeconds, 3));
   const FFA_SHOT_COOLDOWN = Math.max(0.05, cfgNumber(GAMEPLAY_CONFIG.ffa?.shotCooldown, 1));
-  const FFA_PROJECTILE_SPEED = Math.max(120, cfgNumber(GAMEPLAY_CONFIG.ffa?.projectileSpeed, 820));
-  const FFA_PROJECTILE_RANGE = Math.max(160, cfgNumber(GAMEPLAY_CONFIG.ffa?.projectileRange, 760));
+  const FFA_PROJECTILE_SPEED = Math.max(120, cfgNumber(GAMEPLAY_CONFIG.ffa?.projectileSpeed, 9000));
+  const FFA_PROJECTILE_RANGE = Math.max(160, cfgNumber(GAMEPLAY_CONFIG.ffa?.projectileRange, 1150));
   const FFA_PROJECTILE_RADIUS = Math.max(8, cfgNumber(GAMEPLAY_CONFIG.ffa?.projectileRadius, 18));
+  const FFA_HEAL_BOX_RESPAWN_SECONDS = Math.max(0.1, cfgNumber(GAMEPLAY_CONFIG.ffa?.healBoxRespawnSeconds, 2));
   const SURVIVOR_SKINS = new Set(["blueSquare", "yellowStar", "purplePentagon", "nebulaBloom", "eclipseWisp", "riftMoth", "signalDrone"]);
   const VOID_SKINS = new Set(["voidCore", "solarMaw", "azureRift", "bloodEclipse", "starlessWyrm", "lanternHusk", "abyssSiren", "crownedHollow", "staticNull", "riftSeraph"]);
   function sanitizeSkin(value) {
@@ -399,9 +400,9 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     const passivePerk = passiveId ? perkConfigById(passiveId, "survivor") : null;
     const boughtLevel = passivePerk ? actorPerkLevel(actor, passiveId, "survivor") : 0;
     const boughtConfig = boughtLevel > 0 ? perkLevelConfig(passivePerk, boughtLevel) : null;
-    const autoConfig = passivePerk ? null : classLevelConfig(passive.levels, actor);
-    const level = boughtConfig || autoConfig;
-    return level ? { ...passive, ...(passivePerk || {}), ...level, id: passiveId || passive.id } : passive;
+    const classConfig = classLevelConfig(passive.levels, actor);
+    const level = boughtConfig || classConfig;
+    return level ? { ...passive, ...(passivePerk || {}), ...classConfig, ...boughtConfig, id: passiveId || passive.id } : passive;
   }
 
   function normalizePerkRole(role) {
@@ -561,6 +562,10 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
   const RED_ORB_SLOW_MULT = cfgNumber(GAMEPLAY_CONFIG.voidAbilities?.redOrbSlowMultiplier, 0.55);
   const GRAVITY_WELL_SLOW_MULT = cfgNumber(GAMEPLAY_CONFIG.voidAbilities?.gravityWellSlowMultiplier, 0.58);
   const RED_ORB_SLOW_SECONDS = cfgNumber(GAMEPLAY_CONFIG.voidAbilities?.redOrbSlowSeconds, 0.5);
+  const VOID_SWIRL_DEFAULT_RADIUS = cfgNumber(GAMEPLAY_CONFIG.survivorAbilities?.voidSwirlRadius, 86);
+  const VOID_SWIRL_DEFAULT_DURATION = cfgNumber(GAMEPLAY_CONFIG.survivorAbilities?.voidSwirlDuration, 6);
+  const VOID_SWIRL_DEFAULT_SLOW_MULT = cfgNumber(GAMEPLAY_CONFIG.survivorAbilities?.voidSwirlSlowMultiplier, 0.65);
+  const VOID_SWIRL_DEFAULT_SLOW_SECONDS = cfgNumber(GAMEPLAY_CONFIG.survivorAbilities?.voidSwirlSlowSeconds, 1.75);
   const DOT_DEPOSIT_DISTANCE = cfgNumber(GAMEPLAY_CONFIG.rift?.depositDistance, 96);
   const DOT_DEPOSIT_SECONDS = cfgNumber(GAMEPLAY_CONFIG.rift?.depositSecondsPerOrb, 1.5);
   // Chain is still tracked for audio pitch / UI feedback, but it no longer changes deposit speed.
@@ -891,16 +896,15 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       if (!runnerClassGrantsAbility(actor, abilityId)) return null;
       const perk = perkConfigById(abilityId, "survivor");
       const fallbackEffect = classAbilityLevelConfig(ability, actor);
+      const fallbackLevel = Math.max(1, Math.floor(cfgNumber(fallbackEffect?.level, 1)));
       const levels = Array.isArray(ability.levels) ? ability.levels : [];
       const maxLevel = perk ? perkMaxLevel(perk) : Math.max(1, levels.length || 1);
       const perkLevel = perk ? actorPerkLevel(actor, abilityId, "survivor") : 0;
       const testLevel = abilityTestingLevel(actor);
       const forcedLevel = testLevel > 0 ? Math.min(maxLevel, testLevel) : 0;
-      const level = forcedLevel || (perk
-        ? Math.max(0, Math.min(maxLevel, Math.floor(cfgNumber(perkLevel, 0))))
-        : Math.max(1, Math.floor(cfgNumber(fallbackEffect?.level, 1))));
+      const level = forcedLevel || Math.max(1, Math.min(maxLevel, Math.floor(cfgNumber(perkLevel || fallbackLevel, 1))));
       const effect = perk
-        ? (level > 0 ? perkLevelConfig(perk, level) : perkLevelConfig(perk, 1))
+        ? (perkLevelConfig(perk, level) || fallbackEffect || perkLevelConfig(perk, 1))
         : fallbackEffect;
       return applyAbilityTestingOverride({
         id: abilityId,
@@ -920,7 +924,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
         level,
         maxLevel,
         effect,
-        locked: !!perk && level <= 0
+        locked: false
       }, actor);
     }
 
@@ -1048,14 +1052,33 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     return true;
   }
 
-  function smokeRevealsKillerToViewer(game, viewer, actor) {
-    if (!viewer || !actor || viewer.role !== "survivor" || actor.role !== "killer") return false;
-    const revealRadius = Math.max(0, cfgNumber(runnerClassPassive(viewer)?.smokeKillerRevealRadius, 0));
-    if (revealRadius <= 0) return false;
-    if (dist(viewer.x, viewer.y, actor.x, actor.y) > revealRadius) return false;
-    return activeSmokeClouds(game).some((cloud) => smokeContainsPoint(cloud, viewer.x, viewer.y));
+  function actorInsideSmokeCloud(game, actor) {
+    if (!actor || !Number.isFinite(actor.x) || !Number.isFinite(actor.y)) return false;
+    return activeSmokeClouds(game).some((cloud) => smokeContainsPoint(cloud, actor.x, actor.y));
   }
 
+  function nebulizerVaporTrailEffect(actor) {
+    if (!actor || actor.role !== "survivor") return null;
+    const classDef = runnerClassDef(actor.runnerClass);
+    if (String(classDef?.id || "") !== "nebulizer") return null;
+    const effect = runnerClassPassiveEffect(actor);
+    if (!["voidTrace", "vaporTrail"].includes(String(effect?.id || ""))) return null;
+    const multiplier = Math.max(1, cfgNumber(effect.vaporTrailSpeedMultiplier ?? effect.speedMultiplier, 1));
+    const duration = Math.max(0, cfgNumber(effect.vaporTrailDuration ?? effect.duration, 0));
+    if (multiplier <= 1 || duration <= 0) return null;
+    return { multiplier, duration };
+  }
+
+  function refreshNebulizerVaporTrailFromSmoke(game, actor) {
+    if (!game || !actor || actor.dead || actor.escaped || actor.hooked || actor.downed) return;
+    if (!actorInsideSmokeCloud(game, actor)) return;
+    const effect = nebulizerVaporTrailEffect(actor);
+    if (!effect) return;
+    actor.nebulizerVaporTrail = Math.max(actor.nebulizerVaporTrail || 0, effect.duration);
+    actor.nebulizerVaporTrailMultiplier = Math.max(1, effect.multiplier);
+    actor.dartScratchHidden = Math.max(actor.dartScratchHidden || 0, effect.duration);
+    if (Array.isArray(game.scratchMarks)) game.scratchMarks = game.scratchMarks.filter((mark) => mark.actorId !== actor.id);
+  }
 
   function grantHealingDartPickupIframes(target) {
     if (!target || target.role !== "survivor") return;
@@ -1426,6 +1449,64 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       duration,
       reason
     });
+  }
+
+  function addVoidSwirl(game, actor, ability) {
+    if (!game || !actor) return null;
+    const effect = ability?.effect || {};
+    const radius = Math.max(28, cfgNumber(effect.radius ?? ability.radius, VOID_SWIRL_DEFAULT_RADIUS));
+    const duration = Math.max(1, cfgNumber(effect.duration ?? ability.duration, VOID_SWIRL_DEFAULT_DURATION));
+    const slowMultiplier = clamp(cfgNumber(effect.slowMultiplier ?? ability.slowMultiplier, VOID_SWIRL_DEFAULT_SLOW_MULT), 0.1, 1);
+    const slowDuration = Math.max(0.2, cfgNumber(effect.slowDuration ?? ability.slowDuration, VOID_SWIRL_DEFAULT_SLOW_SECONDS));
+    const swirl = {
+      id: uid("swirl"),
+      ownerId: actor.id,
+      x: clamp(actor.x, radius, game.map.width - radius),
+      y: clamp(actor.y, radius, game.map.height - radius),
+      radius,
+      duration,
+      remaining: duration,
+      slowMultiplier,
+      slowDuration,
+      createdAt: game.time || 0,
+      phase: Math.random() * Math.PI * 2
+    };
+    game.voidSwirls = Array.isArray(game.voidSwirls) ? game.voidSwirls : [];
+    game.voidSwirls.push(swirl);
+    return swirl;
+  }
+
+  function updateVoidSwirls(game, dt) {
+    if (!game || !Array.isArray(game.voidSwirls)) return;
+    const killer = [...game.actors.values()].find((actor) => actor.role === "killer" && !actor.dead);
+    for (let i = game.voidSwirls.length - 1; i >= 0; i -= 1) {
+      const swirl = game.voidSwirls[i];
+      swirl.remaining = Math.max(0, cfgNumber(swirl.remaining, 0) - dt);
+      if (swirl.remaining <= 0) {
+        game.voidSwirls.splice(i, 1);
+        continue;
+      }
+      if (!killer || killer.hooked || killer.downed) continue;
+      const triggerRadius = Math.max(0, cfgNumber(swirl.radius, VOID_SWIRL_DEFAULT_RADIUS)) + KILLER_SIZE * 0.42;
+      if (dist(killer.x, killer.y, swirl.x, swirl.y) > triggerRadius) continue;
+      const slowDuration = Math.max(0.2, cfgNumber(swirl.slowDuration, VOID_SWIRL_DEFAULT_SLOW_SECONDS));
+      const slowMultiplier = clamp(cfgNumber(swirl.slowMultiplier, VOID_SWIRL_DEFAULT_SLOW_MULT), 0.1, 1);
+      killer.voidSwirlSlow = Math.max(killer.voidSwirlSlow || 0, slowDuration);
+      killer.voidSwirlSlowMultiplier = Math.min(cfgNumber(killer.voidSwirlSlowMultiplier || 1, 1), slowMultiplier);
+      addEvent(game, "voidSwirlTriggered", {
+        x: swirl.x,
+        y: swirl.y,
+        actorId: swirl.ownerId,
+        ownerId: swirl.ownerId,
+        killerId: killer.id,
+        abilityId: "voidSwirl",
+        radius: swirl.radius,
+        duration: slowDuration,
+        slowMultiplier,
+        text: "The Void hit a Void Swirl."
+      });
+      game.voidSwirls.splice(i, 1);
+    }
   }
 
   function resetDownedExecutionChannel(game, target, interruptSeconds = 0) {
@@ -1914,7 +1995,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       duration: 0,
       traveled: 0,
       age: 0,
-      ttl: 1.8
+      ttl: Math.max(0.25, FFA_PROJECTILE_RANGE / Math.max(1, FFA_PROJECTILE_SPEED) + 0.08)
     };
     actor.ffaShotCooldown = FFA_SHOT_COOLDOWN;
     awardStat(actor, "shotsFired", "Shot fired", 1, "shot");
@@ -1980,6 +2061,10 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       actor.swiftVaultReady = Math.max(actor.swiftVaultReady || 0, ability.duration || 10);
       actor.swiftVaultBoostDuration = Math.max(0, cfgNumber(ability.effect?.boostDuration ?? ability.duration, 2));
       actor.swiftVaultSpeedMultiplier = Math.max(1, cfgNumber(ability.speedMultiplier || ability.effect?.speedMultiplier, 1.2));
+    } else if (ability.id === "voidSwirl") {
+      const swirl = addVoidSwirl(game, actor, ability);
+      if (!swirl) return { ok: false, message: "Void Swirl fizzled." };
+      affected = 1;
     } else if (ability.id === "riftLens") {
       actor.riftLens = Math.max(actor.riftLens || 0, ability.duration || 15);
     } else if (ability.id === "hourglass") {
@@ -2477,9 +2562,11 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     return completedRiftCount(game) >= required;
   }
 
-  function visibleGeneratorsForSnapshot(game, forceVisible = false) {
+  function visibleGeneratorsForSnapshot(game, viewer, forceVisible = false) {
     if (areRiftsComplete(game) && !forceVisible) return [];
-    return game?.map?.generators || [];
+    const generators = game?.map?.generators || [];
+    if (forceVisible || !viewer || viewer.role === "spectatorOverview") return generators;
+    return generators.filter((gen) => !smokeBlocksViewerPoint(game, viewer, gen.x, gen.y));
   }
 
   function generatorCollisionRects(game) {
@@ -2955,6 +3042,8 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       recovery: 0,
       voidStun: 0,
       voidSpeedBoost: 0,
+      voidSwirlSlow: 0,
+      voidSwirlSlowMultiplier: 1,
       voidAbilityCooldowns: {},
       stealthStep: 0,
       riftLens: 0,
@@ -3412,6 +3501,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       dartBoxRespawnQueue: 0,
       dartBoxRespawnTimer: DART_BOX_RESPAWN_SECONDS,
       smokeClouds: [],
+      voidSwirls: [],
       dotRespawnQueue: 0,
       redOrbs: 0,
       redOrbSlowMultiplier: RED_ORB_SLOW_MULT,
@@ -3551,6 +3641,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       dartBoxRespawnQueue: 0,
       dartBoxRespawnTimer: DART_BOX_RESPAWN_SECONDS,
       smokeClouds: [],
+      voidSwirls: [],
       dotRespawnQueue: 0,
       redOrbs: 0,
       redOrbSlowMultiplier: RED_ORB_SLOW_MULT,
@@ -3698,7 +3789,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
   }
 
   function addScratch(game, actor) {
-    if (actor?.role === "survivor" && ((actor.stealthStep || 0) > 0 || (actor.dartScratchHidden || 0) > 0 || (SURVIVOR_HOURGLASS_HIDES_SCRATCH && (actor.hourglass || 0) > 0))) return;
+    if (actor?.role === "survivor" && ((actor.stealthStep || 0) > 0 || (actor.dartScratchHidden || 0) > 0 || (actor.nebulizerVaporTrail || 0) > 0 || (SURVIVOR_HOURGLASS_HIDES_SCRATCH && (actor.hourglass || 0) > 0))) return;
     game.scratchMarks.push({ id: uid("scratch"), actorId: actor.id, x: actor.x, y: actor.y, angle: actor.angle + (Math.random() - 0.5), ttl: SCRATCH_MARK_TTL, createdAt: game.time || 0 });
     if (game.scratchMarks.length > SCRATCH_MARK_MAX) game.scratchMarks.splice(0, game.scratchMarks.length - SCRATCH_MARK_MAX);
   }
@@ -3806,8 +3897,10 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     if (actor.role === "killer" && areRiftsComplete(game)) speed *= KILLER_ENDGAME_SPEED_MULT;
     if (actor.role === "killer" && actor.recovery > 0) speed *= KILLER_RECOVERY_SPEED_MULT;
     if (actor.role === "killer" && (actor.voidSpeedBoost || 0) > 0) speed *= cfgNumber(actorPerkEffect(actor, "nullRush", "killer")?.speedMultiplier, VOID_SPEED_BUFF_MULT);
+    if (actor.role === "killer" && (actor.voidSwirlSlow || 0) > 0) speed *= clamp(cfgNumber(actor.voidSwirlSlowMultiplier, VOID_SWIRL_DEFAULT_SLOW_MULT), 0.1, 1);
     if (actor.role === "survivor" && (actor.speedBurst || 0) > 0 && !actor.downed) speed *= cfgNumber(actorPerkEffect(actor, "speedBurst", "survivor")?.speedMultiplier, SURVIVOR_SPEED_BURST_MULT);
     if (actor.role === "survivor" && (actor.dashBoost || 0) > 0 && !actor.downed) speed *= Math.max(1, cfgNumber(actor.dashBoostMultiplier, DART_DEFAULT_SPEED_MULT));
+    if (actor.role === "survivor" && (actor.nebulizerVaporTrail || 0) > 0 && !actor.downed) speed *= Math.max(1, cfgNumber(actor.nebulizerVaporTrailMultiplier, 1));
     if (actor.role === "survivor" && (actor.orbSlow || 0) > 0) speed *= cfgNumber(game.redOrbSlowMultiplier, RED_ORB_SLOW_MULT);
     if (actor.role === "survivor" && (actor.voidSlow || 0) > 0) speed *= GRAVITY_WELL_SLOW_MULT;
 
@@ -4536,6 +4629,8 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       actor.recovery = Math.max(0, actor.recovery - dt);
       actor.voidStun = Math.max(0, (actor.voidStun || 0) - dt);
       actor.voidSpeedBoost = Math.max(0, (actor.voidSpeedBoost || 0) - dt);
+      actor.voidSwirlSlow = Math.max(0, (actor.voidSwirlSlow || 0) - dt);
+      if ((actor.voidSwirlSlow || 0) <= 0) actor.voidSwirlSlowMultiplier = 1;
       if (actor.voidAbilityCooldowns) {
         for (const [abilityId, remaining] of Object.entries(actor.voidAbilityCooldowns)) {
           const nextRemaining = Math.max(0, cfgNumber(remaining, 0) - dt);
@@ -4550,7 +4645,10 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       actor.doubleOrb = Math.max(0, (actor.doubleOrb || 0) - dt);
       actor.swiftVaultReady = Math.max(0, (actor.swiftVaultReady || 0) - dt);
       actor.dashBoost = Math.max(0, (actor.dashBoost || 0) - dt);
+      actor.nebulizerVaporTrail = Math.max(0, (actor.nebulizerVaporTrail || 0) - dt);
+      if ((actor.nebulizerVaporTrail || 0) <= 0) actor.nebulizerVaporTrailMultiplier = 1;
       actor.dartScratchHidden = Math.max(0, (actor.dartScratchHidden || 0) - dt);
+      refreshNebulizerVaporTrailFromSmoke(game, actor);
       actor.runnerDartFireLockout = Math.max(0, cfgNumber(actor.runnerDartFireLockout, 0) - dt);
       actor.ffaShotCooldown = Math.max(0, cfgNumber(actor.ffaShotCooldown, 0) - dt);
       if ((actor.dashBoost || 0) <= 0) actor.dashBoostMultiplier = 1;
@@ -4576,6 +4674,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       if (actor.palletGraceTime <= 0) actor.palletGraceId = null;
     }
     updateSmokeClouds(game, dt);
+    updateVoidSwirls(game, dt);
     game.redOrbs = Math.max(0, (game.redOrbs || 0) - dt);
     game.runnerReveal = Math.max(0, (game.runnerReveal || 0) - dt);
     for (let i = game.scratchMarks.length - 1; i >= 0; i--) {
@@ -4814,24 +4913,32 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     }
   }
 
+  function dartBoxRespawnSecondsForGame(game) {
+    return isFfaGame(game) ? FFA_HEAL_BOX_RESPAWN_SECONDS : DART_BOX_RESPAWN_SECONDS;
+  }
+
   function queueDartBoxRespawn(game, count = 1) {
     if (!game || count <= 0) return;
+    const respawnSeconds = dartBoxRespawnSecondsForGame(game);
     game.dartBoxRespawnQueue = Math.min(DART_BOX_MAX_ON_MAP, (game.dartBoxRespawnQueue || 0) + count);
-    if (!Number.isFinite(game.dartBoxRespawnTimer)) game.dartBoxRespawnTimer = DART_BOX_RESPAWN_SECONDS;
+    if (!Number.isFinite(game.dartBoxRespawnTimer) || game.dartBoxRespawnTimer > respawnSeconds) {
+      game.dartBoxRespawnTimer = respawnSeconds;
+    }
   }
 
   function updateDartBoxRespawns(game, dt) {
     if (!game) return;
     game.dartBoxes = game.dartBoxes || [];
     game.dartBoxRespawnQueue = Math.max(0, game.dartBoxRespawnQueue || 0);
+    const respawnSeconds = dartBoxRespawnSecondsForGame(game);
     const targetMinimum = Math.min(DART_BOX_INITIAL_MIN, DART_BOX_MAX_ON_MAP);
     if (game.dartBoxes.length < targetMinimum && game.dartBoxRespawnQueue < DART_BOX_MAX_ON_MAP) {
       game.dartBoxRespawnQueue = Math.min(DART_BOX_MAX_ON_MAP, game.dartBoxRespawnQueue + (targetMinimum - game.dartBoxes.length));
     }
     if (!game.dartBoxRespawnQueue || game.dartBoxes.length >= DART_BOX_MAX_ON_MAP) return;
-    game.dartBoxRespawnTimer = Math.max(0, (game.dartBoxRespawnTimer || DART_BOX_RESPAWN_SECONDS) - dt);
+    game.dartBoxRespawnTimer = Math.max(0, (game.dartBoxRespawnTimer || respawnSeconds) - dt);
     if (game.dartBoxRespawnTimer > 0) return;
-    game.dartBoxRespawnTimer = DART_BOX_RESPAWN_SECONDS;
+    game.dartBoxRespawnTimer = respawnSeconds;
     if (spawnRandomDartBox(game)) game.dartBoxRespawnQueue = Math.max(0, game.dartBoxRespawnQueue - 1);
   }
 
@@ -6341,6 +6448,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     for (const actor of game.actors.values()) {
       if (actor.role !== "spectator") moveActor(game, actor, dt);
     }
+    updateVoidSwirls(game, 0);
     updateCollectibleDots(game, dt);
     updateDartBoxes(game, dt);
     updateKillerAttack(game, killer, dt);
@@ -6426,7 +6534,6 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     if (isFfaGame(game)) return !actor.dead && !actor.escaped && actor.role !== "spectator";
     if (viewer.role === "spectatorOverview") return !actor.dead && !actor.escaped;
     if (actor.dead || actor.escaped) return false;
-    if (smokeRevealsKillerToViewer(game, viewer, actor)) return true;
     if (smokeBlocksViewerPoint(game, viewer, actor.x, actor.y)) return false;
 
     const d = dist(viewer.x, viewer.y, actor.x, actor.y);
@@ -6458,6 +6565,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
   function hooksForSnapshot(game, viewer) {
     return (game.map?.hooks || [])
       .filter((h) => h.active)
+      .filter((h) => !viewer || viewer.role === "spectatorOverview" || !smokeBlocksViewerPoint(game, viewer, h.x, h.y))
       .map((h) => {
         const entry = { id: h.id, x: h.x, y: h.y, active: h.active, survivorId: null };
         if (!h.survivorId) return entry;
@@ -6541,7 +6649,9 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       chatText,
       aiDebug: debugPayload,
       abilityTestMode: abilityTestingEnabled(actor),
-      abilityTestLevel: abilityTestingLevel(actor)
+      abilityTestLevel: abilityTestingLevel(actor),
+      nebulizerVaporTrail: actor.role === "survivor" ? actor.nebulizerVaporTrail || 0 : 0,
+      nebulizerVaporTrailMultiplier: actor.role === "survivor" ? actor.nebulizerVaporTrailMultiplier || 1 : 1
     };
 
     if (!options.full) return base;
@@ -6559,6 +6669,8 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       recovery: actor.recovery,
       voidStun: actor.role === "killer" ? actor.voidStun || 0 : 0,
       voidSpeedBoost: actor.role === "killer" ? actor.voidSpeedBoost || 0 : 0,
+      voidSwirlSlow: actor.role === "killer" ? actor.voidSwirlSlow || 0 : 0,
+      voidSwirlSlowMultiplier: actor.role === "killer" ? actor.voidSwirlSlowMultiplier || 1 : 1,
       voidAbilityCooldowns: actor.role === "killer" && isSelf ? Object.fromEntries(
         Object.entries(actor.voidAbilityCooldowns || {}).map(([id, remaining]) => [id, Number(Math.max(0, remaining || 0).toFixed(2))])
       ) : {},
@@ -6666,9 +6778,24 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
   }
 
   function visibleDartBoxesForViewer(game, viewer) {
-    if (isFfaGame(game)) return game.dartBoxes || [];
     if (!viewer) return [];
-    return (game.dartBoxes || []).filter((box) => canViewerSeeDartBox(game, viewer, box));
+    const boxes = game.dartBoxes || [];
+    if (isFfaGame(game)) {
+      if (viewer.role === "spectatorOverview") return boxes;
+      return boxes.filter((box) => !smokeBlocksViewerPoint(game, viewer, box.x, box.y));
+    }
+    return boxes.filter((box) => canViewerSeeDartBox(game, viewer, box));
+  }
+
+  function visibleVoidSwirlsForViewer(game, viewer, spectatorOverview = false) {
+    const swirls = Array.isArray(game?.voidSwirls) ? game.voidSwirls : [];
+    if (!swirls.length) return [];
+    if (spectatorOverview) return swirls;
+    if (!viewer || viewer.dead || viewer.escaped || viewer.hooked) return [];
+    return swirls.filter((swirl) => {
+      if (!swirl || !Number.isFinite(swirl.x) || !Number.isFinite(swirl.y)) return false;
+      return visibleWorldPointForViewer(game, viewer, swirl.x, swirl.y, { radius: swirl.radius || VOID_SWIRL_DEFAULT_RADIUS, allowCloseReveal: true });
+    });
   }
 
   function serializeGeneratorForViewer(game, viewer, gen) {
@@ -6744,10 +6871,12 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
 
   function visibleRunnerProjectilesForViewer(game, viewer, socketId, spectatorOverview = false) {
     const projectiles = Array.isArray(game?.runnerProjectiles) ? game.runnerProjectiles : [];
-    if (isFfaGame(game) || spectatorOverview) return projectiles;
+    if (spectatorOverview) return projectiles;
     if (!viewer) return [];
     return projectiles.filter((p) => {
       if (!p) return false;
+      if (smokeBlocksViewerPoint(game, viewer, p.x, p.y)) return false;
+      if (isFfaGame(game)) return true;
       if (String(p.ownerId || "") === String(socketId || viewer.id || "")) return true;
       return visibleWorldPointForViewer(game, viewer, p.x, p.y, { radius: 18, allowCloseReveal: true });
     });
@@ -6761,9 +6890,10 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     const clouds = Array.isArray(game?.smokeClouds) ? game.smokeClouds : [];
     if (spectatorOverview) return clouds;
     if (!viewer || viewer.dead || viewer.escaped || viewer.hooked) return [];
+    const viewerClouds = clouds.filter((cloud) => viewerInsideSmokeCloud(viewer, cloud));
+    if (viewerClouds.length) return viewerClouds;
     return clouds.filter((cloud) => {
       if (!cloud) return false;
-      if (viewerInsideSmokeCloud(viewer, cloud)) return true;
       const radius = Math.max(0, cfgNumber(cloud.radius, 0));
       const d = dist(viewer.x, viewer.y, cloud.x, cloud.y);
       if (d <= CLOSE_REVEAL_RADIUS + Math.min(radius, 140)) return segmentClear(game, viewer.x, viewer.y, cloud.x, cloud.y);
@@ -6804,6 +6934,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     const viewerIds = new Set([String(socketId || ""), String(viewer?.id || "")]);
     if (ids.some((id) => viewerIds.has(id))) return true;
     if (!viewer || !Number.isFinite(event.x) || !Number.isFinite(event.y)) return true;
+    if (smokeBlocksViewerPoint(game, viewer, event.x, event.y)) return false;
     return dist(viewer.x, viewer.y, event.x, event.y) <= LOCAL_EVENT_RANGE;
   }
 
@@ -6827,6 +6958,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       runnerProjectiles: snapshotListKey(snapshot.runnerProjectiles, (p) => `${p.id}:${Math.round(p.x)}:${Math.round(p.y)}:${p.type || ""}`),
       dartBoxes: snapshotListKey(snapshot.dartBoxes, (b) => `${b.id}:${Math.round(b.x)}:${Math.round(b.y)}:${Math.round((b.progress || 0) * 20)}:${b.type || ""}`),
       smokeClouds: snapshotListKey(snapshot.smokeClouds, (c) => `${c.id}:${Math.round(c.x)}:${Math.round(c.y)}:${Math.round(c.radius)}`),
+      voidSwirls: snapshotListKey(snapshot.voidSwirls, (s) => `${s.id}:${Math.round(s.x)}:${Math.round(s.y)}:${Math.round(s.radius)}:${Math.round((s.remaining || 0) * 10)}`),
       scratchMarks: snapshotListKey(snapshot.scratchMarks, (s) => s.id)
     };
     const nextCache = { ...keys, actorsById: previous?.actorsById instanceof Map ? previous.actorsById : null };
@@ -6847,6 +6979,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     if (previous.runnerProjectiles === keys.runnerProjectiles) delete snapshot.runnerProjectiles;
     if (previous.dartBoxes === keys.dartBoxes) delete snapshot.dartBoxes;
     if (previous.smokeClouds === keys.smokeClouds) delete snapshot.smokeClouds;
+    if (previous.voidSwirls === keys.voidSwirls) delete snapshot.voidSwirls;
     if (previous.scratchMarks === keys.scratchMarks) delete snapshot.scratchMarks;
     return snapshot;
   }
@@ -6943,6 +7076,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       : pov?.role === "killer"
         ? game.scratchMarks.filter((s) => {
             if (!pov) return false;
+            if (smokeBlocksViewerPoint(game, pov, s.x, s.y)) return false;
             const d = dist(pov.x, pov.y, s.x, s.y);
             if (d > KILLER_SCRATCH_MARK_VISIBILITY_RANGE) return false;
             const target = { x: s.x, y: s.y };
@@ -6982,9 +7116,9 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
         height: map.height,
         tile: map.tile,
         pallets: map.pallets.map((p) => ({ id: p.id, x: p.x, y: p.y, w: p.w, h: p.h, orientation: p.orientation, state: p.state, broken: p.broken })),
-        generators: ffaMode ? [] : visibleGeneratorsForSnapshot(game, spectatorOverview).map((g) => serializeGeneratorForViewer(game, pov, g)),
+        generators: ffaMode ? [] : visibleGeneratorsForSnapshot(game, pov, spectatorOverview).map((g) => serializeGeneratorForViewer(game, pov, g)),
         riftsHidden: ffaMode ? true : riftsComplete,
-        gates: ffaMode ? [] : map.gates.map((g) => ({
+        gates: ffaMode ? [] : map.gates.filter((g) => spectatorOverview || !pov || !smokeBlocksViewerPoint(game, pov, g.x, g.y)).map((g) => ({
           id: g.id,
           x: g.x,
           y: g.y,
@@ -7059,7 +7193,19 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
         y: Math.round((c.y || 0) * 10) / 10,
         radius: Math.round(c.radius || 0),
         duration: Number((c.duration || 0).toFixed(1)),
-        remaining: Number((c.remaining || 0).toFixed(1))
+        remaining: Number((c.remaining || 0).toFixed(1)),
+        viewerInside: !spectatorOverview && !!pov && viewerInsideSmokeCloud(pov, c)
+      })),
+      voidSwirls: visibleVoidSwirlsForViewer(game, pov, spectatorOverview).map((s) => ({
+        id: s.id,
+        ownerId: s.ownerId,
+        x: Math.round((s.x || 0) * 10) / 10,
+        y: Math.round((s.y || 0) * 10) / 10,
+        radius: Math.round(s.radius || 0),
+        duration: Number((s.duration || 0).toFixed(1)),
+        remaining: Number((s.remaining || 0).toFixed(1)),
+        slowMultiplier: Number((s.slowMultiplier || VOID_SWIRL_DEFAULT_SLOW_MULT).toFixed(2)),
+        slowDuration: Number((s.slowDuration || VOID_SWIRL_DEFAULT_SLOW_SECONDS).toFixed(2))
       })),
       voidEffects: {
         redOrbs: Number((game.redOrbs || 0).toFixed(2)),

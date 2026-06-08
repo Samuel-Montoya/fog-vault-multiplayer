@@ -1,4 +1,7 @@
-/* Shared skin previews. One reusable visual system for shop, lobby, HUD, and end screen. */
+/* Shared skin previews. One reusable visual system for shop,
+lobby,
+HUD,
+and end screen. */
 :where(.rr-skin-preview, .skin-preview) {
   --rr-skin-size: 44px;
   --rr-skin-ring: rgba(230, 238, 255, 0.68);
@@ -20,28 +23,6 @@
   box-shadow: var(--rr-skin-shadow);
 }
 
-:where(.rr-skin-preview, .skin-preview)::before,
-:where(.rr-skin-preview, .skin-preview)::after {
-  content: "";
-  position: absolute;
-  pointer-events: none;
-}
-
-:where(.rr-skin-preview, .skin-preview)::before {
-  inset: 13%;
-  border-radius: inherit;
-  background: radial-gradient(circle at 34% 28%, rgba(255,255,255,0.72), transparent 23%);
-  mix-blend-mode: screen;
-  opacity: 0.7;
-}
-
-:where(.rr-skin-preview, .skin-preview)::after {
-  inset: 0;
-  border-radius: inherit;
-  background:
-    radial-gradient(circle at 50% 115%, rgba(0,0,0,0.44), transparent 46%),
-    linear-gradient(140deg, rgba(255,255,255,0.16), transparent 32% 72%, rgba(0,0,0,0.18));
-}
 
 .rr-skin-preview--store { --rr-skin-size: 76px; }
 .rr-skin-preview--lobby { --rr-skin-size: 40px; }
@@ -191,9 +172,8 @@
 #lobbyScreen .player-item .lobby-player-skin-preview.rr-skin-preview,
 #lobbyScreen .player-item .lobby-player-skin-preview.skin-preview,
 #lobbyScreen .lobby-selected-skin-preview.rr-skin-preview,
-#lobbyScreen .lobby-selected-skin-preview.skin-preview,
-#lobbyScreen .rr-skin-preview.skin-preview.rr-skin-preview--lobby.rr-skin-preview--runner.skin-star {
-  border-radius: 0 !important;
+#lobbyScreen .lobby-selected-skin-preview.skin-preview {
+  border-radius: 999px !important;
   border: 2px solid rgba(230, 238, 255, 0.68) !important;
   background-size: cover !important;
   background-position: center !important;
@@ -214,12 +194,18 @@
   z-index: 1;
 }
 
-
-#lobbyScreen .rr-skin-preview--lobby.rr-skin-preview,
-#lobbyScreen .rr-skin-preview--lobby.skin-preview,
-#lobbyScreen .rr-skin-preview--lobby.rr-skin-preview::before,
-#lobbyScreen .rr-skin-preview--lobby.rr-skin-preview::after,
-#lobbyScreen .rr-skin-preview--lobby.skin-preview::before,
-#lobbyScreen .rr-skin-preview--lobby.skin-preview::after {
-  border-radius: 0 !important;
+/* Keep HUD-equipped skins circular even when the skin itself is the square-themed fallback. */
+.rr-skin-preview--hud-status,
+.rr-skin-preview--role-hud,
+.rr-skin-preview--hud-status.skin-square,
+.rr-skin-preview--role-hud.skin-square,
+.survivor-portrait.rr-skin-preview,
+.survivor-portrait.skin-preview,
+.survivor-skin-portrait.rr-skin-preview,
+.survivor-skin-portrait.skin-preview,
+.role-hud-skin.rr-skin-preview,
+.role-hud-skin.skin-preview,
+#roleHudSkin.rr-skin-preview,
+#roleHudSkin.skin-preview {
+  border-radius: 999px !important;
 }

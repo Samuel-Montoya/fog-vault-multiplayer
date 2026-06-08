@@ -1,7 +1,8 @@
 import AccountBadge from "./AccountBadge"
-import { showMenuScreen } from "../utils/screenNavigation"
+import BackButton from "./shared/BackButton"
+import { ActionButton } from "./shared/Buttons"
+import RoleIcon from "./shared/RoleIcon"
 import "../styles/play_screen.css"
-import "../styles/screen_header.css"
 
 const ROLE_OPTIONS = [
   {
@@ -49,27 +50,17 @@ function triggerSpectateFromPlay() {
   document.getElementById("spectateBtn")?.click()
 }
 
-function BackButton() {
+function RoleButton({ option }) {
+  const tone = option.role === "killer" ? "purple" : option.role === "ffa" ? "purple" : "blue"
+
   return (
     <button
-      className="play-back-btn rr-back-btn"
-      data-screen="menu"
-      data-screen-nav="menu"
+      className={`role-btn ${option.className}`}
+      data-role={option.role}
       type="button"
-      onClick={() => showMenuScreen("menu")}
+      style={{ "--role-tone": `var(--rr-${tone})` }}
     >
-      <span aria-hidden="true">←</span>
-      Back
-    </button>
-  )
-}
-
-function RoleButton({ option }) {
-  return (
-    <button className={`role-btn ${option.className}`} data-role={option.role} type="button">
-      <span className={`role-icon ${option.iconClassName}`} aria-hidden="true">
-        <img src={option.icon} alt="" />
-      </span>
+      <RoleIcon role={option.role} src={option.icon} />
       <span className="role-copy">
         <strong>{option.title}</strong>
         <small>{option.summary}</small>
@@ -81,15 +72,14 @@ function RoleButton({ option }) {
 
 function PlayActionButton({ action }) {
   return (
-    <button
+    <ActionButton
       id={action.id}
-      className={action.primary ? "primary" : undefined}
-      type="button"
+      tone={action.primary ? "green" : action.id === "playSpectateBtn" ? "yellow" : "purple"}
       onClick={action.onClick}
-    >
-      <span aria-hidden="true">{action.icon}</span>
-      {action.label}
-    </button>
+      icon={action.icon}
+      label={action.label}
+      className={action.primary ? "primary" : ""}
+    />
   )
 }
 
@@ -107,7 +97,7 @@ function PlayFooterStrip() {
 export default function PlayScreen() {
   return (
     <div id="playScreen" className="screen io-screen play-screen">
-      <BackButton />
+      <BackButton className="play-back-btn" />
 
       <div className="play-account-wrap">
         <AccountBadge panelId="play" showOrbs />

@@ -1,25 +1,11 @@
-import { showMenuScreen } from "../utils/screenNavigation"
+import BackButton from "./shared/BackButton"
 import "../styles/screen_header.css"
-
-function BackButton({ backTo }) {
-  return (
-    <button
-      className="text-btn menu-back-btn rr-back-btn"
-      data-screen={backTo}
-      data-screen-nav={backTo}
-      type="button"
-      onClick={() => showMenuScreen(backTo)}
-    >
-      ← Back
-    </button>
-  )
-}
 
 export default function ScreenHeader({ eyebrow, title, description, backTo = "menu" }) {
   return (
     <>
       <div className="screen-topline">
-        <BackButton backTo={backTo} />
+        <BackButton to={backTo} className="menu-back-btn" />
         {eyebrow ? <div className="eyebrow">{eyebrow}</div> : null}
       </div>
       <h1>{title}</h1>

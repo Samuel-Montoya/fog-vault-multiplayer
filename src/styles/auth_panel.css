@@ -1,4 +1,6 @@
-/* AuthPanel.jsx: account status, login/register controls, and orb wallet. */
+/* AuthPanel.jsx: account status,
+login/register controls,
+and orb wallet. */
 /* Account + orb economy */
 .account-panel {
   margin: 14px 0 16px;
@@ -112,7 +114,6 @@
 }
 
 
-
 .skin-btn.owned .skin-price {
   color: var(--safe);
 }
@@ -126,11 +127,10 @@
 }
 
 
-
 @media (max-width: 720px) {
   .account-panel-top,
-  .account-actions,
-  .auth-actions {
+.account-actions,
+.auth-actions {
     align-items: stretch;
     flex-direction: column;
   }

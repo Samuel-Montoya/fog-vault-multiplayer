@@ -1,4 +1,19 @@
-/* EndScreen.jsx: match results, full-width desktop scoreboard, and React-rendered stat rows. */
+@keyframes endYouGlowPulse {
+  0%, 100% {
+    opacity: 0.38;
+    box-shadow:
+      inset 0 0 20px color-mix(in srgb, var(--result-accent), transparent 74%),
+      0 0 16px color-mix(in srgb, var(--result-accent), transparent 78%);
+  }
+
+  50% {
+    opacity: 0.86;
+    box-shadow:
+      inset 0 0 34px color-mix(in srgb, var(--result-accent), transparent 62%),
+      0 0 34px color-mix(in srgb, var(--result-accent), transparent 64%);
+  }
+}
+
 #endScreen.end-screen-shell {
   position: fixed;
   inset: 0;
@@ -7,8 +22,7 @@
   justify-content: stretch;
   padding: clamp(16px, 2vh, 28px) clamp(18px, 2vw, 36px) clamp(18px, 2.6vh, 34px);
   overflow: hidden;
-  background:
-    radial-gradient(circle at 82% 17%, rgba(157, 73, 255, 0.22), transparent 17%),
+  background: radial-gradient(circle at 82% 17%, rgba(157, 73, 255, 0.22), transparent 17%),
     radial-gradient(circle at 10% 72%, rgba(122, 49, 255, 0.15), transparent 24%),
     linear-gradient(180deg, rgba(2, 1, 8, 0.18), rgba(2, 1, 8, 0.52));
 }
@@ -17,14 +31,10 @@
   display: flex !important;
 }
 
-#endScreen.end-screen-shell::before,
-#endScreen.end-screen-shell::after {
+#endScreen.end-screen-shell::before {
   content: "";
   position: absolute;
   pointer-events: none;
-}
-
-#endScreen.end-screen-shell::before {
   right: clamp(44px, 6vw, 120px);
   top: clamp(38px, 6vh, 96px);
   width: clamp(200px, 20vw, 330px);
@@ -37,12 +47,14 @@
 }
 
 #endScreen.end-screen-shell::after {
+  content: "";
+  position: absolute;
+  pointer-events: none;
   left: 0;
   right: 0;
   bottom: 0;
   height: 18vh;
-  background:
-    linear-gradient(180deg, rgba(162, 70, 255, 0.06), rgba(85, 20, 155, 0.22)),
+  background: linear-gradient(180deg, rgba(162, 70, 255, 0.06), rgba(85, 20, 155, 0.22)),
     repeating-linear-gradient(0deg, rgba(255,255,255,0.05) 0 1px, transparent 1px 24px),
     repeating-linear-gradient(90deg, rgba(255,255,255,0.04) 0 1px, transparent 1px 80px);
   transform: perspective(420px) rotateX(60deg);
@@ -137,7 +149,7 @@
   gap: 14px;
   padding: 12px 18px;
   border: 1px solid rgba(255,255,255,0.12);
-  border-radius: 8px;
+  border-radius: var(--rr-radius);
   background: linear-gradient(180deg, rgba(8, 11, 23, 0.82), rgba(5, 7, 15, 0.70));
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 10px 24px rgba(0,0,0,0.18);
 }
@@ -201,7 +213,7 @@
   min-height: 120px;
   place-items: center;
   border: 1px solid rgba(154, 91, 255, 0.30);
-  border-radius: 10px;
+  border-radius: var(--rr-radius);
   background: rgba(6, 4, 16, 0.70);
 }
 
@@ -222,7 +234,7 @@
   padding: 0;
   overflow: hidden;
   border: 1px solid rgba(95, 226, 255, 0.42);
-  border-radius: 10px;
+  border-radius: var(--rr-radius);
   background: linear-gradient(180deg, rgba(8, 16, 30, 0.86), rgba(5, 10, 20, 0.76));
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 18px 36px rgba(0,0,0,0.18);
 }
@@ -230,11 +242,9 @@
 #endScreen .end-stat-card.result-row-void {
   --result-accent: #7c3aed;
   border-color: rgba(124, 58, 237, 0.58);
-  background:
-    radial-gradient(circle at 0% 50%, rgba(76, 29, 149, 0.26), transparent 38%),
+  background: radial-gradient(circle at 0% 50%, rgba(76, 29, 149, 0.26), transparent 38%),
     linear-gradient(180deg, rgba(13, 6, 28, 0.94), rgba(6, 3, 16, 0.88));
-  box-shadow:
-    inset 0 1px 0 rgba(167, 139, 250, 0.08),
+  box-shadow: inset 0 1px 0 rgba(167, 139, 250, 0.08),
     0 18px 36px rgba(0,0,0,0.22),
     0 0 24px rgba(76, 29, 149, 0.14);
 }
@@ -245,11 +255,9 @@
   min-height: 132px;
   border-width: 2px;
   border-color: rgba(57, 228, 255, 0.82);
-  background:
-    radial-gradient(circle at 0% 50%, rgba(57, 228, 255, 0.18), transparent 34%),
+  background: radial-gradient(circle at 0% 50%, rgba(57, 228, 255, 0.18), transparent 34%),
     linear-gradient(180deg, rgba(8, 24, 42, 0.94), rgba(4, 12, 24, 0.86));
-  box-shadow:
-    inset 0 0 0 1px rgba(57, 228, 255, 0.22),
+  box-shadow: inset 0 0 0 1px rgba(57, 228, 255, 0.22),
     0 22px 42px rgba(0,0,0,0.28),
     0 0 34px rgba(57, 228, 255, 0.18);
 }
@@ -257,12 +265,10 @@
 #endScreen .end-stat-card.result-row-void.result-row-you {
   --result-accent: #8b5cf6;
   border-color: rgba(139, 92, 246, 0.92);
-  background:
-    radial-gradient(circle at 0% 50%, rgba(91, 33, 182, 0.34), transparent 38%),
+  background: radial-gradient(circle at 0% 50%, rgba(91, 33, 182, 0.34), transparent 38%),
     radial-gradient(circle at 100% 50%, rgba(49, 16, 96, 0.30), transparent 42%),
     linear-gradient(180deg, rgba(17, 7, 36, 0.98), rgba(7, 3, 20, 0.92));
-  box-shadow:
-    inset 0 0 0 1px rgba(139, 92, 246, 0.32),
+  box-shadow: inset 0 0 0 1px rgba(139, 92, 246, 0.32),
     0 22px 42px rgba(0,0,0,0.32),
     0 0 42px rgba(91, 33, 182, 0.30);
 }
@@ -276,8 +282,7 @@
   pointer-events: none;
   border: 1px solid color-mix(in srgb, var(--result-accent), white 12%);
   opacity: 0.42;
-  box-shadow:
-    inset 0 0 22px color-mix(in srgb, var(--result-accent), transparent 72%),
+  box-shadow: inset 0 0 22px color-mix(in srgb, var(--result-accent), transparent 72%),
     0 0 18px color-mix(in srgb, var(--result-accent), transparent 76%);
   animation: endYouGlowPulse 2.15s ease-in-out infinite;
 }
@@ -302,14 +307,61 @@
 #endScreen .end-stat-card.result-row-you .end-stat-head {
   gap: clamp(14px, 1.15vw, 20px);
   padding: 15px 18px;
-  background:
-    radial-gradient(circle at 8% 50%, color-mix(in srgb, var(--result-accent), transparent 72%), transparent 48%),
+  background: radial-gradient(circle at 8% 50%, color-mix(in srgb, var(--result-accent), transparent 72%), transparent 48%),
     linear-gradient(90deg, rgba(255,255,255,0.07), rgba(255,255,255,0.012));
 }
 
-#endScreen .end-row-avatar,
-#endScreen .end-row-avatar.skin-preview,
-#endScreen .end-row-avatar.survivor-skin-portrait,
+#endScreen .end-row-avatar {
+  position: relative !important;
+  left: auto !important;
+  top: auto !important;
+  transform: none !important;
+  flex: 0 0 clamp(52px, 3.45vw, 64px) !important;
+  width: clamp(52px, 3.45vw, 64px) !important;
+  height: clamp(52px, 3.45vw, 64px) !important;
+  margin: 0 !important;
+  display: block !important;
+  border-radius: var(--rr-radius) !important;
+  border: 2px solid rgba(231, 238, 255, 0.66) !important;
+  background-size: auto !important;
+  background-position: center !important;
+  box-shadow: 0 0 18px color-mix(in srgb, var(--result-accent), transparent 66%), inset 0 -8px 14px rgba(0,0,0,0.26) !important;
+}
+
+#endScreen .end-row-avatar.skin-preview {
+  position: relative !important;
+  left: auto !important;
+  top: auto !important;
+  transform: none !important;
+  flex: 0 0 clamp(52px, 3.45vw, 64px) !important;
+  width: clamp(52px, 3.45vw, 64px) !important;
+  height: clamp(52px, 3.45vw, 64px) !important;
+  margin: 0 !important;
+  display: block !important;
+  border-radius: var(--rr-radius) !important;
+  border: 2px solid rgba(231, 238, 255, 0.66) !important;
+  background-size: auto !important;
+  background-position: center !important;
+  box-shadow: 0 0 18px color-mix(in srgb, var(--result-accent), transparent 66%), inset 0 -8px 14px rgba(0,0,0,0.26) !important;
+}
+
+#endScreen .end-row-avatar.survivor-skin-portrait {
+  position: relative !important;
+  left: auto !important;
+  top: auto !important;
+  transform: none !important;
+  flex: 0 0 clamp(52px, 3.45vw, 64px) !important;
+  width: clamp(52px, 3.45vw, 64px) !important;
+  height: clamp(52px, 3.45vw, 64px) !important;
+  margin: 0 !important;
+  display: block !important;
+  border-radius: var(--rr-radius) !important;
+  border: 2px solid rgba(231, 238, 255, 0.66) !important;
+  background-size: auto !important;
+  background-position: center !important;
+  box-shadow: 0 0 18px color-mix(in srgb, var(--result-accent), transparent 66%), inset 0 -8px 14px rgba(0,0,0,0.26) !important;
+}
+
 #endScreen .end-row-avatar.void-skin-portrait {
   position: relative !important;
   left: auto !important;
@@ -320,24 +372,50 @@
   height: clamp(52px, 3.45vw, 64px) !important;
   margin: 0 !important;
   display: block !important;
-  border-radius: 999px !important;
+  border-radius: var(--rr-radius) !important;
   border: 2px solid rgba(231, 238, 255, 0.66) !important;
   background-size: auto !important;
   background-position: center !important;
   box-shadow: 0 0 18px color-mix(in srgb, var(--result-accent), transparent 66%), inset 0 -8px 14px rgba(0,0,0,0.26) !important;
 }
 
-#endScreen .end-stat-card.result-row-you .end-row-avatar,
-#endScreen .end-stat-card.result-row-you .end-row-avatar.skin-preview,
-#endScreen .end-stat-card.result-row-you .end-row-avatar.survivor-skin-portrait,
+#endScreen .end-stat-card.result-row-you .end-row-avatar {
+  flex-basis: clamp(62px, 4.15vw, 76px) !important;
+  width: clamp(62px, 4.15vw, 76px) !important;
+  height: clamp(62px, 4.15vw, 76px) !important;
+  border-width: 3px !important;
+  border-color: color-mix(in srgb, var(--result-accent), white 42%) !important;
+  box-shadow: 0 0 24px color-mix(in srgb, var(--result-accent), transparent 54%),
+    inset 0 -9px 16px rgba(0,0,0,0.30) !important;
+}
+
+#endScreen .end-stat-card.result-row-you .end-row-avatar.skin-preview {
+  flex-basis: clamp(62px, 4.15vw, 76px) !important;
+  width: clamp(62px, 4.15vw, 76px) !important;
+  height: clamp(62px, 4.15vw, 76px) !important;
+  border-width: 3px !important;
+  border-color: color-mix(in srgb, var(--result-accent), white 42%) !important;
+  box-shadow: 0 0 24px color-mix(in srgb, var(--result-accent), transparent 54%),
+    inset 0 -9px 16px rgba(0,0,0,0.30) !important;
+}
+
+#endScreen .end-stat-card.result-row-you .end-row-avatar.survivor-skin-portrait {
+  flex-basis: clamp(62px, 4.15vw, 76px) !important;
+  width: clamp(62px, 4.15vw, 76px) !important;
+  height: clamp(62px, 4.15vw, 76px) !important;
+  border-width: 3px !important;
+  border-color: color-mix(in srgb, var(--result-accent), white 42%) !important;
+  box-shadow: 0 0 24px color-mix(in srgb, var(--result-accent), transparent 54%),
+    inset 0 -9px 16px rgba(0,0,0,0.30) !important;
+}
+
 #endScreen .end-stat-card.result-row-you .end-row-avatar.void-skin-portrait {
   flex-basis: clamp(62px, 4.15vw, 76px) !important;
   width: clamp(62px, 4.15vw, 76px) !important;
   height: clamp(62px, 4.15vw, 76px) !important;
   border-width: 3px !important;
   border-color: color-mix(in srgb, var(--result-accent), white 42%) !important;
-  box-shadow:
-    0 0 24px color-mix(in srgb, var(--result-accent), transparent 54%),
+  box-shadow: 0 0 24px color-mix(in srgb, var(--result-accent), transparent 54%),
     inset 0 -9px 16px rgba(0,0,0,0.30) !important;
 }
 
@@ -412,7 +490,12 @@
   text-overflow: ellipsis;
 }
 
-#endScreen .end-stat-grid,
+#endScreen .end-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+  align-items: stretch;
+}
+
 #endScreen .result-row-void .end-stat-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
@@ -463,11 +546,13 @@
 }
 
 #endScreen .end-action-row > button {
-  min-width: clamp(220px, 18vw, 300px);
+  width: fit-content !important;
+  flex: 0 0 auto !important;
+  min-width: fit-content;
   min-height: 58px;
   padding: 0 28px;
   border: 1px solid rgba(161, 94, 255, 0.44) !important;
-  border-radius: 8px !important;
+  border-radius: var(--rr-radius) !important;
   background: linear-gradient(180deg, rgba(19, 12, 34, 0.84), rgba(8, 5, 17, 0.76)) !important;
   color: rgba(239, 243, 255, 0.86) !important;
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 12px 30px rgba(0,0,0,0.22) !important;
@@ -483,7 +568,13 @@
   box-shadow: 0 0 26px rgba(146, 74, 255, 0.34), inset 0 1px 0 rgba(255,255,255,0.18), 0 12px 30px rgba(0,0,0,0.22) !important;
 }
 
-#endScreen .end-action-row > button:hover,
+#endScreen .end-action-row > button:hover {
+  transform: translateY(-1px);
+  border-color: rgba(218, 195, 255, 0.84) !important;
+  background: linear-gradient(180deg, rgba(31, 18, 56, 0.92), rgba(10, 7, 21, 0.82)) !important;
+  color: #ffffff !important;
+}
+
 #endScreen .end-action-row > button:focus-visible {
   transform: translateY(-1px);
   border-color: rgba(218, 195, 255, 0.84) !important;
@@ -499,7 +590,7 @@
   gap: 16px;
   padding: 14px 18px;
   border: 1px solid rgba(122, 78, 255, 0.30);
-  border-radius: 8px;
+  border-radius: var(--rr-radius);
   background: rgba(7, 5, 16, 0.82);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), 0 10px 26px rgba(0,0,0,0.18);
 }
@@ -522,115 +613,4 @@
   color: rgba(228, 234, 246, 0.76);
   font-size: clamp(13px, 1vw, 18px);
   letter-spacing: 0.03em;
-}
-
-@keyframes endYouGlowPulse {
-  0%, 100% {
-    opacity: 0.38;
-    box-shadow:
-      inset 0 0 20px color-mix(in srgb, var(--result-accent), transparent 74%),
-      0 0 16px color-mix(in srgb, var(--result-accent), transparent 78%);
-  }
-
-  50% {
-    opacity: 0.86;
-    box-shadow:
-      inset 0 0 34px color-mix(in srgb, var(--result-accent), transparent 62%),
-      0 0 34px color-mix(in srgb, var(--result-accent), transparent 64%);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  #endScreen .end-stat-card.result-row-you::before {
-    animation: none;
-  }
-}
-
-@media (max-width: 1480px) {
-  #endScreen .end-stat-card {
-    grid-template-columns: minmax(270px, 320px) minmax(0, 1fr);
-  }
-
-  #endScreen .end-stat-head {
-    gap: 12px;
-    padding: 10px 14px;
-  }
-
-  #endScreen .end-row-avatar,
-  #endScreen .end-row-avatar.skin-preview,
-  #endScreen .end-row-avatar.survivor-skin-portrait,
-  #endScreen .end-row-avatar.void-skin-portrait {
-    flex-basis: 54px !important;
-    width: 54px !important;
-    height: 54px !important;
-  }
-
-  #endScreen .end-stat strong {
-    font-size: clamp(20px, 1.55vw, 32px);
-  }
-}
-
-@media (max-width: 1220px) {
-  #endScreen.end-screen-shell {
-    overflow: auto;
-  }
-
-  #endScreen .end-panel {
-    min-height: auto;
-  }
-
-  #endScreen .end-hero-block {
-    max-width: 100%;
-  }
-
-  #endScreen .end-stat-card {
-    grid-template-columns: 1fr;
-  }
-
-  #endScreen .end-stat-head {
-    border-right: 0;
-    border-bottom: 1px solid rgba(255,255,255,0.08);
-  }
-
-  #endScreen .end-stat-grid,
-  #endScreen .result-row-void .end-stat-grid {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-
-  #endScreen .end-tip-bar {
-    max-width: 100%;
-  }
-}
-
-@media (max-width: 820px) {
-  #endScreen.end-screen-shell {
-    padding: 14px;
-  }
-
-  #endScreen #winnerText {
-    font-size: clamp(44px, 12vw, 72px);
-  }
-
-  #endScreen .end-overview {
-    gap: 12px;
-  }
-
-  #endScreen .end-overview-card {
-    min-width: min(220px, 100%);
-    flex: 1 1 220px;
-  }
-
-  #endScreen .end-stat-grid,
-  #endScreen .result-row-void .end-stat-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  #endScreen .end-action-row > button {
-    min-width: min(100%, 280px);
-    width: 100%;
-  }
-
-  #endScreen .end-tip-bar {
-    align-items: flex-start;
-  }
 }

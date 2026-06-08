@@ -1,6 +1,11 @@
-/* MobileKeyboardOnlyScreen.jsx: desktop-only blocker. */
-.keyboard-only-screen,
-.keyboard-only-card,
+.keyboard-only-screen {
+  position: relative;
+}
+
+.keyboard-only-card {
+  position: relative;
+}
+
 .keyboard-only-mark {
   position: relative;
 }

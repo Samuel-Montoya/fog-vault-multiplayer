@@ -1,9 +1,8 @@
 import { useEffect, useState } from "react"
-import { showMenuScreen } from "../utils/screenNavigation"
+import BackButton from "./shared/BackButton"
 import AccountBadge from "./AccountBadge"
 import { getPerkIconCandidates } from "../utils/perkIconPaths"
 import "../styles/perks.css"
-import "../styles/screen_header.css"
 
 const RUNNER_CLASS_SECTIONS = [
   {
@@ -23,8 +22,8 @@ const RUNNER_CLASS_SECTIONS = [
     accent: "purple",
     icon: "☁",
     title: "Nebulizer",
-    subtitle: "Vision denial • space control • cover",
-    summary: "Smoke-based perks for blocking sightlines, creating safe pockets, and turning fog into a tactical weapon."
+    subtitle: "Smoke speed • red swirls • trap control",
+    summary: "Smoke-based perks for blocking sightlines, sprinting through haze, and dropping red Void Swirls that punish greedy chase paths."
   },
   {
     id: "escapistPerks",
@@ -51,7 +50,7 @@ const RUNNER_CLASS_SECTIONS = [
 const VOID_SECTION = {
   id: "voidPerks",
   role: "killer",
-  accent: "red",
+  accent: "purple",
   icon: "◈",
   title: "The Void",
   subtitle: "Hunt • pressure • consume",
@@ -83,12 +82,15 @@ const STAT_LABELS = {
   speed: "speed",
   speedMultiplier: "speed",
   sprintMultiplier: "speed",
+  vaporTrailSpeedMultiplier: "vapor speed",
+  vaporTrailDuration: "vapor duration",
   coneLength: "cone length",
   visionConeLength: "cone length",
   coneWidth: "cone width",
   visionConeWidth: "cone width",
   revealDuration: "reveal duration",
-  slowDuration: "slow",
+  slowDuration: "slow time",
+  slowMultiplier: "slow strength",
   slowAmount: "slow",
   slowPct: "slow",
   mineDuration: "mine duration",
@@ -491,15 +493,6 @@ function usePerkUpgradePreviews() {
   }, [])
 }
 
-function BackButton() {
-  return (
-    <button className="perks-back-btn rr-back-btn" data-screen="menu" data-screen-nav="menu" type="button" onClick={() => showMenuScreen("menu")}>
-      <span aria-hidden="true">←</span>
-      Back
-    </button>
-  )
-}
-
 const CATEGORY_NAV = [
   ...RUNNER_CLASS_SECTIONS.map((section) => ({
     ...section,
@@ -517,7 +510,8 @@ const CATEGORY_NAV = [
 function ClassTab({ category, active, onSelect }) {
   return (
     <button
-      className={`perks-class-tab accent-${category.accent} ${active ? "is-active" : ""}`}
+      className={`perks-class-tab ${active ? "is-active" : ""}`}
+      data-class-id={category.classId || "void"}
       type="button"
       onClick={() => onSelect(category.id)}
       aria-pressed={active}
@@ -534,7 +528,11 @@ function ClassTab({ category, active, onSelect }) {
 function ActivePerkPanel({ category }) {
   const isVoid = category.type === "void"
   return (
-    <section className={`perks-active-panel accent-${category.accent}`} aria-labelledby="activePerksTitle">
+    <section
+      className={`perks-active-panel accent-${category.accent}`}
+      data-class-id={category.classId || "void"}
+      aria-labelledby="activePerksTitle"
+    >
       <header className="perks-active-header">
         <div className="perks-active-emblem" aria-hidden="true">{category.icon}</div>
         <div className="perks-active-copy">
@@ -572,7 +570,7 @@ export default function PerkScreen() {
     <div id="perksScreen" className="screen io-screen perks-page-screen">
       <div className="perks-page-stage">
         <header className="perks-topbar">
-          <BackButton />
+          <BackButton className="perks-back-btn" />
           <AccountBadge panelId="perks" showOrbs className="perks-slim-account" />
         </header>
 

@@ -1,4 +1,5 @@
-/* Desktop/laptop scaling pass. Mobile is blocked, so these rules focus on 1280px+ monitors and short laptop heights. */
+/* Desktop/laptop scaling pass. Mobile is blocked,
+so these rules focus on 1280px+ monitors and short laptop heights. */
 :root {
   --rr-page-x: clamp(22px, 4.2vw, 84px);
   --rr-page-y: clamp(18px, 3.2vh, 44px);
@@ -41,7 +42,8 @@
   overflow: hidden !important;
 }
 
-/* Main menu: keep the big composition, but stop it from ballooning on large monitors or crowding on 1366/1440 screens. */
+/* Main menu: keep the big composition,
+but stop it from ballooning on large monitors or crowding on 1366/1440 screens. */
 .main-menu-stage {
   height: 100dvh;
   min-height: 640px;
@@ -236,11 +238,6 @@
   padding-left: clamp(64px, 5.8vw, 88px) !important;
 }
 
-#skinScreen .skins-page-hero .account-panel-top > div:first-child::before {
-  width: clamp(48px, 4.5vw, 64px) !important;
-  height: clamp(48px, 4.5vw, 64px) !important;
-  font-size: clamp(20px, 1.8vw, 27px) !important;
-}
 
 #skinScreen .skins-title-block h1 {
   line-height: 0.84 !important;
@@ -531,7 +528,8 @@
   }
 }
 
-/* Narrow desktop/laptop monitors. Still not mobile, just fewer columns and less empty ceremony. */
+/* Narrow desktop/laptop monitors. Still not mobile,
+just fewer columns and less empty ceremony. */
 @media (max-width: 1440px) and (min-width: 1000px) {
   :root {
     --rr-page-x: clamp(20px, 3.2vw, 46px);
@@ -578,22 +576,22 @@
 
 @media (max-width: 1180px) and (min-width: 900px) {
   #playScreen.play-screen,
-  #skinScreen.io-screen:not(.menu-screen),
-  #perksScreen.io-screen:not(.menu-screen),
-  #optionsScreen.io-screen:not(.menu-screen),
-  #howScreen.io-screen:not(.menu-screen),
-  #lobbyScreen.io-screen:not(.menu-screen) {
+#skinScreen.io-screen:not(.menu-screen),
+#perksScreen.io-screen:not(.menu-screen),
+#optionsScreen.io-screen:not(.menu-screen),
+#howScreen.io-screen:not(.menu-screen),
+#lobbyScreen.io-screen:not(.menu-screen) {
     overflow: auto !important;
   }
 
   #playScreen .play-account-wrap,
-  .main-menu-account,
-  .main-menu-quickbar,
-  .angled-menu-actions,
-  .main-menu-title,
-  .side-select-panel,
-  .menu-footer-strip,
-  .rift-main-menu .version-badge {
+.main-menu-account,
+.main-menu-quickbar,
+.angled-menu-actions,
+.main-menu-title,
+.side-select-panel,
+.menu-footer-strip,
+.rift-main-menu .version-badge {
     position: relative !important;
     inset: auto !important;
     transform: none !important;
@@ -627,10 +625,10 @@
   }
 
   #skinScreen .skins-page-hero,
-  #playScreen .play-role-select,
-  #playScreen .play-join-grid,
-  #lobbyScreen .lobby-workspace,
-  #perksScreen .perk-shop-layout {
+#playScreen .play-role-select,
+#playScreen .play-join-grid,
+#lobbyScreen .lobby-workspace,
+#perksScreen .perk-shop-layout {
     grid-template-columns: 1fr !important;
   }
 
@@ -639,7 +637,8 @@
   }
 }
 
-/* Big monitors: use the space, but cap the UI so it still feels designed instead of inflated. */
+/* Big monitors: use the space,
+but cap the UI so it still feels designed instead of inflated. */
 @media (min-width: 1900px) and (min-height: 900px) {
   :root {
     --rr-page-x: clamp(70px, 5vw, 110px);
@@ -699,8 +698,8 @@
 
 @media (max-height: 820px) {
   #playScreen .play-account-wrap .account-badge,
-  #skinScreen .skins-page-hero .account-badge,
-  .perks-account-row .account-badge {
+#skinScreen .skins-page-hero .account-badge,
+.perks-account-row .account-badge {
     min-height: 36px !important;
   }
 }

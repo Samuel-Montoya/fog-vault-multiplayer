@@ -1,8 +1,3 @@
-/* Imported last by App.jsx so page-specific decoration cannot muddy the shared menu backdrop. */
-.menu-bg::before,
-.menu-bg::after,
-.rift-page-background::before,
-.rift-page-background::after,
 .background-grid,
 .background-vortex-glow,
 .background-floor-glow,
@@ -10,26 +5,9 @@
 .background-noise,
 .background-shards,
 .title-vortex-mark {
-  content: none !important;
   display: none !important;
 }
 
-#menu .main-menu-stage::before,
-#menu .main-menu-stage::after,
-.io-screen:not(.menu-screen)::before,
-#playScreen.io-screen:not(.menu-screen)::before,
-#skinScreen.io-screen:not(.menu-screen)::before,
-#perksScreen.io-screen:not(.menu-screen)::before,
-#classesScreen.io-screen:not(.menu-screen)::before,
-#settingsScreen.io-screen:not(.menu-screen)::before,
-#optionsScreen.io-screen:not(.menu-screen)::before,
-#howScreen.io-screen:not(.menu-screen)::before,
-#lobbyScreen.io-screen:not(.menu-screen)::before {
-  content: none !important;
-  display: none !important;
-  background: none !important;
-  opacity: 0 !important;
-}
 
 .rift-page-background {
   background: #04020a !important;

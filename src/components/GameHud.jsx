@@ -306,7 +306,7 @@ export function AbilityWheel() {
                     draggable="false"
                   />
                 ) : (
-                  <div className="ability-icon-fallback" aria-hidden="true">{abilityFallbackGlyph(ability)}</div>
+                  <div className={`ability-icon-fallback accent-${ability.accent || "purple"}`} aria-hidden="true">{abilityFallbackGlyph(ability)}</div>
                 )}
                 <span className="ability-name">{abilityDisplayName(ability)}</span>
               </div>
@@ -399,8 +399,35 @@ function abilityReadinessLabel(ability) {
   return "Ready"
 }
 
+function AbilityReadyIcon({ ability, iconSrc }) {
+  const [failed, setFailed] = useState(false)
+  const accent = ability?.accent || "purple"
+  const hasImage = !!iconSrc && !failed
+
+  return (
+    <div className={`ability-ready-icon-wrap accent-${accent} ${hasImage ? "has-image" : "has-fallback"}`}>
+      {hasImage ? (
+        <img
+          className="ability-ready-icon"
+          src={iconSrc}
+          alt=""
+          aria-hidden="true"
+          draggable="false"
+          onError={() => setFailed(true)}
+        />
+      ) : (
+        <span className={`ability-ready-glyph accent-${accent}`} aria-hidden="true">{abilityFallbackGlyph(ability)}</span>
+      )}
+    </div>
+  )
+}
+
 function AbilityReadinessStrip({ abilities = [], role = "runner" }) {
   const visibleAbilities = abilities.filter((ability) => ability && !ability.cancel && !ability.passive && !ability.disabled)
+  const qAbilityIds = visibleAbilities
+    .filter((ability) => !(ability.inputType === "m1" || ability.shootAbility))
+    .slice(0, 2)
+    .map((ability) => ability.id)
   if (!visibleAbilities.length) return null
 
   return (
@@ -409,25 +436,22 @@ function AbilityReadinessStrip({ abilities = [], role = "runner" }) {
         const ready = ability.available !== false && !ability.locked && Math.max(0, Number(ability.cooldownRemaining || 0)) <= 0
         const iconSrc = abilityIconSrc(ability)
         const isShoot = ability.inputType === "m1" || ability.shootAbility
+        const qSlot = isShoot ? -1 : qAbilityIds.indexOf(ability.id)
         const tierLabel = abilityTierLabel(ability)
         return (
           <div
-            className={`ability-ready-entry ${isShoot ? "has-input" : ""} ${ready ? "is-ready" : "is-unavailable"}`}
+            className={`ability-ready-entry ${isShoot || qSlot >= 0 ? "has-input" : ""} ${ready ? "is-ready" : "is-unavailable"}`}
             key={ability.id}
           >
-            {isShoot && (
+            {isShoot ? (
               <img className="ability-ready-input-icon" src="/images/mouse_click.png" alt="M1" draggable="false" />
-            )}
+            ) : qSlot >= 0 ? (
+              <kbd className={`ability-ready-input-key accent-${ability.accent || "cyan"}`} aria-label={`Press ${qSlot + 1}`}>{qSlot + 1}</kbd>
+            ) : null}
             <div
               className={`ability-ready-item ${ready ? "is-ready" : "is-unavailable"} ${ability.active ? "is-active" : ""} accent-${ability.accent || "cyan"}`}
             >
-              <div className="ability-ready-icon-wrap">
-                {iconSrc ? (
-                  <img className="ability-ready-icon" src={iconSrc} alt="" aria-hidden="true" draggable="false" />
-                ) : (
-                  <span className="ability-ready-glyph" aria-hidden="true">{abilityFallbackGlyph(ability)}</span>
-                )}
-              </div>
+              <AbilityReadyIcon ability={ability} iconSrc={iconSrc} />
               <div className="ability-ready-copy">
                 <strong>{abilityDisplayName(ability)}</strong>
                 {tierLabel ? <small>{tierLabel}</small> : null}
@@ -731,7 +755,7 @@ export function ChatWheel() {
     <div className={`chat-wheel-overlay ${wheel.open ? "is-open" : ""} ${wheel.role === "killer" ? "is-killer" : "is-survivor"}`} aria-hidden={!wheel.open}>
       <div className="chat-wheel-backdrop" />
       <div className="chat-wheel" role="menu" aria-label="Quick chat wheel">
-        <div className="chat-wheel-center" aria-hidden="true" />
+        <div className="chat-wheel-center" aria-hidden="true"><span>Chat</span></div>
         {CHAT_WHEEL_SEGMENTS.map((segment) => {
           const selected = wheel.selected === segment.index
           return (
@@ -1120,16 +1144,6 @@ function RoleHudCard() {
   )
 }
 
-function HudDataBridge() {
-  return (
-    <div className="hud-data-bucket" aria-hidden="true">
-      <span id="genText">0 / 0</span>
-      <span id="gateText">Closed</span>
-      <span id="healthText">Healthy</span>
-      <span id="audioText">Press any key</span>
-    </div>
-  )
-}
 
 function MatchAnnouncementRegion() {
   return <div id="matchAnnouncements" className="match-announcements" aria-live="polite" />
@@ -1154,9 +1168,7 @@ export function GameHud() {
     <>
       <div id="hud" className="hud hidden" data-role="survivor">
         <RoleHudCard />
-        <HudDataBridge />
       </div>
-      <RiftCounterCard />
       <MatchAnnouncementRegion />
       <HorrorFxOverlay />
     </>

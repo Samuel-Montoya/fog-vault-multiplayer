@@ -1,4 +1,5 @@
 import "./styles/base.css"
+import "./styles/shared_ui.css"
 import { useVoidriftClient } from "./hooks/useVoidriftClient"
 import { useMouseKeyboardOnlyGate } from "./hooks/useMouseKeyboardOnlyGate"
 import { useScreenNavigationBridge } from "./hooks/useScreenNavigationBridge"
@@ -25,9 +26,8 @@ import {
   SurvivorStatusHud,
   VoidAbilityHud
 } from "./components/GameHud"
-// import "./styles/background_image_only.css"
 import "./styles/icon_assets.css"
-// import "./styles/responsive_layout.css"
+import "./styles/classes.css"
 
 const MENU_SCREENS = [
   { key: "menu", Component: MainMenu },

@@ -11,7 +11,7 @@ import {
 import { LobbyControls, LobbyHeader, LobbyRoster } from "./lobby/LobbyParts"
 import { useLobbySkinSync } from "./lobby/useLobbySkinSync"
 import "../styles/lobby.css"
-import BackButton from "./shared/Buttons"
+import BackButton from "./shared/BackButton"
 
 export default function LobbyScreen({
   title = LOBBY_TITLE,
@@ -31,8 +31,7 @@ export default function LobbyScreen({
   return (
     <div id="lobbyScreen" className="screen io-screen lobby-screen-redesign">
       <div className="lobby-stage">
-        {/* <button id="leaveBtn" className="back_button" type="button">{"← Back"}</button> */}
-        <BackButton  id="leaveBtn" className="back_button" />
+        <BackButton id="leaveBtn" className="back_button" leaveLobby />
 
         <LobbyHeader
           title={title}

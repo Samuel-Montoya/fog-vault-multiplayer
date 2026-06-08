@@ -37,18 +37,18 @@ const RIFTRUNNER_RUNNER_CLASS_CONFIG = {
       shortName: "Nebula",
       accent: "purple",
       icon: "☁",
-      summary: "Control Runner that creates void-smoke cover and turns fog into team safety.",
-      detail: "Nebulizer fires smoke darts that hide anything inside from outsiders. Runners standing inside smoke can read the cloud and spot The Void through it.",
-      wheelOrder: ["smokeDart", "voidTrace", "cancel", "moreSoon"],
+      summary: "Control Runner that turns smoke into a fast escape lane and punishes greedy chases with Void Swirl traps.",
+      detail: "Nebulizer fires smoke darts that create hard vision walls, then drops red Void Swirls that slow The Void when stepped on.",
+      wheelOrder: ["smokeDart", "voidSwirl", "cancel", "moreSoon"],
       grantedPerks: {},
       passive: {
         id: "voidTrace",
-        label: "Void Trace",
-        detail: "While standing inside any smoke cloud, you can see The Void through the haze in a wider radius.",
+        label: "Vapor Trail",
+        detail: "While inside smoke, gain a speed boost and erase your scratch marks.",
         levels: [
-          { level: 1, minRunnerLevel: 1, smokeKillerRevealRadius: 440, label: "Short smoke reveal while inside smoke" },
-          { level: 2, minRunnerLevel: 6, smokeKillerRevealRadius: 540, label: "Medium smoke reveal while inside smoke" },
-          { level: 3, minRunnerLevel: 14, smokeKillerRevealRadius: 660, label: "Long smoke reveal while inside smoke" }
+          { level: 1, minRunnerLevel: 1, vaporTrailSpeedMultiplier: 1.20, vaporTrailDuration: 2, hidesScratchMarks: true, label: "1.2x boost · 2s duration · no scratch marks" },
+          { level: 2, minRunnerLevel: 6, vaporTrailSpeedMultiplier: 1.40, vaporTrailDuration: 3, hidesScratchMarks: true, label: "1.4x boost · 3s duration · no scratch marks" },
+          { level: 3, minRunnerLevel: 14, vaporTrailSpeedMultiplier: 1.80, vaporTrailDuration: 4, hidesScratchMarks: true, label: "1.8x boost · 4s duration · no scratch marks" }
         ]
       }
     },
@@ -162,6 +162,26 @@ const RIFTRUNNER_RUNNER_CLASS_CONFIG = {
         { level: 3, minRunnerLevel: 14, radius: 220, duration: 10, projectileSpeed: 1500, range: 700, cooldown: 10, cost: 0, label: "Large smoke" }
       ]
     },
+    voidSwirl: {
+      id: "voidSwirl",
+      classAbility: true,
+      classId: "nebulizer",
+      name: "Void Swirl",
+      shortName: "Swirl",
+      accent: "red",
+      cost: 5,
+      duration: 6,
+      cooldown: 30,
+      radius: 62,
+      summary: "Q drops a red void swirl trap that slows The Void when stepped on.",
+      detail: "Place it behind you, inside smoke edges, or on tight chase routes. It disappears after triggering or when it burns out.",
+      inputType: "q",
+      levels: [
+        { level: 1, minRunnerLevel: 1, radius: 62, duration: 6, slowMultiplier: 0.75, slowDuration: 1.25, cooldown: 30, cost: 5, label: "Small swirl · 25% slow for 1.25s" },
+        { level: 2, minRunnerLevel: 6, radius: 74, duration: 7, slowMultiplier: 0.65, slowDuration: 1.75, cooldown: 20, cost: 5, label: "Medium swirl · 35% slow for 1.75s" },
+        { level: 3, minRunnerLevel: 14, radius: 88, duration: 8, slowMultiplier: 0.55, slowDuration: 2.25, cooldown: 10, cost: 5, label: "Large swirl · 45% slow for 2.25s" }
+      ]
+    },
     dashDart: {
       id: "dashDart",
       classAbility: true,
@@ -242,13 +262,13 @@ const RIFTRUNNER_RUNNER_CLASS_CONFIG = {
     },
     voidTrace: {
       id: "voidTrace",
-      name: "Void Trace",
-      shortName: "Trace",
+      name: "Vapor Trail",
+      shortName: "Vapor",
       accent: "purple",
       cost: 0,
       cooldown: 0,
-      summary: "Passive: while inside smoke, read The Void through the haze.",
-      detail: "Passive class bonus. No button press needed.",
+      summary: "Passive: while inside smoke, gain speed and erase scratch marks.",
+      detail: "Level 1: 1.2x for 2s. Level 2: 1.4x for 3s. Level 3: 1.8x for 4s. No button press needed.",
       disabled: true,
       passive: true
     },

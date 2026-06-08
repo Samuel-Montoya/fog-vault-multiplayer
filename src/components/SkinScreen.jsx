@@ -2,9 +2,8 @@ import { useEffect } from "react"
 import { SKINS, VOID_SKINS } from "../data/menuData"
 import AccountBadge from "./AccountBadge"
 import SkinButton from "./SkinButton"
-import { showMenuScreen } from "../utils/screenNavigation"
+import BackButton from "./shared/BackButton"
 import "../styles/skins.css"
-import "../styles/screen_header.css"
 
 const SKIN_SECTIONS = [
   {
@@ -142,15 +141,6 @@ function useSkinShopLabels() {
   }, [])
 }
 
-function BackButton() {
-  return (
-    <button className="skins-back-btn rr-back-btn" data-screen="menu" data-screen-nav="menu" type="button" onClick={() => showMenuScreen("menu")}>
-      <span aria-hidden="true">←</span>
-      Back
-    </button>
-  )
-}
-
 function SkinSection({ section }) {
   const { iconSrc, kicker, title, subtitle, skins, role } = section
 
@@ -179,7 +169,7 @@ export default function SkinScreen() {
   return (
     <div id="skinScreen" className="screen io-screen skin-page-screen">
       <div className="skins-page-stage">
-        <BackButton />
+        <BackButton className="skins-back-btn" />
 
         <header className="skins-page-hero">
           <div className="skins-title-block">

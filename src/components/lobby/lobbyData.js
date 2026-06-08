@@ -9,8 +9,7 @@ export const LOBBY_SUBTITLE = "4/4 Runners - 1 Void Player - Players ready up to
 export const LOBBY_ROLE_ACTIONS = [
   { id: "beKillerBtn", className: "void-choice-btn selected", image: "/images/void.png", label: "Play as The Void" },
   { id: "beSurvivorBtn", className: "runner-choice-btn", image: "/images/runner.png", label: "Play as a Runner" },
-  { id: "beFfaBtn", className: "ffa-choice-btn", image: "/images/void.png", label: "Free-For-All" },
-  { id: "beSpectatorBtn", className: "spectator-choice-btn", label: "Join as Spectator" }
+  { id: "beFfaBtn", className: "ffa-choice-btn", image: "/images/void.png", label: "Free-For-All" }
 ]
 
 export const RUNNER_CLASSES = [

@@ -79,16 +79,16 @@ const RIFTRUNNER_PERK_CONFIG = {
           defaultLevel: 1,
           classAbility: true,
           classId: "nebulizer",
-          name: "Void Trace",
-          shortName: "Trace",
+          name: "Vapor Trail",
+          shortName: "Vapor",
           accent: "purple",
           maxLevel: 3,
-          summary: "Nebulizer passive: see The Void through smoke while you are inside the cloud.",
-          detail: "Upgrade this passive to read smoke better and reveal The Void from farther away while standing inside smoke.",
+          summary: "Nebulizer passive: while inside smoke, gain speed and erase scratch marks.",
+          detail: "Vapor Trail activates in smoke, boosting Nebulizer's speed and preventing scratch marks for the level duration.",
           levels: [
-            { level: 1, unlockCost: 0, smokeKillerRevealRadius: 440, label: "Short smoke reveal" },
-            { level: 2, upgradeCost: 100, smokeKillerRevealRadius: 540, label: "Medium smoke reveal" },
-            { level: 3, upgradeCost: 150, smokeKillerRevealRadius: 660, label: "Long smoke reveal" }
+            { level: 1, unlockCost: 0, vaporTrailSpeedMultiplier: 1.20, vaporTrailDuration: 2, hidesScratchMarks: true, label: "1.2x boost · 2s duration · no scratch marks" },
+            { level: 2, upgradeCost: 100, vaporTrailSpeedMultiplier: 1.40, vaporTrailDuration: 3, hidesScratchMarks: true, label: "1.4x boost · 3s duration · no scratch marks" },
+            { level: 3, upgradeCost: 150, vaporTrailSpeedMultiplier: 1.80, vaporTrailDuration: 4, hidesScratchMarks: true, label: "1.8x boost · 4s duration · no scratch marks" }
           ]
         },
         smokeDart: {
@@ -103,7 +103,7 @@ const RIFTRUNNER_PERK_CONFIG = {
           abilityCost: 0,
           cooldown: 30,
           summary: "Nebulizer ability: fire a purple dart that blooms into a vision-blocking smoke cloud.",
-          detail: "Anything inside the smoke is hidden from outsiders. Step inside the cloud to see through that same smoke.",
+          detail: "Anything inside smoke is hidden from outsiders. Step inside and everything outside that same smoke cloud disappears from vision.",
           inputType: "m1",
           shootAbility: true,
           projectileKind: "smoke",
@@ -111,6 +111,28 @@ const RIFTRUNNER_PERK_CONFIG = {
             { level: 1, unlockCost: 50, radius: 132, duration: 5, projectileSpeed: 1320, range: 600, cooldown: 30, cost: 0, label: "Small smoke" },
             { level: 2, upgradeCost: 100, radius: 170, duration: 7, projectileSpeed: 1400, range: 640, cooldown: 20, cost: 0, label: "Medium smoke" },
             { level: 3, upgradeCost: 150, radius: 220, duration: 10, projectileSpeed: 1500, range: 700, cooldown: 10, cost: 0, label: "Large smoke" }
+          ]
+        },
+        voidSwirl: {
+          id: "voidSwirl",
+          role: "survivor",
+          classAbility: true,
+          classId: "nebulizer",
+          alwaysUnlocked: true,
+          defaultLevel: 1,
+          name: "Void Swirl",
+          shortName: "Swirl",
+          accent: "red",
+          maxLevel: 3,
+          abilityCost: 5,
+          cooldown: 30,
+          summary: "Nebulizer ability: drop a red void swirl trap that slows The Void when stepped on.",
+          detail: "Place a small red swirl at your feet. It arms instantly, burns out after a few seconds, and disappears after slowing The Void.",
+          inputType: "q",
+          levels: [
+            { level: 1, unlockCost: 0, radius: 62, duration: 6, slowMultiplier: 0.75, slowDuration: 1.25, cooldown: 30, cost: 5, label: "Small swirl · 25% slow for 1.25s" },
+            { level: 2, upgradeCost: 100, radius: 74, duration: 7, slowMultiplier: 0.65, slowDuration: 1.75, cooldown: 20, cost: 5, label: "Medium swirl · 35% slow for 1.75s" },
+            { level: 3, upgradeCost: 150, radius: 88, duration: 8, slowMultiplier: 0.55, slowDuration: 2.25, cooldown: 10, cost: 5, label: "Large swirl · 45% slow for 2.25s" }
           ]
         },
         flowState: {

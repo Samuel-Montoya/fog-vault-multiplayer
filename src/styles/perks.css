@@ -1,9 +1,9 @@
-#perksScreen.perks-page-screen,
 #perksScreen.perks-page-screen * {
   box-sizing: border-box;
 }
 
 #perksScreen.perks-page-screen {
+  box-sizing: border-box;
   --rr-panel: rgba(8, 6, 18, 0.78);
   --rr-panel-strong: rgba(12, 9, 26, 0.92);
   --rr-border: rgba(188, 125, 255, 0.26);
@@ -26,16 +26,6 @@
   font: inherit;
 }
 
-#perksScreen.perks-page-screen .perks-page-stage {
-  width: 100%;
-  height: 100%;
-  min-height: 0;
-  display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
-  gap: clamp(12px, 1.5vh, 18px);
-  padding: clamp(22px, 2.7vh, 34px) clamp(38px, 4.2vw, 72px) clamp(24px, 3vh, 38px);
-}
-
 #perksScreen.perks-page-screen .perks-topbar {
   display: flex;
   align-items: flex-start;
@@ -43,27 +33,11 @@
   gap: 20px;
 }
 
-#perksScreen.perks-page-screen .perks-back-btn {
-  min-width: 118px;
-  min-height: 42px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  padding: 0 18px;
-  border: 1px solid rgba(199, 160, 255, 0.42);
-  border-radius: 10px;
-  background: linear-gradient(180deg, rgba(255,255,255,0.075), rgba(255,255,255,0.018)), rgba(8, 5, 18, 0.78);
-  color: rgba(255,255,255,0.88);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 18px 38px rgba(0,0,0,0.22);
-  font-size: 11px;
-  font-weight: 900;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  cursor: pointer;
+#perksScreen.perks-page-screen .perks-back-btn:hover {
+  transform: translateX(-2px);
+  border-color: rgba(238, 224, 255, 0.76);
 }
 
-#perksScreen.perks-page-screen .perks-back-btn:hover,
 #perksScreen.perks-page-screen .perks-back-btn:focus-visible {
   transform: translateX(-2px);
   border-color: rgba(238, 224, 255, 0.76);
@@ -71,19 +45,6 @@
 
 #perksScreen.perks-page-screen .perks-page-hero {
   min-height: 0;
-}
-
-#perksScreen.perks-page-screen .perks-title-block {
-  position: relative;
-  padding: clamp(16px, 1.8vh, 24px) clamp(20px, 2vw, 30px);
-  border: 1px solid var(--rr-border);
-  border-radius: 18px;
-  background:
-    radial-gradient(circle at 78% 18%, rgba(179, 89, 255, 0.13), transparent 30%),
-    linear-gradient(180deg, rgba(255,255,255,0.055), rgba(255,255,255,0.014)),
-    var(--rr-panel);
-  box-shadow: 0 24px 60px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.07);
-  backdrop-filter: blur(10px);
 }
 
 #perksScreen.perks-page-screen .perks-title-kicker {
@@ -95,84 +56,25 @@
   text-transform: uppercase;
 }
 
-#perksScreen.perks-page-screen .perks-title-block h1 {
-  margin: 8px 0 8px;
-  color: rgba(255,255,255,0.98);
-  font-size: clamp(34px, 3vw, 52px);
-  line-height: 0.96;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-#perksScreen.perks-page-screen .perks-title-block p {
-  max-width: 900px;
-  margin: 0;
-  color: var(--rr-muted);
-  font-size: clamp(13px, 0.92vw, 16px);
-  line-height: 1.45;
-}
-
-#perksScreen.perks-page-screen .perks-content {
-  min-height: 0;
-  display: grid;
-  grid-template-columns: clamp(218px, 17vw, 285px) minmax(0, 1fr);
-  gap: clamp(14px, 1.6vw, 24px);
-}
-
-#perksScreen.perks-page-screen .perks-class-tabs {
-  min-height: 0;
-  display: grid;
-  align-content: start;
-  gap: 10px;
-  padding: 12px;
-  border: 1px solid var(--rr-border);
-  border-radius: 18px;
-  background:
-    linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.012)),
-    rgba(6, 4, 14, 0.72);
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 20px 48px rgba(0,0,0,0.18);
-  backdrop-filter: blur(10px);
-}
-
-#perksScreen.perks-page-screen .perks-class-tab {
-  --accent: #c084fc;
-  --accent-soft: rgba(192, 132, 252, 0.13);
-  width: 100%;
-  min-height: 62px;
-  display: grid;
-  grid-template-columns: 42px minmax(0, 1fr);
-  align-items: center;
-  gap: 12px;
-  padding: 10px 12px;
-  border: 1px solid rgba(255,255,255,0.075);
-  border-radius: 14px;
-  background: rgba(255,255,255,0.025);
-  color: rgba(255,255,255,0.86);
-  text-align: left;
-  cursor: pointer;
-  transition: transform 130ms ease, border-color 130ms ease, background 130ms ease, box-shadow 130ms ease;
-}
-
-#perksScreen.perks-page-screen .perks-class-tab:hover,
-#perksScreen.perks-page-screen .perks-class-tab:focus-visible,
-#perksScreen.perks-page-screen .perks-class-tab.is-active {
+#perksScreen.perks-page-screen .perks-class-tab:hover {
   transform: translateX(2px);
   border-color: color-mix(in srgb, var(--accent) 54%, white 0%);
   background: linear-gradient(90deg, var(--accent-soft), rgba(255,255,255,0.025));
   box-shadow: inset 3px 0 0 var(--accent), 0 0 24px color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
-#perksScreen.perks-page-screen .perks-tab-icon {
-  width: 42px;
-  height: 42px;
-  display: grid;
-  place-items: center;
-  border: 1px solid rgba(255,255,255,0.10);
-  border-radius: 12px;
-  background: radial-gradient(circle at 50% 45%, var(--accent-soft), rgba(255,255,255,0.025));
-  color: var(--accent);
-  font-size: 20px;
-  font-weight: 900;
+#perksScreen.perks-page-screen .perks-class-tab:focus-visible {
+  transform: translateX(2px);
+  border-color: color-mix(in srgb, var(--accent) 54%, white 0%);
+  background: linear-gradient(90deg, var(--accent-soft), rgba(255,255,255,0.025));
+  box-shadow: inset 3px 0 0 var(--accent), 0 0 24px color-mix(in srgb, var(--accent) 18%, transparent);
+}
+
+#perksScreen.perks-page-screen .perks-class-tab.is-active {
+  transform: translateX(2px);
+  border-color: color-mix(in srgb, var(--accent) 54%, white 0%);
+  background: linear-gradient(90deg, var(--accent-soft), rgba(255,255,255,0.025));
+  box-shadow: inset 3px 0 0 var(--accent), 0 0 24px color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
 #perksScreen.perks-page-screen .perks-tab-copy {
@@ -203,48 +105,6 @@
   white-space: nowrap;
 }
 
-#perksScreen.perks-page-screen .perks-active-panel {
-  --accent: #c084fc;
-  --accent-soft: rgba(192, 132, 252, 0.13);
-  min-height: 0;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: 14px;
-  padding: clamp(16px, 1.5vw, 22px);
-  border: 1px solid var(--rr-border);
-  border-radius: 20px;
-  background:
-    radial-gradient(circle at 85% 12%, var(--accent-soft), transparent 24%),
-    linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.012)),
-    var(--rr-panel);
-  box-shadow: 0 26px 64px rgba(0,0,0,0.24), inset 0 1px 0 rgba(255,255,255,0.06);
-  overflow: hidden;
-  backdrop-filter: blur(10px);
-}
-
-#perksScreen.perks-page-screen .perks-active-header {
-  display: grid;
-  grid-template-columns: 64px minmax(0, 1fr);
-  gap: 14px;
-  align-items: center;
-  padding-bottom: 14px;
-  border-bottom: 1px solid rgba(255,255,255,0.08);
-}
-
-#perksScreen.perks-page-screen .perks-active-emblem {
-  width: 58px;
-  height: 58px;
-  display: grid;
-  place-items: center;
-  border: 1px solid rgba(255,255,255,0.12);
-  border-radius: 16px;
-  background: radial-gradient(circle at 50% 45%, var(--accent-soft), rgba(255,255,255,0.025));
-  color: var(--accent);
-  font-size: 26px;
-  font-weight: 900;
-  box-shadow: inset 0 1px 0 rgba(255,255,255,0.07);
-}
-
 #perksScreen.perks-page-screen .perks-active-copy {
   min-width: 0;
 }
@@ -255,15 +115,6 @@
   font-size: 10px;
   font-weight: 900;
   letter-spacing: 0.20em;
-  text-transform: uppercase;
-}
-
-#perksScreen.perks-page-screen .perks-active-copy h2 {
-  margin: 4px 0;
-  color: rgba(255,255,255,0.98);
-  font-size: clamp(24px, 2vw, 34px);
-  line-height: 1;
-  letter-spacing: 0.05em;
   text-transform: uppercase;
 }
 
@@ -284,44 +135,21 @@
   line-height: 1.45;
 }
 
-#perksScreen.perks-page-screen .perks-active-grid {
-  min-height: 0;
-  overflow: auto;
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-  align-content: start;
-  gap: 12px;
-  padding-right: 8px;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(205, 162, 255, 0.32) transparent;
-}
-
 #perksScreen.perks-page-screen .perks-active-grid::-webkit-scrollbar {
   width: 8px;
 }
 
 #perksScreen.perks-page-screen .perks-active-grid::-webkit-scrollbar-thumb {
-  border-radius: 999px;
+  border-radius: var(--rr-radius);
   background: rgba(205, 162, 255, 0.28);
 }
 
-#perksScreen.perks-page-screen .perk-card {
-  min-width: 0;
-  display: grid;
-  grid-template-rows: auto auto auto auto auto;
-  align-content: start;
-  gap: 9px;
-  padding: 13px;
-  border: 1px solid rgba(255,255,255,0.085);
-  border-radius: 15px;
-  background:
-    linear-gradient(180deg, rgba(255,255,255,0.052), rgba(255,255,255,0.012)),
-    var(--rr-panel-strong);
-  box-shadow: 0 16px 30px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.045);
-  transition: transform 130ms ease, border-color 130ms ease, box-shadow 130ms ease;
+#perksScreen.perks-page-screen .perk-card:hover {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--accent) 44%, rgba(255,255,255,0.16));
+  box-shadow: 0 20px 36px rgba(0,0,0,0.22), 0 0 18px color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
-#perksScreen.perks-page-screen .perk-card:hover,
 #perksScreen.perks-page-screen .perk-card:focus-within {
   transform: translateY(-2px);
   border-color: color-mix(in srgb, var(--accent) 44%, rgba(255,255,255,0.16));
@@ -330,25 +158,6 @@
 
 #perksScreen.perks-page-screen .perk-card.locked {
   opacity: 0.92;
-}
-
-#perksScreen.perks-page-screen .perk-card-top {
-  min-width: 0;
-  display: grid;
-  grid-template-columns: 46px minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 10px;
-}
-
-#perksScreen.perks-page-screen .perk-icon {
-  width: 46px;
-  height: 46px;
-  display: grid;
-  place-items: center;
-  overflow: hidden;
-  border: 1px solid rgba(255,255,255,0.10);
-  border-radius: 13px;
-  background: radial-gradient(circle at 50% 45%, var(--accent-soft), rgba(255,255,255,0.025));
 }
 
 #perksScreen.perks-page-screen .perk-icon img {
@@ -363,46 +172,6 @@
   gap: 3px;
 }
 
-#perksScreen.perks-page-screen .perk-card-top strong {
-  overflow: hidden;
-  color: rgba(255,255,255,0.95);
-  font-size: 14px;
-  font-weight: 900;
-  letter-spacing: 0.04em;
-  line-height: 1.12;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-#perksScreen.perks-page-screen .perk-card-top small {
-  overflow: hidden;
-  color: var(--rr-muted);
-  font-size: 10px;
-  font-weight: 850;
-  letter-spacing: 0.12em;
-  line-height: 1.1;
-  text-overflow: ellipsis;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-
-#perksScreen.perks-page-screen .perk-info-btn {
-  min-width: 72px;
-  min-height: 30px;
-  padding: 0 10px;
-  border: 1px solid rgba(255,255,255,0.10);
-  border-radius: 999px;
-  background: rgba(255,255,255,0.028);
-  color: rgba(255,255,255,0.78);
-  font-size: 9px;
-  font-weight: 900;
-  letter-spacing: 0.13em;
-  text-transform: uppercase;
-  cursor: pointer;
-}
-
-#perksScreen.perks-page-screen .perk-summary,
-#perksScreen.perks-page-screen .perk-effect,
 #perksScreen.perks-page-screen .perk-next-preview {
   margin: 0;
   overflow-wrap: anywhere;
@@ -411,52 +180,74 @@
   line-height: 1.42;
 }
 
-#perksScreen.perks-page-screen .perk-summary {
-  min-height: 50px;
-}
-
-#perksScreen.perks-page-screen .perk-effect,
 #perksScreen.perks-page-screen .perk-next-preview b {
   color: rgba(255,255,255,0.90);
   font-weight: 800;
-}
-
-#perksScreen.perks-page-screen .perk-effect.has-next-upgrade {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 5px;
-  align-items: baseline;
 }
 
 #perksScreen.perks-page-screen .perk-effect-arrow {
   color: var(--rr-dim);
 }
 
-#perksScreen.perks-page-screen .perk-effect-next,
 #perksScreen.perks-page-screen .perk-next-preview span {
   color: color-mix(in srgb, var(--accent) 64%, white 36%);
 }
 
-#perksScreen.perks-page-screen .perk-effect-meter,
+#perksScreen.perks-page-screen .perk-effect-meter {
+  display: grid;
+  grid-template-columns: repeat(var(--perk-level-count, 4), minmax(0, 1fr));
+  gap: 5px;
+}
+
 #perksScreen.perks-page-screen .perk-level-pips {
   display: grid;
   grid-template-columns: repeat(var(--perk-level-count, 4), minmax(0, 1fr));
   gap: 5px;
 }
 
-#perksScreen.perks-page-screen .perk-effect-meter span,
-#perksScreen.perks-page-screen .perk-level-pips span,
-#perksScreen.perks-page-screen .perk-level-pips i {
+#perksScreen.perks-page-screen .perk-effect-meter span {
   height: 7px;
-  border-radius: 999px;
+  border-radius: var(--rr-radius);
   background: rgba(255,255,255,0.10);
 }
 
-#perksScreen.perks-page-screen .perk-effect-meter span.filled,
-#perksScreen.perks-page-screen .perk-level-pips span.filled,
-#perksScreen.perks-page-screen .perk-level-pips span.active,
-#perksScreen.perks-page-screen .perk-level-pips span[aria-current="true"],
-#perksScreen.perks-page-screen .perk-level-pips i.filled,
+#perksScreen.perks-page-screen .perk-level-pips span {
+  height: 7px;
+  border-radius: var(--rr-radius);
+  background: rgba(255,255,255,0.10);
+}
+
+#perksScreen.perks-page-screen .perk-level-pips i {
+  height: 7px;
+  border-radius: var(--rr-radius);
+  background: rgba(255,255,255,0.10);
+}
+
+#perksScreen.perks-page-screen .perk-effect-meter span.filled {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 62%, white 22%), rgba(255,255,255,0.86));
+  box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+#perksScreen.perks-page-screen .perk-level-pips span.filled {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 62%, white 22%), rgba(255,255,255,0.86));
+  box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+#perksScreen.perks-page-screen .perk-level-pips span.active {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 62%, white 22%), rgba(255,255,255,0.86));
+  box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+#perksScreen.perks-page-screen .perk-level-pips span[aria-current="true"] {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 62%, white 22%), rgba(255,255,255,0.86));
+  box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+#perksScreen.perks-page-screen .perk-level-pips i.filled {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 62%, white 22%), rgba(255,255,255,0.86));
+  box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
 #perksScreen.perks-page-screen .perk-level-pips i.active {
   background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 62%, white 22%), rgba(255,255,255,0.86));
   box-shadow: 0 0 12px color-mix(in srgb, var(--accent) 22%, transparent);
@@ -465,7 +256,7 @@
 #perksScreen.perks-page-screen .perk-card > button {
   min-height: 38px;
   border: 1px solid rgba(255,255,255,0.10);
-  border-radius: 11px;
+  border-radius: var(--rr-radius);
   background: linear-gradient(180deg, rgba(255,255,255,0.055), rgba(255,255,255,0.014)), rgba(9, 7, 18, 0.92);
   color: rgba(255,255,255,0.92);
   font-size: 10px;
@@ -475,7 +266,10 @@
   cursor: pointer;
 }
 
-#perksScreen.perks-page-screen .perk-card > button:hover,
+#perksScreen.perks-page-screen .perk-card > button:hover {
+  border-color: color-mix(in srgb, var(--accent) 54%, white 10%);
+}
+
 #perksScreen.perks-page-screen .perk-card > button:focus-visible {
   border-color: color-mix(in srgb, var(--accent) 54%, white 10%);
 }
@@ -489,38 +283,66 @@
   margin: 0;
   padding: 18px;
   border: 1px dashed rgba(255,255,255,0.12);
-  border-radius: 14px;
+  border-radius: var(--rr-radius);
   color: var(--rr-muted);
   font-size: 13px;
 }
 
-#perksScreen.perks-page-screen .accent-yellow,
-#perksScreen.perks-page-screen .perk-card.accent-yellow,
+#perksScreen.perks-page-screen .accent-yellow {
+  --accent: #facc15;
+  --accent-soft: rgba(250, 204, 21, 0.13);
+}
+
+#perksScreen.perks-page-screen .perk-card.accent-yellow {
+  --accent: #facc15;
+  --accent-soft: rgba(250, 204, 21, 0.13);
+}
+
 #perksScreen.perks-page-screen .perk-card.accent-gold {
   --accent: #facc15;
   --accent-soft: rgba(250, 204, 21, 0.13);
 }
 
-#perksScreen.perks-page-screen .accent-purple,
+#perksScreen.perks-page-screen .accent-purple {
+  --accent: #c084fc;
+  --accent-soft: rgba(192, 132, 252, 0.15);
+}
+
 #perksScreen.perks-page-screen .perk-card.accent-purple {
   --accent: #c084fc;
   --accent-soft: rgba(192, 132, 252, 0.15);
 }
 
-#perksScreen.perks-page-screen .accent-orange,
+#perksScreen.perks-page-screen .accent-orange {
+  --accent: #fb923c;
+  --accent-soft: rgba(251, 146, 60, 0.14);
+}
+
 #perksScreen.perks-page-screen .perk-card.accent-orange {
   --accent: #fb923c;
   --accent-soft: rgba(251, 146, 60, 0.14);
 }
 
-#perksScreen.perks-page-screen .accent-green,
-#perksScreen.perks-page-screen .perk-card.accent-green,
+#perksScreen.perks-page-screen .accent-green {
+  --accent: #4ade80;
+  --accent-soft: rgba(74, 222, 128, 0.13);
+}
+
+#perksScreen.perks-page-screen .perk-card.accent-green {
+  --accent: #4ade80;
+  --accent-soft: rgba(74, 222, 128, 0.13);
+}
+
 #perksScreen.perks-page-screen .perk-card.accent-cyan {
   --accent: #4ade80;
   --accent-soft: rgba(74, 222, 128, 0.13);
 }
 
-#perksScreen.perks-page-screen .accent-red,
+#perksScreen.perks-page-screen .accent-red {
+  --accent: #fb7185;
+  --accent-soft: rgba(251, 113, 133, 0.14);
+}
+
 #perksScreen.perks-page-screen .perk-card.accent-red {
   --accent: #fb7185;
   --accent-soft: rgba(251, 113, 133, 0.14);
@@ -529,15 +351,6 @@
 #perksScreen.perks-page-screen .perk-card.accent-gray {
   --accent: #e2e8f0;
   --accent-soft: rgba(226, 232, 240, 0.11);
-}
-
-#perkInfoModal {
-  position: fixed;
-  inset: 0;
-  z-index: 10000;
-  display: none;
-  place-items: center;
-  padding: 32px;
 }
 
 #perkInfoModal.is-open {
@@ -551,102 +364,35 @@
   backdrop-filter: blur(7px);
 }
 
-#perkInfoModal .perk-info-dialog {
-  position: relative;
-  width: min(760px, 92vw);
-  max-height: min(760px, 86vh);
-  overflow: auto;
-  border: 1px solid rgba(205, 162, 255, 0.34);
-  border-radius: 20px;
-  background: linear-gradient(180deg, rgba(20,15,38,0.98), rgba(9,7,20,0.98));
-  box-shadow: 0 34px 90px rgba(0,0,0,0.54), inset 0 1px 0 rgba(255,255,255,0.08);
-}
-
-#perkInfoModal .perk-info-close {
+#perksScreen.perks-page-screen .perk-icon.perk-active-emblem::before {
+  content: "";
   position: absolute;
-  top: 14px;
-  right: 14px;
-  z-index: 2;
-  width: 36px;
-  height: 36px;
-  border: 1px solid rgba(255,255,255,0.12);
-  border-radius: 12px;
-  background: rgba(255,255,255,0.06);
-  color: rgba(255,255,255,0.86);
-  cursor: pointer;
+  inset: 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 48%, white 10%);
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 42%, color-mix(in srgb, var(--accent) 20%, transparent), transparent 70%);
+  transform: none;
+  opacity: 0.76;
+  z-index: 0;
 }
 
-#perkInfoModal .perk-info-dialog-content {
-  padding: 28px;
-}
-
-@media (max-width: 1280px) {
-  #perksScreen.perks-page-screen .perks-page-stage {
-    padding-inline: 28px;
-  }
-
-  #perksScreen.perks-page-screen .perks-content {
-    grid-template-columns: 1fr;
-  }
-
-  #perksScreen.perks-page-screen .perks-class-tabs {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-  }
-
-  #perksScreen.perks-page-screen .perks-class-tab {
-    grid-template-columns: 1fr;
-    justify-items: center;
-    text-align: center;
-    min-height: 74px;
-  }
-
-  #perksScreen.perks-page-screen .perks-tab-copy small {
-    display: none;
-  }
-}
-
-/* Clean card polish: readable English copy, better Details button, and emblem fallback icons. */
-#perksScreen.perks-page-screen .perks-active-grid {
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 318px), 1fr));
-  gap: 14px;
-}
-
-#perksScreen.perks-page-screen .perk-card {
-  grid-template-rows: auto auto auto auto auto;
-  gap: 10px;
-  padding: 14px;
-}
-
-#perksScreen.perks-page-screen .perk-card-top {
-  grid-template-columns: 48px minmax(0, 1fr) auto;
-  gap: 11px;
-}
-
-#perksScreen.perks-page-screen .perk-icon.perk-active-emblem,
-#perkInfoModal .perk-info-icon.perk-active-emblem {
-  position: relative;
-  display: grid;
-  place-items: center;
-  overflow: hidden;
-  color: var(--accent);
-  isolation: isolate;
-}
-
-#perksScreen.perks-page-screen .perk-icon.perk-active-emblem::before,
 #perkInfoModal .perk-info-icon.perk-active-emblem::before {
   content: "";
   position: absolute;
-  inset: 7px;
-  border: 1px solid color-mix(in srgb, var(--accent) 38%, white 12%);
-  border-radius: 10px;
-  background: radial-gradient(circle at 50% 42%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 68%);
-  transform: rotate(45deg);
-  opacity: 0.82;
-  z-index: -1;
+  inset: 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 48%, white 10%);
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 42%, color-mix(in srgb, var(--accent) 20%, transparent), transparent 70%);
+  transform: none;
+  opacity: 0.76;
+  z-index: 0;
 }
 
-#perksScreen.perks-page-screen .perk-icon .perk-icon-fallback,
-#perkInfoModal .perk-info-icon .perk-icon-fallback {
+#perksScreen.perks-page-screen .perk-icon .perk-icon-fallback {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  place-items: center;
   color: color-mix(in srgb, var(--accent) 82%, white 18%);
   font-size: 21px;
   font-weight: 900;
@@ -654,29 +400,28 @@
   text-shadow: 0 0 14px color-mix(in srgb, var(--accent) 32%, transparent);
 }
 
-#perksScreen.perks-page-screen .perk-icon.uses-perk-image .perk-icon-fallback,
+#perksScreen.perks-page-screen .perk-icon.uses-perk-image .perk-icon-fallback {
+  display: none;
+}
+
 #perkInfoModal .perk-info-icon:has(img:not(.perk-icon-image-missing)) .perk-icon-fallback {
   display: none;
 }
 
-#perksScreen.perks-page-screen .perk-icon img.perk-icon-image-missing,
+#perksScreen.perks-page-screen .perk-icon img.perk-icon-image-missing {
+  display: none;
+}
+
 #perkInfoModal .perk-info-icon img.perk-icon-image-missing {
   display: none;
 }
 
-#perksScreen.perks-page-screen .perk-info-btn {
-  min-width: 68px;
-  min-height: 32px;
-  padding: 0 11px;
-  border-color: color-mix(in srgb, var(--accent) 28%, rgba(255,255,255,0.08));
-  background:
-    linear-gradient(180deg, rgba(255,255,255,0.055), rgba(255,255,255,0.015)),
-    color-mix(in srgb, var(--accent) 9%, transparent);
-  color: rgba(255,255,255,0.88);
-  letter-spacing: 0.11em;
+#perksScreen.perks-page-screen .perk-info-btn:hover {
+  border-color: color-mix(in srgb, var(--accent) 56%, white 8%);
+  color: #fff;
+  box-shadow: 0 0 16px color-mix(in srgb, var(--accent) 18%, transparent);
 }
 
-#perksScreen.perks-page-screen .perk-info-btn:hover,
 #perksScreen.perks-page-screen .perk-info-btn:focus-visible {
   border-color: color-mix(in srgb, var(--accent) 56%, white 8%);
   color: #fff;
@@ -684,10 +429,16 @@
 }
 
 #perksScreen.perks-page-screen .perk-summary {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--rr-muted);
+  font-size: 12px;
+  line-height: 1.42;
+  min-height: 50px;
   min-height: 0;
   padding: 10px 11px;
   border: 1px solid rgba(255,255,255,0.065);
-  border-radius: 11px;
+  border-radius: var(--rr-radius);
   background: rgba(255,255,255,0.028);
   color: rgba(235, 229, 248, 0.78);
   font-size: 12.5px;
@@ -696,14 +447,17 @@
 }
 
 #perksScreen.perks-page-screen .perk-effect {
+  overflow-wrap: anywhere;
+  color: var(--rr-muted);
+  line-height: 1.42;
+  font-weight: 800;
   display: grid;
   gap: 8px;
   margin: 0;
   padding: 10px 11px;
   border: 1px solid color-mix(in srgb, var(--accent) 18%, rgba(255,255,255,0.055));
-  border-radius: 11px;
-  background:
-    linear-gradient(90deg, color-mix(in srgb, var(--accent) 8%, transparent), rgba(255,255,255,0.018));
+  border-radius: var(--rr-radius);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 8%, transparent), rgba(255,255,255,0.018));
   color: rgba(255,255,255,0.90);
   font-size: 12px;
   line-height: 1.46;
@@ -711,19 +465,30 @@
 }
 
 #perksScreen.perks-page-screen .perk-effect.has-next-upgrade {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  align-items: baseline;
   display: grid;
   gap: 8px;
   align-items: stretch;
 }
 
-#perksScreen.perks-page-screen .perk-effect-current,
-#perksScreen.perks-page-screen .perk-effect-next {
+#perksScreen.perks-page-screen .perk-effect-current {
   display: grid;
   gap: 4px;
   min-width: 0;
 }
 
-#perksScreen.perks-page-screen .perk-effect-current b,
+#perksScreen.perks-page-screen .perk-effect-current b {
+  color: color-mix(in srgb, var(--accent) 70%, white 30%);
+  font-size: 9.5px;
+  font-weight: 950;
+  letter-spacing: 0.16em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
 #perksScreen.perks-page-screen .perk-effect-next b {
   color: color-mix(in srgb, var(--accent) 70%, white 30%);
   font-size: 9.5px;
@@ -733,51 +498,23 @@
   text-transform: uppercase;
 }
 
-#perksScreen.perks-page-screen .perk-effect-current span,
+#perksScreen.perks-page-screen .perk-effect-current span {
+  color: rgba(255,255,255,0.88);
+  font-weight: 700;
+}
+
 #perksScreen.perks-page-screen .perk-effect-next span {
   color: rgba(255,255,255,0.88);
   font-weight: 700;
 }
 
 #perksScreen.perks-page-screen .perk-effect-next {
+  color: color-mix(in srgb, var(--accent) 64%, white 36%);
+  display: grid;
+  gap: 4px;
+  min-width: 0;
   padding-top: 8px;
   border-top: 1px solid rgba(255,255,255,0.075);
-}
-
-#perkInfoModal .perk-info-level-copy {
-  margin: 10px 0 12px;
-  color: rgba(244, 239, 255, 0.86);
-  font-size: 13px;
-  font-weight: 700;
-  line-height: 1.5;
-}
-
-#perkInfoModal .perk-info-level-values {
-  margin-top: 0;
-}
-
-/* Final readable perk-card layout. This deliberately overrides old global shop CSS. */
-#perksScreen.perks-page-screen .perks-active-grid {
-  grid-template-columns: 1fr;
-  gap: 16px;
-  align-content: start;
-}
-
-#perksScreen.perks-page-screen .perk-card {
-  width: 100%;
-  min-height: auto;
-  display: grid;
-  grid-template-columns: 1fr;
-  grid-template-rows: auto auto auto;
-  gap: 14px;
-  padding: clamp(16px, 1.15vw, 20px);
-}
-
-#perksScreen.perks-page-screen .perk-card-top {
-  display: grid;
-  grid-template-columns: 54px minmax(220px, 1fr) auto;
-  align-items: center;
-  gap: 14px;
 }
 
 #perksScreen.perks-page-screen .perk-card-title {
@@ -787,6 +524,13 @@
 }
 
 #perksScreen.perks-page-screen .perk-card-top strong {
+  overflow: hidden;
+  color: rgba(255,255,255,0.95);
+  font-size: 14px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   white-space: normal;
   overflow: visible;
   text-overflow: clip;
@@ -795,17 +539,19 @@
 }
 
 #perksScreen.perks-page-screen .perk-card-top small {
+  overflow: hidden;
+  color: var(--rr-muted);
+  font-size: 10px;
+  font-weight: 850;
+  letter-spacing: 0.12em;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
   position: static;
   right: auto;
   width: auto;
   white-space: normal;
-}
-
-#perksScreen.perks-page-screen .perk-icon.perk-active-emblem {
-  width: 54px;
-  height: 54px;
-  min-width: 54px;
-  min-height: 54px;
 }
 
 #perksScreen.perks-page-screen .perk-icon.perk-active-emblem .perk-icon-fallback {
@@ -819,7 +565,10 @@
   display: none;
 }
 
-#perksScreen.perks-page-screen .perk-icon.icon-image-failed .perk-icon-fallback,
+#perksScreen.perks-page-screen .perk-icon.icon-image-failed .perk-icon-fallback {
+  display: grid;
+}
+
 #perksScreen.perks-page-screen .perk-icon:not(.uses-perk-image) .perk-icon-fallback {
   display: grid;
 }
@@ -838,7 +587,7 @@
   place-items: center;
   padding: 0 12px;
   border: 1px solid color-mix(in srgb, var(--accent) 26%, rgba(255,255,255,0.08));
-  border-radius: 999px;
+  border-radius: var(--rr-radius);
   background: color-mix(in srgb, var(--accent) 9%, rgba(255,255,255,0.02));
   color: color-mix(in srgb, var(--accent) 64%, white 36%);
 }
@@ -853,38 +602,15 @@
   white-space: nowrap;
 }
 
-#perksScreen.perks-page-screen .perk-info-btn {
-  min-width: 86px;
-  min-height: 34px;
-  padding: 0 14px;
-  border-radius: 10px;
+#perksScreen.perks-page-screen .perk-card-description > b {
+  color: color-mix(in srgb, var(--accent) 68%, white 32%);
   font-size: 10px;
+  font-weight: 950;
+  letter-spacing: 0.17em;
+  line-height: 1;
+  text-transform: uppercase;
 }
 
-#perksScreen.perks-page-screen .perk-card-body {
-  display: grid;
-  grid-template-columns: minmax(260px, 0.72fr) minmax(360px, 1.28fr);
-  gap: 14px;
-  align-items: stretch;
-}
-
-#perksScreen.perks-page-screen .perk-card-description,
-#perksScreen.perks-page-screen .perk-card-upgrades,
-#perksScreen.perks-page-screen .perk-upgrade-panel {
-  min-width: 0;
-}
-
-#perksScreen.perks-page-screen .perk-card-description {
-  display: grid;
-  align-content: start;
-  gap: 8px;
-  padding: 13px 14px;
-  border: 1px solid rgba(255,255,255,0.07);
-  border-radius: 13px;
-  background: rgba(255,255,255,0.025);
-}
-
-#perksScreen.perks-page-screen .perk-card-description > b,
 #perksScreen.perks-page-screen .perk-upgrade-label {
   color: color-mix(in srgb, var(--accent) 68%, white 32%);
   font-size: 10px;
@@ -894,46 +620,10 @@
   text-transform: uppercase;
 }
 
-#perksScreen.perks-page-screen .perk-card-description .perk-summary {
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: rgba(238, 234, 248, 0.82);
-  font-size: 13px;
-  line-height: 1.55;
-}
-
-#perksScreen.perks-page-screen .perk-card-upgrades {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-  gap: 12px;
-}
-
-#perksScreen.perks-page-screen .perk-upgrade-panel {
-  display: grid;
-  align-content: start;
-  gap: 8px;
-  padding: 13px 14px;
-  border: 1px solid color-mix(in srgb, var(--accent) 18%, rgba(255,255,255,0.06));
-  border-radius: 13px;
-  background:
-    linear-gradient(90deg, color-mix(in srgb, var(--accent) 8%, transparent), rgba(255,255,255,0.018));
-}
-
 #perksScreen.perks-page-screen .perk-upgrade-panel.next {
   border-color: color-mix(in srgb, var(--accent) 26%, rgba(255,255,255,0.08));
-  background:
-    radial-gradient(circle at 90% 16%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 30%),
+  background: radial-gradient(circle at 90% 16%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 30%),
     linear-gradient(90deg, color-mix(in srgb, var(--accent) 10%, transparent), rgba(255,255,255,0.018));
-}
-
-#perksScreen.perks-page-screen .perk-upgrade-copy {
-  margin: 0;
-  color: rgba(255,255,255,0.89);
-  font-size: 13px;
-  font-weight: 700;
-  line-height: 1.52;
-  overflow-wrap: normal;
 }
 
 #perksScreen.perks-page-screen .perk-card-footer {
@@ -953,46 +643,13 @@
   height: 8px;
 }
 
-#perksScreen.perks-page-screen .perk-buy-btn,
-#perksScreen.perks-page-screen .perk-card > button.perk-buy-btn {
-  min-width: 170px;
-  min-height: 42px;
-  padding: 0 16px;
-  border-radius: 12px;
-}
-
-@media (max-width: 1500px) {
-  #perksScreen.perks-page-screen .perk-card-body {
-    grid-template-columns: 1fr;
-  }
-
-  #perksScreen.perks-page-screen .perk-card-upgrades {
-    grid-template-columns: 1fr;
-  }
-}
-
-@media (max-width: 1280px) {
-  #perksScreen.perks-page-screen .perk-card-top {
-    grid-template-columns: 54px minmax(0, 1fr);
-  }
-
-  #perksScreen.perks-page-screen .perk-card-actions {
-    grid-column: 1 / -1;
-    justify-content: start;
-    min-width: 0;
-  }
-
-  #perksScreen.perks-page-screen .perk-card-footer {
-    grid-template-columns: 1fr;
-  }
-
-  #perksScreen.perks-page-screen .perk-buy-btn {
-    width: 100%;
-  }
-}
-
-/* Final Details modal readability pass: color-matched, no stat soup, no internal scroll. */
 #perkInfoModal {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: none;
+  place-items: center;
+  padding: 32px;
   --accent: #c084fc;
   --accent-soft: rgba(192, 132, 252, 0.14);
   --accent-faint: rgba(192, 132, 252, 0.08);
@@ -1004,7 +661,12 @@
   --accent-faint: rgba(250, 204, 21, 0.08);
 }
 
-#perkInfoModal.accent-purple,
+#perkInfoModal.accent-purple {
+  --accent: #c084fc;
+  --accent-soft: rgba(192, 132, 252, 0.15);
+  --accent-faint: rgba(192, 132, 252, 0.08);
+}
+
 #perkInfoModal.accent-cyan {
   --accent: #c084fc;
   --accent-soft: rgba(192, 132, 252, 0.15);
@@ -1035,54 +697,21 @@
   --accent-faint: rgba(226, 232, 240, 0.07);
 }
 
-#perkInfoModal .perk-info-dialog {
-  width: min(1120px, calc(100vw - 80px));
-  max-height: calc(100vh - 58px);
-  overflow: hidden;
-  border-color: color-mix(in srgb, var(--accent) 34%, rgba(255,255,255,0.12));
-  background:
-    radial-gradient(circle at 16% 0%, var(--accent-soft), transparent 24%),
-    radial-gradient(circle at 92% 12%, var(--accent-faint), transparent 28%),
-    linear-gradient(180deg, rgba(20,15,38,0.985), rgba(9,7,20,0.985));
-  box-shadow:
-    0 34px 90px rgba(0,0,0,0.56),
-    0 0 54px color-mix(in srgb, var(--accent) 12%, transparent),
-    inset 0 1px 0 rgba(255,255,255,0.09);
-}
-
-#perkInfoModal .perk-info-dialog-content {
-  display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
-  gap: 14px;
-  max-height: calc(100vh - 58px);
-  padding: clamp(20px, 2vh, 26px);
-  overflow: hidden;
-}
-
 #perkInfoModal .perk-info-close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  z-index: 2;
+  width: 36px;
+  height: 36px;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: var(--rr-radius);
+  background: rgba(255,255,255,0.06);
+  color: rgba(255,255,255,0.86);
+  cursor: pointer;
   border-color: color-mix(in srgb, var(--accent) 28%, rgba(255,255,255,0.12));
   background: color-mix(in srgb, var(--accent) 12%, rgba(255,255,255,0.055));
   color: rgba(255,255,255,0.92);
-}
-
-#perkInfoModal .perk-info-header {
-  display: grid;
-  grid-template-columns: 68px minmax(0, 1fr);
-  gap: 16px;
-  align-items: center;
-  padding: 0 48px 12px 0;
-  border-bottom: 1px solid color-mix(in srgb, var(--accent) 18%, rgba(255,255,255,0.08));
-}
-
-#perkInfoModal .perk-info-icon.perk-active-emblem {
-  width: 62px;
-  height: 62px;
-  min-width: 62px;
-  min-height: 62px;
-  border: 1px solid color-mix(in srgb, var(--accent) 26%, rgba(255,255,255,0.10));
-  border-radius: 17px;
-  background:
-    radial-gradient(circle at 50% 45%, color-mix(in srgb, var(--accent) 18%, transparent), rgba(255,255,255,0.025));
 }
 
 #perkInfoModal .perk-info-kicker {
@@ -1091,59 +720,6 @@
   font-weight: 950;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-}
-
-#perkInfoModal .perk-info-header h2 {
-  margin: 4px 0 6px;
-  color: rgba(255,255,255,0.98);
-  font-size: clamp(25px, 2vw, 34px);
-  line-height: 1.02;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-#perkInfoModal .perk-info-header p {
-  max-width: 860px;
-  margin: 0;
-  color: rgba(238,234,248,0.82);
-  font-size: 14px;
-  line-height: 1.42;
-}
-
-#perkInfoModal .perk-info-detail {
-  margin: 0;
-  padding: 14px 16px;
-  border: 1px solid color-mix(in srgb, var(--accent) 18%, rgba(255,255,255,0.08));
-  border-radius: 15px;
-  background:
-    linear-gradient(90deg, var(--accent-faint), rgba(255,255,255,0.018));
-}
-
-#perkInfoModal .perk-info-detail h3 {
-  margin: 0 0 10px;
-  color: color-mix(in srgb, var(--accent) 66%, white 34%);
-  font-size: 12px;
-  font-weight: 950;
-  letter-spacing: 0.17em;
-  line-height: 1;
-  text-transform: uppercase;
-}
-
-#perkInfoModal .perk-info-detail ul {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px 18px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-#perkInfoModal .perk-info-detail li {
-  position: relative;
-  padding-left: 16px;
-  color: rgba(244,239,255,0.88);
-  font-size: 14px;
-  line-height: 1.38;
 }
 
 #perkInfoModal .perk-info-detail li::before {
@@ -1163,122 +739,12 @@
   font-weight: 950;
 }
 
-#perkInfoModal .perk-info-levels {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-  min-height: 0;
-  overflow: hidden;
-}
-
-#perkInfoModal .perk-info-level {
-  display: grid;
-  grid-template-rows: auto auto 1fr;
-  gap: 10px;
-  min-height: 0;
-  padding: 14px;
-  border: 1px solid color-mix(in srgb, var(--accent) 16%, rgba(255,255,255,0.08));
-  border-radius: 16px;
-  background:
-    radial-gradient(circle at 88% 12%, color-mix(in srgb, var(--accent) 9%, transparent), transparent 34%),
-    rgba(255,255,255,0.026);
-}
-
-#perkInfoModal .perk-info-level.current,
-#perkInfoModal .perk-info-level.owned {
+#perkInfoModal .perk-info-level.current {
   border-color: color-mix(in srgb, var(--accent) 30%, rgba(255,255,255,0.12));
 }
 
-#perkInfoModal .perk-info-level-head {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 6px 10px;
-  align-items: start;
-}
-
-#perkInfoModal .perk-info-level-head strong {
-  color: #fff;
-  font-size: 15px;
-  font-weight: 950;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-#perkInfoModal .perk-info-level-head small {
-  justify-self: end;
-  color: color-mix(in srgb, var(--accent) 66%, white 34%);
-  font-size: 10px;
-  font-weight: 950;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
-#perkInfoModal .perk-info-current-badge {
-  grid-column: 1 / -1;
-  width: max-content;
-  padding: 5px 8px;
-  border: 1px solid color-mix(in srgb, var(--accent) 28%, rgba(255,255,255,0.10));
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
-  color: rgba(255,255,255,0.86);
-  font-size: 9px;
-  font-weight: 950;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-}
-
-#perkInfoModal .perk-info-level-values {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 7px;
-  margin: 0;
-}
-
-#perkInfoModal .perk-info-level-values span {
-  display: inline-grid;
-  gap: 2px;
-  min-width: 0;
-  padding: 6px 8px;
-  border: 1px solid rgba(255,255,255,0.075);
-  border-radius: 10px;
-  background: rgba(255,255,255,0.028);
-}
-
-#perkInfoModal .perk-info-level-values b {
-  color: color-mix(in srgb, var(--accent) 64%, white 36%);
-  font-size: 9px;
-  font-weight: 950;
-  letter-spacing: 0.12em;
-  line-height: 1;
-  text-transform: uppercase;
-}
-
-#perkInfoModal .perk-info-level-values span {
-  color: rgba(255,255,255,0.90);
-  font-size: 12px;
-  font-weight: 800;
-  line-height: 1.18;
-}
-
-#perkInfoModal .perk-info-level-copy {
-  margin: 0;
-  padding: 11px 12px;
-  border: 1px solid color-mix(in srgb, var(--accent) 22%, rgba(255,255,255,0.08));
-  border-radius: 12px;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--accent) 9%, transparent), rgba(255,255,255,0.018));
-  color: rgba(255,255,255,0.91);
-  font-size: 14px;
-  font-weight: 750;
-  line-height: 1.42;
-}
-
-#perkInfoModal .perk-info-actions {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 14px;
-  align-items: center;
-  padding-top: 2px;
+#perkInfoModal .perk-info-level.owned {
+  border-color: color-mix(in srgb, var(--accent) 30%, rgba(255,255,255,0.12));
 }
 
 #perkInfoModal .perk-info-actions p {
@@ -1288,62 +754,38 @@
   font-weight: 800;
 }
 
-#perkInfoModal .perk-info-buy-btn {
-  min-width: 190px;
-  min-height: 42px;
-  border-color: color-mix(in srgb, var(--accent) 32%, rgba(255,255,255,0.12));
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--accent) 18%, rgba(255,255,255,0.06)), rgba(255,255,255,0.018));
-  color: #fff;
-}
-
-@media (max-height: 820px) {
-  #perkInfoModal .perk-info-dialog-content {
-    gap: 10px;
-    padding: 18px;
-  }
-
-  #perkInfoModal .perk-info-header {
-    grid-template-columns: 56px minmax(0, 1fr);
-    padding-bottom: 10px;
-  }
-
-  #perkInfoModal .perk-info-icon.perk-active-emblem {
-    width: 52px;
-    height: 52px;
-    min-width: 52px;
-    min-height: 52px;
-  }
-
-  #perkInfoModal .perk-info-header h2 {
-    font-size: 25px;
-  }
-
-  #perkInfoModal .perk-info-header p,
-  #perkInfoModal .perk-info-detail li,
-  #perkInfoModal .perk-info-level-copy {
-    font-size: 13px;
-    line-height: 1.32;
-  }
-
-  #perkInfoModal .perk-info-detail {
-    padding: 11px 13px;
-  }
-
-  #perkInfoModal .perk-info-level {
-    gap: 8px;
-    padding: 12px;
-  }
-}
-
-/* Perk Details modal final UX cleanup: compact, readable, no fake stat accounting. */
 #perkInfoModal .perk-info-dialog {
+  position: relative;
+  width: min(760px, 92vw);
+  max-height: min(760px, 86vh);
+  overflow: auto;
+  border: 1px solid rgba(205, 162, 255, 0.34);
+  border-radius: var(--rr-radius);
+  background: linear-gradient(180deg, rgba(20,15,38,0.98), rgba(9,7,20,0.98));
+  box-shadow: 0 34px 90px rgba(0,0,0,0.54), inset 0 1px 0 rgba(255,255,255,0.08);
+  width: min(1120px, calc(100vw - 80px));
+  max-height: calc(100vh - 58px);
+  overflow: hidden;
+  border-color: color-mix(in srgb, var(--accent) 34%, rgba(255,255,255,0.12));
+  background: radial-gradient(circle at 16% 0%, var(--accent-soft), transparent 24%),
+    radial-gradient(circle at 92% 12%, var(--accent-faint), transparent 28%),
+    linear-gradient(180deg, rgba(20,15,38,0.985), rgba(9,7,20,0.985));
+  box-shadow: 0 34px 90px rgba(0,0,0,0.56),
+    0 0 54px color-mix(in srgb, var(--accent) 12%, transparent),
+    inset 0 1px 0 rgba(255,255,255,0.09);
   width: min(1040px, calc(100vw - 96px)) !important;
   max-height: min(760px, calc(100vh - 84px)) !important;
   overflow: hidden !important;
 }
 
 #perkInfoModal .perk-info-dialog-content {
+  padding: 28px;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  gap: 14px;
+  max-height: calc(100vh - 58px);
+  padding: clamp(20px, 2vh, 26px);
+  overflow: hidden;
   display: grid !important;
   grid-template-rows: auto auto minmax(0, 1fr) auto !important;
   gap: 12px !important;
@@ -1353,6 +795,12 @@
 }
 
 #perkInfoModal .perk-info-header {
+  display: grid;
+  grid-template-columns: 68px minmax(0, 1fr);
+  gap: 16px;
+  align-items: center;
+  padding: 0 48px 12px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 18%, rgba(255,255,255,0.08));
   grid-template-columns: 60px minmax(0, 1fr) !important;
   gap: 14px !important;
   align-items: center !important;
@@ -1360,6 +808,19 @@
 }
 
 #perkInfoModal .perk-info-icon.perk-active-emblem {
+  position: relative;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  color: var(--accent);
+  isolation: isolate;
+  width: 62px;
+  height: 62px;
+  min-width: 62px;
+  min-height: 62px;
+  border: 1px solid color-mix(in srgb, var(--accent) 26%, rgba(255,255,255,0.10));
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 45%, color-mix(in srgb, var(--accent) 18%, transparent), rgba(255,255,255,0.025));
   width: 56px !important;
   height: 56px !important;
   min-width: 56px !important;
@@ -1367,6 +828,11 @@
 }
 
 #perkInfoModal .perk-info-icon .perk-icon-fallback {
+  color: color-mix(in srgb, var(--accent) 82%, white 18%);
+  font-size: 21px;
+  font-weight: 900;
+  line-height: 1;
+  text-shadow: 0 0 14px color-mix(in srgb, var(--accent) 32%, transparent);
   display: grid !important;
   place-items: center !important;
   color: color-mix(in srgb, var(--accent) 76%, white 24%) !important;
@@ -1376,37 +842,76 @@
 }
 
 #perkInfoModal .perk-info-header h2 {
+  margin: 4px 0 6px;
+  color: rgba(255,255,255,0.98);
+  font-size: clamp(25px, 2vw, 34px);
+  line-height: 1.02;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   margin: 3px 0 5px !important;
   font-size: clamp(26px, 2.2vw, 34px) !important;
   line-height: 1 !important;
 }
 
 #perkInfoModal .perk-info-header p {
+  max-width: 860px;
+  margin: 0;
+  color: rgba(238,234,248,0.82);
+  font-size: 14px;
+  line-height: 1.42;
   max-width: none !important;
   font-size: 14.5px !important;
   line-height: 1.35 !important;
 }
 
 #perkInfoModal .perk-info-detail {
+  margin: 0;
+  padding: 14px 16px;
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, rgba(255,255,255,0.08));
+  border-radius: var(--rr-radius);
+  background: linear-gradient(90deg, var(--accent-faint), rgba(255,255,255,0.018));
   padding: 12px 14px !important;
 }
 
 #perkInfoModal .perk-info-detail h3 {
+  margin: 0 0 10px;
+  color: color-mix(in srgb, var(--accent) 66%, white 34%);
+  font-size: 12px;
+  font-weight: 950;
+  letter-spacing: 0.17em;
+  line-height: 1;
+  text-transform: uppercase;
   margin-bottom: 8px !important;
   font-size: 12px !important;
 }
 
 #perkInfoModal .perk-info-detail ul {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 18px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
   grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
   gap: 8px 16px !important;
 }
 
 #perkInfoModal .perk-info-detail li {
+  position: relative;
+  padding-left: 16px;
+  color: rgba(244,239,255,0.88);
+  font-size: 14px;
+  line-height: 1.38;
   font-size: 14px !important;
   line-height: 1.34 !important;
 }
 
 #perkInfoModal .perk-info-levels {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  min-height: 0;
+  overflow: hidden;
   display: grid !important;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)) !important;
   gap: 12px !important;
@@ -1416,6 +921,15 @@
 }
 
 #perkInfoModal .perk-info-level {
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  gap: 10px;
+  min-height: 0;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 16%, rgba(255,255,255,0.08));
+  border-radius: var(--rr-radius);
+  background: radial-gradient(circle at 88% 12%, color-mix(in srgb, var(--accent) 9%, transparent), transparent 34%),
+    rgba(255,255,255,0.026);
   min-width: 0 !important;
   min-height: 0 !important;
   display: grid !important;
@@ -1426,6 +940,10 @@
 }
 
 #perkInfoModal .perk-info-level-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 10px;
+  align-items: start;
   display: grid !important;
   grid-template-columns: minmax(0, 1fr) auto !important;
   gap: 6px 10px !important;
@@ -1433,20 +951,56 @@
 }
 
 #perkInfoModal .perk-info-level-head strong {
+  color: #fff;
+  font-size: 15px;
+  font-weight: 950;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   font-size: 15px !important;
 }
 
 #perkInfoModal .perk-info-level-head small {
+  justify-self: end;
+  color: color-mix(in srgb, var(--accent) 66%, white 34%);
+  font-size: 10px;
+  font-weight: 950;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
   font-size: 9.5px !important;
   white-space: nowrap !important;
 }
 
 #perkInfoModal .perk-info-current-badge {
+  grid-column: 1 / -1;
+  width: max-content;
+  padding: 5px 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, rgba(255,255,255,0.10));
+  border-radius: var(--rr-radius);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: rgba(255,255,255,0.86);
+  font-size: 9px;
+  font-weight: 950;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
   padding: 4px 8px !important;
   font-size: 8.5px !important;
 }
 
 #perkInfoModal .perk-info-level-copy {
+  margin: 10px 0 12px;
+  color: rgba(244, 239, 255, 0.86);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.5;
+  margin: 0;
+  padding: 11px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, rgba(255,255,255,0.08));
+  border-radius: var(--rr-radius);
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 9%, transparent), rgba(255,255,255,0.018));
+  color: rgba(255,255,255,0.91);
+  font-size: 14px;
+  font-weight: 750;
+  line-height: 1.42;
   min-height: 0 !important;
   margin: 0 !important;
   padding: 12px 13px !important;
@@ -1454,9 +1008,8 @@
   align-content: start !important;
   gap: 8px !important;
   border: 1px solid color-mix(in srgb, var(--accent) 28%, rgba(255,255,255,0.10)) !important;
-  border-radius: 13px !important;
-  background:
-    radial-gradient(circle at 92% 0%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 34%),
+  border-radius: var(--rr-radius) !important;
+  background: radial-gradient(circle at 92% 0%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 34%),
     linear-gradient(180deg, color-mix(in srgb, var(--accent) 10%, rgba(255,255,255,0.02)), rgba(255,255,255,0.018)) !important;
   color: rgba(255,255,255,0.92) !important;
   list-style: none !important;
@@ -1479,7 +1032,7 @@
   top: 0.58em !important;
   width: 5px !important;
   height: 5px !important;
-  border-radius: 999px !important;
+  border-radius: var(--rr-radius) !important;
   background: var(--accent) !important;
   box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 48%, transparent) !important;
 }
@@ -1490,6 +1043,11 @@
 }
 
 #perkInfoModal .perk-info-level-values {
+  margin-top: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin: 0;
   display: flex !important;
   flex-wrap: wrap !important;
   gap: 6px !important;
@@ -1500,13 +1058,24 @@
 }
 
 #perkInfoModal .perk-info-level-values span {
+  display: inline-grid;
+  gap: 2px;
+  min-width: 0;
+  padding: 6px 8px;
+  border: 1px solid rgba(255,255,255,0.075);
+  border-radius: var(--rr-radius);
+  background: rgba(255,255,255,0.028);
+  color: rgba(255,255,255,0.90);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1.18;
   display: inline-flex !important;
   align-items: center !important;
   gap: 5px !important;
   min-width: 0 !important;
   padding: 5px 7px !important;
   border: 1px solid rgba(255,255,255,0.07) !important;
-  border-radius: 999px !important;
+  border-radius: var(--rr-radius) !important;
   background: rgba(255,255,255,0.025) !important;
   color: rgba(255,255,255,0.84) !important;
   font-size: 11px !important;
@@ -1515,6 +1084,12 @@
 }
 
 #perkInfoModal .perk-info-level-values b {
+  color: color-mix(in srgb, var(--accent) 64%, white 36%);
+  font-size: 9px;
+  font-weight: 950;
+  letter-spacing: 0.12em;
+  line-height: 1;
+  text-transform: uppercase;
   color: color-mix(in srgb, var(--accent) 72%, white 28%) !important;
   font-size: 8.5px !important;
   letter-spacing: 0.11em !important;
@@ -1522,46 +1097,26 @@
 }
 
 #perkInfoModal .perk-info-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  padding-top: 2px;
   padding-top: 2px !important;
 }
 
 #perkInfoModal .perk-info-buy-btn {
+  min-width: 190px;
+  min-height: 42px;
+  border-color: color-mix(in srgb, var(--accent) 32%, rgba(255,255,255,0.12));
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 18%, rgba(255,255,255,0.06)), rgba(255,255,255,0.018));
+  color: #fff;
   min-height: 40px !important;
 }
 
-@media (max-height: 760px) {
-  #perkInfoModal .perk-info-dialog,
-  #perkInfoModal .perk-info-dialog-content {
-    max-height: calc(100vh - 42px) !important;
-  }
-
-  #perkInfoModal .perk-info-detail ul {
-    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-  }
-
-  #perkInfoModal .perk-info-header p,
-  #perkInfoModal .perk-info-detail li,
-  #perkInfoModal .perk-info-level-copy li {
-    font-size: 13px !important;
-    line-height: 1.28 !important;
-  }
-
-  #perkInfoModal .perk-info-level {
-    padding: 11px !important;
-    gap: 8px !important;
-  }
-
-  #perkInfoModal .perk-info-level-copy {
-    padding: 10px 11px !important;
-    gap: 6px !important;
-  }
-}
-
-/* Passive perks: make them feel intentionally part of the shop, not missing active buttons. */
 #perksScreen.perks-page-screen .perk-card.passive-perk {
   border-style: solid !important;
-  background:
-    radial-gradient(circle at 96% 10%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 28%),
+  background: radial-gradient(circle at 96% 10%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 28%),
     linear-gradient(180deg, rgba(255,255,255,0.052), rgba(255,255,255,0.016)),
     rgba(13, 10, 26, 0.88) !important;
 }
@@ -1572,7 +1127,7 @@
   max-width: 100%;
   padding: 4px 8px;
   border: 1px solid color-mix(in srgb, var(--accent) 24%, rgba(255,255,255,0.08));
-  border-radius: 999px;
+  border-radius: var(--rr-radius);
   background: color-mix(in srgb, var(--accent) 9%, rgba(255,255,255,0.018));
   color: color-mix(in srgb, var(--accent) 70%, white 30%);
   font-size: 9px;
@@ -1586,13 +1141,35 @@
   content: "";
 }
 
-/* Perks compact layout. Perks page owns its scale here. */
 #perksScreen.perks-page-screen .perks-page-stage {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: clamp(12px, 1.5vh, 18px);
+  padding: clamp(22px, 2.7vh, 34px) clamp(38px, 4.2vw, 72px) clamp(24px, 3vh, 38px);
   gap: clamp(8px, 1vh, 12px);
   padding: clamp(12px, 1.6vh, 22px) clamp(22px, 2.8vw, 46px) clamp(14px, 1.8vh, 24px);
 }
 
 #perksScreen.perks-page-screen .perks-back-btn {
+  min-width: 118px;
+  min-height: 42px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 0 18px;
+  border: 1px solid rgba(199, 160, 255, 0.42);
+  border-radius: var(--rr-radius);
+  background: linear-gradient(180deg, rgba(255,255,255,0.075), rgba(255,255,255,0.018)), rgba(8, 5, 18, 0.78);
+  color: rgba(255,255,255,0.88);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), 0 18px 38px rgba(0,0,0,0.22);
+  font-weight: 900;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  cursor: pointer;
   min-width: 100px;
   min-height: 34px;
   padding: 8px 12px;
@@ -1600,33 +1177,84 @@
 }
 
 #perksScreen.perks-page-screen .perks-title-block {
+  position: relative;
+  padding: clamp(16px, 1.8vh, 24px) clamp(20px, 2vw, 30px);
+  border: 1px solid var(--rr-border);
+  border-radius: var(--rr-radius);
+  background: radial-gradient(circle at 78% 18%, rgba(179, 89, 255, 0.13), transparent 30%),
+    linear-gradient(180deg, rgba(255,255,255,0.055), rgba(255,255,255,0.014)),
+    var(--rr-panel);
+  box-shadow: 0 24px 60px rgba(0,0,0,0.25), inset 0 1px 0 rgba(255,255,255,0.07);
+  backdrop-filter: blur(10px);
   padding: clamp(10px, 1.1vh, 15px) clamp(14px, 1.4vw, 22px);
-  border-radius: 14px;
+  border-radius: var(--rr-radius);
 }
 
 #perksScreen.perks-page-screen .perks-title-block h1 {
+  margin: 8px 0 8px;
+  color: rgba(255,255,255,0.98);
+  font-size: clamp(34px, 3vw, 52px);
+  line-height: 0.96;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
   margin: 4px 0;
   font-size: clamp(20px, 1.55vw, 28px);
   line-height: 0.98;
 }
 
 #perksScreen.perks-page-screen .perks-title-block p {
+  max-width: 900px;
+  margin: 0;
+  color: var(--rr-muted);
+  font-size: clamp(13px, 0.92vw, 16px);
+  line-height: 1.45;
   max-width: 760px;
   font-size: clamp(11px, 0.76vw, 13px);
   line-height: 1.36;
 }
 
 #perksScreen.perks-page-screen .perks-content {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: clamp(218px, 17vw, 285px) minmax(0, 1fr);
+  gap: clamp(14px, 1.6vw, 24px);
   grid-template-columns: clamp(188px, 14vw, 236px) minmax(0, 1fr);
   gap: clamp(10px, 1.1vw, 18px);
 }
 
 #perksScreen.perks-page-screen .perks-class-tabs {
+  min-height: 0;
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--rr-border);
+  border-radius: var(--rr-radius);
+  background: linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.012)),
+    rgba(6, 4, 14, 0.72);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 20px 48px rgba(0,0,0,0.18);
+  backdrop-filter: blur(10px);
   gap: 7px;
   padding: 9px;
 }
 
 #perksScreen.perks-page-screen .perks-class-tab {
+  --accent: #c084fc;
+  --accent-soft: rgba(192, 132, 252, 0.13);
+  width: 100%;
+  min-height: 62px;
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(255,255,255,0.075);
+  border-radius: var(--rr-radius);
+  background: rgba(255,255,255,0.025);
+  color: rgba(255,255,255,0.86);
+  text-align: left;
+  cursor: pointer;
+  transition: transform 130ms ease, border-color 130ms ease, background 130ms ease, box-shadow 130ms ease;
   min-height: 46px;
   grid-template-columns: 32px minmax(0, 1fr);
   gap: 9px;
@@ -1634,111 +1262,361 @@
 }
 
 #perksScreen.perks-page-screen .perks-tab-icon {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: var(--rr-radius);
+  background: radial-gradient(circle at 50% 45%, var(--accent-soft), rgba(255,255,255,0.025));
+  color: var(--accent);
+  font-size: 20px;
+  font-weight: 900;
   width: 32px;
   height: 32px;
-  border-radius: 11px;
+  border-radius: var(--rr-radius);
   font-size: 17px;
 }
 
 #perksScreen.perks-page-screen .perks-active-panel {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 14px;
+  padding: clamp(16px, 1.5vw, 22px);
+  border: 1px solid var(--rr-border);
+  border-radius: var(--rr-radius);
+  background: radial-gradient(circle at 85% 12%, var(--accent-soft), transparent 24%),
+    linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.012)),
+    var(--rr-panel);
+  box-shadow: 0 26px 64px rgba(0,0,0,0.24), inset 0 1px 0 rgba(255,255,255,0.06);
+  overflow: hidden;
+  backdrop-filter: blur(10px);
   gap: 10px;
   padding: clamp(11px, 1.1vw, 16px);
 }
 
+
+#perksScreen.perks-page-screen .perks-active-panel[data-class-id="orbCollector"] {
+  --accent: #ffd36a;
+  --accent-soft: rgba(255, 211, 106, 0.14);
+}
+
+#perksScreen.perks-page-screen .perks-active-panel[data-class-id="nebulizer"] {
+  --accent: #a78bfa;
+  --accent-soft: rgba(167, 139, 250, 0.14);
+}
+
+#perksScreen.perks-page-screen .perks-active-panel[data-class-id="escapist"] {
+  --accent: #ff9f43;
+  --accent-soft: rgba(255, 159, 67, 0.14);
+}
+
+#perksScreen.perks-page-screen .perks-active-panel[data-class-id="healer"] {
+  --accent: #4de283;
+  --accent-soft: rgba(77, 226, 131, 0.14);
+}
+
+#perksScreen.perks-page-screen .perks-active-panel[data-class-id="void"] {
+  --accent: #a78bfa;
+  --accent-soft: rgba(167, 139, 250, 0.14);
+}
+
 #perksScreen.perks-page-screen .perks-active-header {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
   grid-template-columns: 48px minmax(0, 1fr);
   gap: 10px;
   padding: 11px 12px;
+  border-color: color-mix(in srgb, var(--accent) 42%, transparent);
+  background: linear-gradient(90deg, var(--accent-soft), rgba(255,255,255,0.018));
+  box-shadow: inset 3px 0 0 var(--accent), 0 0 22px color-mix(in srgb, var(--accent) 16%, transparent);
 }
 
 #perksScreen.perks-page-screen .perks-active-emblem {
+  width: 58px;
+  height: 58px;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: var(--rr-radius);
+  background: radial-gradient(circle at 50% 45%, var(--accent-soft), rgba(255,255,255,0.025));
+  color: var(--accent);
+  font-size: 26px;
+  font-weight: 900;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.07);
   width: 44px;
   height: 44px;
   font-size: 22px;
 }
 
 #perksScreen.perks-page-screen .perks-active-copy h2 {
+  margin: 4px 0;
+  color: rgba(255,255,255,0.98);
+  font-size: clamp(24px, 2vw, 34px);
+  line-height: 1;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
   margin: 2px 0;
   font-size: clamp(19px, 1.45vw, 26px);
 }
 
 #perksScreen.perks-page-screen .perks-active-grid {
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 12px;
+  padding-right: 8px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(205, 162, 255, 0.32) transparent;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 318px), 1fr));
+  gap: 14px;
+  gap: 16px;
+  align-content: start;
   grid-template-columns: 1fr;
   gap: 10px;
 }
 
 #perksScreen.perks-page-screen .perk-card {
+  min-width: 0;
+  align-content: start;
+  gap: 9px;
+  padding: 13px;
+  border: 1px solid rgba(255,255,255,0.085);
+  border-radius: var(--rr-radius);
+  background: linear-gradient(180deg, rgba(255,255,255,0.052), rgba(255,255,255,0.012)),
+    var(--rr-panel-strong);
+  box-shadow: 0 16px 30px rgba(0,0,0,0.18), inset 0 1px 0 rgba(255,255,255,0.045);
+  transition: transform 130ms ease, border-color 130ms ease, box-shadow 130ms ease;
+  grid-template-rows: auto auto auto auto auto;
+  gap: 10px;
+  padding: 14px;
+  width: 100%;
+  min-height: auto;
+  display: grid;
+  grid-template-columns: 1fr;
+  grid-template-rows: auto auto auto;
+  gap: 14px;
+  padding: clamp(16px, 1.15vw, 20px);
   gap: 8px;
   padding: 11px;
-  border-radius: 14px;
+  border-radius: var(--rr-radius);
   cursor: pointer;
 }
 
 #perksScreen.perks-page-screen .perk-card-top {
+  min-width: 0;
+  grid-template-columns: 46px minmax(0, 1fr) auto;
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  gap: 11px;
+  display: grid;
+  grid-template-columns: 54px minmax(220px, 1fr) auto;
+  gap: 14px;
   grid-template-columns: 42px minmax(0, 1fr) auto;
   gap: 10px;
   align-items: center;
 }
 
-#perksScreen.perks-page-screen .perk-icon,
-#perksScreen.perks-page-screen .perk-icon.perk-active-emblem {
+#perksScreen.perks-page-screen .perk-icon {
   width: 42px;
   height: 42px;
+  min-width: 42px;
+  min-height: 42px;
   max-width: 42px;
   max-height: 42px;
-  border-radius: 13px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 45%, var(--accent-soft), rgba(255,255,255,0.025));
+  aspect-ratio: 1;
+}
+
+#perksScreen.perks-page-screen .perk-icon.perk-active-emblem {
+  position: relative;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  color: var(--accent);
+  isolation: isolate;
+  width: 42px;
+  height: 42px;
+  min-width: 42px;
+  min-height: 42px;
+  max-width: 42px;
+  max-height: 42px;
+  border-radius: 50%;
+  aspect-ratio: 1;
 }
 
 #perksScreen.perks-page-screen .perk-card-body {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.72fr) minmax(360px, 1.28fr);
+  gap: 14px;
+  align-items: stretch;
   grid-template-columns: 1fr;
   gap: 9px;
 }
 
-#perksScreen.perks-page-screen .perk-card-description,
-#perksScreen.perks-page-screen .perk-card-upgrades,
-#perksScreen.perks-page-screen .perk-upgrade-panel {
+#perksScreen.perks-page-screen .perk-card-description {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  padding: 13px 14px;
+  border: 1px solid rgba(255,255,255,0.07);
+  border-radius: var(--rr-radius);
+  background: rgba(255,255,255,0.025);
   padding: 10px 11px;
-  border-radius: 11px;
+  border-radius: var(--rr-radius);
 }
 
-#perksScreen.perks-page-screen .perk-card-description .perk-summary,
+#perksScreen.perks-page-screen .perk-upgrade-panel {
+  min-width: 0;
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  padding: 13px 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 18%, rgba(255,255,255,0.06));
+  border-radius: var(--rr-radius);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 8%, transparent), rgba(255,255,255,0.018));
+  padding: 10px 11px;
+  border-radius: var(--rr-radius);
+}
+
+#perksScreen.perks-page-screen .perk-card-description .perk-summary {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: rgba(238, 234, 248, 0.82);
+  font-size: 13px;
+  line-height: 1.55;
+  font-size: 11px;
+  line-height: 1.36;
+}
+
 #perksScreen.perks-page-screen .perk-upgrade-copy {
+  margin: 0;
+  color: rgba(255,255,255,0.89);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.52;
+  overflow-wrap: normal;
   font-size: 11px;
   line-height: 1.36;
 }
 
 #perksScreen.perks-page-screen .perk-card-upgrades {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+  padding: 10px 11px;
+  border-radius: var(--rr-radius);
   gap: 8px;
   grid-template-columns: 1fr;
 }
 
 #perksScreen.perks-page-screen .perk-info-btn {
-  min-width: 70px;
+  min-width: 72px;
+  padding: 0 10px;
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: var(--rr-radius);
+  background: rgba(255,255,255,0.028);
+  color: rgba(255,255,255,0.78);
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  cursor: pointer;
+  min-width: 68px;
+  min-height: 32px;
+  padding: 0 11px;
+  border-color: color-mix(in srgb, var(--accent) 28%, rgba(255,255,255,0.08));
+  background: linear-gradient(180deg, rgba(255,255,255,0.055), rgba(255,255,255,0.015)),
+    color-mix(in srgb, var(--accent) 9%, transparent);
+  color: rgba(255,255,255,0.88);
+  letter-spacing: 0.11em;
+  min-width: 86px;
+  min-height: 34px;
+  padding: 0 14px;
+  border-radius: var(--rr-radius);
+  min-width: 128px;
   min-height: 30px;
-  padding: 7px 10px;
+  padding: 7px 12px;
   font-size: 10px;
+  white-space: nowrap;
 }
 
-#perksScreen.perks-page-screen .perk-buy-btn,
-#perksScreen.perks-page-screen .perk-card > button.perk-buy-btn {
+#perksScreen.perks-page-screen .perk-buy-btn {
+  min-width: 170px;
+  min-height: 42px;
+  padding: 0 16px;
+  border-radius: var(--rr-radius);
   min-width: 140px;
   min-height: 36px;
   padding: 8px 13px;
   font-size: 11px;
 }
 
-@media (max-width: 1500px) {
-  #perksScreen.perks-page-screen .perk-card-body {
-    grid-template-columns: 1fr;
-  }
+#perksScreen.perks-page-screen .perk-card > button.perk-buy-btn {
+  min-width: 170px;
+  min-height: 42px;
+  padding: 0 16px;
+  border-radius: var(--rr-radius);
+  min-width: 140px;
+  min-height: 36px;
+  padding: 8px 13px;
+  font-size: 11px;
 }
 
-@media (max-width: 760px) {
-  #perksScreen.perks-page-screen .perks-page-stage {
-    padding: 12px;
-  }
+#perksScreen.perks-page-screen .perks-class-tab[data-class-id="orbCollector"] {
+  --accent: #ffd36a;
+  --accent-soft: rgba(255, 211, 106, 0.14);
+}
 
-  #perksScreen.perks-page-screen .perks-content {
-    grid-template-columns: 1fr;
-  }
+#perksScreen.perks-page-screen .perks-class-tab[data-class-id="nebulizer"] {
+  --accent: #a78bfa;
+  --accent-soft: rgba(167, 139, 250, 0.14);
+}
+
+#perksScreen.perks-page-screen .perks-class-tab[data-class-id="escapist"] {
+  --accent: #ff9f43;
+  --accent-soft: rgba(255, 159, 67, 0.14);
+}
+
+#perksScreen.perks-page-screen .perks-class-tab[data-class-id="healer"] {
+  --accent: #4de283;
+  --accent-soft: rgba(77, 226, 131, 0.14);
+}
+
+#perksScreen.perks-page-screen .perks-class-tab[data-class-id="void"] {
+  --accent: #a78bfa;
+  --accent-soft: rgba(167, 139, 250, 0.14);
+}
+
+#perksScreen.perks-page-screen .perk-icon.icon-image-failed,
+#perksScreen.perks-page-screen .perk-icon:not(.uses-perk-image) {
+  color: var(--accent);
+  border-radius: 50%;
+  aspect-ratio: 1;
+  background:
+    radial-gradient(circle at 50% 45%, color-mix(in srgb, var(--accent) 22%, white 3%), rgba(255,255,255,0.025)),
+    linear-gradient(135deg, rgba(255,255,255,0.08), transparent);
+}
+
+#perksScreen.perks-page-screen .perk-icon.icon-image-failed::before,
+#perksScreen.perks-page-screen .perk-icon:not(.uses-perk-image)::before {
+  content: "";
+  position: absolute;
+  inset: 8px;
+  border: 1px solid color-mix(in srgb, var(--accent) 52%, transparent);
+  border-radius: 50%;
+  transform: none;
 }

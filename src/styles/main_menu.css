@@ -1,4 +1,7 @@
-/* MainMenu.jsx: dark image-backed menu, angular navigation, account dock, and mode summary. */
+/* MainMenu.jsx: dark image-backed menu,
+angular navigation,
+account dock,
+and mode summary. */
 .rift-main-menu {
   align-items: stretch;
   justify-content: stretch;
@@ -16,10 +19,6 @@
   padding: clamp(26px, 3.8vw, 54px) clamp(30px, 5vw, 82px);
 }
 
-.main-menu-stage::before,
-.main-menu-stage::after {
-  content: none;
-}
 
 .main-menu-account {
   position: absolute;
@@ -210,45 +209,6 @@
     background 180ms ease;
 }
 
-.angled-menu-actions .menu-action::after,
-.angled-menu-actions .coffee-link::after {
-  content: "";
-  position: absolute;
-  inset: 1px 1px 1px 1px;
-  z-index: 0;
-  clip-path: var(--menu-cut);
-  background:
-    linear-gradient(100deg, rgba(3, 2, 8, 0.84), rgba(11, 8, 20, 0.64) 52%, rgba(39, 23, 63, 0.42) 100%),
-    radial-gradient(circle at 90% 50%, rgba(183, 105, 255, 0.14), transparent 34%);
-  pointer-events: none;
-  transition:
-    inset 180ms ease,
-    background 180ms ease,
-    opacity 180ms ease;
-}
-
-.angled-menu-actions .menu-action::before,
-.angled-menu-actions .coffee-link::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  clip-path: var(--menu-cut);
-  border: 1px solid transparent;
-  background:
-    linear-gradient(105deg, rgba(221, 210, 242, 0.32), rgba(123, 95, 176, 0.16) 35%, rgba(255, 255, 255, 0.05) 62%, var(--menu-edge) 100%) border-box;
-  -webkit-mask:
-    linear-gradient(#fff 0 0) padding-box,
-    linear-gradient(#fff 0 0);
-  -webkit-mask-composite: xor;
-  mask-composite: exclude;
-  opacity: 0.72;
-  pointer-events: none;
-  transition:
-    opacity 180ms ease,
-    background 180ms ease,
-    border-color 180ms ease;
-}
 
 .angled-menu-actions .menu-action span,
 .angled-menu-actions .coffee-link span {
@@ -256,28 +216,6 @@
   z-index: 2;
 }
 
-.angled-menu-actions .menu-action span::before,
-.angled-menu-actions .menu-action span::after {
-  content: "";
-  position: absolute;
-  top: 50%;
-  width: clamp(22px, 2vw, 42px);
-  height: 1px;
-  opacity: 0;
-  background: linear-gradient(90deg, transparent, rgba(216, 192, 255, 0.74));
-  transform: translateY(-50%) scaleX(0.4);
-  transition: opacity 180ms ease, transform 180ms ease;
-  pointer-events: none;
-}
-
-.angled-menu-actions .menu-action span::before {
-  right: calc(100% + 16px);
-}
-
-.angled-menu-actions .menu-action span::after {
-  left: calc(100% + 16px);
-  background: linear-gradient(90deg, rgba(216, 192, 255, 0.74), transparent);
-}
 
 .angled-menu-actions .menu-action.primary {
   --menu-edge: rgba(215, 164, 255, 0.94);
@@ -293,17 +231,6 @@
     drop-shadow(0 0 18px rgba(171, 89, 255, 0.18));
 }
 
-.angled-menu-actions .menu-action.primary::after {
-  background:
-    linear-gradient(100deg, rgba(8, 6, 17, 0.82), rgba(17, 12, 30, 0.62) 50%, rgba(85, 45, 132, 0.34) 100%),
-    radial-gradient(circle at 92% 50%, rgba(228, 193, 255, 0.26), transparent 34%);
-}
-
-.angled-menu-actions .menu-action.primary::before {
-  opacity: 1;
-  background:
-    linear-gradient(105deg, rgba(237, 226, 255, 0.50), rgba(171, 98, 255, 0.36) 24%, rgba(255, 255, 255, 0.10) 57%, rgba(224, 177, 255, 0.96) 100%) border-box;
-}
 
 .angled-menu-actions .menu-action:hover,
 .angled-menu-actions .menu-action:focus-visible,
@@ -325,33 +252,6 @@
   outline: none;
 }
 
-.angled-menu-actions .menu-action:hover::after,
-.angled-menu-actions .menu-action:focus-visible::after,
-.angled-menu-actions .coffee-link:hover::after,
-.angled-menu-actions .coffee-link:focus-visible::after {
-  inset: 2px;
-  background:
-    linear-gradient(100deg, rgba(5, 4, 13, 0.72), rgba(19, 13, 32, 0.58) 52%, rgba(87, 49, 133, 0.42) 100%),
-    radial-gradient(circle at 90% 50%, rgba(235, 216, 255, 0.30), transparent 34%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(0, 0, 0, 0.14));
-}
-
-.angled-menu-actions .menu-action:hover::before,
-.angled-menu-actions .menu-action:focus-visible::before,
-.angled-menu-actions .coffee-link:hover::before,
-.angled-menu-actions .coffee-link:focus-visible::before {
-  opacity: 1;
-  background:
-    linear-gradient(105deg, rgba(255, 255, 255, 0.46), rgba(178, 107, 255, 0.38) 24%, rgba(255, 255, 255, 0.12) 58%, rgba(229, 186, 255, 0.92) 100%) border-box;
-}
-
-.angled-menu-actions .menu-action:hover span::before,
-.angled-menu-actions .menu-action:focus-visible span::before,
-.angled-menu-actions .menu-action:hover span::after,
-.angled-menu-actions .menu-action:focus-visible span::after {
-  opacity: 0.74;
-  transform: translateY(-50%) scaleX(1);
-}
 
 .angled-menu-actions .menu-action:active,
 .angled-menu-actions .coffee-link:active {
@@ -424,17 +324,6 @@
    font-family: var(--font-display);
 }
 
-.main-menu-title p::before,
-.main-menu-title p::after {
-  content: "";
-  width: min(14vw, 260px);
-  height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(170, 126, 255, 0.58));
-}
-
-.main-menu-title p::after {
-  background: linear-gradient(90deg, rgba(170, 126, 255, 0.58), transparent);
-}
 
 .side-select-panel {
   position: absolute;
@@ -655,12 +544,12 @@
   }
 
   .main-menu-account,
-  .main-menu-quickbar,
-  .angled-menu-actions,
-  .main-menu-title,
-  .side-select-panel,
-  .menu-footer-strip,
-  .rift-main-menu .version-badge {
+.main-menu-quickbar,
+.angled-menu-actions,
+.main-menu-title,
+.side-select-panel,
+.menu-footer-strip,
+.rift-main-menu .version-badge {
     position: relative;
     inset: auto;
     left: auto;
@@ -687,9 +576,6 @@
     letter-spacing: 0.26em;
   }
 
-  .main-menu-title p::before {
-    display: none;
-  }
 
   .main-menu-account { order: 2; }
   .main-menu-quickbar { order: 3; flex-wrap: wrap; }
@@ -699,15 +585,15 @@
   .rift-main-menu .version-badge { order: 7; }
 
   .angled-menu-actions .menu-action,
-  .angled-menu-actions .coffee-link,
-  .angled-menu-actions .menu-action.primary,
-  .angled-menu-actions .coffee-link:visited {
+.angled-menu-actions .coffee-link,
+.angled-menu-actions .menu-action.primary,
+.angled-menu-actions .coffee-link:visited {
     min-height: 58px;
     font-size: 20px;
   }
 
   .main-menu-account .auth-form,
-  .main-menu-account .auth-actions {
+.main-menu-account .auth-actions {
     grid-template-columns: 1fr;
   }
 
@@ -730,9 +616,6 @@
     letter-spacing: 0.18em;
   }
 
-  .main-menu-title p::after {
-    display: none;
-  }
 
   .main-menu-quickbar button {
     flex: 1 1 92px;
@@ -755,8 +638,8 @@
   }
 
   .match-tagline,
-  .menu-footer-strip,
-  .rift-main-menu .version-badge {
+.menu-footer-strip,
+.rift-main-menu .version-badge {
     letter-spacing: 0.16em;
   }
 }

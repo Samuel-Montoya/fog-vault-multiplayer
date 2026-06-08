@@ -1,7 +1,6 @@
 import { Fragment } from "react"
-import { showMenuScreen } from "../utils/screenNavigation"
+import BackButton from "./shared/BackButton"
 import "../styles/how_to_play.css"
-import "../styles/screen_header.css"
 
 const MATCH_RULES = [
   "4 Runners vs 1 Void",
@@ -66,15 +65,6 @@ const ROLE_GUIDES = [
   }
 ]
 
-function BackButton() {
-  return (
-    <button className="how-back-btn rr-back-btn" data-screen="menu" data-screen-nav="menu" type="button" onClick={() => showMenuScreen("menu")}>
-      <span aria-hidden="true">←</span>
-      Back
-    </button>
-  )
-}
-
 function BulletList({ title, items }) {
   return (
     <section className="how-list-panel" aria-label={title}>
@@ -136,7 +126,7 @@ export default function HowScreen() {
   return (
     <div id="howScreen" className="screen io-screen how-page-screen">
       <div className="how-page-stage">
-        <BackButton />
+        <BackButton className="how-back-btn" />
 
         <header className="how-title-block">
           <h1>How To Play</h1>
