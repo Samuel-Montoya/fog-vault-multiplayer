@@ -346,8 +346,8 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
   }
 
   function actorRunnerLevel(actor) {
-    if (actor?.isBot) return 999;
-    return Math.max(1, Math.floor(cfgNumber(actor?.runnerLevel, 1)));
+    const fallback = actor?.isBot ? cfgNumber(RIFTRUNNER_PERKS.botRunnerLevel, 1) : 1;
+    return Math.max(1, Math.floor(cfgNumber(actor?.runnerLevel, fallback)));
   }
 
   function classLevelConfig(levels, actor) {
@@ -542,6 +542,10 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     GAMEPLAY_CONFIG.survivorAbilities?.dartBoostSpeedMultiplier,
     1.10
   );
+  const DASH_DART_MAX_SPEED_MULT = Math.max(1, cfgNumber(
+    GAMEPLAY_CONFIG.survivorAbilities?.dashDartMaxSpeedMultiplier,
+    1.35
+  ));
   const DART_DEFAULT_DURATION = cfgNumber(
     GAMEPLAY_CONFIG.survivorAbilities?.dartBoostDuration,
     1.25
@@ -1300,7 +1304,9 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
   function applyRunnerBoost(game, sourceId, x, y, ability, reason = "impact") {
     const radius = Math.max(0, cfgNumber(ability.radius, DART_DEFAULT_RADIUS));
     const duration = Math.max(0.1, cfgNumber(ability.boostDuration ?? ability.duration, DART_DEFAULT_DURATION));
-    const speedMultiplier = Math.max(1, cfgNumber(ability.speedMultiplier, DART_DEFAULT_SPEED_MULT));
+    const rawSpeedMultiplier = Math.max(1, cfgNumber(ability.speedMultiplier, DART_DEFAULT_SPEED_MULT));
+    const isDashDart = String(ability.id || ability.abilityId || ability.type || "") === "dashDart";
+    const speedMultiplier = isDashDart ? Math.min(rawSpeedMultiplier, DASH_DART_MAX_SPEED_MULT) : rawSpeedMultiplier;
     const hidesScratchMarks = !!ability.hidesScratchMarks;
     const scratchHideDuration = Math.max(0, cfgNumber(ability.scratchHideDuration, duration));
     let affected = 0;
@@ -1796,7 +1802,9 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       radius,
       duration,
       boostDuration: Math.max(0, cfgNumber(ability.boostDuration ?? effect.boostDuration ?? ability.duration, ability.duration)),
-      speedMultiplier: Math.max(1, cfgNumber(ability.speedMultiplier ?? effect.speedMultiplier, DART_DEFAULT_SPEED_MULT)),
+      speedMultiplier: ability.id === "dashDart"
+        ? Math.min(Math.max(1, cfgNumber(ability.speedMultiplier ?? effect.speedMultiplier, DART_DEFAULT_SPEED_MULT)), DASH_DART_MAX_SPEED_MULT)
+        : Math.max(1, cfgNumber(ability.speedMultiplier ?? effect.speedMultiplier, DART_DEFAULT_SPEED_MULT)),
       hidesScratchMarks: !!(ability.hidesScratchMarks || effect.hidesScratchMarks),
       scratchHideDuration: Math.max(0, cfgNumber(ability.scratchHideDuration ?? effect.scratchHideDuration ?? ability.duration, duration)),
       healProgress: Math.max(0, cfgNumber(effect.healProgress, 0)),
@@ -3399,7 +3407,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     const botSkin = roleValue === "killer" ? voidBotSkins[count % voidBotSkins.length] : survivorBotSkins[count % survivorBotSkins.length];
     const runnerClassIds = Object.keys(RUNNER_CLASS_DEFS);
     const botRunnerClass = roleValue === "survivor" ? (runnerClassIds[(count - 1) % Math.max(1, runnerClassIds.length)] || RUNNER_CLASS_DEFAULT_ID) : null;
-    const bot = makePlayer({ id }, roleValue, name, { isBot: true, skin: botSkin, runnerClass: botRunnerClass, runnerLevel: 999 });
+    const bot = makePlayer({ id }, roleValue, name, { isBot: true, skin: botSkin, runnerClass: botRunnerClass, runnerLevel: Math.max(1, Math.floor(cfgNumber(RIFTRUNNER_PERKS.botRunnerLevel, 1))) });
     bot.ready = true;
     lobby.players.set(id, bot);
     touchLobby(lobby);
@@ -3899,7 +3907,12 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     if (actor.role === "killer" && (actor.voidSpeedBoost || 0) > 0) speed *= cfgNumber(actorPerkEffect(actor, "nullRush", "killer")?.speedMultiplier, VOID_SPEED_BUFF_MULT);
     if (actor.role === "killer" && (actor.voidSwirlSlow || 0) > 0) speed *= clamp(cfgNumber(actor.voidSwirlSlowMultiplier, VOID_SWIRL_DEFAULT_SLOW_MULT), 0.1, 1);
     if (actor.role === "survivor" && (actor.speedBurst || 0) > 0 && !actor.downed) speed *= cfgNumber(actorPerkEffect(actor, "speedBurst", "survivor")?.speedMultiplier, SURVIVOR_SPEED_BURST_MULT);
-    if (actor.role === "survivor" && (actor.dashBoost || 0) > 0 && !actor.downed) speed *= Math.max(1, cfgNumber(actor.dashBoostMultiplier, DART_DEFAULT_SPEED_MULT));
+    if (actor.role === "survivor" && (actor.dashBoost || 0) > 0 && !actor.downed) {
+      const dashMultiplier = Math.min(Math.max(1, cfgNumber(actor.dashBoostMultiplier, DART_DEFAULT_SPEED_MULT)), DASH_DART_MAX_SPEED_MULT);
+      speed *= dashMultiplier;
+      // Dash Dart is a support burst, not permission to stack every movement buff into hyperspace.
+      speed = Math.min(speed, SURVIVOR_SPRINT_SPEED * DASH_DART_MAX_SPEED_MULT);
+    }
     if (actor.role === "survivor" && (actor.nebulizerVaporTrail || 0) > 0 && !actor.downed) speed *= Math.max(1, cfgNumber(actor.nebulizerVaporTrailMultiplier, 1));
     if (actor.role === "survivor" && (actor.orbSlow || 0) > 0) speed *= cfgNumber(game.redOrbSlowMultiplier, RED_ORB_SLOW_MULT);
     if (actor.role === "survivor" && (actor.voidSlow || 0) > 0) speed *= GRAVITY_WELL_SLOW_MULT;
@@ -6360,7 +6373,12 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     hookInteractDistance: HOOK_INTERACT_DISTANCE,
     hookRescueDistance: HOOK_RESCUE_DISTANCE,
     healDistance: HEAL_DISTANCE,
+    dartBoxInteractRadius: DART_BOX_INTERACT_RADIUS,
+    dartBoxAoeRadius: DART_BOX_AOE_RADIUS,
     applySurvivorAbility,
+    getSurvivorAbilityDef,
+    fireRunnerShootAbility,
+    runnerDartMaxAmmo,
     pathfindLoopLimit: PERF.pathfindLoopLimit,
     pathCacheMax: PERF.pathCacheMax,
     enablePathCache: PERF.enablePathCache,

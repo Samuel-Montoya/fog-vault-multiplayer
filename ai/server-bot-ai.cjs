@@ -43,6 +43,17 @@ const FLEE_HYSTERESIS_SECONDS = 0.95;
 
 const RUNNER_SPEED_BURST_ID = "speedBurst";
 
+const BOT_ABILITY_ATTEMPT_SECONDS = 0.24;
+const BOT_ABILITY_SUCCESS_SECONDS = 0.42;
+const DART_BOX_SCAN_DISTANCE = 1900;
+const DART_BOX_LOW_AMMO_RATIO = 0.34;
+const COLLECTION_BOLT_MIN_CLUSTER = 2;
+const COLLECTION_BOLT_SCAN_LIMIT = 18;
+const HEALING_DART_SCAN_DISTANCE = 760;
+const TEAM_DASH_SCAN_DISTANCE = 760;
+const SMOKE_DART_DANGER_DISTANCE = 560;
+const VOID_SWIRL_TRIGGER_DISTANCE = 430;
+
 const MOVE_INTENT_LOCK_SECONDS = 0.42;
 const MOVE_INTENT_REACHED_DISTANCE = 24;
 
@@ -99,7 +110,9 @@ function ensureBotBrain(actor) {
   brain.healTask = brain.healTask || null;
   brain.escapeTask = brain.escapeTask || null;
   brain.survivalTask = brain.survivalTask || null;
+  brain.dartBoxTask = brain.dartBoxTask || null;
   brain.nextStep = brain.nextStep || null;
+  brain.nextAbilityAt = Number(brain.nextAbilityAt || 0);
   brain.repathAt = Number(brain.repathAt || 0);
   brain.stuckFor = Number(brain.stuckFor || 0);
   brain.lastX = Number.isFinite(brain.lastX) ? brain.lastX : actor.x;
@@ -123,6 +136,7 @@ function clearTasks(brain) {
   brain.healTask = null;
   brain.escapeTask = null;
   brain.survivalTask = null;
+  brain.dartBoxTask = null;
   brain.afterInteractTarget = null;
   brain.afterInteractUntil = 0;
   clearPath(brain);
@@ -152,6 +166,7 @@ function clearNonSlotTasks(brain, keep) {
   if (keep !== "healTask") brain.healTask = null;
   if (keep !== "escapeTask") brain.escapeTask = null;
   if (keep !== "survivalTask") brain.survivalTask = null;
+  if (keep !== "dartBoxTask") brain.dartBoxTask = null;
 }
 
 function clearZeroOrbDepositState(actor, brain) {
@@ -617,6 +632,380 @@ function tryUseSpeedBurst(game, actor, helpers, threat) {
   return !!result?.ok;
 }
 
+function normalizeRunnerClassKey(actor) {
+  const raw = String(actor?.runnerClass || "orbCollector").replace(/[^a-z0-9]/gi, "").toLowerCase();
+  if (raw === "chase") return "escapist";
+  return raw || "orbcollector";
+}
+
+function qAbilityForClass(actor) {
+  const classKey = normalizeRunnerClassKey(actor);
+  if (classKey === "orbcollector") return "doubleOrb";
+  if (classKey === "nebulizer") return "voidSwirl";
+  if (classKey === "escapist") return "swiftVault";
+  return "";
+}
+
+function shootAbilityForClass(actor) {
+  const classKey = normalizeRunnerClassKey(actor);
+  if (classKey === "orbcollector") return "collectionBolt";
+  if (classKey === "healer") return "healingDart";
+  if (classKey === "escapist") return "dashDart";
+  if (classKey === "nebulizer") return "smokeDart";
+  return "";
+}
+
+function survivorAbilityDef(game, actor, helpers, abilityId) {
+  if (!abilityId || typeof helpers?.getSurvivorAbilityDef !== "function") return null;
+  return helpers.getSurvivorAbilityDef(abilityId, actor, game) || null;
+}
+
+function survivorAbilityReady(game, actor, helpers, abilityId, options = {}) {
+  const ability = survivorAbilityDef(game, actor, helpers, abilityId);
+  if (!ability || ability.locked) return null;
+  if (actor.dead || actor.escaped || actor.hooked || actor.downed || actor.vault || actor.actionLock > 0) return null;
+  const cooldown = Math.max(0, Number(actor.survivorAbilityCooldowns?.[ability.id] || 0));
+  if (cooldown > 0) return null;
+  const cost = Math.max(0, Number(ability.cost || 0));
+  if (!options.ignoreCost && carriedOrbs(actor) < cost) return null;
+  return ability;
+}
+
+function runnerDartMaxAmmo(actor, helpers) {
+  const helperValue = typeof helpers?.runnerDartMaxAmmo === "function" ? Number(helpers.runnerDartMaxAmmo(actor)) : 0;
+  const actorValue = Number(actor?.runnerDartMaxAmmo || 0);
+  return Math.max(1, Math.floor(helperValue || actorValue || (normalizeRunnerClassKey(actor) === "orbcollector" ? 5 : 3)));
+}
+
+function runnerDartAmmo(actor, helpers) {
+  const max = runnerDartMaxAmmo(actor, helpers);
+  const raw = Number(actor?.runnerDartAmmo);
+  return clamp(Number.isFinite(raw) ? Math.floor(raw) : max, 0, max);
+}
+
+function shootAbilityReady(game, actor, helpers, abilityId = shootAbilityForClass(actor)) {
+  const ability = survivorAbilityReady(game, actor, helpers, abilityId, { ignoreCost: true });
+  if (!ability || !ability.projectileKind) return null;
+  if (runnerDartAmmo(actor, helpers) <= 0) return null;
+  if (Math.max(0, Number(actor.runnerDartFireLockout || 0)) > 0) return null;
+  return ability;
+}
+
+function abilityAttemptReady(game, actor) {
+  const brain = ensureBotBrain(actor);
+  return now(game) >= Number(brain.nextAbilityAt || 0);
+}
+
+function markAbilityAttempt(game, actor, seconds = BOT_ABILITY_ATTEMPT_SECONDS, detail = null) {
+  const brain = ensureBotBrain(actor);
+  brain.nextAbilityAt = now(game) + seconds;
+  if (detail) brain.lastAbilityUse = { ...detail, at: now(game) };
+}
+
+function fireBotShootAbility(game, actor, helpers, abilityId, target, reason = "bot-shot") {
+  if (!target || typeof helpers?.fireRunnerShootAbility !== "function") return false;
+  if (!abilityAttemptReady(game, actor)) return false;
+  const ability = shootAbilityReady(game, actor, helpers, abilityId);
+  if (!ability) return false;
+  const range = Math.max(80, Number(ability.range || 620));
+  const d = helperDist(helpers, actor.x, actor.y, target.x, target.y);
+  if (d > range + Math.max(48, Number(ability.radius || 80))) return false;
+  const result = helpers.fireRunnerShootAbility(game, actor, {
+    id: ability.id,
+    targetX: target.x,
+    targetY: target.y,
+    angle: Math.atan2((target.y || 0) - actor.y, (target.x || 0) - actor.x)
+  });
+  markAbilityAttempt(game, actor, result?.ok ? BOT_ABILITY_SUCCESS_SECONDS : BOT_ABILITY_ATTEMPT_SECONDS, {
+    id: ability.id,
+    reason,
+    targetId: target.id || null
+  });
+  if (result?.ok) {
+    const brain = ensureBotBrain(actor);
+    brain.nextStep = { kind: `fire-${ability.id}`, targetId: target.id || null };
+    return true;
+  }
+  return false;
+}
+
+function useBotQAbility(game, actor, helpers, abilityId, reason = "bot-q") {
+  if (typeof helpers?.applySurvivorAbility !== "function") return false;
+  if (!abilityAttemptReady(game, actor)) return false;
+  const ability = survivorAbilityReady(game, actor, helpers, abilityId);
+  if (!ability || ability.projectileKind) return false;
+  const result = helpers.applySurvivorAbility(game, actor, ability.id);
+  markAbilityAttempt(game, actor, result?.ok ? BOT_ABILITY_SUCCESS_SECONDS : BOT_ABILITY_ATTEMPT_SECONDS, {
+    id: ability.id,
+    reason,
+    targetId: null
+  });
+  if (result?.ok) {
+    const brain = ensureBotBrain(actor);
+    brain.nextStep = { kind: `use-${ability.id}`, targetId: null };
+    return true;
+  }
+  return false;
+}
+
+function countOrbsNear(game, helpers, x, y, radius) {
+  let count = 0;
+  for (const dot of game?.collectibleDots || []) {
+    if (!dot) continue;
+    if (helperDist(helpers, x, y, dot.x, dot.y) <= radius && segmentClear(game, x, y, dot.x, dot.y, helpers)) count++;
+  }
+  return count;
+}
+
+function chooseCollectionBoltTarget(game, actor, helpers, ability, threat = null) {
+  if (!ability || carriedOrbs(actor) >= Number(helpers?.survivorDotMax || 30)) return null;
+  const radius = Math.max(48, Number(ability.radius || 96));
+  const range = Math.max(120, Number(ability.range || 620));
+  const dots = (game?.collectibleDots || [])
+    .filter((dot) => dot && Number.isFinite(dot.x) && Number.isFinite(dot.y))
+    .map((dot) => ({ dot, d: helperDist(helpers, actor.x, actor.y, dot.x, dot.y) }))
+    .filter((item) => item.d <= range + radius)
+    .sort((a, b) => a.d - b.d)
+    .slice(0, COLLECTION_BOLT_SCAN_LIMIT);
+  let best = null;
+  let bestScore = -Infinity;
+  for (const item of dots) {
+    const dot = item.dot;
+    const clear = segmentClear(game, actor.x, actor.y, dot.x, dot.y, helpers);
+    const cluster = countOrbsNear(game, helpers, dot.x, dot.y, radius);
+    if (cluster <= 0) continue;
+    const danger = killerDangerPenalty(game, dot.x, dot.y, helpers, threat);
+    const beamBonus = Number(ability.effect?.beamCollectRadius || ability.beamCollectRadius || 0) > 0 ? Math.min(2, cluster) * 80 : 0;
+    const score = cluster * 560 + beamBonus - item.d * 0.85 - danger * 0.36 + (clear ? 220 : -260);
+    if (score > bestScore) {
+      bestScore = score;
+      best = { x: dot.x, y: dot.y, id: dot.id, cluster, score, clear };
+    }
+  }
+  if (!best || best.cluster < COLLECTION_BOLT_MIN_CLUSTER) return null;
+  return best;
+}
+
+function teammateThreat(game, teammate, helpers) {
+  const killer = [...(game?.actors?.values?.() || [])].find((actor) => actor?.role === "killer" && !actor.dead && !actor.escaped);
+  if (!killer) return { killer: null, distance: Infinity, los: false, danger: false };
+  const d = helperDist(helpers, teammate.x, teammate.y, killer.x, killer.y);
+  const los = segmentClear(game, teammate.x, teammate.y, killer.x, killer.y, helpers);
+  return { killer, distance: d, los, danger: d <= KILLER_CHASE_RADIUS || (los && d <= KILLER_THREAT_RADIUS) };
+}
+
+function chooseHealingDartTarget(game, actor, helpers, ability, threat = null) {
+  if (!ability) return null;
+  const range = Math.min(Math.max(HEALING_DART_SCAN_DISTANCE, Number(ability.range || 620)), Number(ability.range || 620) + Number(ability.radius || 60));
+  const canUnhook = !!ability.effect?.canUnhook;
+  const canPickupDowned = !!ability.effect?.canPickupDowned;
+  let best = null;
+  let bestScore = -Infinity;
+  for (const target of game?.actors?.values?.() || []) {
+    if (!target || target.id === actor.id || target.role !== "survivor" || target.dead || target.escaped) continue;
+    const d = helperDist(helpers, actor.x, actor.y, target.x, target.y);
+    if (d > range) continue;
+    if (!segmentClear(game, actor.x, actor.y, target.x, target.y, helpers)) continue;
+    let score = -Infinity;
+    if (target.hooked) {
+      if (!canUnhook || target.healingDartUnhook) continue;
+      score = 4200 - d + Math.max(0, 1 - Number(target.unhookProgress || 0)) * 450;
+    } else if (target.downed) {
+      if (!canPickupDowned || target.healingDartHeal) continue;
+      score = 3600 - d + Math.min(600, Number(target.hookProgress || 0) * 900);
+    } else if (target.injured || target.health === 1) {
+      if (target.healingDartHeal) continue;
+      const manualHelp = (target.healProgress || 0) > 0 || (target.activeHealers || []).length > 0;
+      score = 1600 - d - (manualHelp ? 320 : 0);
+    }
+    if (!Number.isFinite(score)) continue;
+    const tThreat = teammateThreat(game, target, helpers);
+    if (tThreat.danger) score += target.hooked || target.downed ? 260 : -180;
+    if (threat?.hardDanger) score -= 250;
+    if (score > bestScore) {
+      bestScore = score;
+      best = { x: target.x, y: target.y, id: target.id, score };
+    }
+  }
+  return best;
+}
+
+function chooseDashDartTarget(game, actor, helpers, ability, threat = null) {
+  if (!ability) return null;
+  const range = Math.max(120, Number(ability.range || 640));
+  const radius = Math.max(70, Number(ability.radius || 108));
+  if (threat?.killer && (threat.hardDanger || threat.distance <= KILLER_CHASE_RADIUS + 70) && (actor.dashBoost || 0) <= 0) {
+    const dx = actor.x - threat.killer.x;
+    const dy = actor.y - threat.killer.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const target = {
+      id: actor.id,
+      x: clamp(actor.x + (dx / len) * Math.min(radius * 0.78, 96), 44, game.map.width - 44),
+      y: clamp(actor.y + (dy / len) * Math.min(radius * 0.78, 96), 44, game.map.height - 44),
+      self: true
+    };
+    if (segmentClear(game, actor.x, actor.y, target.x, target.y, helpers)) return target;
+  }
+
+  let best = null;
+  let bestScore = -Infinity;
+  for (const target of game?.actors?.values?.() || []) {
+    if (!target || target.id === actor.id || !isActiveSurvivor(target)) continue;
+    if ((target.dashBoost || 0) > 0) continue;
+    const d = helperDist(helpers, actor.x, actor.y, target.x, target.y);
+    if (d > Math.min(range + radius, TEAM_DASH_SCAN_DISTANCE)) continue;
+    if (!segmentClear(game, actor.x, actor.y, target.x, target.y, helpers)) continue;
+    const tThreat = teammateThreat(game, target, helpers);
+    const carried = carriedOrbs(target);
+    const score = (tThreat.danger ? 2500 : 0) + carried * 28 - d + (target.chase ? 420 : 0);
+    if (score > bestScore && score > 520) {
+      bestScore = score;
+      best = { x: target.x, y: target.y, id: target.id };
+    }
+  }
+  return best;
+}
+
+function chooseSmokeDartTarget(game, actor, helpers, ability, threat = null) {
+  if (!ability || !threat?.killer) return null;
+  if (!threat.hardDanger && !(threat.los && threat.distance <= SMOKE_DART_DANGER_DISTANCE)) return null;
+  const dx = actor.x - threat.killer.x;
+  const dy = actor.y - threat.killer.y;
+  const len = Math.hypot(dx, dy) || 1;
+  const forward = Math.min(Math.max(70, Number(ability.radius || 130) * 0.68), 145);
+  const candidates = [
+    { x: actor.x + (dx / len) * forward, y: actor.y + (dy / len) * forward, id: "smoke-ahead" },
+    { x: actor.x + (dx / len) * (forward * 0.45), y: actor.y + (dy / len) * (forward * 0.45), id: "smoke-self" },
+    { x: (actor.x + threat.killer.x) * 0.5, y: (actor.y + threat.killer.y) * 0.5, id: "smoke-line" }
+  ];
+  for (const p of candidates) {
+    const target = { ...p, x: clamp(p.x, 44, game.map.width - 44), y: clamp(p.y, 44, game.map.height - 44) };
+    if (helperDist(helpers, actor.x, actor.y, target.x, target.y) <= Number(ability.range || 620) && segmentClear(game, actor.x, actor.y, target.x, target.y, helpers)) return target;
+  }
+  return null;
+}
+
+function tryUseSupportBolts(game, actor, helpers, threat = null) {
+  const abilityId = shootAbilityForClass(actor);
+  const ability = shootAbilityReady(game, actor, helpers, abilityId);
+  if (!ability) return false;
+  if (ability.id === "healingDart") {
+    const target = chooseHealingDartTarget(game, actor, helpers, ability, threat);
+    return target ? fireBotShootAbility(game, actor, helpers, ability.id, target, "healing dart support") : false;
+  }
+  if (ability.id === "dashDart") {
+    const target = chooseDashDartTarget(game, actor, helpers, ability, threat);
+    return target ? fireBotShootAbility(game, actor, helpers, ability.id, target, target.self ? "self dash" : "team dash") : false;
+  }
+  return false;
+}
+
+function tryUseChaseAbilities(game, actor, helpers, threat = null) {
+  const qId = qAbilityForClass(actor);
+  if (qId === "voidSwirl" && threat?.killer && threat.distance <= VOID_SWIRL_TRIGGER_DISTANCE && (actor.voidSwirlSlow || 0) <= 0) {
+    const alreadyCovered = (game.voidSwirls || []).some((swirl) => swirl?.ownerId === actor.id && helperDist(helpers, actor.x, actor.y, swirl.x, swirl.y) < Math.max(72, Number(swirl.radius || 0) * 1.2));
+    if (!alreadyCovered && useBotQAbility(game, actor, helpers, "voidSwirl", "killer behind")) return true;
+  }
+  if (qId === "swiftVault" && threat?.killer && (threat.hardDanger || threat.distance <= KILLER_CHASE_RADIUS + 30) && (actor.swiftVaultReady || 0) <= 0) {
+    if (useBotQAbility(game, actor, helpers, "swiftVault", "chase vault prep")) return true;
+  }
+
+  const abilityId = shootAbilityForClass(actor);
+  const ability = shootAbilityReady(game, actor, helpers, abilityId);
+  if (!ability) return false;
+  if (ability.id === "dashDart") {
+    const target = chooseDashDartTarget(game, actor, helpers, ability, threat);
+    return target ? fireBotShootAbility(game, actor, helpers, ability.id, target, target.self ? "self dash" : "team dash") : false;
+  }
+  if (ability.id === "smokeDart") {
+    const target = chooseSmokeDartTarget(game, actor, helpers, ability, threat);
+    return target ? fireBotShootAbility(game, actor, helpers, ability.id, target, "smoke break line") : false;
+  }
+  return false;
+}
+
+function tryUseObjectiveAbilities(game, actor, helpers, threat = null) {
+  const qId = qAbilityForClass(actor);
+  const shootId = shootAbilityForClass(actor);
+  const shootAbility = shootAbilityReady(game, actor, helpers, shootId);
+
+  if (qId === "doubleOrb" && (actor.doubleOrb || 0) <= 0 && carriedOrbs(actor) >= 10 && carriedOrbs(actor) <= Number(helpers?.survivorDotMax || 30) - 5) {
+    const clusterTarget = shootAbility?.id === "collectionBolt" ? chooseCollectionBoltTarget(game, actor, helpers, shootAbility, threat) : null;
+    const nearbyOrbs = clusterTarget?.cluster || countOrbsNear(game, helpers, actor.x, actor.y, 260);
+    if (nearbyOrbs >= 4 && useBotQAbility(game, actor, helpers, "doubleOrb", "orb cluster")) return true;
+  }
+
+  if (shootAbility?.id === "collectionBolt") {
+    const target = chooseCollectionBoltTarget(game, actor, helpers, shootAbility, threat);
+    if (target && fireBotShootAbility(game, actor, helpers, shootAbility.id, target, "collection bolt cluster")) return true;
+  }
+
+  return false;
+}
+
+function shouldSeekDartBox(game, actor, helpers, force = false) {
+  if (!game?.dartBoxes?.length) return false;
+  const shootId = shootAbilityForClass(actor);
+  if (!survivorAbilityDef(game, actor, helpers, shootId)) return false;
+  const ammo = runnerDartAmmo(actor, helpers);
+  const maxAmmo = runnerDartMaxAmmo(actor, helpers);
+  if (force) return ammo <= 0;
+  return ammo <= 0 || (ammo / maxAmmo <= DART_BOX_LOW_AMMO_RATIO && !actor.dotDepositTargetId && !actor.healingTargetId && !actor.unhookTargetId);
+}
+
+function chooseDartBox(game, actor, helpers, threat = null) {
+  if (!game?.dartBoxes?.length) return null;
+  const shortlist = (game.dartBoxes || [])
+    .filter((box) => box && (!box.type || box.type === "dart"))
+    .map((box) => ({ box, d: helperDist(helpers, actor.x, actor.y, box.x, box.y) }))
+    .filter((item) => item.d <= DART_BOX_SCAN_DISTANCE)
+    .sort((a, b) => a.d - b.d)
+    .slice(0, 8);
+  let best = null;
+  let bestScore = Infinity;
+  for (const item of shortlist) {
+    const approach = approachPointForTarget(game, actor, helpers, item.box, Number(helpers?.dartBoxInteractRadius || 74) * 0.72, { nodeLimit: 700 });
+    if (!approach) continue;
+    const claimed = botTaskClaimCount(game, actor, "dartBoxTask", "dartBox", item.box.id);
+    const danger = killerDangerPenalty(game, item.box.x, item.box.y, helpers, threat);
+    const score = item.d + approach.path.length * 34 + claimed * 520 + danger * 0.72;
+    if (score < bestScore) {
+      bestScore = score;
+      best = { box: item.box, approach };
+    }
+  }
+  return best;
+}
+
+function runDartBox(game, actor, helpers, dt, threat = null, options = {}) {
+  if (!shouldSeekDartBox(game, actor, helpers, !!options.force)) return false;
+  const brain = ensureBotBrain(actor);
+  const lockedBox = brain.dartBoxTask?.id ? (game.dartBoxes || []).find((box) => box.id === brain.dartBoxTask.id) : null;
+  let choice = null;
+  if (lockedBox && (brain.dartBoxTask.lockUntil || 0) > now(game)) {
+    const approach = approachPointForTarget(game, actor, helpers, lockedBox, Number(helpers?.dartBoxInteractRadius || 74) * 0.72, { nodeLimit: 700 });
+    if (approach) choice = { box: lockedBox, approach };
+  }
+  if (!choice) choice = chooseDartBox(game, actor, helpers, threat);
+  if (!choice) return false;
+
+  clearNonSlotTasks(brain, "dartBoxTask");
+  setTask(brain, "dartBoxTask", "dartBox", choice.box, game, { lockSeconds: TASK_COMMIT_SECONDS + 0.6, reason: "refill darts" });
+  const interactDistance = Number(helpers?.dartBoxInteractRadius || 74);
+  if (holdOrCreepToInteraction(game, actor, helpers, choice.box, interactDistance, "hold-dart-box", "close-dart-box", choice.box.id, { holdBuffer: -2, creepBuffer: 78 })) {
+    return true;
+  }
+  return followPath(game, actor, helpers, choice.approach, {
+    key: `dartbox:${choice.box.id}`,
+    kind: "dart-box",
+    targetId: choice.box.id,
+    sprint: true,
+    stopDistance: 8,
+    repathSeconds: THINK_PATH_REPLAN_SECONDS,
+    nodeLimit: 720
+  });
+}
+
 function interactionObjectLocked(game, actor, item) {
   if (!game?.actors || !item?.object) return false;
   const vaultType = item.type === "palletVault" ? "pallet" : item.type === "window" ? "window" : null;
@@ -855,6 +1244,7 @@ function runFlee(game, actor, helpers, dt, threat) {
   const brain = ensureBotBrain(actor);
   clearNonSlotTasks(brain, "survivalTask");
   tryUseSpeedBurst(game, actor, helpers, threat);
+  tryUseChaseAbilities(game, actor, helpers, threat);
 
   const current = nearestCurrentInteractable(game, actor, helpers);
   if (current && tryUseSafetyObject(game, actor, helpers, threat, current)) return true;
@@ -1439,8 +1829,13 @@ function runObjectives(game, actor, helpers, dt, threat = null) {
   if (carried <= 0) clearZeroOrbDepositState(actor, ensureBotBrain(actor));
 
   if (carried > 0 && shouldDeposit(game, actor, helpers) && runDeposit(game, actor, helpers, dt, threat)) return true;
+
+  tryUseObjectiveAbilities(game, actor, helpers, threat);
+  if (runDartBox(game, actor, helpers, dt, threat, { force: runnerDartAmmo(actor, helpers) <= 0 })) return true;
+
   if (runCollectOrb(game, actor, helpers, dt, threat)) return true;
   if (carriedOrbs(actor) > 0 && runDeposit(game, actor, helpers, dt, threat)) return true;
+  if (runDartBox(game, actor, helpers, dt, threat)) return true;
   return runIdle(game, actor, helpers, dt);
 }
 
@@ -1456,6 +1851,8 @@ function updateRunner(game, actor, helpers, dt) {
   if (runPostInteract(game, actor, helpers, dt)) return;
 
   const threat = threatInfo(game, actor, helpers, brain);
+
+  tryUseSupportBolts(game, actor, helpers, threat);
 
   // Let an active heal finish unless The Void is actually close/visible enough to
   // matter. Stale chase state used to yank bots out of heals from outside terror

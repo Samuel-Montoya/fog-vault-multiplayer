@@ -4,7 +4,9 @@
 
 const RIFTRUNNER_PERK_CONFIG = {
   maxLevel: 4,
-  botLevel: 4,
+  // Bots should use starter-level perks unless explicitly tuned up.
+  // Max-level bots made support darts, especially Dash Dart, feel wildly overtuned.
+  botLevel: 1,
   roles: {
     survivor: {
       label: "Runner",

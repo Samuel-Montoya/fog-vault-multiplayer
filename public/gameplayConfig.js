@@ -256,6 +256,8 @@ const GAMEPLAY_CONFIG = {
     // Hourglass now also hides scratch marks, replacing Stealth Step.
     hourglassHidesScratchMarks: true,
     speedBurstSpeedMultiplier: 1.14,
+    // Hard cap for Dash Dart so support bolts cannot stack with other movement effects into absurd speed.
+    dashDartMaxSpeedMultiplier: 1.35,
     voidSwirlRadius: 74,
     voidSwirlDuration: 6,
     voidSwirlSlowMultiplier: 0.65,
