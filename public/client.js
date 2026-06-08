@@ -930,6 +930,7 @@
     "I can't pick any more up.",
     "I'm getting full..."
   ]);
+  const QUICK_Q_ABILITY_SLOTS = 4;
 
   function visibleChatTextForActor(actor) {
     const text = actor?.chatText || "";
@@ -3936,7 +3937,7 @@
       if (!ability || ability.cancel || ability.passive || ability.disabled) return false;
       if (ability.inputType === "m1" || ability.shootAbility) return false;
       return ability.id !== "moreSoon";
-    }).slice(0, 2);
+    }).slice(0, QUICK_Q_ABILITY_SLOTS);
   }
 
   function triggerQuickQAbility(slotIndex) {
@@ -11565,8 +11566,9 @@
         if (!e.repeat) openReactAbilityWheel(e);
         return;
       }
-      if ((e.code === "Digit1" || e.code === "Numpad1" || e.code === "Digit2" || e.code === "Numpad2") && activeScreenName === "game") {
-        const slotIndex = e.code === "Digit2" || e.code === "Numpad2" ? 1 : 0;
+      const quickSlotMatch = /^(?:Digit|Numpad)([1-4])$/.exec(e.code);
+      if (quickSlotMatch && activeScreenName === "game") {
+        const slotIndex = Number(quickSlotMatch[1]) - 1;
         if (getQuickQAbilities().length > slotIndex) {
           e.preventDefault();
           if (!e.repeat) triggerQuickQAbility(slotIndex);

@@ -112,12 +112,12 @@ display: flex;
 .void-ability-hud {
   position: fixed;
   pointer-events: none;
-  top: 94px;
-  right: 20px;
-  left: auto;
+  top: 20px;
+  left: 20px;
+  right: auto;
   z-index: 44;
   display: grid;
-  justify-items: end;
+  justify-items: start;
   gap: 8px;
   width: min(350px, calc(100vw - 40px));
   max-width: min(350px, calc(100vw - 40px));
@@ -382,13 +382,6 @@ display: flex;
 
 .ability-ready-strip {
   display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 14px;
-  max-width: 54vw;
-}
-
-.ability-ready-strip.is-runner {
   flex-direction: column;
   align-items: flex-end;
   justify-content: flex-end;

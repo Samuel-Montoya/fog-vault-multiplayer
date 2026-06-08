@@ -456,11 +456,13 @@ function AbilityReadyIcon({ ability, iconSrc }) {
   )
 }
 
+const QUICK_Q_ABILITY_SLOTS = 4
+
 function AbilityReadinessStrip({ abilities = [], role = "runner" }) {
   const visibleAbilities = abilities.filter((ability) => ability && !ability.cancel && !ability.passive && !ability.disabled)
   const qAbilityIds = visibleAbilities
     .filter((ability) => !(ability.inputType === "m1" || ability.shootAbility))
-    .slice(0, 2)
+    .slice(0, QUICK_Q_ABILITY_SLOTS)
     .map((ability) => ability.id)
   if (!visibleAbilities.length) return null
 
