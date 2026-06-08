@@ -10735,91 +10735,61 @@
         const lifeRatio = clamp(cloud.remaining / Math.max(0.1, cloud.duration), 0, 1);
         const fadeIn = clamp((cloud.duration - cloud.remaining) / 0.35, 0, 1);
         const strength = Math.min(lifeRatio, fadeIn);
-        const alpha = viewerInside ? (0.18 + 0.16 * strength) : (0.44 + 0.30 * strength);
-        const breathe = 1 + Math.sin(now / 760 + cloud.phase) * (viewerInside ? 0.014 : 0.022);
+        const alpha = viewerInside ? (0.18 + 0.14 * strength) : (0.40 + 0.24 * strength);
+        const breathe = 1 + Math.sin(now / 920 + cloud.phase) * (viewerInside ? 0.010 : 0.016);
         const radius = cloud.radius * breathe;
-        const shellPuffs = adaptivePerformance.mode === "ultra" ? 7 : LOW_POWER_MODE ? 10 : 14;
-        const bodyPuffs = adaptivePerformance.mode === "ultra" ? 6 : LOW_POWER_MODE ? 9 : 12;
-        const wispBands = adaptivePerformance.mode === "ultra" ? 2 : LOW_POWER_MODE ? 3 : 4;
-        const emberCount = adaptivePerformance.mode === "ultra" ? 5 : LOW_POWER_MODE ? 8 : 14;
-        const shellAlpha = viewerInside ? alpha * 0.26 : alpha * 0.52;
-        const bodyAlpha = viewerInside ? alpha * 0.12 : alpha * 0.24;
-        const coreAlpha = viewerInside ? alpha * 0.12 : alpha * 0.72;
+        const ringPuffs = adaptivePerformance.mode === "ultra" ? 5 : LOW_POWER_MODE ? 6 : 8;
+        const innerPuffs = adaptivePerformance.mode === "ultra" ? 3 : LOW_POWER_MODE ? 4 : 5;
+        const emberCount = adaptivePerformance.mode === "ultra" ? 4 : LOW_POWER_MODE ? 5 : 8;
+        const shellAlpha = viewerInside ? alpha * 0.16 : alpha * 0.30;
+        const innerAlpha = viewerInside ? alpha * 0.08 : alpha * 0.15;
 
-        // Central void body: heavy blackout core with a violet bruise underneath.
-        g.fillStyle(0x05030a, coreAlpha);
-        g.fillCircle(cloud.x, cloud.y, radius * 0.98);
-        g.fillStyle(0x10061b, viewerInside ? alpha * 0.10 : alpha * 0.52);
-        g.fillCircle(cloud.x + radius * 0.03, cloud.y - radius * 0.02, radius * 0.84);
-        g.fillStyle(0x26103e, viewerInside ? alpha * 0.06 : alpha * 0.18);
-        g.fillCircle(cloud.x - radius * 0.12, cloud.y + radius * 0.10, radius * 0.68);
+        // Main circular body: keep the cloud reading clearly as a round void planet.
+        g.fillStyle(0x05030a, viewerInside ? alpha * 0.82 : alpha * 0.96);
+        g.fillCircle(cloud.x, cloud.y, radius);
+        g.fillStyle(0x13081e, viewerInside ? alpha * 0.10 : alpha * 0.38);
+        g.fillCircle(cloud.x + radius * 0.05, cloud.y - radius * 0.03, radius * 0.86);
+        g.fillStyle(0x3b1564, viewerInside ? alpha * 0.05 : alpha * 0.12);
+        g.fillCircle(cloud.x - radius * 0.16, cloud.y + radius * 0.12, radius * 0.58);
 
-        // Outer shell: chunky drifting lobes so it reads like a real smoke wall instead of a flat sticker.
-        for (let i = 0; i < shellPuffs; i += 1) {
-          const t = i / Math.max(1, shellPuffs);
-          const baseAngle = cloud.phase * 0.72 + Math.PI * 2 * t + now / (4100 + i * 57);
-          const orbit = radius * (0.68 + (i % 4) * 0.05 + Math.sin(now / (920 + i * 41) + i * 0.8) * 0.025);
-          const px = cloud.x + Math.cos(baseAngle) * orbit;
-          const py = cloud.y + Math.sin(baseAngle * 1.04) * orbit * 0.92;
-          const puffRadius = radius * (0.24 + (i % 3) * 0.032 + (1 - t) * 0.01);
-          const color = i % 5 === 0 ? 0xf5e9ff : i % 5 === 1 ? 0xc4b5fd : i % 5 === 2 ? 0x7c3aed : i % 5 === 3 ? 0x1f1235 : 0x0b0813;
-          g.fillStyle(color, shellAlpha * (i % 2 === 0 ? 0.60 : 0.42));
+        // Soft smoky ring around the outside so it still feels like a cloud instead of a flat disk.
+        for (let i = 0; i < ringPuffs; i += 1) {
+          const t = i / Math.max(1, ringPuffs);
+          const angle = cloud.phase * 0.62 + Math.PI * 2 * t + now / (5200 + i * 73);
+          const orbit = radius * (0.78 + (i % 2) * 0.05 + Math.sin(now / (1300 + i * 66) + i) * 0.014);
+          const px = cloud.x + Math.cos(angle) * orbit;
+          const py = cloud.y + Math.sin(angle * 1.02) * orbit * 0.96;
+          const puffRadius = radius * (0.18 + (i % 3) * 0.020);
+          const color = i % 3 === 0 ? 0xf5e9ff : i % 3 === 1 ? 0xc4b5fd : 0x1f1235;
+          g.fillStyle(color, shellAlpha * (i % 2 === 0 ? 0.70 : 0.54));
           g.fillCircle(px, py, puffRadius);
         }
 
-        // Internal body pockets: dark smoke clumps churning around the core.
-        for (let i = 0; i < bodyPuffs; i += 1) {
-          const t = bodyPuffs <= 1 ? 0 : i / (bodyPuffs - 1);
-          const angle = cloud.phase * 1.18 + now / (1550 + i * 96) + Math.PI * 2 * t;
-          const orbit = radius * (0.10 + (i % 5) * 0.09 + Math.sin(now / (1220 + i * 33) + i) * 0.018);
+        // A few internal smoke pockets for motion, but keep them restrained and circular.
+        for (let i = 0; i < innerPuffs; i += 1) {
+          const angle = cloud.phase * 1.06 + now / (1900 + i * 120) + i * 1.24;
+          const orbit = radius * (0.16 + i * 0.10);
           const px = cloud.x + Math.cos(angle) * orbit;
-          const py = cloud.y + Math.sin(angle * 1.12) * orbit * (0.76 + (i % 2) * 0.12);
-          const puffRadius = radius * (0.14 + (i % 4) * 0.040 + (1 - t) * 0.030);
-          const color = i % 4 === 0 ? 0x171126 : i % 4 === 1 ? 0x312e81 : i % 4 === 2 ? 0x581c87 : 0x0f172a;
-          g.fillStyle(color, bodyAlpha * (0.74 + (i % 3) * 0.10));
+          const py = cloud.y + Math.sin(angle * 1.08) * orbit * 0.82;
+          const puffRadius = radius * (0.14 - i * 0.012);
+          const color = i % 2 ? 0x312e81 : 0x581c87;
+          g.fillStyle(color, innerAlpha * (0.90 - i * 0.10));
           g.fillCircle(px, py, puffRadius);
         }
 
-        // Wispy void shears: thin moving tendrils to make the cloud feel alive.
-        for (let i = 0; i < wispBands; i += 1) {
-          const start = cloud.phase * 0.55 + i * 1.22 + now / (3000 + i * 210);
-          const steps = LOW_POWER_MODE ? 8 : 12;
-          const lineAlpha = viewerInside ? alpha * 0.08 : alpha * 0.18;
-          g.lineStyle(adaptivePerformance.mode === "ultra" ? 1.0 : 1.35, i % 2 ? 0xd8b4fe : 0xa78bfa, lineAlpha);
-          g.beginPath();
-          for (let s = 0; s <= steps; s += 1) {
-            const t = s / steps;
-            const angle = start + t * Math.PI * (1.15 + i * 0.08);
-            const rr = radius * (0.22 + t * (0.42 + i * 0.04));
-            const wave = Math.sin(now / (510 + i * 80) + s * 0.7 + i) * radius * 0.018;
-            const x = cloud.x + Math.cos(angle) * (rr + wave);
-            const y = cloud.y + Math.sin(angle * 1.06) * (rr * 0.80 + wave);
-            if (s === 0) g.moveTo(x, y);
-            else g.lineTo(x, y);
-          }
-          g.strokePath();
-        }
+        // Gentle circular rim glow so the gameplay boundary is easy to read.
+        g.lineStyle(adaptivePerformance.mode === "ultra" ? 1.1 : 1.5, 0xd8b4fe, viewerInside ? alpha * 0.06 : alpha * 0.14);
+        g.strokeCircle(cloud.x, cloud.y, radius * 0.98);
 
-        // Faint rim glints keep the gameplay boundary readable without turning it into a hard ring.
-        for (let i = 0; i < Math.max(4, Math.floor(shellPuffs * 0.5)); i += 1) {
-          const angle = cloud.phase * 0.9 + i * (Math.PI * 2 / Math.max(4, Math.floor(shellPuffs * 0.5))) + now / (5200 + i * 67);
-          const orbit = radius * (0.84 + (i % 2) * 0.05);
-          const px = cloud.x + Math.cos(angle) * orbit;
-          const py = cloud.y + Math.sin(angle * 1.03) * orbit * 0.94;
-          const highlightRadius = radius * (LOW_POWER_MODE ? 0.055 : 0.068);
-          g.fillStyle(i % 2 ? 0xffffff : 0xe9d5ff, viewerInside ? alpha * 0.05 : alpha * 0.12);
-          g.fillCircle(px, py, highlightRadius);
-        }
-
-        // Tiny void embers so the cloud has depth and motion even when standing still.
+        // Tiny star embers for the void vibe.
         for (let i = 0; i < emberCount; i += 1) {
-          const angle = cloud.phase * 1.34 + i * 0.91 + now / (4700 + i * 43);
-          const orbit = radius * (0.14 + ((i * 19) % 100) / 100 * 0.56);
+          const angle = cloud.phase * 1.2 + i * 0.88 + now / (5600 + i * 55);
+          const orbit = radius * (0.12 + ((i * 23) % 100) / 100 * 0.44);
           const px = cloud.x + Math.cos(angle) * orbit;
-          const py = cloud.y + Math.sin(angle * 1.15) * orbit * 0.82;
-          const starSize = adaptivePerformance.mode === "ultra" ? 0.6 : LOW_POWER_MODE ? 0.85 : 1.08;
-          const starAlpha = (viewerInside ? alpha * 0.08 : alpha * 0.16) * (0.56 + (i % 4) * 0.12);
-          const color = i % 5 === 0 ? 0xffffff : i % 5 === 1 ? 0xf5e9ff : i % 5 === 2 ? 0xc4b5fd : i % 5 === 3 ? 0xddd6fe : 0xa78bfa;
+          const py = cloud.y + Math.sin(angle * 1.1) * orbit * 0.84;
+          const starSize = adaptivePerformance.mode === "ultra" ? 0.55 : LOW_POWER_MODE ? 0.72 : 0.94;
+          const starAlpha = (viewerInside ? alpha * 0.05 : alpha * 0.12) * (0.62 + (i % 3) * 0.13);
+          const color = i % 3 === 0 ? 0xffffff : i % 3 === 1 ? 0xe9d5ff : 0xc4b5fd;
           g.fillStyle(color, starAlpha);
           g.fillCircle(px, py, starSize);
         }
