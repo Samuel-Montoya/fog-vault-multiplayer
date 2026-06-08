@@ -12,5 +12,9 @@ export default defineConfig({
     cssCodeSplit: true,
     cssMinify: 'lightningcss',
     reportCompressedSize: true
+  },
+  server: {
+    // ngrok URLs change each session; allow the domain, not one hostname.
+    allowedHosts: ['.ngrok-free.app', '.ngrok.io', '.ngrok.app']
   }
 })

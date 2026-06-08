@@ -970,6 +970,59 @@ export function HookEdgeIndicators() {
   )
 }
 
+export function TankHud() {
+  const [data, setData] = useState({ level: 0, levelName: "", enemiesRemaining: 0, enemiesTotal: 0, victory: false, transition: null, players: [] })
+
+  useEffect(() => {
+    const handleTankHud = (event) => {
+      const detail = event.detail || {}
+      setData({
+        level: detail.level || 0,
+        levelName: detail.levelName || "",
+        enemiesRemaining: detail.enemiesRemaining || 0,
+        enemiesTotal: detail.enemiesTotal || 0,
+        victory: !!detail.victory,
+        transition: detail.transition || null,
+        players: Array.isArray(detail.players) ? detail.players : []
+      })
+    }
+    window.addEventListener("riftrunner:tank-hud", handleTankHud)
+    return () => window.removeEventListener("riftrunner:tank-hud", handleTankHud)
+  }, [])
+
+  if (!data.level) return null
+
+  return (
+    <div className="tank-hud" aria-live="polite">
+      <div className="tank-hud-level">
+        <span className="tank-hud-level-label">Level {data.level}</span>
+        <span className="tank-hud-level-name">{data.levelName}</span>
+      </div>
+      <div className="tank-hud-enemies">
+        <span className="tank-hud-enemies-icon" aria-hidden="true">&#x25C6;</span>
+        <span>{data.enemiesRemaining} / {data.enemiesTotal} enemies</span>
+      </div>
+      {data.players.length > 0 && (
+        <div className="tank-hud-health">
+          {data.players.map((p) => (
+            <span key={p.id} className={`tank-hud-hp ${p.dead ? "is-dead" : ""}`}>
+              {p.dead ? "\u2620" : "\u2665".repeat(Math.max(0, p.health))}
+            </span>
+          ))}
+        </div>
+      )}
+      {data.victory && (
+        <div className="tank-hud-victory">VICTORY! All levels cleared!</div>
+      )}
+      {data.transition && (
+        <div className="tank-hud-transition">
+          {data.transition.type === "advance" ? "Level cleared!" : "Restarting..."}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function isTextEntryElement(element) {
   if (!element) return false
   const tag = String(element.tagName || "").toLowerCase()
@@ -1205,6 +1258,7 @@ export function GameHud() {
       <div id="hud" className="hud hidden" data-role="survivor">
         <RoleHudCard />
       </div>
+      <TankHud />
       <MatchAnnouncementRegion />
       <HorrorFxOverlay />
     </>

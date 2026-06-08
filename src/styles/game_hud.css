@@ -1509,6 +1509,112 @@ body.survivor-hit-heavy .fx-hit {
   opacity: 0.30;
 }
 
+/* ─── Tank HUD ─────────────────────────────────────────────────────────────── */
+
+.tank-hud {
+  position: fixed;
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  z-index: 300;
+  pointer-events: none;
+  font-family: inherit;
+}
+
+.tank-hud-level {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 18px;
+  border-radius: 6px;
+  background: linear-gradient(135deg, rgba(10, 10, 30, 0.92), rgba(20, 10, 50, 0.88));
+  border: 1px solid rgba(103, 232, 249, 0.35);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5), 0 0 12px rgba(103, 232, 249, 0.12);
+}
+
+.tank-hud-level-label {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: rgba(103, 232, 249, 0.95);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.tank-hud-level-name {
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.tank-hud-enemies {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 14px;
+  border-radius: 4px;
+  background: rgba(10, 10, 30, 0.85);
+  border: 1px solid rgba(255, 100, 100, 0.3);
+  font-size: 0.8rem;
+  color: rgba(255, 200, 200, 0.9);
+}
+
+.tank-hud-enemies-icon {
+  color: rgba(255, 80, 80, 0.9);
+  font-size: 0.9rem;
+}
+
+.tank-hud-health {
+  display: flex;
+  gap: 10px;
+  padding: 4px 12px;
+  border-radius: 4px;
+  background: rgba(10, 10, 30, 0.85);
+  border: 1px solid rgba(255, 80, 80, 0.3);
+}
+
+.tank-hud-hp {
+  font-size: 1rem;
+  color: rgba(255, 80, 80, 0.95);
+  letter-spacing: 2px;
+}
+
+.tank-hud-hp.is-dead {
+  color: rgba(120, 120, 120, 0.7);
+}
+
+.tank-hud-victory {
+  margin-top: 8px;
+  padding: 10px 24px;
+  border-radius: 6px;
+  background: linear-gradient(135deg, rgba(20, 80, 50, 0.95), rgba(10, 60, 40, 0.9));
+  border: 1px solid rgba(100, 255, 150, 0.5);
+  color: rgba(150, 255, 200, 1);
+  font-size: 1.2rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  animation: tank-victory-pulse 1.2s ease-in-out infinite alternate;
+}
+
+@keyframes tank-victory-pulse {
+  from { box-shadow: 0 0 12px rgba(100, 255, 150, 0.3); }
+  to { box-shadow: 0 0 28px rgba(100, 255, 150, 0.6); }
+}
+
+.tank-hud-transition {
+  margin-top: 4px;
+  padding: 4px 14px;
+  border-radius: 4px;
+  background: rgba(10, 10, 30, 0.85);
+  border: 1px solid rgba(255, 200, 80, 0.4);
+  color: rgba(255, 220, 120, 0.95);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
 .toast {
 border-radius: 0;
   border-color: rgba(192, 132, 252, 0.44);

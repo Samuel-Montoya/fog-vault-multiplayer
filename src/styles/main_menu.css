@@ -231,6 +231,19 @@ and mode summary. */
     drop-shadow(0 0 18px rgba(171, 89, 255, 0.18));
 }
 
+.angled-menu-actions .menu-action.tank-assault {
+  --menu-edge: rgba(103, 232, 249, 0.85);
+  --menu-edge-hot: rgba(150, 245, 255, 0.98);
+  --menu-text: rgba(103, 232, 249, 0.95);
+  --menu-fill-a: rgba(5, 12, 20, 0.70);
+  --menu-fill-b: rgba(15, 40, 60, 0.50);
+  --menu-glow: rgba(50, 180, 220, 0.30);
+  filter:
+    drop-shadow(0 14px 24px rgba(0, 0, 0, 0.38))
+    drop-shadow(12px 0 14px rgba(50, 180, 220, 0.22))
+    drop-shadow(0 0 12px rgba(103, 232, 249, 0.15));
+}
+
 
 .angled-menu-actions .menu-action:hover,
 .angled-menu-actions .menu-action:focus-visible,

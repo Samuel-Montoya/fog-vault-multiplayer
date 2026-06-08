@@ -306,6 +306,100 @@ const GAMEPLAY_CONFIG = {
     healBoxRespawnSeconds: 2
   },
 
+  tanks: {
+    maxPlayers: 2,
+    totalLevels: 5,
+    levelTransitionSeconds: 3,
+    playerSize: 30,
+    playerSpeed: 200,
+    playerSprintSpeed: 260,
+    // Player bullets
+    playerBulletSpeed: 580,
+    playerBulletRadius: 8,
+    playerMaxBullets: 5,
+    playerBulletBounces: 1,
+    playerShotCooldown: 0.4,
+    playerBulletTtl: 6,
+    // Enemy tiers: [husk, shade, wraith, specter, abyss]
+    enemyTiers: {
+      husk: {
+        speed: 0,
+        bulletSpeed: 420,
+        bulletRadius: 8,
+        maxBullets: 2,
+        bulletBounces: 1,
+        fireCooldown: 2.0,
+        fireRange: 700,
+        evadeSkill: 0.2,
+        pursuePlayer: false,
+        ricochetAim: false,
+        leadTarget: true,
+        bulletTtl: 5
+      },
+      shade: {
+        speed: 110,
+        bulletSpeed: 480,
+        bulletRadius: 8,
+        maxBullets: 2,
+        bulletBounces: 1,
+        fireCooldown: 1.6,
+        fireRange: 750,
+        evadeSkill: 0.4,
+        pursuePlayer: true,
+        ricochetAim: false,
+        leadTarget: true,
+        patrolRadius: 250,
+        pursueRadius: 400,
+        bulletTtl: 5
+      },
+      wraith: {
+        speed: 170,
+        bulletSpeed: 540,
+        bulletRadius: 9,
+        maxBullets: 3,
+        bulletBounces: 1,
+        fireCooldown: 1.2,
+        fireRange: 800,
+        evadeSkill: 0.75,
+        pursuePlayer: true,
+        ricochetAim: true,
+        leadTarget: true,
+        pursueRadius: 600,
+        bulletTtl: 5
+      },
+      specter: {
+        speed: 200,
+        bulletSpeed: 600,
+        bulletRadius: 9,
+        maxBullets: 3,
+        bulletBounces: 2,
+        fireCooldown: 0.9,
+        fireRange: 900,
+        evadeSkill: 0.9,
+        pursuePlayer: true,
+        ricochetAim: true,
+        leadTarget: true,
+        pursueRadius: 700,
+        bulletTtl: 6
+      },
+      abyss: {
+        speed: 230,
+        bulletSpeed: 780,
+        bulletRadius: 11,
+        maxBullets: 4,
+        bulletBounces: 0,
+        fireCooldown: 0.55,
+        fireRange: 1000,
+        evadeSkill: 0.8,
+        pursuePlayer: true,
+        ricochetAim: false,
+        leadTarget: true,
+        pursueRadius: 900,
+        bulletTtl: 4
+      }
+    }
+  },
+
   hook: {
     channelTime: 1.35,
     executeTime: 2.15,

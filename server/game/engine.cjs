@@ -17,8 +17,10 @@ const { computeMatchProgression } = require("../progression/leveling.cjs");
 async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") } = {}) {
   const ROOT_DIR = rootDir;
   const botAi = require(path.join(ROOT_DIR, "ai/server-bot-ai.cjs"));
+  const tankAi = require(path.join(ROOT_DIR, "ai/server-tank-ai.cjs"));
   const { analyzeMap, formatAnalysisSummary } = require(path.join(ROOT_DIR, "ai/nav/map-analysis.cjs"));
   const GAME_MAPS = loadPublicScriptGlobal(ROOT_DIR, "public/maps.js", "GAME_MAPS");
+  const TANK_MAPS = loadPublicScriptGlobal(ROOT_DIR, "public/tank_maps.js", "TANK_MAPS");
   const GAMEPLAY_CONFIG = loadPublicScriptGlobal(ROOT_DIR, "public/gameplayConfig.js", "GAMEPLAY_CONFIG");
   const RIFTRUNNER_CHATS = loadPublicScriptGlobal(ROOT_DIR, "public/chats.js", "RIFTRUNNER_CHATS");
   const RIFTRUNNER_ABILITIES = loadPublicScriptGlobal(ROOT_DIR, "public/abilities.js", "RIFTRUNNER_ABILITIES");
@@ -140,6 +142,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
   const MAX_SURVIVORS = cfgNumber(GAMEPLAY_CONFIG.match?.maxSurvivors, 4);
   const GAME_MODE_STANDARD = "standard";
   const GAME_MODE_FFA = "ffa";
+  const GAME_MODE_TANKS = "tanks";
   const FFA_MAX_PLAYERS = Math.max(2, Math.floor(cfgNumber(GAMEPLAY_CONFIG.ffa?.maxPlayers, 5)));
   const FFA_KILL_LIMIT = Math.max(1, Math.floor(cfgNumber(GAMEPLAY_CONFIG.ffa?.killLimit, 10)));
   const FFA_RESPAWN_SECONDS = Math.max(0.5, cfgNumber(GAMEPLAY_CONFIG.ffa?.respawnSeconds, 3));
@@ -148,6 +151,22 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
   const FFA_PROJECTILE_RANGE = Math.max(160, cfgNumber(GAMEPLAY_CONFIG.ffa?.projectileRange, 1150));
   const FFA_PROJECTILE_RADIUS = Math.max(8, cfgNumber(GAMEPLAY_CONFIG.ffa?.projectileRadius, 18));
   const FFA_HEAL_BOX_RESPAWN_SECONDS = Math.max(0.1, cfgNumber(GAMEPLAY_CONFIG.ffa?.healBoxRespawnSeconds, 2));
+
+  // Tank Co-op mode constants
+  const TANKS_CFG = GAMEPLAY_CONFIG.tanks || {};
+  const TANK_MAX_PLAYERS = Math.max(1, Math.floor(cfgNumber(TANKS_CFG.maxPlayers, 2)));
+  const TANK_TOTAL_LEVELS = Math.max(1, Math.floor(cfgNumber(TANKS_CFG.totalLevels, 5)));
+  const TANK_LEVEL_TRANSITION_SECONDS = Math.max(0.5, cfgNumber(TANKS_CFG.levelTransitionSeconds, 3));
+  const TANK_PLAYER_SPEED = Math.max(50, cfgNumber(TANKS_CFG.playerSpeed, 200));
+  const TANK_PLAYER_SPRINT_SPEED = Math.max(50, cfgNumber(TANKS_CFG.playerSprintSpeed, 260));
+  const TANK_PLAYER_SIZE = Math.max(10, cfgNumber(TANKS_CFG.playerSize, 30));
+  const TANK_BULLET_SPEED = Math.max(100, cfgNumber(TANKS_CFG.playerBulletSpeed, 580));
+  const TANK_BULLET_RADIUS = Math.max(4, cfgNumber(TANKS_CFG.playerBulletRadius, 8));
+  const TANK_MAX_BULLETS = Math.max(1, Math.floor(cfgNumber(TANKS_CFG.playerMaxBullets, 5)));
+  const TANK_BULLET_BOUNCES = Math.max(0, Math.floor(cfgNumber(TANKS_CFG.playerBulletBounces, 1)));
+  const TANK_SHOT_COOLDOWN = Math.max(0.05, cfgNumber(TANKS_CFG.playerShotCooldown, 0.4));
+  const TANK_BULLET_TTL = Math.max(1, cfgNumber(TANKS_CFG.playerBulletTtl, 6));
+  const TANK_ENEMY_TIERS = TANKS_CFG.enemyTiers || {};
   const SURVIVOR_SKINS = new Set(["blueSquare", "yellowStar", "purplePentagon", "nebulaBloom", "eclipseWisp", "riftMoth", "signalDrone"]);
   const VOID_SKINS = new Set(["voidCore", "solarMaw", "azureRift", "bloodEclipse", "starlessWyrm", "lanternHusk", "abyssSiren", "crownedHollow", "staticNull", "riftSeraph"]);
   function sanitizeSkin(value) {
@@ -164,6 +183,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
   }
 
   function normalizeLobbyMode(value) {
+    if (value === GAME_MODE_TANKS || value === "tankAssault" || value === "tank-assault") return GAME_MODE_TANKS;
     return value === GAME_MODE_FFA || value === "freeForAll" || value === "free-for-all" ? GAME_MODE_FFA : GAME_MODE_STANDARD;
   }
 
@@ -177,6 +197,14 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
 
   function isFfaActor(actor) {
     return !!(actor && (actor.gameMode === GAME_MODE_FFA || actor.lobbyRole === GAME_MODE_FFA));
+  }
+
+  function isTanksLobby(lobby) {
+    return normalizeLobbyMode(lobby?.mode) === GAME_MODE_TANKS;
+  }
+
+  function isTanksGame(game) {
+    return normalizeLobbyMode(game?.mode) === GAME_MODE_TANKS;
   }
 
   const serverMetrics = {
@@ -2971,6 +2999,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     const players = [...lobby.players.values()];
     const survivors = players.filter((p) => p.role === "survivor").length;
     const ffaCount = players.filter((p) => p.role === "ffa").length;
+    const tankCount = isTanksLobby(lobby) ? survivors : 0;
     const killerCount = players.filter((p) => p.role === "killer").length;
     const spectators = players.filter((p) => p.role === "spectator").length;
     const killer = killerCount > 0;
@@ -2984,11 +3013,13 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       playerCount: players.length,
       survivors,
       ffaCount,
+      tankCount,
       killer,
       killerCount,
       spectators,
       maxSurvivors: MAX_SURVIVORS,
       maxFfaPlayers: FFA_MAX_PLAYERS,
+      maxTankPlayers: TANK_MAX_PLAYERS,
       killLimit: FFA_KILL_LIMIT,
       hostId: lobby.hostId || null,
       createdAt: lobby.createdAt
@@ -3148,6 +3179,30 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     }
 
     const lobbyMode = normalizeLobbyMode(mode);
+
+    // Tank mode uses its own level system, not the standard map registry.
+    if (lobbyMode === GAME_MODE_TANKS) {
+      const levels = TANK_MAPS?.levels || [];
+      if (!levels.length) throw new Error("No tank maps found. Check public/tank_maps.js.");
+      const id = uid("lobby");
+      const createdAt = nowMs();
+      const lobby = {
+        id,
+        mode: lobbyMode,
+        name: sanitizeLobbyName(name || "Tank Assault"),
+        mapId: "tanks_level_1",
+        mapName: levels[0].name || "Tank Arena",
+        phase: "lobby",
+        createdAt,
+        lastActivityAt: createdAt,
+        hostId: null,
+        players: new Map(),
+        game: null
+      };
+      lobbies.set(id, lobby);
+      return lobby;
+    }
+
     const requested = requestedMapId || (lobbyMode === GAME_MODE_FFA ? "ffaTest" : null);
     const selection = resolveMapSelection(requested, lobbyMode);
     if (!selection) {
@@ -3286,9 +3341,11 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       return false;
     }
 
+    const tanksLobby = isTanksLobby(lobby);
+    if (tanksLobby) role = "survivor";
     const ffaLobby = isFfaLobby(lobby);
     if (ffaLobby) role = "ffa";
-    if (!ffaLobby && role === "ffa") {
+    if (!ffaLobby && !tanksLobby && role === "ffa") {
       socket.emit("toast", { type: "error", message: "Free-For-All uses its own lobby." });
       return false;
     }
@@ -3308,6 +3365,13 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     if (role === "ffa" && ffaCount >= FFA_MAX_PLAYERS) {
       socket.emit("toast", { type: "error", message: "This Free-For-All arena is full." });
       return false;
+    }
+    if (tanksLobby && role === "survivor") {
+      const tankPlayerCount = players.filter((p) => p.role === "survivor").length;
+      if (tankPlayerCount >= TANK_MAX_PLAYERS) {
+        socket.emit("toast", { type: "error", message: "Tank Assault is full (max 2 players)." });
+        return false;
+      }
     }
 
     const account = socket.data?.account || null;
@@ -3428,6 +3492,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     if (role === player.role) return true;
     const players = [...lobby.players.values()].filter((p) => p.id !== player.id);
     if (role === "spectator") return true;
+    if (isTanksLobby(lobby)) return role === "survivor" && players.filter((p) => p.role === "survivor").length < TANK_MAX_PLAYERS;
     if (isFfaLobby(lobby)) return role === "ffa" && players.filter((p) => p.role === "ffa").length < FFA_MAX_PLAYERS;
     if (role === "ffa") return false;
     if (role === "killer") return true;
@@ -3576,7 +3641,636 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     return true;
 }
 
+  function parseTankMap(levelDef) {
+    const rows = levelDef.rows || [];
+    const tile = levelDef.tile || 72;
+    const cols = rows.length ? rows[0].length : 0;
+    const map = {
+      name: levelDef.name || "Tank Arena",
+      tile,
+      cols,
+      rows: rows.length,
+      width: cols * tile,
+      height: rows.length * tile,
+      rawRows: rows,
+      walls: [],
+      windows: [],
+      pallets: [],
+      generators: [],
+      gates: [],
+      hooks: [],
+      survivorSpawns: [],
+      killerSpawns: [],
+      tankPlayerSpawns: [],
+      tankEnemySpawns: []
+    };
+
+    for (let y = 0; y < rows.length; y++) {
+      for (let x = 0; x < (rows[y] || "").length; x++) {
+        const ch = rows[y][x];
+        const rx = x * tile;
+        const ry = y * tile;
+        if (ch === "X") map.walls.push({ id: uid("wall"), x: rx, y: ry, w: tile, h: tile, tileX: x, tileY: y });
+        if (ch === "S") map.tankPlayerSpawns.push({ x: rx + tile / 2, y: ry + tile / 2 });
+        if (ch === "1") map.tankEnemySpawns.push({ x: rx + tile / 2, y: ry + tile / 2, tier: "husk" });
+        if (ch === "2") map.tankEnemySpawns.push({ x: rx + tile / 2, y: ry + tile / 2, tier: "shade" });
+        if (ch === "3") map.tankEnemySpawns.push({ x: rx + tile / 2, y: ry + tile / 2, tier: "wraith" });
+        if (ch === "4") map.tankEnemySpawns.push({ x: rx + tile / 2, y: ry + tile / 2, tier: "specter" });
+        if (ch === "5") map.tankEnemySpawns.push({ x: rx + tile / 2, y: ry + tile / 2, tier: "abyss" });
+      }
+    }
+    if (!map.tankPlayerSpawns.length) {
+      map.tankPlayerSpawns.push({ x: tile * 2, y: tile * 2 });
+      map.tankPlayerSpawns.push({ x: tile * 4, y: tile * 2 });
+    }
+    map.survivorSpawns = map.tankPlayerSpawns;
+    return map;
+  }
+
+  function spawnTankEnemies(game) {
+    game.tankEnemies = [];
+    for (const spawn of game.map.tankEnemySpawns || []) {
+      const tierConfig = TANK_ENEMY_TIERS[spawn.tier] || TANK_ENEMY_TIERS.husk || {};
+      const enemy = {
+        id: uid("tankenemy"),
+        tier: spawn.tier,
+        x: spawn.x,
+        y: spawn.y,
+        spawnX: spawn.x,
+        spawnY: spawn.y,
+        angle: 0,
+        aimAngle: Math.random() * Math.PI * 2,
+        size: TANK_PLAYER_SIZE,
+        dead: false,
+        config: { ...tierConfig },
+        moveX: 0,
+        moveY: 0,
+        wantFire: false,
+        vx: 0,
+        vy: 0
+      };
+      game.tankEnemies.push(enemy);
+    }
+  }
+
+  function startTankGame(lobby) {
+    const players = [...lobby.players.values()];
+    const tankPlayers = players.filter((p) => p.role === "survivor");
+    if (lobby.phase !== "lobby") return false;
+    if (tankPlayers.length < 1) {
+      io.to(lobby.id).emit("toast", { type: "error", message: "Need at least 1 player for Tank Assault." });
+      return false;
+    }
+    if (tankPlayers.length > TANK_MAX_PLAYERS) {
+      io.to(lobby.id).emit("toast", { type: "error", message: `Tank Assault supports up to ${TANK_MAX_PLAYERS} players.` });
+      return false;
+    }
+
+    for (const player of players) {
+      if (player.role === "spectator" || player.isBot) player.ready = true;
+    }
+
+    const unreadyHumans = players.filter((player) => player.role !== "spectator" && !player.isBot && !player.ready);
+    if (unreadyHumans.length > 0) {
+      const names = unreadyHumans.slice(0, 3).map((player) => player.name || "Player").join(", ");
+      io.to(lobby.id).emit("toast", { type: "error", message: `Everyone has to ready up. Waiting on ${names}.` });
+      broadcastLobbyState(lobby);
+      return false;
+    }
+
+    const levels = TANK_MAPS?.levels || [];
+    if (!levels.length) {
+      io.to(lobby.id).emit("toast", { type: "error", message: "No tank maps found. Check public/tank_maps.js." });
+      return false;
+    }
+
+    const levelIndex = 0;
+    const levelDef = levels[levelIndex];
+    const map = parseTankMap(levelDef);
+    map.id = "tanks_level_" + (levelIndex + 1);
+
+    const game = {
+      mode: GAME_MODE_TANKS,
+      map,
+      matchId: uid("tankmatch"),
+      phase: "game",
+      startedAt: nowMs(),
+      endedAt: null,
+      winner: null,
+      endReason: "",
+      actors: new Map(),
+      events: [],
+      particles: [],
+      scratchMarks: [],
+      snapshotSeq: 0,
+      pathCache: new Map(),
+      pathCacheEpoch: 0,
+      requiredGenerators: 0,
+      escapeOpen: false,
+      riftEndgameActive: false,
+      time: 0,
+      botThinkAccumulator: 0,
+      matchStartFreezeSeconds: MATCH_START_FREEZE_SECONDS,
+      collectibleDots: [],
+      runnerProjectiles: [],
+      dartBoxes: [],
+      dartBoxRespawnQueue: 0,
+      dartBoxRespawnTimer: 0,
+      smokeClouds: [],
+      voidSwirls: [],
+      dotRespawnQueue: 0,
+      redOrbs: 0,
+      redOrbSlowMultiplier: 1,
+      redOrbSlowSeconds: 0,
+      runnerReveal: 0,
+      dotRespawnTimer: 0,
+      paused: false,
+      pausedBy: null,
+      pausedByName: null,
+      pausedAt: null,
+      // Tank-specific state
+      tankLevel: levelIndex + 1,
+      tankLevelIndex: levelIndex,
+      tankPlayers: [],
+      tankEnemies: [],
+      tankBullets: [],
+      tankTransition: null,
+      tankVictory: false
+    };
+
+    let spawnIndex = 0;
+    for (const player of players) {
+      if (player.role === "spectator") continue;
+      const spawn = map.tankPlayerSpawns[spawnIndex % map.tankPlayerSpawns.length];
+      spawnIndex++;
+      const actor = makePlayer({ id: player.id }, "survivor", player.name, {
+        isBot: !!player.isBot,
+        skin: player.skin,
+        runnerClass: null,
+        runnerLevel: 1,
+        accountId: player.accountId || null,
+        perkLevels: null,
+        botDebugEnabled: false,
+        lobbyRole: "survivor",
+        gameMode: GAME_MODE_TANKS
+      });
+      actor.ready = player.ready;
+      actor.gameMode = GAME_MODE_TANKS;
+      actor.lobbyRole = "survivor";
+      actor.x = spawn.x;
+      actor.y = spawn.y;
+      actor.health = 2;
+      actor.tankShotCooldown = 0;
+      actor.vx = 0;
+      actor.vy = 0;
+      game.actors.set(actor.id, actor);
+      game.tankPlayers.push(actor);
+    }
+
+    spawnTankEnemies(game);
+
+    lobby.phase = "game";
+    lobby.game = game;
+    touchLobby(lobby);
+    for (const player of lobby.players.values()) player.ready = player.role === "spectator";
+    io.to(lobby.id).emit("gameStarted", serializeTankMapForClient(game));
+    broadcastLobbyState(lobby);
+    broadcastLobbyList();
+    return true;
+  }
+
+  function serializeTankMapForClient(game) {
+    const map = game.map;
+    return {
+      name: map.name,
+      mode: GAME_MODE_TANKS,
+      tile: map.tile,
+      width: map.width,
+      height: map.height,
+      rows: map.rawRows,
+      walls: map.walls.map((w) => ({ id: w.id, x: w.x, y: w.y, w: w.w, h: w.h })),
+      windows: [],
+      pallets: [],
+      generators: [],
+      gates: [],
+      hooks: [],
+      tankLevel: game.tankLevel,
+      tankEnemies: (game.tankEnemies || []).map((e) => ({
+        id: e.id, tier: e.tier, x: e.x, y: e.y, aimAngle: e.aimAngle, dead: e.dead, size: e.size
+      })),
+      requiredGenerators: 0,
+      totalGenerators: 0,
+      startFreezeSeconds: MATCH_START_FREEZE_SECONDS
+    };
+  }
+
+  function advanceTankLevel(lobby) {
+    const game = lobby.game;
+    if (!game || !isTanksGame(game)) return;
+    const levels = TANK_MAPS?.levels || [];
+    const nextIndex = (game.tankLevelIndex || 0) + 1;
+
+    if (nextIndex >= levels.length) {
+      game.tankVictory = true;
+      game.endReason = "victory";
+      game.winner = "runners";
+      game.endedAt = nowMs();
+      game.phase = "ended";
+      addEvent(game, "tankVictory", { level: game.tankLevel, message: "All levels cleared!" });
+      io.to(lobby.id).emit("toast", { type: "success", message: "Victory! All levels cleared!" });
+      return;
+    }
+
+    const levelDef = levels[nextIndex];
+    const map = parseTankMap(levelDef);
+    map.id = "tanks_level_" + (nextIndex + 1);
+    game.map = map;
+    game.tankLevel = nextIndex + 1;
+    game.tankLevelIndex = nextIndex;
+    game.tankBullets = [];
+    game.tankTransition = null;
+
+    let spawnIndex = 0;
+    for (const player of game.tankPlayers) {
+      if (!player) continue;
+      player.dead = false;
+      player.health = 2;
+      player.tankShotCooldown = 0;
+      const spawn = map.tankPlayerSpawns[spawnIndex % map.tankPlayerSpawns.length];
+      spawnIndex++;
+      player.x = spawn.x;
+      player.y = spawn.y;
+      player.vx = 0;
+      player.vy = 0;
+    }
+
+    spawnTankEnemies(game);
+    addEvent(game, "tankLevelStart", { level: game.tankLevel, name: map.name });
+    io.to(lobby.id).emit("tankLevelStart", serializeTankMapForClient(game));
+  }
+
+  function restartTankFromLevel1(lobby) {
+    const game = lobby.game;
+    if (!game || !isTanksGame(game)) return;
+    const levels = TANK_MAPS?.levels || [];
+    if (!levels.length) return;
+
+    const levelDef = levels[0];
+    const map = parseTankMap(levelDef);
+    map.id = "tanks_level_1";
+    game.map = map;
+    game.tankLevel = 1;
+    game.tankLevelIndex = 0;
+    game.tankBullets = [];
+    game.tankTransition = null;
+    game.time = 0;
+
+    let spawnIndex = 0;
+    for (const player of game.tankPlayers) {
+      if (!player) continue;
+      player.dead = false;
+      player.health = 2;
+      player.tankShotCooldown = 0;
+      const spawn = map.tankPlayerSpawns[spawnIndex % map.tankPlayerSpawns.length];
+      spawnIndex++;
+      player.x = spawn.x;
+      player.y = spawn.y;
+      player.vx = 0;
+      player.vy = 0;
+    }
+
+    spawnTankEnemies(game);
+    addEvent(game, "tankRestart", { level: 1 });
+    io.to(lobby.id).emit("tankLevelStart", serializeTankMapForClient(game));
+    io.to(lobby.id).emit("toast", { type: "error", message: "Defeated! Restarting from Level 1..." });
+  }
+
+  function tankWallNormal(game, x, y, dx, dy) {
+    const tile = game.map.tile || 72;
+    const probeStep = 4;
+    const testDirs = [
+      { nx: -1, ny: 0, px: x - probeStep, py: y },
+      { nx: 1, ny: 0, px: x + probeStep, py: y },
+      { nx: 0, ny: -1, px: x, py: y - probeStep },
+      { nx: 0, ny: 1, px: x, py: y + probeStep }
+    ];
+    for (const test of testDirs) {
+      if (!tankAi.pointInAnyWall(game, test.px, test.py)) {
+        const incomingDot = dx * test.nx + dy * test.ny;
+        if (incomingDot < 0) return { nx: test.nx, ny: test.ny };
+      }
+    }
+    if (Math.abs(dx) > Math.abs(dy)) return { nx: dx > 0 ? -1 : 1, ny: 0 };
+    return { nx: 0, ny: dy > 0 ? -1 : 1 };
+  }
+
+  function updateTankBullets(game, dt) {
+    const bullets = game.tankBullets;
+    if (!bullets || !bullets.length) return;
+
+    for (let i = bullets.length - 1; i >= 0; i--) {
+      const b = bullets[i];
+      b.age = (b.age || 0) + dt;
+      if (b.age >= b.ttl) {
+        bullets.splice(i, 1);
+        addEvent(game, "tankBulletExpire", { id: b.id, x: b.x, y: b.y });
+        continue;
+      }
+
+      const step = b.speed * dt;
+      const nextX = b.x + b.dx * step;
+      const nextY = b.y + b.dy * step;
+
+      // Boundary check
+      if (nextX <= 0 || nextX >= game.map.width || nextY <= 0 || nextY >= game.map.height) {
+        if (b.bouncesRemaining > 0) {
+          b.bouncesRemaining--;
+          const nx = (nextX <= 0 || nextX >= game.map.width) ? (nextX <= 0 ? 1 : -1) : 0;
+          const ny = (nextY <= 0 || nextY >= game.map.height) ? (nextY <= 0 ? 1 : -1) : 0;
+          const ref = tankAi.reflect(b.dx, b.dy, nx, ny);
+          b.dx = ref.x;
+          b.dy = ref.y;
+          b.x = clamp(b.x, 4, game.map.width - 4);
+          b.y = clamp(b.y, 4, game.map.height - 4);
+          addEvent(game, "tankBulletBounce", { id: b.id, x: b.x, y: b.y });
+        } else {
+          bullets.splice(i, 1);
+          addEvent(game, "tankBulletExpire", { id: b.id, x: nextX, y: nextY });
+        }
+        continue;
+      }
+
+      // Wall collision check
+      if (tankAi.pointInAnyWall(game, nextX, nextY)) {
+        if (b.bouncesRemaining > 0) {
+          b.bouncesRemaining--;
+          const normal = tankWallNormal(game, b.x, b.y, b.dx, b.dy);
+          const ref = tankAi.reflect(b.dx, b.dy, normal.nx, normal.ny);
+          b.dx = ref.x;
+          b.dy = ref.y;
+          addEvent(game, "tankBulletBounce", { id: b.id, x: b.x, y: b.y });
+        } else {
+          bullets.splice(i, 1);
+          addEvent(game, "tankBulletExpire", { id: b.id, x: b.x, y: b.y });
+        }
+        continue;
+      }
+
+      b.x = nextX;
+      b.y = nextY;
+
+      // Hit detection against players
+      if (b.ownerType === "enemy") {
+        for (const player of game.tankPlayers || []) {
+          if (player.dead) continue;
+          const d = dist(b.x, b.y, player.x, player.y);
+          if (d < TANK_PLAYER_SIZE * 0.8 + b.radius) {
+            player.health = Math.max(0, (player.health || 0) - 1);
+            bullets.splice(i, 1);
+            if (player.health <= 0) {
+              player.dead = true;
+              addEvent(game, "tankPlayerDeath", { playerId: player.id, bulletId: b.id, x: player.x, y: player.y });
+            }
+            addEvent(game, "tankPlayerHit", { playerId: player.id, bulletId: b.id, x: b.x, y: b.y, health: player.health });
+            break;
+          }
+        }
+        if (!bullets[i] || bullets[i] !== b) continue;
+      }
+
+      // Hit detection against enemies
+      if (b.ownerType === "player") {
+        for (const enemy of game.tankEnemies || []) {
+          if (enemy.dead) continue;
+          const d = dist(b.x, b.y, enemy.x, enemy.y);
+          if (d < enemy.size * 0.8 + b.radius) {
+            enemy.dead = true;
+            bullets.splice(i, 1);
+            addEvent(game, "tankEnemyHit", { enemyId: enemy.id, tier: enemy.tier, bulletId: b.id, x: b.x, y: b.y });
+            break;
+          }
+        }
+        if (!bullets[i] || bullets[i] !== b) continue;
+      }
+
+      // Bullet vs bullet collision
+      for (let j = bullets.length - 1; j >= 0; j--) {
+        if (j === i) continue;
+        const other = bullets[j];
+        const d = dist(b.x, b.y, other.x, other.y);
+        if (d < b.radius + other.radius + 4) {
+          addEvent(game, "tankBulletCollide", { id1: b.id, id2: other.id, x: (b.x + other.x) / 2, y: (b.y + other.y) / 2 });
+          bullets.splice(Math.max(i, j), 1);
+          bullets.splice(Math.min(i, j), 1);
+          i = Math.min(i, j) - 1;
+          break;
+        }
+      }
+    }
+  }
+
+  function fireTankBullet(game, ownerId, ownerType, x, y, angle, config) {
+    const activeBullets = (game.tankBullets || []).filter((b) => b.ownerId === ownerId).length;
+    const maxBullets = config.maxBullets || TANK_MAX_BULLETS;
+    if (activeBullets >= maxBullets) return null;
+
+    const dx = Math.cos(angle);
+    const dy = Math.sin(angle);
+    const muzzleOffset = TANK_PLAYER_SIZE * 0.7;
+    const startX = x + dx * muzzleOffset;
+    const startY = y + dy * muzzleOffset;
+
+    if (tankAi.pointInAnyWall(game, startX, startY)) return null;
+
+    const bullet = {
+      id: uid("tankbullet"),
+      ownerId,
+      ownerType,
+      x: startX,
+      y: startY,
+      dx,
+      dy,
+      speed: config.bulletSpeed || TANK_BULLET_SPEED,
+      radius: config.bulletRadius || TANK_BULLET_RADIUS,
+      bouncesRemaining: config.bulletBounces ?? TANK_BULLET_BOUNCES,
+      ttl: config.bulletTtl || TANK_BULLET_TTL,
+      age: 0
+    };
+
+    game.tankBullets = game.tankBullets || [];
+    game.tankBullets.push(bullet);
+    addEvent(game, "tankBulletFire", { id: bullet.id, ownerId, ownerType, x: startX, y: startY, angle });
+    return bullet;
+  }
+
+  function moveTankEnemy(game, enemy, dt) {
+    if (enemy.dead || enemy.config.speed <= 0) return;
+    const speed = enemy.config.speed;
+    const moveLen = Math.hypot(enemy.moveX || 0, enemy.moveY || 0);
+    if (moveLen < 0.01) { enemy.vx = 0; enemy.vy = 0; return; }
+    const nx = (enemy.moveX || 0) / moveLen;
+    const ny = (enemy.moveY || 0) / moveLen;
+    const nextX = enemy.x + nx * speed * dt;
+    const nextY = enemy.y + ny * speed * dt;
+    const clamped = {
+      x: clamp(nextX, enemy.size, game.map.width - enemy.size),
+      y: clamp(nextY, enemy.size, game.map.height - enemy.size)
+    };
+    if (!tankAi.pointInAnyWall(game, clamped.x, clamped.y)) {
+      enemy.vx = (clamped.x - enemy.x) / dt;
+      enemy.vy = (clamped.y - enemy.y) / dt;
+      enemy.x = clamped.x;
+      enemy.y = clamped.y;
+    } else {
+      enemy.vx = 0;
+      enemy.vy = 0;
+      if (!tankAi.pointInAnyWall(game, enemy.x + nx * speed * dt, enemy.y)) {
+        enemy.x = clamp(enemy.x + nx * speed * dt, enemy.size, game.map.width - enemy.size);
+      } else if (!tankAi.pointInAnyWall(game, enemy.x, enemy.y + ny * speed * dt)) {
+        enemy.y = clamp(enemy.y + ny * speed * dt, enemy.size, game.map.height - enemy.size);
+      }
+    }
+  }
+
+  function moveTankPlayer(game, actor, dt) {
+    if (actor.dead) return;
+    const sprinting = actor.input?.sprint;
+    const speed = sprinting ? TANK_PLAYER_SPRINT_SPEED : TANK_PLAYER_SPEED;
+    let dx = 0, dy = 0;
+    if (actor.input?.left) dx -= 1;
+    if (actor.input?.right) dx += 1;
+    if (actor.input?.up) dy -= 1;
+    if (actor.input?.down) dy += 1;
+    const len = Math.hypot(dx, dy);
+    if (len > 0.01) {
+      dx /= len;
+      dy /= len;
+    }
+    const nextX = actor.x + dx * speed * dt;
+    const nextY = actor.y + dy * speed * dt;
+    const cx = clamp(nextX, TANK_PLAYER_SIZE, game.map.width - TANK_PLAYER_SIZE);
+    const cy = clamp(nextY, TANK_PLAYER_SIZE, game.map.height - TANK_PLAYER_SIZE);
+    if (!tankAi.pointInAnyWall(game, cx, cy)) {
+      actor.vx = (cx - actor.x) / Math.max(dt, 0.001);
+      actor.vy = (cy - actor.y) / Math.max(dt, 0.001);
+      actor.x = cx;
+      actor.y = cy;
+    } else {
+      const tryX = clamp(actor.x + dx * speed * dt, TANK_PLAYER_SIZE, game.map.width - TANK_PLAYER_SIZE);
+      if (!tankAi.pointInAnyWall(game, tryX, actor.y)) {
+        actor.x = tryX;
+      }
+      const tryY = clamp(actor.y + dy * speed * dt, TANK_PLAYER_SIZE, game.map.height - TANK_PLAYER_SIZE);
+      if (!tankAi.pointInAnyWall(game, actor.x, tryY)) {
+        actor.y = tryY;
+      }
+      actor.vx = 0;
+      actor.vy = 0;
+    }
+    if (Number.isFinite(actor.input?.angle)) {
+      actor.angle = actor.input.angle;
+    }
+  }
+
+  function updateTankGame(lobby, dt) {
+    const game = lobby.game;
+    if (!game || game.phase !== "game" || !isTanksGame(game)) return;
+    if (game.paused) return;
+    game.time = (game.time || 0) + dt;
+
+    if (game.time < (game.matchStartFreezeSeconds || MATCH_START_FREEZE_SECONDS)) return;
+
+    // Level transition timer
+    if (game.tankTransition) {
+      game.tankTransition.timer -= dt;
+      if (game.tankTransition.timer <= 0) {
+        if (game.tankTransition.type === "advance") advanceTankLevel(lobby);
+        else if (game.tankTransition.type === "restart") restartTankFromLevel1(lobby);
+      }
+      return;
+    }
+
+    // Move players
+    for (const player of game.tankPlayers || []) {
+      moveTankPlayer(game, player, dt);
+      if (!player.dead) {
+        player.tankShotCooldown = Math.max(0, (player.tankShotCooldown || 0) - dt);
+      }
+    }
+
+    // Enemy AI
+    tankAi.updateTankEnemies(game, dt);
+
+    // Move enemies and fire their bullets
+    for (const enemy of game.tankEnemies || []) {
+      if (enemy.dead) continue;
+      moveTankEnemy(game, enemy, dt);
+      if (enemy.wantFire) {
+        fireTankBullet(game, enemy.id, "enemy", enemy.x, enemy.y, enemy.aimAngle, enemy.config);
+        enemy.wantFire = false;
+      }
+    }
+
+    // Update all bullets (ricochet physics)
+    updateTankBullets(game, dt);
+
+    // Check win/lose conditions
+    const allEnemiesDead = (game.tankEnemies || []).every((e) => e.dead);
+    const allPlayersDead = (game.tankPlayers || []).every((p) => p.dead);
+    const anyPlayerAlive = (game.tankPlayers || []).some((p) => !p.dead);
+
+    if (allEnemiesDead && anyPlayerAlive) {
+      game.tankTransition = { type: "advance", timer: TANK_LEVEL_TRANSITION_SECONDS };
+      addEvent(game, "tankLevelClear", { level: game.tankLevel });
+      io.to(lobby.id).emit("toast", { type: "success", message: `Level ${game.tankLevel} cleared!` });
+    } else if (allPlayersDead) {
+      game.tankTransition = { type: "restart", timer: TANK_LEVEL_TRANSITION_SECONDS };
+      addEvent(game, "tankAllDead", { level: game.tankLevel });
+    }
+  }
+
+  function fireTankPlayerShot(game, actor, payload = {}) {
+    if (!game || !actor || !isTanksGame(game)) return { ok: false, message: "Not in tank mode." };
+    if (actor.dead) return { ok: false, message: "You are dead." };
+    if ((game.time || 0) < (game.matchStartFreezeSeconds || MATCH_START_FREEZE_SECONDS)) return { ok: false, message: "Not started yet." };
+    if ((actor.tankShotCooldown || 0) > 0) return { ok: false, message: "Cooling down." };
+
+    let angle = Number(payload.angle);
+    if (!Number.isFinite(angle)) angle = actor.angle || 0;
+
+    const config = {
+      bulletSpeed: TANK_BULLET_SPEED,
+      bulletRadius: TANK_BULLET_RADIUS,
+      maxBullets: TANK_MAX_BULLETS,
+      bulletBounces: TANK_BULLET_BOUNCES,
+      bulletTtl: TANK_BULLET_TTL
+    };
+
+    const bullet = fireTankBullet(game, actor.id, "player", actor.x, actor.y, angle, config);
+    if (!bullet) return { ok: false, message: "Max bullets reached." };
+    actor.tankShotCooldown = TANK_SHOT_COOLDOWN;
+    addEvent(game, "runnerProjectileFire", {
+      x: bullet.x,
+      y: bullet.y,
+      actorId: actor.id,
+      survivorId: actor.id,
+      ownerId: actor.id,
+      projectileId: bullet.id,
+      abilityId: "voidShooter",
+      projectileType: "ffaShot",
+      angle,
+      radius: bullet.radius,
+      duration: 0,
+      ammo: null,
+      maxAmmo: null,
+      reloadRemaining: 0,
+      fireLockoutRemaining: TANK_SHOT_COOLDOWN
+    });
+    return { ok: true };
+  }
+
   function startGame(lobby) {
+    if (isTanksLobby(lobby)) return startTankGame(lobby);
     if (isFfaLobby(lobby)) return startFfaGame(lobby);
     const players = [...lobby.players.values()];
     const killers = players.filter((p) => p.role === "killer");
@@ -6436,6 +7130,11 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       return;
     }
 
+    if (isTanksGame(game)) {
+      updateTankGame(lobby, dt);
+      return;
+    }
+
     if (isFfaGame(game)) {
       updateTimers(game, dt);
       updateRunnerProjectiles(game, dt);
@@ -6549,6 +7248,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
   function isActorVisibleToViewer(game, viewer, actor) {
     if (!viewer || !actor) return false;
     if (viewer.id === actor.id) return true;
+    if (isTanksGame(game)) return !actor.dead && actor.role !== "spectator";
     if (isFfaGame(game)) return !actor.dead && !actor.escaped && actor.role !== "spectator";
     if (viewer.role === "spectatorOverview") return !actor.dead && !actor.escaped;
     if (actor.dead || actor.escaped) return false;
@@ -6706,7 +7406,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       survivorAbilityCooldowns: actor.role === "survivor" && isSelf && !isFfaActor(actor) ? Object.fromEntries(
         Object.entries(actor.survivorAbilityCooldowns || {}).map(([id, remaining]) => [id, Number(Math.max(0, remaining || 0).toFixed(2))])
       ) : {},
-      ffaShotCooldownRemaining: actor.role === "survivor" && isSelf && isFfaActor(actor) ? Number(Math.max(0, cfgNumber(actor.ffaShotCooldown, 0)).toFixed(2)) : 0,
+      ffaShotCooldownRemaining: actor.role === "survivor" && isSelf && (isFfaActor(actor) || (isTanksGame(game) && actor.gameMode === GAME_MODE_TANKS)) ? Number(Math.max(0, cfgNumber(actor.ffaShotCooldown || actor.tankShotCooldown, 0)).toFixed(2)) : 0,
       runnerDartAmmo: actor.role === "survivor" && isSelf && !isFfaActor(actor) ? Math.max(0, Math.floor(cfgNumber(actor.runnerDartAmmo, runnerDartMaxAmmo(actor)))) : 0,
       runnerDartMaxAmmo: actor.role === "survivor" && isSelf && !isFfaActor(actor) ? runnerDartMaxAmmo(actor) : 0,
       runnerDartReloadRemaining: 0,
@@ -7103,9 +7803,10 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
         : [];
 
     const ffaMode = isFfaGame(game);
-    const doneGenerators = ffaMode ? 0 : map.generators.reduce((count, g) => count + (g.done ? 1 : 0), 0);
-    const requiredGenerators = ffaMode ? 0 : game.requiredGenerators;
-    const riftsComplete = ffaMode ? false : areRiftsComplete(game);
+    const tanksMode = isTanksGame(game);
+    const doneGenerators = (ffaMode || tanksMode) ? 0 : map.generators.reduce((count, g) => count + (g.done ? 1 : 0), 0);
+    const requiredGenerators = (ffaMode || tanksMode) ? 0 : game.requiredGenerators;
+    const riftsComplete = (ffaMode || tanksMode) ? false : areRiftsComplete(game);
     const ffaScoreboard = ffaMode ? [...game.actors.values()]
       .filter((actor) => isFfaActor(actor))
       .map((actor) => ({
@@ -7193,17 +7894,30 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
         type: box.type || (ffaMode ? "heal" : "dart"),
         radius: DART_BOX_AOE_RADIUS
       })),
-      runnerProjectiles: visibleRunnerProjectilesForViewer(game, pov, socketId, spectatorOverview).map((p) => ({
-        id: p.id,
-        type: p.kind || p.type || "runnerProjectile",
-        abilityId: p.abilityId || p.type || null,
-        ownerId: p.ownerId,
-        x: Math.round((p.x || 0) * 10) / 10,
-        y: Math.round((p.y || 0) * 10) / 10,
-        angle: Number((p.angle || 0).toFixed(2)),
-        speed: Math.round(p.speed || DART_DEFAULT_PROJECTILE_SPEED),
-        radius: Math.round(p.radius || DART_DEFAULT_RADIUS)
-      })),
+      runnerProjectiles: [
+        ...visibleRunnerProjectilesForViewer(game, pov, socketId, spectatorOverview).map((p) => ({
+          id: p.id,
+          type: p.kind || p.type || "runnerProjectile",
+          abilityId: p.abilityId || p.type || null,
+          ownerId: p.ownerId,
+          x: Math.round((p.x || 0) * 10) / 10,
+          y: Math.round((p.y || 0) * 10) / 10,
+          angle: Number((p.angle || 0).toFixed(2)),
+          speed: Math.round(p.speed || DART_DEFAULT_PROJECTILE_SPEED),
+          radius: Math.round(p.radius || DART_DEFAULT_RADIUS)
+        })),
+        ...(tanksMode ? (game.tankBullets || []).map((b) => ({
+          id: b.id,
+          type: b.ownerType === "player" ? "ffaShot" : "tankEnemyShot",
+          abilityId: "voidShooter",
+          ownerId: b.ownerId,
+          x: Math.round((b.x || 0) * 10) / 10,
+          y: Math.round((b.y || 0) * 10) / 10,
+          angle: Number(Math.atan2(b.dy, b.dx).toFixed(2)),
+          speed: Math.round(b.speed || TANK_BULLET_SPEED),
+          radius: Math.round(b.radius || TANK_BULLET_RADIUS)
+        })) : [])
+      ],
       smokeClouds: visibleSmokeCloudsForViewer(game, pov, spectatorOverview).map((c) => ({
         id: c.id,
         ownerId: c.ownerId,
@@ -7229,8 +7943,32 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
         redOrbs: Number((game.redOrbs || 0).toFixed(2)),
         runnerReveal: Number((game.runnerReveal || 0).toFixed(2))
       },
+      tank: tanksMode ? {
+        level: game.tankLevel || 1,
+        levelName: game.map?.name || "",
+        enemies: (game.tankEnemies || []).map((e) => ({
+          id: e.id, tier: e.tier, x: Math.round(e.x), y: Math.round(e.y),
+          aimAngle: Number((e.aimAngle || 0).toFixed(2)), dead: !!e.dead, size: e.size
+        })),
+        bullets: (game.tankBullets || []).map((b) => ({
+          id: b.id, x: Math.round(b.x * 10) / 10, y: Math.round(b.y * 10) / 10,
+          dx: Number(b.dx.toFixed(3)), dy: Number(b.dy.toFixed(3)),
+          speed: b.speed, radius: b.radius, ownerType: b.ownerType,
+          bouncesRemaining: b.bouncesRemaining
+        })),
+        enemiesRemaining: (game.tankEnemies || []).filter((e) => !e.dead).length,
+        enemiesTotal: (game.tankEnemies || []).length,
+        players: (game.tankPlayers || []).map((p) => ({ id: p.id, health: p.health || 0, dead: !!p.dead })),
+        transition: game.tankTransition ? { type: game.tankTransition.type, timer: Number(game.tankTransition.timer.toFixed(2)) } : null,
+        victory: !!game.tankVictory
+      } : null,
       music
     };
+
+    if (tanksMode) {
+      snapshot.mode = GAME_MODE_TANKS;
+      snapshot.objective.mode = GAME_MODE_TANKS;
+    }
 
     return trimUnchangedSnapshotForSocket(game, socketId, snapshot);
   }
@@ -7305,6 +8043,9 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     applySurvivorAbility,
     fireRunnerShootAbility,
     fireFfaShot,
+    fireTankPlayerShot,
+    isTanksLobby,
+    isTanksGame,
     getChatWheelMessagesForActor,
     setActorChat,
     nowMs

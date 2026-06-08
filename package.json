@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "node server.cjs --dev",
+    "tunnel": "node scripts/ngrok-tunnel.cjs",
+    "dev:share": "concurrently -n server,tunnel -c blue,magenta \"npm run dev\" \"node scripts/ngrok-tunnel.cjs\"",
     "build": "vite build",
     "start": "node scripts/start-production.cjs",
     "lint": "eslint .",
@@ -33,8 +35,10 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@ngrok/ngrok": "^1.7.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
+    "concurrently": "^10.0.3",
     "eslint": "^10.3.0",
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.2",

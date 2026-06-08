@@ -1,5 +1,6 @@
 export const MENU_ACTIONS = [
   { id: "menuPlayBtn", label: "Start Playing", screen: "play", className: "menu-action primary" },
+  { id: "menuTankAssaultBtn", label: "Tank Assault", screen: "tankAssault", className: "menu-action tank-assault" },
   { id: "menuSkinsBtn", label: "Skins", screen: "skins", className: "menu-action" },
   { id: "menuPerksBtn", label: "Perks", screen: "perks", className: "menu-action" },
   { id: "menuClassesBtn", label: "Classes", screen: "classes", className: "menu-action" },

@@ -38,6 +38,9 @@ function registerSocketHandlers(context) {
     applySurvivorAbility,
     fireRunnerShootAbility,
     fireFfaShot,
+    fireTankPlayerShot,
+    isTanksLobby,
+    isTanksGame,
     getChatWheelMessagesForActor,
     setActorChat,
     nowMs
@@ -171,12 +174,13 @@ function registerSocketHandlers(context) {
       });
     });
 
-    socket.on("createLobby", ({ name, role, playerName, skin, mapId, runnerClass } = {}) => {
+    socket.on("createLobby", ({ name, role, playerName, skin, mapId, runnerClass, mode: requestedMode } = {}) => {
       if (!allowSocketEvent(socket, "lobby")) return;
       try {
-        const roleValue = role === "ffa" ? "ffa" : role === "killer" ? "killer" : "survivor";
-        const mode = roleValue === "ffa" ? "ffa" : "standard";
-        const lobby = createLobby(name || (mode === "ffa" ? "Free-For-All" : undefined), mapId, mode);
+        const isTankRequest = requestedMode === "tanks" || role === "tanks";
+        const roleValue = isTankRequest ? "survivor" : role === "ffa" ? "ffa" : role === "killer" ? "killer" : "survivor";
+        const mode = isTankRequest ? "tanks" : roleValue === "ffa" ? "ffa" : "standard";
+        const lobby = createLobby(name || (mode === "tanks" ? "Tank Assault" : mode === "ffa" ? "Free-For-All" : undefined), mapId, mode);
         joinLobby(socket, lobby, roleValue, playerName, skinForSocket(socket, roleValue, skin), roleValue === "survivor" ? (runnerClass || socket.data.account?.selectedRunnerClass) : null);
       } catch (error) {
         console.error("Failed to create lobby", error);
@@ -487,6 +491,20 @@ function registerSocketHandlers(context) {
         ? fireFfaShot(lobby.game, actor, payload)
         : { ok: false, message: "Free-For-All shot is not ready." };
       if (!result.ok) socket.emit("toast", { type: "error", message: result.message || "Void Shot cannot be fired." });
+    });
+
+    socket.on("tankShoot", (payload = {}) => {
+      if (!allowSocketEvent(socket, "action")) return;
+      const lobby = lobbies.get(socketToLobby.get(socket.id));
+      if (!lobby || !lobby.game || lobby.game.phase !== "game") return;
+      if (typeof isTanksGame !== "function" || !isTanksGame(lobby.game)) return;
+      const actor = lobby.game.actors.get(socket.id);
+      const result = typeof fireTankPlayerShot === "function"
+        ? fireTankPlayerShot(lobby.game, actor, payload)
+        : { ok: false, message: "Tank shot is not ready." };
+      if (!result.ok && result.message !== "Cooling down." && result.message !== "Max bullets reached.") {
+        socket.emit("toast", { type: "error", message: result.message || "Cannot fire." });
+      }
     });
 
     socket.on("chatWheel", (payload = {}) => {
