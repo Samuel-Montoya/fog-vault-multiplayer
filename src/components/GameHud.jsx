@@ -32,6 +32,7 @@ function normalizeAbilities(abilities, role = "killer") {
     const disabled = !!ability?.disabled || !!ability?.passive
     return {
       id,
+      classId: String(ability?.classId || fallback[index]?.classId || ""),
       name: String(ability?.name || fallback[index]?.name || "Ability"),
       shortName: String(ability?.shortName || ability?.name || fallback[index]?.shortName || "Ability"),
       cost: Number.isFinite(Number(ability?.cost)) ? Number(ability.cost) : Number(fallback[index]?.cost || 0),
@@ -69,13 +70,46 @@ function abilityIconSrc(ability) {
     || getPerkIconSrc(ability?.shortName)
 }
 
+const ABILITY_CLASS_GLYPHS = {
+  orbcollector: "✦",
+  nebulizer: "☁",
+  escapist: "➟",
+  healer: "✚"
+}
+
+const ABILITY_GLYPHS = {
+  collectionbolt: "✦",
+  doubleorb: "◎",
+  orbmagnet: "✦",
+  smokedart: "☁",
+  voidtrace: "☁",
+  voidswirl: "🌀",
+  dashdart: "➟",
+  swiftvault: "➟",
+  flowstate: "➟",
+  healingdart: "✚",
+  fieldmedic: "✚",
+  healingpulse: "✚",
+  medicaura: "✚",
+  cleanfooting: "➤",
+  nullrush: "◈",
+  redshiftorbs: "✹",
+  voidreveal: "◉",
+  voidsight: "◉",
+  moresoon: "…"
+}
+
 function abilityFallbackGlyph(ability) {
-  const id = String(ability?.id || ability?.key || "")
-  if (id === "healingPulse" || id === "medicAura") return "+"
-  if (id === "orbMagnet") return "◆"
-  if (id === "cleanFooting") return "➤"
-  if (id === "moreSoon") return "…"
-  return "✕"
+  const id = String(ability?.id || ability?.key || "").replace(/[^a-z0-9]/gi, "").toLowerCase()
+  const classId = String(ability?.classId || "").replace(/[^a-z0-9]/gi, "").toLowerCase()
+  if (ABILITY_GLYPHS[id]) return ABILITY_GLYPHS[id]
+  if (ABILITY_CLASS_GLYPHS[classId]) return ABILITY_CLASS_GLYPHS[classId]
+  if (/heal|medic/.test(id)) return "✚"
+  if (/smoke|nebul|cloud|vapor/.test(id)) return "☁"
+  if (/dash|vault|flow|escape|swift/.test(id)) return "➟"
+  if (/orb|collect|magnet/.test(id)) return "✦"
+  if (/void|swirl|rush|reveal|redshift/.test(id)) return "◈"
+  return "✦"
 }
 
 function abilityDisplayName(ability) {

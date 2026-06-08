@@ -110,18 +110,21 @@ display: flex;
 }
 
 .void-ability-hud {
-  position: absolute;
+  position: fixed;
   pointer-events: none;
-  top: 20px;
-  left: 20px;
+  top: 94px;
+  right: 20px;
+  left: auto;
   z-index: 44;
   display: grid;
+  justify-items: end;
   gap: 8px;
-  max-width: 350px;
+  width: min(350px, calc(100vw - 40px));
+  max-width: min(350px, calc(100vw - 40px));
 }
 
 .ability-controls-corner {
-  position: absolute;
+  position: fixed;
   pointer-events: none;
   right: 20px;
   bottom: 20px;
@@ -236,28 +239,78 @@ display: flex;
   border-radius: 50% !important;
 }
 
+/* Loved side speech bubbles: chat pops out next to the player name/card.
+   Pseudo-elements are intentional here for the bubble tail/glow. Do not flatten this. */
 .survivor-chat,
 .survivor-chat-bubble {
   position: absolute;
-  left: calc(100% + 12px);
-  top: 50%;
-  bottom: auto;
-  z-index: 2;
-  width: fit-content;
-  min-width: 170px;
-  max-width: min(360px, 34vw);
-  padding: 10px 13px;
-  transform: translateY(-50%);
-  border: 1px solid rgba(103, 232, 249, 0.30);
-  border-radius: 2px;
-  background: rgba(6, 10, 23, 0.95);
-  box-shadow: 0 16px 42px rgba(0, 0, 0, 0.40), 0 0 22px rgba(103, 232, 249, 0.10);
-  color: rgba(248, 251, 255, 0.92);
-  font-size: 12px;
-  font-weight: 850;
-  line-height: 1.28;
+  left: calc(100% + 14px);
+  top: 8px;
+  z-index: 5;
+  display: block;
+  width: max-content;
+  min-width: 150px;
+  max-width: min(360px, calc(100vw - 410px));
+  margin: 0;
+  padding: 10px 14px;
+  transform: none;
+  border: 1px solid rgba(196, 181, 253, 0.46);
+  border-radius: 16px 16px 16px 7px;
+  background:
+    radial-gradient(circle at 10% 12%, rgba(255, 211, 106, 0.13), transparent 34%),
+    linear-gradient(135deg, rgba(16, 12, 34, 0.96), rgba(7, 9, 22, 0.91));
+  box-shadow:
+    0 14px 36px rgba(0, 0, 0, 0.38),
+    0 0 26px rgba(124, 58, 237, 0.18),
+    inset 0 1px 0 rgba(255, 255, 255, 0.10);
+  color: #fff3d8;
+  font-size: 13px;
+  font-weight: 950;
+  line-height: 1.26;
+  font-style: italic;
+  letter-spacing: 0;
+  text-transform: none;
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.55);
   white-space: normal;
+  pointer-events: none;
 }
+
+.survivor-chat-bubble::before {
+  content: "";
+  position: absolute;
+  left: -7px;
+  top: 17px;
+  width: 13px;
+  height: 13px;
+  transform: rotate(45deg);
+  border-left: 1px solid rgba(196, 181, 253, 0.46);
+  border-bottom: 1px solid rgba(196, 181, 253, 0.46);
+  border-radius: 3px;
+  background: rgba(16, 12, 34, 0.96);
+  box-shadow: -8px 8px 18px rgba(0, 0, 0, 0.22);
+}
+
+.survivor-chat-bubble::after {
+  content: "";
+  position: absolute;
+  inset: 3px;
+  border-radius: 13px 13px 13px 5px;
+  border: 1px solid rgba(255, 255, 255, 0.045);
+  box-shadow: inset 0 0 18px rgba(255, 211, 106, 0.045);
+}
+
+.killer-chat-card .survivor-chat-bubble {
+  border-color: rgba(167, 139, 250, 0.50);
+  background:
+    radial-gradient(circle at 12% 14%, rgba(255, 59, 106, 0.16), transparent 34%),
+    linear-gradient(135deg, rgba(24, 8, 24, 0.96), rgba(7, 4, 18, 0.93));
+}
+
+.killer-chat-card .survivor-chat-bubble::before {
+  border-color: rgba(167, 139, 250, 0.50);
+  background: rgba(24, 8, 24, 0.96);
+}
+
 
 .void-orb-bank {
   display: flex;
@@ -510,6 +563,7 @@ position: relative;
 
 .survivor-status-list {
   display: grid;
+  overflow: visible;
   gap: 8px;
   width: 320px;
   max-width: 32vw;
@@ -517,6 +571,7 @@ position: relative;
 
 .survivor-status-card {
   position: relative;
+  overflow: visible;
   display: grid;
   grid-template-columns: 42px minmax(0, 1fr) auto;
   align-items: center;
@@ -566,6 +621,7 @@ position: relative;
 }
 
 .survivor-status-card.has-chat {
+  z-index: 2;
   box-shadow: 0 16px 44px rgba(0, 0, 0, 0.38), 0 0 22px rgba(103, 232, 249, 0.10);
 }
 
@@ -1018,194 +1074,251 @@ position: relative;
   border-color: rgba(103, 232, 249, 0.28);
 }
 
+/* Match announcements: restored from the previous loved HUD style, using real child elements instead of CSS ghosts. */
 .match-announcements {
-  position: absolute;
-  pointer-events: none;
-  top: 22px;
+  position: fixed;
+  top: max(18px, env(safe-area-inset-top));
   left: 50%;
   z-index: 55;
   display: grid;
-  gap: 12px;
-  width: 690px;
-  max-width: 56vw;
+  gap: 10px;
+  width: min(540px, calc(100vw - 28px));
   transform: translateX(-50%);
+  pointer-events: none;
 }
 
 .match-announcement {
+  --announce-color: var(--rift);
+  --announce-soft: rgba(103, 232, 249, 0.18);
   position: relative;
-  display: flex;
+  display: grid;
+  grid-template-columns: 46px 1fr;
   align-items: center;
-  gap: 18px;
-  min-height: 76px;
-  padding: 16px 22px 16px 16px;
+  gap: 12px;
+  min-height: 62px;
+  padding: 10px 16px 10px 10px;
   overflow: hidden;
-  border: 1px solid rgba(188, 125, 255, 0.48);
-  border-left: 5px solid rgba(103, 232, 249, 0.96);
-  border-radius: 24px;
-  background: radial-gradient(circle at 10% 50%, rgba(103, 232, 249, 0.22), transparent 31%), radial-gradient(circle at 92% 15%, rgba(167, 139, 250, 0.18), transparent 34%), linear-gradient(92deg, rgba(18, 10, 46, 0.98), rgba(4, 7, 19, 0.94));
-  box-shadow: 0 28px 76px rgba(0, 0, 0, 0.62), 0 0 46px rgba(103, 232, 249, 0.18), 0 0 34px rgba(167, 139, 250, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.12);
-  backdrop-filter: blur(16px);
+  border: 1px solid color-mix(in srgb, var(--announce-color), transparent 40%);
+  border-radius: 999px;
+  color: #f8fbff;
+  background:
+    radial-gradient(circle at 16% 50%, color-mix(in srgb, var(--announce-color), transparent 78%), transparent 34%),
+    linear-gradient(90deg, rgba(5, 8, 18, 0.94), rgba(10, 12, 24, 0.84));
+  box-shadow: 0 18px 60px rgba(0,0,0,0.48), 0 0 34px var(--announce-soft), inset 0 1px 0 rgba(255,255,255,0.10);
+  backdrop-filter: blur(12px) saturate(1.15);
+  animation: matchAnnounceIn 540ms cubic-bezier(.16, 1.06, .33, 1), matchAnnouncePulse 1500ms ease-in-out infinite;
+}
+
+.match-announcement.leaving {
+  animation: matchAnnounceOut 520ms ease forwards;
 }
 
 .match-announcement.is-hook,
 .match-announcement.is-bound,
-.match-announcement.is-downed,
-.match-announcement.is-kill,
-.match-announcement.is-death {
-  border-color: rgba(255, 77, 95, 0.48);
-  border-left-color: rgba(255, 47, 78, 0.98);
-  background: radial-gradient(circle at 10% 50%, rgba(255, 47, 78, 0.22), transparent 31%), radial-gradient(circle at 92% 15%, rgba(167, 139, 250, 0.14), transparent 34%), linear-gradient(92deg, rgba(48, 7, 20, 0.98), rgba(5, 7, 18, 0.94));
-  box-shadow: 0 28px 76px rgba(0, 0, 0, 0.62), 0 0 46px rgba(255, 47, 78, 0.18), 0 0 34px rgba(167, 139, 250, 0.10), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+.match-announcement.is-downed {
+  --announce-color: #ffb86b;
+  --announce-soft: rgba(255,184,107,0.18);
 }
 
-.match-announcement.is-hook .match-announcement-rune,
-.match-announcement.is-bound .match-announcement-rune,
-.match-announcement.is-downed .match-announcement-rune,
-.match-announcement.is-kill .match-announcement-rune,
-.match-announcement.is-death .match-announcement-rune {
-  border-color: rgba(255, 77, 95, 0.56);
-  background: radial-gradient(circle at 50% 45%, rgba(255, 255, 255, 0.96) 0 11%, rgba(255, 47, 78, 0.88) 12% 34%, rgba(127, 29, 29, 0.56) 35% 62%, rgba(5, 7, 18, 0.92) 63%);
-  box-shadow: 0 0 26px rgba(255, 47, 78, 0.28), inset 0 0 18px rgba(255, 255, 255, 0.10);
+.match-announcement.is-death,
+.match-announcement.is-kill {
+  --announce-color: #ff3b6a;
+  --announce-soft: rgba(255,59,106,0.20);
+}
+
+.match-announcement.is-rift {
+  --announce-color: #67e8f9;
+  --announce-soft: rgba(103,232,249,0.18);
+}
+
+.match-announcement.is-void {
+  --announce-color: #a78bfa;
+  --announce-soft: rgba(167,139,250,0.24);
+}
+
+.match-announcement.is-void-buffed {
+  --announce-color: #ff2d55;
+  --announce-soft: rgba(255,45,85,0.28);
 }
 
 .match-announcement-sheen {
   position: absolute;
   inset: 0;
-  background: linear-gradient(115deg, rgba(103, 232, 249, 0.14), transparent 31%, rgba(167, 139, 250, 0.12));
-  opacity: 0.78;
+  background:
+    linear-gradient(90deg, transparent, color-mix(in srgb, var(--announce-color), transparent 84%), transparent),
+    repeating-linear-gradient(90deg, transparent 0 18px, rgba(255,255,255,0.035) 18px 19px, transparent 19px 40px);
+  transform: translateX(-120%);
+  animation: matchAnnounceSweep 1450ms ease-out 140ms both;
 }
 
 .match-announcement-bottom-line {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 1px;
-  background: linear-gradient(90deg, rgba(103, 232, 249, 0.92), rgba(167, 139, 250, 0.64), transparent);
-}
-
-.match-announcement.leaving {
-  opacity: 0;
-  transform: translateY(-8px);
-  transition: opacity 220ms ease, transform 220ms ease;
+  display: none;
 }
 
 .match-announcement-rune {
   position: relative;
-  z-index: 1;
-  width: 54px;
-  height: 54px;
-  flex: 0 0 54px;
-  display: grid;
-  place-items: center;
-  border: 1px solid rgba(103, 232, 249, 0.42);
+  width: 45px;
+  height: 45px;
   border-radius: 50%;
-  background: radial-gradient(circle at 50% 45%, rgba(255, 255, 255, 0.95) 0 11%, rgba(103, 232, 249, 0.86) 12% 32%, rgba(167, 139, 250, 0.46) 33% 62%, rgba(5, 7, 18, 0.92) 63%);
-  box-shadow: 0 0 22px rgba(103, 232, 249, 0.25), inset 0 0 18px rgba(255, 255, 255, 0.10);
+  border: 1px solid color-mix(in srgb, var(--announce-color), transparent 18%);
+  background:
+    radial-gradient(circle at 50% 50%, #ffffff 0 8%, var(--announce-color) 9% 16%, transparent 17% 100%),
+    radial-gradient(circle at 50% 50%, color-mix(in srgb, var(--announce-color), transparent 40%), transparent 62%);
+  box-shadow: 0 0 18px var(--announce-soft), inset 0 0 18px rgba(255,255,255,0.08);
 }
 
 .match-announcement-rune-core {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.96);
-  box-shadow: 0 0 18px rgba(103, 232, 249, 0.72);
+  display: none;
 }
 
 .match-announcement-rune-ring {
   position: absolute;
-  border: 1px solid rgba(221, 214, 254, 0.34);
-  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, var(--announce-color), transparent 22%);
 }
 
 .match-announcement-rune-ring-a {
-  inset: 9px;
-  transform: rotate(-24deg) scaleX(1.26);
+  inset: 5px;
+  border-radius: 35% 65% 40% 60%;
+  animation: matchRuneSpin 1700ms linear infinite;
 }
 
 .match-announcement-rune-ring-b {
-  inset: 18px;
-  opacity: 0.62;
-  transform: rotate(28deg) scaleX(0.76);
+  inset: 10px;
+  border-radius: 65% 35% 60% 40%;
+  animation: matchRuneSpin 1700ms linear infinite reverse;
+  opacity: 0.72;
 }
 
 .match-announcement-copy {
   position: relative;
   z-index: 1;
-  display: grid;
-  gap: 1px;
   min-width: 0;
 }
 
 .match-announcement-copy strong {
+  display: block;
   overflow: hidden;
   color: #fff;
-  font-size: 15px;
+  font-size: clamp(17px, 2.4vw, 23px);
   font-weight: 1000;
+  line-height: 1.02;
   letter-spacing: 0.08em;
   text-overflow: ellipsis;
+  text-shadow: 0 0 18px color-mix(in srgb, var(--announce-color), transparent 55%), 0 2px 10px rgba(0,0,0,0.88);
   text-transform: uppercase;
   white-space: nowrap;
 }
 
 .match-announcement-copy span {
-  overflow: hidden;
-  color: rgba(218, 226, 236, 0.82);
+  color: rgba(236, 244, 255, 0.72);
   font-size: 12px;
-  font-weight: 900;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
+@keyframes matchAnnounceIn {
+  0% { opacity: 0; transform: translateY(-24px) scale(0.92); filter: blur(5px); }
+  62% { opacity: 1; transform: translateY(3px) scale(1.018); filter: blur(0); }
+  100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+}
+
+@keyframes matchAnnounceOut {
+  to { opacity: 0; transform: translateY(-18px) scale(0.96); filter: blur(4px); }
+}
+
+@keyframes matchAnnouncePulse {
+  0%, 100% { box-shadow: 0 18px 60px rgba(0,0,0,0.48), 0 0 26px var(--announce-soft), inset 0 1px 0 rgba(255,255,255,0.10); }
+  50% { box-shadow: 0 18px 60px rgba(0,0,0,0.48), 0 0 44px var(--announce-soft), inset 0 1px 0 rgba(255,255,255,0.12); }
+}
+
+@keyframes matchAnnounceSweep {
+  to { transform: translateX(120%); }
+}
+
+@keyframes matchRuneSpin {
+  to { transform: rotate(360deg); }
+}
+
+
+/* Score feed sits under the top-left orb bank, like the older HUD placement,
+   while staying clear of the bottom-right ability cards. */
 .point-feed {
-  position: absolute;
-  pointer-events: none;
-  right: 20px;
-  bottom: 168px;
-  z-index: 46;
+  position: fixed;
+  top: 84px;
+  left: 12px;
+  z-index: 3600;
   display: grid;
-  gap: 7px;
-  justify-items: end;
+  gap: 6px;
+  width: min(260px, calc(100vw - 32px));
+  pointer-events: none;
   opacity: 0;
-  transform: translateY(8px);
+  transform: translate3d(-8px, -4px, 0);
   transition: opacity 140ms ease, transform 140ms ease;
 }
 
 .point-feed.is-active {
   opacity: 1;
-  transform: translateY(0);
-}
-
-@keyframes pointFeedItemPulse {
-  0% { opacity: 0; transform: translateY(10px) scale(0.96); }
-  12% { opacity: 1; transform: translateY(0) scale(1); }
-  78% { opacity: 1; transform: translateY(0) scale(1); }
-  100% { opacity: 0; transform: translateY(-8px) scale(0.98); }
+  transform: translate3d(0, 0, 0);
 }
 
 .point-feed-item {
-  display: flex;
+  --point-accent: #67e8f9;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
   align-items: center;
-  gap: 8px;
-  padding: 8px 11px;
-  border: 1px solid rgba(255, 211, 106, 0.24);
-  border-radius: 3px;
-  background: rgba(7, 9, 21, 0.82);
-  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.34);
-  color: rgba(248, 251, 255, 0.88);
+  gap: 9px;
+  min-height: 34px;
+  padding: 7px 10px 7px 11px;
+  border: 1px solid color-mix(in srgb, var(--point-accent), transparent 72%);
+  border-left: 3px solid var(--point-accent);
+  border-radius: 9px;
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--point-accent), transparent 86%), rgba(4, 8, 19, 0.82)),
+    rgba(3, 7, 18, 0.88);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.26), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  color: #f8fbff;
+  backdrop-filter: blur(8px);
+  animation: pointFeedPop 1850ms ease-out both;
+}
+
+.point-feed-item span {
+  overflow: hidden;
+  color: #f8fbff;
   font-size: 11px;
-  font-weight: 950;
-  backdrop-filter: blur(12px);
-  animation: pointFeedItemPulse 1850ms ease both;
+  font-weight: 900;
+  letter-spacing: 0.075em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .point-feed-item strong {
-  color: #ffd36a;
+  color: var(--point-accent);
+  font-size: 13px;
+  font-weight: 1000;
+  letter-spacing: 0.05em;
+  text-shadow: 0 0 14px color-mix(in srgb, var(--point-accent), transparent 55%);
 }
 
 .point-feed-orb-icon {
   width: 18px;
   height: 18px;
+  object-fit: contain;
+  filter: drop-shadow(0 0 10px rgba(255, 211, 106, 0.42));
+}
+
+.point-feed-item.is-void { --point-accent: #fb4778; }
+.point-feed-item.is-stun { --point-accent: #a855f7; }
+.point-feed-item.is-rift { --point-accent: #38bdf8; }
+.point-feed-item.is-orb { --point-accent: #facc15; }
+.point-feed-item.is-team { --point-accent: #34d399; }
+
+@keyframes pointFeedPop {
+  0% { opacity: 0; transform: translate3d(-12px, -5px, 0) scale(0.97); }
+  10% { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+  76% { opacity: 1; transform: translate3d(0, 0, 0) scale(1); }
+  100% { opacity: 0; transform: translate3d(-8px, -5px, 0) scale(0.98); }
 }
 
 .hook-edge-indicators {
