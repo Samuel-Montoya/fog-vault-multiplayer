@@ -614,7 +614,7 @@
     const modifiers = [];
 
     if (isTanksSnapshot()) {
-      const tankZoom = clamp(CAMERA.BASE_ZOOM - 0.25, 0.1, CAMERA.MAX_ZOOM);
+      const tankZoom = clamp(cfgNumber(GAMEPLAY_CONFIG.tanks?.cameraZoom, CAMERA.BASE_ZOOM + 0.22), CAMERA.MIN_ZOOM, CAMERA.MAX_ZOOM);
       return { base: tankZoom, rawOffset: 0, clampedOffset: 0, zoom: tankZoom, modifiers: [] };
     }
 
@@ -2786,9 +2786,10 @@
   }
 
   function setLobbySkinPickerVisibility(role = selectedRole) {
-    const showRunner = role === "survivor" || role === "ffa";
-    const showVoid = role === "killer";
-    const showClasses = role === "survivor";
+    const tankLobby = currentLobbyState?.mode === "tanks";
+    const showRunner = tankLobby || role === "survivor" || role === "ffa";
+    const showVoid = !tankLobby && role === "killer";
+    const showClasses = !tankLobby && role === "survivor";
     ui.lobbySkinPicker?.classList.toggle("hidden", !showRunner);
     ui.lobbySkinPicker?.setAttribute("aria-hidden", showRunner ? "false" : "true");
     ui.voidLobbySkinPicker?.classList.toggle("hidden", !showVoid);
@@ -3130,21 +3131,25 @@
     const menuLike = !isGameScreen;
     const shouldRestartMenuMusic = menuLike && wasGameScreen;
 
+    const activeTankMode = isGameScreen && isTanksSnapshot(currentSnapshot);
     document.body.classList.toggle("is-game-screen", isGameScreen);
     document.body.classList.toggle("is-menu-screen", menuLike);
+    document.body.classList.toggle("is-tank-mode", activeTankMode);
     setGameplayAudioActive(isGameScreen);
     setMenuAudioActive(menuLike, { restart: shouldRestartMenuMusic });
     applyMenuScreenVisibility(name, isGameScreen);
-    ui.hud.classList.toggle("hidden", name !== "game");
-    ui.survivorStatusHud?.classList.toggle("hidden", name !== "game");
-    ui.bigGenCounter?.classList.toggle("hidden", name !== "game");
-    ui.horrorFx?.classList.toggle("hidden", name !== "game");
-    if (name !== "game") {
+    ui.hud.classList.toggle("hidden", name !== "game" || activeTankMode);
+    ui.survivorStatusHud?.classList.toggle("hidden", name !== "game" || activeTankMode);
+    ui.bigGenCounter?.classList.toggle("hidden", name !== "game" || activeTankMode);
+    ui.horrorFx?.classList.toggle("hidden", name !== "game" || activeTankMode);
+    if (name !== "game" || activeTankMode) {
       clearTimeout(survivorHitImpactTimer);
       resetHorrorFxVisualState();
+      dispatchHookIndicators([]);
       phaserScene?.resetArenaFloorVisuals?.();
     }
     if (name !== "game") {
+      window.dispatchEvent(new CustomEvent("riftrunner:tank-hud", { detail: { visible: false } }));
       dispatchAbilityHuds(null);
       if (reactAbilityWheelOpen) closeReactAbilityWheel(false);
     }
@@ -3987,6 +3992,14 @@
   }
 
   function dispatchAbilityHuds(snapshot = currentSnapshot) {
+    const tankMode = isTanksSnapshot(snapshot);
+    if (!snapshot || tankMode) {
+      window.dispatchEvent(new CustomEvent("riftrunner:void-ability-hud", { detail: { visible: false, orbs: 0, effects: [], abilities: [] } }));
+      window.dispatchEvent(new CustomEvent("riftrunner:runner-ability-hud", { detail: { visible: false, orbs: 0, effects: [], abilities: [] } }));
+      if (tankMode && reactAbilityWheelOpen) closeReactAbilityWheel(false);
+      return;
+    }
+
     const me = snapshot?.actors?.find((a) => a.id === myId);
     const isVoid = me?.role === "killer" && snapshot?.phase === "game" && !me.dead;
     const isRunner = me?.role === "survivor" && snapshot?.phase === "game" && !me.dead && !me.escaped;
@@ -6909,9 +6922,41 @@
 
     updateHud(snapshot) {
       const me = (snapshot.actors || []).find((a) => a.id === myId) || (snapshot.viewer?.id === myId ? snapshot.viewer : null);
+      const now = performance.now();
+      const tankMode = isTanksSnapshot(snapshot);
+      if (tankMode) {
+        document.body.classList.toggle("is-tank-mode", snapshot.phase === "game");
+        ui.hud?.classList.add("hidden");
+        ui.survivorStatusHud?.classList.add("hidden");
+        ui.bigGenCounter?.classList.add("hidden");
+        ui.horrorFx?.classList.add("hidden");
+        dispatchAbilityHuds(snapshot);
+        dispatchHookIndicators([]);
+        resetHorrorFxVisualState();
+        if (reactChatWheelOpen) closeReactChatWheel(false);
+        if (reactAbilityWheelOpen) closeReactAbilityWheel(false);
+
+        const tankHudPayload = { ...(snapshot.tank || {}), visible: snapshot.phase === "game" };
+        const tankHudKey = JSON.stringify(tankHudPayload);
+        if (tankHudKey !== this.lastTankHudKey || now - (this.lastTankHudAt || 0) > 120) {
+          this.lastTankHudKey = tankHudKey;
+          this.lastTankHudAt = now;
+          window.dispatchEvent(new CustomEvent("riftrunner:tank-hud", { detail: tankHudPayload }));
+        }
+        this.lastTankHudActive = true;
+        this.lastHudKey = "";
+        return;
+      }
+
+      if (this.lastTankHudActive) {
+        this.lastTankHudActive = false;
+        this.lastTankHudKey = "";
+        document.body.classList.remove("is-tank-mode");
+        window.dispatchEvent(new CustomEvent("riftrunner:tank-hud", { detail: { visible: false } }));
+      }
+
       if (!me) return;
 
-      const now = performance.now();
       const objective = snapshot.objective || {};
       const ffaMode = snapshot?.mode === "ffa" || objective.mode === "ffa";
       const ffaScoreboard = Array.isArray(objective.scoreboard) ? objective.scoreboard : [];
@@ -8576,11 +8621,37 @@
           if (event.playerId === myId) this.cameras.main.shake(280, 0.008 * performanceValue("shakeScale", 1));
         }
         if (event.type === "tankEnemyHit") {
-          this.burst(event.x, event.y, 0x00ccff, LOW_POWER_MODE ? 8 : 24, 140);
-          this.shockwaves.push({ x: event.x, y: event.y, radius: 8, maxRadius: 80, life: 0, ttl: 0.4, color: 0x00ccff, alpha: 0.8 });
+          const hitColor = event.boss ? 0xffffff : 0x00ccff;
+          this.burst(event.x, event.y, hitColor, LOW_POWER_MODE ? 8 : 24, 140);
+          this.shockwaves.push({ x: event.x, y: event.y, radius: 8, maxRadius: event.boss ? 120 : 80, life: 0, ttl: 0.4, color: hitColor, alpha: 0.8 });
+        }
+        if (event.type === "tankBossAbility") {
+          const color = event.ability === "voidMines" ? 0xffdf57 : 0xffffff;
+          this.burst(event.x, event.y, color, LOW_POWER_MODE ? 6 : 18, 120);
+          this.shockwaves.push({ x: event.x, y: event.y, radius: 18, maxRadius: event.radius || 130, life: 0, ttl: 0.55, color, alpha: 0.42 });
+        }
+        if (event.type === "tankBossShockwave") {
+          this.burst(event.x, event.y, 0xffffff, LOW_POWER_MODE ? 14 : 42, 260);
+          this.shockwaves.push({ x: event.x, y: event.y, radius: 20, maxRadius: Math.max(160, event.radius || 260), life: 0, ttl: 0.62, color: 0xffffff, alpha: 0.92 });
+          this.cameras.main.shake(LOW_POWER_MODE ? 120 : 220, (LOW_POWER_MODE ? 0.0025 : 0.0045) * performanceValue("shakeScale", 1));
+        }
+        if (event.type === "tankBossDefeated") {
+          playSfx("gen");
+          this.burst(event.x, event.y, 0xffffff, LOW_POWER_MODE ? 28 : 90, 320);
+          this.burst(event.x, event.y, 0xc084fc, LOW_POWER_MODE ? 18 : 58, 260);
+          this.shockwaves.push({ x: event.x, y: event.y, radius: 20, maxRadius: 260, life: 0, ttl: 0.85, color: 0xffffff, alpha: 0.95 });
         }
         if (event.type === "tankBulletBounce") {
           this.burst(event.x, event.y, 0xffffff, LOW_POWER_MODE ? 3 : 6, 40);
+        }
+        if (event.type === "tankMinePlaced") {
+          this.burst(event.x, event.y, 0xffdf57, LOW_POWER_MODE ? 2 : 5, 35);
+        }
+        if (event.type === "tankMineExplode") {
+          this.burst(event.x, event.y, 0xffaa00, LOW_POWER_MODE ? 12 : 36, 220);
+          this.burst(event.x, event.y, 0xff3300, LOW_POWER_MODE ? 8 : 26, 190);
+          this.shockwaves.push({ x: event.x, y: event.y, radius: 10, maxRadius: Math.max(80, event.radius || 80), life: 0, ttl: 0.45, color: 0xffaa00, alpha: 0.85 });
+          this.cameras.main.shake(LOW_POWER_MODE ? 70 : 120, (LOW_POWER_MODE ? 0.0018 : 0.003) * performanceValue("shakeScale", 1));
         }
         if (event.type === "execute" || event.type === "death") {
           playSfx("dead");
@@ -10042,7 +10113,62 @@
       cam.centerOn(x, y);
     }
 
+    getTankFixedCameraZoom(map = currentSnapshot?.map || this.map) {
+      const cam = this.cameras?.main;
+      const viewW = Math.max(1, Number(this.scale?.width || cam?.width || window.innerWidth || 1280));
+      const viewH = Math.max(1, Number(this.scale?.height || cam?.height || window.innerHeight || 720));
+      const mapW = Math.max(1, Number(map?.width || this.map?.width || 1));
+      const mapH = Math.max(1, Number(map?.height || this.map?.height || 1));
+      const padding = Math.max(0, cfgNumber(GAMEPLAY_CONFIG.tanks?.cameraFitPadding, 44));
+      const usableW = Math.max(64, viewW - padding * 2);
+      const usableH = Math.max(64, viewH - padding * 2);
+      const fitW = usableW / mapW;
+      const fitH = usableH / mapH;
+      const minZoom = Math.max(0.05, cfgNumber(GAMEPLAY_CONFIG.tanks?.cameraFitMinZoom, 0.25));
+      const maxZoom = Math.max(minZoom, cfgNumber(GAMEPLAY_CONFIG.tanks?.cameraFitMaxZoom, 1.08));
+      return clamp(Math.min(fitW, fitH), minZoom, maxZoom);
+    }
+
+    updateTankFixedCamera(mapOverride = null) {
+      const cam = this.cameras.main;
+      const map = mapOverride || currentSnapshot?.map || this.map;
+      if (!cam || !map) return;
+      const mapW = Math.max(1, Number(map.width || this.map?.width || 1));
+      const mapH = Math.max(1, Number(map.height || this.map?.height || 1));
+      const x = mapW / 2;
+      const y = mapH / 2;
+      const zoom = this.getTankFixedCameraZoom(map);
+
+      this.cameraZoomPlan = {
+        base: zoom,
+        rawOffset: 0,
+        clampedOffset: 0,
+        zoom,
+        modifiers: [{ id: "tankFixedMap", value: 0, absoluteZoom: zoom }]
+      };
+      this.targetCameraZoom = zoom;
+      this.currentCameraZoom = zoom;
+      cameraZoomNow = zoom;
+      window.__RIFTRUNNER_CAMERA_ZOOM__ = zoom;
+      window.__RIFTRUNNER_CAMERA_TARGET_ZOOM__ = zoom;
+      window.__RIFTRUNNER_CAMERA_ZOOM_PLAN__ = this.cameraZoomPlan;
+
+      if (Math.abs((cam.zoom || 1) - zoom) > 0.0001) cam.setZoom(zoom);
+      this.cameraSwayX = 0;
+      this.cameraSwayY = 0;
+      this.cameraSwayTargetX = 0;
+      this.cameraSwayTargetY = 0;
+      this.cameraFollowX = x;
+      this.cameraFollowY = y;
+      cam.centerOn(x, y);
+    }
+
     updateCamera(dt = 0) {
+      if (isTanksSnapshot()) {
+        this.updateTankFixedCamera();
+        return;
+      }
+
       if (this.isSpectatorOverviewMode()) {
         this.updateSpectatorOverviewCamera();
         return;
@@ -10862,7 +10988,7 @@
         this.lastSmokeHadClouds = false;
         this.smokeLayerDirty = false;
       }
-      const hasTankFx = isTanksSnapshot() && (currentSnapshot?.tank?.enemies?.length > 0 || currentSnapshot?.tank?.bullets?.length > 0);
+      const hasTankFx = isTanksSnapshot() && (currentSnapshot?.tank?.enemies?.length > 0 || currentSnapshot?.tank?.bullets?.length > 0 || currentSnapshot?.tank?.mines?.length > 0);
       const hasFx = this.shockwaves.length > 0 || this.particles.length > 0 || visibleProjectiles.length > 0 || visibleSwirls.length > 0 || (this.runnerProjectileVisuals?.size || 0) > 0 || hasTankFx;
       if (!hasFx) {
         if (this.particleLayerDirty) {
@@ -10918,8 +11044,16 @@
   }
 
   const TANK_TIER_SKINS = {
-    husk: { dark: 0x080008, base: 0x1a0028, mid: 0x2e1048, accent: 0x6b3aad, glow: 0xb48afe, size: 0.8 },
-    shade: { dark: 0x040410, base: 0x10102a, mid: 0x282856, accent: 0x5555cc, glow: 0x9999ff, size: 0.85 },
+    husk: { dark: 0x140b06, base: 0x3a2414, mid: 0x6b4724, accent: 0xb78342, glow: 0xffc36a, size: 0.82 },
+    shade: { dark: 0x080a0c, base: 0x20242a, mid: 0x4a525a, accent: 0x9aa3aa, glow: 0xd7dee5, size: 0.86 },
+    bolt: { dark: 0x001112, base: 0x05363a, mid: 0x0f7375, accent: 0x23c7c9, glow: 0x8ffcff, size: 0.88 },
+    sapper: { dark: 0x171000, base: 0x4a3500, mid: 0x8a6600, accent: 0xf2c84b, glow: 0xfff08a, size: 0.9 },
+    charger: { dark: 0x160000, base: 0x420808, mid: 0x8a1717, accent: 0xff3b30, glow: 0xff8a80, size: 0.95 },
+    sniper: { dark: 0x001208, base: 0x063516, mid: 0x137c3a, accent: 0x2ee86f, glow: 0x9dffbd, size: 0.92 },
+    elite: { dark: 0x100018, base: 0x2e063f, mid: 0x64148a, accent: 0xbc4dff, glow: 0xefb5ff, size: 1 },
+    phantom: { dark: 0x11141a, base: 0x38404c, mid: 0xa9b6c6, accent: 0xffffff, glow: 0xffffff, size: 0.96 },
+    voidBoss: { dark: 0x02030a, base: 0xf4f8ff, mid: 0xcfd7ff, accent: 0xffffff, glow: 0xffffff, size: 1.08 },
+    // Backward aliases for old snapshots during hot reloads. Because stale state is immortal, apparently.
     wraith: { dark: 0x000814, base: 0x081830, mid: 0x1a3560, accent: 0x3388dd, glow: 0x66ccff, size: 0.9 },
     specter: { dark: 0x0a0014, base: 0x1a0830, mid: 0x3a1460, accent: 0x8822cc, glow: 0xcc66ff, size: 0.95 },
     abyss: { dark: 0x0a0000, base: 0x200808, mid: 0x441010, accent: 0xcc2222, glow: 0xff5544, size: 1.1 }
@@ -10927,8 +11061,15 @@
 
   const TANK_TIER_BULLET_COLORS = {
     player: 0x00ccff,
-    husk: 0xaa66dd,
-    shade: 0x7777ee,
+    husk: 0xffc36a,
+    shade: 0xd7dee5,
+    bolt: 0x8ffcff,
+    sapper: 0xffdf57,
+    charger: 0xff4f4f,
+    sniper: 0x9dffbd,
+    elite: 0xd36bff,
+    phantom: 0xffffff,
+    voidBoss: 0xffffff,
     wraith: 0x44aaff,
     specter: 0xcc44ff,
     abyss: 0xff3333
@@ -10973,6 +11114,17 @@
       const pulse = Math.sin(now / 220 + visual.x * 0.01) * 0.5 + 0.5;
       const wobble = Math.sin(now / 160 + visual.y * 0.02) * 1.2;
       const coreR = baseSize * 0.7 + wobble;
+      const isBoss = enemy.tier === "voidBoss" || (enemy.maxHealth || 0) > 0;
+
+      if (isBoss) {
+        for (let ring = 0; ring < 4; ring++) {
+          const ringPulse = Math.sin(now / (260 + ring * 70) + ring) * 0.5 + 0.5;
+          g.lineStyle(2 - ring * 0.25, ring % 2 ? 0xc084fc : 0xffffff, alpha * (0.18 - ring * 0.028 + ringPulse * 0.06));
+          g.strokeCircle(visual.x, visual.y, coreR + 18 + ring * 15 + ringPulse * 8);
+        }
+        g.fillStyle(0xffffff, alpha * 0.08);
+        g.fillCircle(visual.x, visual.y, coreR + 28 + pulse * 8);
+      }
 
       g.fillStyle(skin.dark, alpha * 0.96);
       g.fillCircle(visual.x, visual.y, coreR + 5 + pulse * 1.5);
@@ -11009,6 +11161,48 @@
         g.strokePath();
       }
 
+      if ((enemy.maxHealth || 0) > 0) {
+        const healthPct = clamp((enemy.health || 0) / Math.max(1, enemy.maxHealth || 1), 0, 1);
+        const barW = Math.max(136, baseSize * 2.45);
+        const barH = 12;
+        const barX = visual.x - barW / 2;
+        const barY = visual.y - coreR - 34;
+        g.fillStyle(0x02030a, alpha * 0.84);
+        g.fillRoundedRect(barX - 2, barY - 2, barW + 4, barH + 4, 4);
+        g.fillStyle(0x28103f, alpha * 0.95);
+        g.fillRoundedRect(barX, barY, barW, barH, 3);
+        g.fillStyle(0xffffff, alpha * 0.95);
+        g.fillRoundedRect(barX, barY, barW * healthPct, barH, 3);
+        g.lineStyle(1.5, 0xffffff, alpha * 0.55);
+        g.strokeRoundedRect(barX, barY, barW, barH, 3);
+
+        if (enemy.boss?.ability === "shockwave" && !visual.dead) {
+          const progress = clamp((enemy.boss.timer || 0) / Math.max(0.1, enemy.boss.duration || 1), 0, 1);
+          const radius = Math.max(80, enemy.boss.radius || 260);
+          g.lineStyle(4, 0xffffff, alpha * (0.28 + progress * 0.42));
+          g.strokeCircle(visual.x, visual.y, radius);
+          g.lineStyle(2, 0xc084fc, alpha * (0.18 + progress * 0.32));
+          g.strokeCircle(visual.x, visual.y, radius * progress);
+          g.lineStyle(1, 0xffffff, alpha * 0.24);
+          g.strokeCircle(visual.x, visual.y, Math.max(coreR + 18, radius * (0.35 + progress * 0.25)));
+        } else if (enemy.boss?.ability === "focusBarrage" && !visual.dead) {
+          g.lineStyle(2, 0xffffff, alpha * 0.28);
+          g.beginPath();
+          g.moveTo(visual.x + Math.cos(visual.aimAngle) * (coreR + 8), visual.y + Math.sin(visual.aimAngle) * (coreR + 8));
+          g.lineTo(visual.x + Math.cos(visual.aimAngle) * (coreR + 260), visual.y + Math.sin(visual.aimAngle) * (coreR + 260));
+          g.strokePath();
+        } else if ((enemy.boss?.ability === "starBurst" || enemy.boss?.ability === "spiralBloom") && !visual.dead) {
+          const progress = clamp((enemy.boss.timer || 0) / Math.max(0.1, enemy.boss.duration || 1), 0, 1);
+          g.lineStyle(2, 0xffffff, alpha * 0.22);
+          g.strokeCircle(visual.x, visual.y, coreR + 24 + Math.sin(now / 90) * 4);
+          g.lineStyle(1.5, 0xc084fc, alpha * 0.18);
+          g.strokeCircle(visual.x, visual.y, coreR + 42 + progress * 24);
+        } else if (enemy.boss?.ability === "voidMines" && !visual.dead) {
+          g.lineStyle(1.5, 0xffdf57, alpha * 0.28);
+          g.strokeCircle(visual.x, visual.y, coreR + 54 + Math.sin(now / 120) * 5);
+        }
+      }
+
       if (visual.dead) {
         g.lineStyle(3, 0xff4400, visual.deathAlpha);
         const spread = baseSize * 0.6;
@@ -11027,6 +11221,30 @@
       if (!seenEnemies.has(id)) {
         const v = this.tankEnemyVisuals.get(id);
         if (v && v.deathAlpha <= 0) this.tankEnemyVisuals.delete(id);
+      }
+    }
+
+    for (const mine of tank.mines || []) {
+      const tierSkin = TANK_TIER_SKINS[mine.ownerTier] || TANK_TIER_SKINS.sapper;
+      const now = performance.now();
+      const armed = mine.armed !== false;
+      const pulse = armed ? (Math.sin(now / 120 + mine.x * 0.02) * 0.5 + 0.5) : 0.25;
+      const r = Math.max(10, Math.min(24, (mine.radius || 36) * 0.42));
+      g.fillStyle(0x080808, armed ? 0.82 : 0.45);
+      g.fillCircle(mine.x, mine.y, r + 4 + pulse * 2);
+      g.fillStyle(tierSkin.accent || 0xffdf57, armed ? 0.82 : 0.35);
+      g.fillCircle(mine.x, mine.y, r);
+      g.fillStyle(0xffffff, armed ? 0.55 + pulse * 0.2 : 0.2);
+      g.fillCircle(mine.x, mine.y, Math.max(3, r * 0.28));
+      g.lineStyle(1.5, tierSkin.glow || 0xffffff, armed ? 0.5 + pulse * 0.3 : 0.2);
+      g.strokeCircle(mine.x, mine.y, Math.max(16, mine.radius || 36));
+      for (let i = 0; i < 4; i++) {
+        const a = (Math.PI / 2) * i + now / 850;
+        g.lineStyle(1, tierSkin.glow || 0xffffff, armed ? 0.4 : 0.18);
+        g.beginPath();
+        g.moveTo(mine.x + Math.cos(a) * (r + 2), mine.y + Math.sin(a) * (r + 2));
+        g.lineTo(mine.x + Math.cos(a) * (r + 8), mine.y + Math.sin(a) * (r + 8));
+        g.strokePath();
       }
     }
 
@@ -11556,7 +11774,7 @@
         ? `${ffaCount}/${maxFfaPlayers} Void Shooters • First to ${state.killLimit || 10}${spectatorCount ? ` • ${spectatorCount} Spectator${spectatorCount === 1 ? "" : "s"}` : ""}`
         : `${survivorCount}/${maxSurvivors} Runners • ${voidCount} Void player${voidCount === 1 ? "" : "s"}${spectatorCount ? ` • ${spectatorCount} Spectator${spectatorCount === 1 ? "" : "s"}` : ""}`;
     const subtitle = isTankLobby
-      ? `${statusLine}. Co-op tank assault — survive 5 levels of void tanks!`
+      ? `${statusLine}. Co-op tank assault — survive 20 compact missions, then the Level 21 White Void boss.`
       : isFfaLobby
         ? `${statusLine}. No rifts. No orbs. Just fast little nightmare paintball.`
         : voidCount === 1
@@ -11591,7 +11809,7 @@
       const meta = document.createElement("small");
       const roleName = document.createElement("span");
       roleName.className = "player-role-name";
-      roleName.textContent = `${isKiller ? "The Void" : isSpectator ? "Spectator" : isFfa ? "Void Shooter" : "Runner"}${player.isBot ? " bot" : ""}`;
+      roleName.textContent = `${isTankLobby && !isSpectator ? "Tank" : isKiller ? "The Void" : isSpectator ? "Spectator" : isFfa ? "Void Shooter" : "Runner"}${player.isBot ? " bot" : ""}`;
 
       const dot = document.createElement("span");
       dot.className = "player-dot";
@@ -11603,7 +11821,7 @@
       skin.title = skinName;
       skin.textContent = skinName;
 
-      if (!isKiller && !isSpectator && !isFfa) {
+      if (!isTankLobby && !isKiller && !isSpectator && !isFfa) {
         const classDot = document.createElement("span");
         classDot.className = "player-dot";
         classDot.textContent = "•";
@@ -11684,7 +11902,9 @@
     const survivorPlayers = players.filter((player) => player.role === "survivor");
     const ffaPlayers = players.filter((player) => player.role === "ffa");
     const spectatorPlayers = players.filter((player) => player.role === "spectator");
-    if (isFfaLobby) {
+    if (isTankLobby) {
+      appendPlayerGroup("Tank pilots", `${tankCount}/2`, "survivor-group tank-group", survivorPlayers);
+    } else if (isFfaLobby) {
       appendPlayerGroup("Void Shooters", `${ffaPlayers.length}/${maxFfaPlayers}`, "survivor-group ffa-group", ffaPlayers);
     } else {
       appendPlayerGroup("Void player", `${voidPlayers.length} selected`, "void-group", voidPlayers);
@@ -11706,24 +11926,24 @@
     ui.readyBtn.dataset.readyState = iAmSpectator ? "spectator" : mine?.ready ? "unready" : "ready";
     ui.readyBtn.disabled = !!iAmSpectator;
     ui.readyBtn.title = iAmSpectator ? "Spectators are always ready and do not count toward starting the run." : "Toggle ready status.";
-    ui.beKillerBtn.disabled = !!iAmSpectator || state.mode === "ffa";
-    ui.beSurvivorBtn.disabled = !!iAmSpectator || state.mode === "ffa";
-    if (ui.beFfaBtn) ui.beFfaBtn.disabled = !!iAmSpectator || state.mode !== "ffa";
+    ui.beKillerBtn.disabled = !!iAmSpectator || state.mode === "ffa" || isTankLobby;
+    ui.beSurvivorBtn.disabled = !!iAmSpectator || state.mode === "ffa" || isTankLobby;
+    if (ui.beFfaBtn) ui.beFfaBtn.disabled = !!iAmSpectator || state.mode !== "ffa" || isTankLobby;
     if (ui.beSpectatorBtn) {
       ui.beSpectatorBtn.disabled = !!iAmSpectator;
       ui.beSpectatorBtn.title = iAmSpectator
         ? "You are already joining this lobby as an auto-ready spectator."
         : "Join this lobby as a spectator. You will load into the run without controlling a character.";
     }
-    ui.addBotSurvivorBtn.disabled = isFfaLobby;
-    ui.addBotKillerBtn.disabled = isFfaLobby;
+    ui.addBotSurvivorBtn.disabled = isFfaLobby || isTankLobby;
+    ui.addBotKillerBtn.disabled = isFfaLobby || isTankLobby;
     setLobbySkinPickerVisibility(iAmSpectator ? "spectator" : selectedRole);
     if (ui.startBtn) {
       ui.startBtn.disabled = !canStartRun;
-      ui.startBtn.textContent = isFfaLobby ? "Start FFA" : "Start Run";
+      ui.startBtn.textContent = isTankLobby ? "Start Tanks" : isFfaLobby ? "Start FFA" : "Start Run";
       ui.startBtn.title = canStartRun
-        ? (isFfaLobby ? "Start the Free-For-All. First Void Shooter to 10 kills wins." : "Start the run. Spectators will load in watching instead of playing.")
-        : (isFfaLobby ? "Need at least 2 Void Shooters and every playable human ready." : "Need exactly 1 Void, at least 1 Runner, and every playable human ready. Spectators are optional and do not block the match.");
+        ? (isTankLobby ? "Start Tank Assault." : isFfaLobby ? "Start the Free-For-All. First Void Shooter to 10 kills wins." : "Start the run. Spectators will load in watching instead of playing.")
+        : (isTankLobby ? "Need 1-2 tank pilots and every playable human ready." : isFfaLobby ? "Need at least 2 Void Shooters and every playable human ready." : "Need exactly 1 Void, at least 1 Runner, and every playable human ready. Spectators are optional and do not block the match.");
     }
   }
 
@@ -11933,10 +12153,14 @@
         phaserScene.introCameraPrimed = false;
         clearMovementInputOnly();
         phaserScene.loadMap(map);
-        cameraZoomNow = CAMERA.BASE_ZOOM;
-        phaserScene.currentCameraZoom = cameraZoomNow;
-        phaserScene.targetCameraZoom = cameraZoomNow;
-        phaserScene.cameras?.main?.setZoom(cameraZoomNow);
+        if (map?.mode === "tanks") {
+          phaserScene.updateTankFixedCamera?.(map);
+        } else {
+          cameraZoomNow = CAMERA.BASE_ZOOM;
+          phaserScene.currentCameraZoom = cameraZoomNow;
+          phaserScene.targetCameraZoom = cameraZoomNow;
+          phaserScene.cameras?.main?.setZoom(cameraZoomNow);
+        }
       }
 
       const inProgressSpectate = !!map?.inProgress;
@@ -11951,7 +12175,13 @@
 
     socket.on("tankLevelStart", (mapData) => {
       if (phaserScene && mapData) {
+        const lockSeconds = Math.max(0, Number(mapData.startFreezeSeconds || GAMEPLAY_CONFIG.tanks?.startFreezeSeconds || IMMERSION.MATCH_START_LOCK_SECONDS || 2));
+        phaserScene.matchStartFreezeRemaining = lockSeconds;
+        phaserScene.matchStartFreezeDuration = Math.max(0.001, lockSeconds);
+        phaserScene.matchStartInputLockUntil = performance.now() + lockSeconds * 1000;
+        clearMovementInputOnly();
         phaserScene.loadMap(mapData);
+        phaserScene.updateTankFixedCamera?.(mapData);
         phaserScene.tankEnemyVisuals = new Map();
         phaserScene.tankBulletVisuals = new Map();
       }

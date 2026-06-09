@@ -1624,3 +1624,18 @@ border-radius: 0;
     linear-gradient(90deg, rgba(13, 9, 34, 0.98), rgba(4, 8, 20, 0.92));
   box-shadow: 0 18px 56px rgba(0, 0, 0, 0.52), 0 0 34px rgba(103, 232, 249, 0.16), inset 0 1px 0 rgba(255,255,255,0.10);
 }
+
+body.is-tank-mode #hud,
+body.is-tank-mode #survivorStatusHud,
+body.is-tank-mode #bigGenCounter,
+body.is-tank-mode #horrorFx,
+body.is-tank-mode #matchAnnouncements,
+body.is-tank-mode .void-ability-hud,
+body.is-tank-mode .runner-ability-hud,
+body.is-tank-mode .ability-controls-corner,
+body.is-tank-mode .ability-wheel-overlay,
+body.is-tank-mode .chat-wheel-overlay,
+body.is-tank-mode .hook-edge-indicators,
+body.is-tank-mode .point-feed {
+  display: none !important;
+}

@@ -641,3 +641,30 @@
   padding: 0 12px !important;
   z-index: 14 !important;
 }
+
+#lobbyScreen.is-tank-lobby .lobby-role-actions,
+#lobbyScreen.is-tank-lobby .lobby-bot-actions,
+#lobbyScreen.is-tank-lobby #runnerClassPanel,
+#lobbyScreen.is-tank-lobby .void-lobby-skin-picker,
+#lobbyScreen.is-tank-lobby .lobby-subheading,
+#lobbyScreen.is-tank-lobby .lobby-spectator-join-btn {
+  display: none !important;
+}
+
+#lobbyScreen.is-tank-lobby .lobby-control-column {
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+#lobbyScreen.is-tank-lobby .runner-lobby-skin-picker {
+  display: grid;
+}
+
+#lobbyScreen.is-tank-lobby .lobby-column-heading:first-child span::after {
+  content: " Tank Assault";
+  color: rgba(255, 255, 255, 0.48);
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}

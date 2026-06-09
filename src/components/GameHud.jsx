@@ -971,13 +971,16 @@ export function HookEdgeIndicators() {
 }
 
 export function TankHud() {
-  const [data, setData] = useState({ level: 0, levelName: "", enemiesRemaining: 0, enemiesTotal: 0, victory: false, transition: null, players: [] })
+  const [data, setData] = useState({ visible: false, level: 0, levelName: "", enemiesRemaining: 0, enemiesTotal: 0, victory: false, transition: null, players: [] })
 
   useEffect(() => {
     const handleTankHud = (event) => {
       const detail = event.detail || {}
+      const level = Math.max(0, Math.floor(Number(detail.level || 0)))
+      const visible = detail.visible !== false && level > 0
       setData({
-        level: detail.level || 0,
+        visible,
+        level,
         levelName: detail.levelName || "",
         enemiesRemaining: detail.enemiesRemaining || 0,
         enemiesTotal: detail.enemiesTotal || 0,
@@ -990,7 +993,7 @@ export function TankHud() {
     return () => window.removeEventListener("riftrunner:tank-hud", handleTankHud)
   }, [])
 
-  if (!data.level) return null
+  if (!data.visible) return null
 
   return (
     <div className="tank-hud" aria-live="polite">
