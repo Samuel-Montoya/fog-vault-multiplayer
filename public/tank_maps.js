@@ -18,7 +18,11 @@
 // 5 = Red Charger     - aggressive multi-shot hunter
 // 6 = Green Sniper    - stationary ricochet specialist
 // 7 = Purple Elite    - fast hunter, mines, high pressure
-// 8 = White Phantom   - evasive flanker, fast shots, leaves almost no mercy
+// 8 = White Phantom   - invisible after intro, fast shots, mines, track-only threat
+// 9 = Black Hunter    - fastest rocket rusher, aggressive, mines, no ricochet
+// A = Amber Bulwark  - level 5 miniboss, moving dash/crossfire boss
+// C = Crimson Cyclone - level 10 miniboss, sweeping rail volleys and orbit mines
+// D = Violet Prism   - level 15 miniboss, ricochet pinwheel and gravity well
 // B = White Void Boss  - level 21 roguelite boss, health bar, rotating abilities
 
 const TANK_MAPS = {
@@ -104,19 +108,20 @@ const TANK_MAPS = {
       ]
     },
     {
-      name: 'Mission 05 - Rocket Debut',
+      name: 'Mission 05 - Amber Bulwark',
       level: 5,
       tile: 56,
+      boss: true,
       rows: [
         "XXXXXXXXXXXXXXXXXXX",
         "X.................X",
-        "X..............3..X",
+        "X.........3..A....X",
         "X.................X",
-        "X...........XXX...X",
+        "X....XX.....XX....X",
+        "X.................X",
         "X.......XXX.......X",
-        "X.......XXX.......X",
-        "X.......XXX....2..X",
-        "X...........XXX...X",
+        "X.................X",
+        "X....XX.....XX....X",
         "X.................X",
         "X.................X",
         "X..SS.............X",
@@ -204,23 +209,26 @@ const TANK_MAPS = {
       ]
     },
     {
-      name: 'Mission 10 - Red Debut',
+      name: 'Mission 10 - Crimson Cyclone',
       level: 10,
       tile: 56,
+      boss: true,
       rows: [
-        "XXXXXXXXXXXXXXXXXXX",
-        "X.................X",
-        "X..............5..X",
-        "X.................X",
-        "X...XXX...........X",
-        "X......XXXXX......X",
-        "X......XXXXX..2...X",
-        "X......XXXXX......X",
-        "X...........XXX...X",
-        "X.................X",
-        "X.................X",
-        "X..SS.............X",
-        "XXXXXXXXXXXXXXXXXXX"
+        "XXXXXXXXXXXXXXXXXXXXX",
+        "X...................X",
+        "X...................X",
+        "X........5....C.....X",
+        "X...................X",
+        "X....XXX.......XXX..X",
+        "X...................X",
+        "X........XXX........X",
+        "X...................X",
+        "X..XXX.......XXX....X",
+        "X...................X",
+        "X...................X",
+        "X..SS...............X",
+        "X...................X",
+        "XXXXXXXXXXXXXXXXXXXXX"
       ]
     },
     {
@@ -304,23 +312,26 @@ const TANK_MAPS = {
       ]
     },
     {
-      name: 'Mission 15 - Purple Debut',
+      name: 'Mission 15 - Violet Prism',
       level: 15,
       tile: 56,
+      boss: true,
       rows: [
-        "XXXXXXXXXXXXXXXXXXX",
-        "X.................X",
-        "X..............7..X",
-        "X.................X",
-        "X.....XXX..XXX....X",
-        "X.....XXX..XXX....X",
-        "X..............6..X",
-        "X.................X",
-        "X.....XXX..XXX....X",
-        "X.....XXX..XXX5...X",
-        "X.................X",
-        "X..SS.............X",
-        "XXXXXXXXXXXXXXXXXXX"
+        "XXXXXXXXXXXXXXXXXXXXXXX",
+        "X.....................X",
+        "X.....................X",
+        "X...........7..D......X",
+        "X.....................X",
+        "X....XXX.........XXX..X",
+        "X.....................X",
+        "X.........XXX.........X",
+        "X.....................X",
+        "X..XXX.........XXX....X",
+        "X.....................X",
+        "X.....................X",
+        "X....S...........S....X",
+        "X.....................X",
+        "XXXXXXXXXXXXXXXXXXXXXXX"
       ]
     },
     {
@@ -364,7 +375,7 @@ const TANK_MAPS = {
       ]
     },
     {
-      name: 'Mission 18 - Rocket Crossfire',
+      name: 'Mission 18 - Black Rocket Crossfire',
       level: 18,
       tile: 56,
       rows: [
@@ -372,7 +383,7 @@ const TANK_MAPS = {
         "X.................X",
         "X............3..6.X",
         "X.................X",
-        "X...XXX.....XXX...X",
+        "X...XXX.....XXX.9.X",
         "X...XXX.....XXX...X",
         "X.......XXX....4..X",
         "X............3....X",
@@ -384,13 +395,13 @@ const TANK_MAPS = {
       ]
     },
     {
-      name: 'Mission 19 - Purple Minefield',
+      name: 'Mission 19 - Black Minefield',
       level: 19,
       tile: 56,
       rows: [
         "XXXXXXXXXXXXXXXXXXX",
         "X.................X",
-        "X...........7..7..X",
+        "X..........7..9...X",
         "X.................X",
         "X....XXX...XXX....X",
         "X..............4..X",

@@ -8625,8 +8625,35 @@
           this.burst(event.x, event.y, hitColor, LOW_POWER_MODE ? 8 : 24, 140);
           this.shockwaves.push({ x: event.x, y: event.y, radius: 8, maxRadius: event.boss ? 120 : 80, life: 0, ttl: 0.4, color: hitColor, alpha: 0.8 });
         }
+        if (event.type === "tankEnemyDestroyed") {
+          const destroyerId = String(event.killerId || event.ownerId || event.actorId || "");
+          const killedByLocalBullet = destroyerId && destroyerId === String(myId || "")
+            && event.source === "playerBullet"
+            && event.ownerType === "player";
+          if (killedByLocalBullet) {
+            playSfx("enemyTankDie", {
+              fallbackName: event.boss ? "gen" : "dead",
+              volumeScale: event.boss ? 1.12 : 1
+            });
+          }
+          const color = event.boss ? 0xffffff : (TANK_TIER_BULLET_COLORS[event.tier] || 0xffaa00);
+          this.burst(event.x, event.y, color, LOW_POWER_MODE ? 18 : 46, 220);
+          this.shockwaves.push({ x: event.x, y: event.y, radius: 10, maxRadius: event.boss ? 190 : 105, life: 0, ttl: 0.5, color, alpha: 0.82 });
+        }
         if (event.type === "tankBossAbility") {
-          const color = event.ability === "voidMines" ? 0xffdf57 : 0xffffff;
+          const bossAbilityColors = {
+            voidMines: 0xffdf57,
+            mineRing: 0xffdf57,
+            orbitMines: 0xff3b30,
+            crossBurst: 0xf59e0b,
+            armorDash: 0xffaa33,
+            railSweep: 0xff3b30,
+            splitVolley: 0xff6b6b,
+            pinwheelRicochet: 0xc084fc,
+            mirrorSplit: 0xb56bff,
+            gravityWell: 0x8b5cf6
+          };
+          const color = bossAbilityColors[event.ability] || 0xffffff;
           this.burst(event.x, event.y, color, LOW_POWER_MODE ? 6 : 18, 120);
           this.shockwaves.push({ x: event.x, y: event.y, radius: 18, maxRadius: event.radius || 130, life: 0, ttl: 0.55, color, alpha: 0.42 });
         }
@@ -8636,7 +8663,6 @@
           this.cameras.main.shake(LOW_POWER_MODE ? 120 : 220, (LOW_POWER_MODE ? 0.0025 : 0.0045) * performanceValue("shakeScale", 1));
         }
         if (event.type === "tankBossDefeated") {
-          playSfx("gen");
           this.burst(event.x, event.y, 0xffffff, LOW_POWER_MODE ? 28 : 90, 320);
           this.burst(event.x, event.y, 0xc084fc, LOW_POWER_MODE ? 18 : 58, 260);
           this.shockwaves.push({ x: event.x, y: event.y, radius: 20, maxRadius: 260, life: 0, ttl: 0.85, color: 0xffffff, alpha: 0.95 });
@@ -11052,6 +11078,10 @@
     sniper: { dark: 0x001208, base: 0x063516, mid: 0x137c3a, accent: 0x2ee86f, glow: 0x9dffbd, size: 0.92 },
     elite: { dark: 0x100018, base: 0x2e063f, mid: 0x64148a, accent: 0xbc4dff, glow: 0xefb5ff, size: 1 },
     phantom: { dark: 0x11141a, base: 0x38404c, mid: 0xa9b6c6, accent: 0xffffff, glow: 0xffffff, size: 0.96 },
+    blackHunter: { dark: 0x020202, base: 0x070707, mid: 0x1b1b1b, accent: 0x3a3a3a, glow: 0xffffff, size: 1.02 },
+    amberBoss: { dark: 0x1f1305, base: 0x7c3f12, mid: 0xd97706, accent: 0xfbbf24, glow: 0xffe08a, size: 1.05 },
+    crimsonBoss: { dark: 0x260206, base: 0x7f0c18, mid: 0xdc2626, accent: 0xff7a7a, glow: 0xffb4b4, size: 1.06 },
+    prismBoss: { dark: 0x15042c, base: 0x4c1d95, mid: 0x7c3aed, accent: 0xc084fc, glow: 0xf0abfc, size: 1.07 },
     voidBoss: { dark: 0x02030a, base: 0xf4f8ff, mid: 0xcfd7ff, accent: 0xffffff, glow: 0xffffff, size: 1.08 },
     // Backward aliases for old snapshots during hot reloads. Because stale state is immortal, apparently.
     wraith: { dark: 0x000814, base: 0x081830, mid: 0x1a3560, accent: 0x3388dd, glow: 0x66ccff, size: 0.9 },
@@ -11069,6 +11099,10 @@
     sniper: 0x9dffbd,
     elite: 0xd36bff,
     phantom: 0xffffff,
+    blackHunter: 0xffffff,
+    amberBoss: 0xfbbf24,
+    crimsonBoss: 0xff4f4f,
+    prismBoss: 0xc084fc,
     voidBoss: 0xffffff,
     wraith: 0x44aaff,
     specter: 0xcc44ff,
@@ -11088,7 +11122,16 @@
       seenEnemies.add(enemy.id);
       let visual = this.tankEnemyVisuals.get(enemy.id);
       if (!visual) {
-        visual = { x: enemy.x, y: enemy.y, aimAngle: enemy.aimAngle, dead: enemy.dead, deathAlpha: 1 };
+        visual = {
+          x: enemy.x,
+          y: enemy.y,
+          aimAngle: enemy.aimAngle,
+          dead: enemy.dead,
+          deathAlpha: 1,
+          tracks: [],
+          lastTrackX: enemy.x,
+          lastTrackY: enemy.y
+        };
         this.tankEnemyVisuals.set(enemy.id, visual);
       }
       if (enemy.dead && !visual.dead) {
@@ -11109,20 +11152,63 @@
 
       const skin = TANK_TIER_SKINS[enemy.tier] || TANK_TIER_SKINS.husk;
       const baseSize = (enemy.size || 30) * (skin.size || 1);
-      const alpha = visual.dead ? visual.deathAlpha * 0.5 : 1;
       const now = performance.now();
       const pulse = Math.sin(now / 220 + visual.x * 0.01) * 0.5 + 0.5;
+      const introVisible = Math.max(0, Number(currentSnapshot?.matchStartFreezeRemaining || 0)) > 0.08;
+      const stealthed = !!enemy.stealth && !visual.dead && !introVisible;
+      const alpha = visual.dead ? visual.deathAlpha * 0.5 : (stealthed ? 0.055 + pulse * 0.025 : 1);
       const wobble = Math.sin(now / 160 + visual.y * 0.02) * 1.2;
       const coreR = baseSize * 0.7 + wobble;
       const isBoss = enemy.tier === "voidBoss" || (enemy.maxHealth || 0) > 0;
 
+      if (enemy.leavesTracks) {
+        visual.tracks = visual.tracks || [];
+        const movedForTrack = Math.hypot(visual.x - (visual.lastTrackX ?? visual.x), visual.y - (visual.lastTrackY ?? visual.y));
+        if (!introVisible && !visual.dead && movedForTrack > 9) {
+          visual.tracks.push({ x: visual.x, y: visual.y, angle: visual.aimAngle || 0, life: 0, ttl: 2.2 });
+          visual.lastTrackX = visual.x;
+          visual.lastTrackY = visual.y;
+          if (visual.tracks.length > 38) visual.tracks.splice(0, visual.tracks.length - 38);
+        }
+        for (let ti = visual.tracks.length - 1; ti >= 0; ti--) {
+          const track = visual.tracks[ti];
+          track.life += dt;
+          if (track.life >= track.ttl) {
+            visual.tracks.splice(ti, 1);
+            continue;
+          }
+          const tAlpha = (1 - track.life / track.ttl) * 0.34;
+          const sideX = Math.cos((track.angle || 0) + Math.PI / 2);
+          const sideY = Math.sin((track.angle || 0) + Math.PI / 2);
+          const fwdX = Math.cos(track.angle || 0);
+          const fwdY = Math.sin(track.angle || 0);
+          g.lineStyle(4, skin.glow, tAlpha);
+          for (const side of [-1, 1]) {
+            const cx = track.x + sideX * side * baseSize * 0.32;
+            const cy = track.y + sideY * side * baseSize * 0.32;
+            g.beginPath();
+            g.moveTo(cx - fwdX * 7, cy - fwdY * 7);
+            g.lineTo(cx + fwdX * 7, cy + fwdY * 7);
+            g.strokePath();
+          }
+        }
+      }
+
+      if (stealthed) {
+        if (pulse > 0.90) {
+          g.lineStyle(1.5, skin.glow, 0.10 + (pulse - 0.9) * 0.6);
+          g.strokeCircle(visual.x, visual.y, coreR * 0.75);
+        }
+        continue;
+      }
+
       if (isBoss) {
         for (let ring = 0; ring < 4; ring++) {
           const ringPulse = Math.sin(now / (260 + ring * 70) + ring) * 0.5 + 0.5;
-          g.lineStyle(2 - ring * 0.25, ring % 2 ? 0xc084fc : 0xffffff, alpha * (0.18 - ring * 0.028 + ringPulse * 0.06));
+          g.lineStyle(2 - ring * 0.25, ring % 2 ? skin.accent : skin.glow, alpha * (0.18 - ring * 0.028 + ringPulse * 0.06));
           g.strokeCircle(visual.x, visual.y, coreR + 18 + ring * 15 + ringPulse * 8);
         }
-        g.fillStyle(0xffffff, alpha * 0.08);
+        g.fillStyle(skin.glow, alpha * 0.08);
         g.fillCircle(visual.x, visual.y, coreR + 28 + pulse * 8);
       }
 
@@ -11171,34 +11257,45 @@
         g.fillRoundedRect(barX - 2, barY - 2, barW + 4, barH + 4, 4);
         g.fillStyle(0x28103f, alpha * 0.95);
         g.fillRoundedRect(barX, barY, barW, barH, 3);
-        g.fillStyle(0xffffff, alpha * 0.95);
+        g.fillStyle(skin.glow || 0xffffff, alpha * 0.95);
         g.fillRoundedRect(barX, barY, barW * healthPct, barH, 3);
-        g.lineStyle(1.5, 0xffffff, alpha * 0.55);
+        g.lineStyle(1.5, skin.glow || 0xffffff, alpha * 0.55);
         g.strokeRoundedRect(barX, barY, barW, barH, 3);
 
-        if (enemy.boss?.ability === "shockwave" && !visual.dead) {
+        if ((enemy.boss?.ability === "shockwave" || enemy.boss?.ability === "gravityWell") && !visual.dead) {
           const progress = clamp((enemy.boss.timer || 0) / Math.max(0.1, enemy.boss.duration || 1), 0, 1);
-          const radius = Math.max(80, enemy.boss.radius || 260);
-          g.lineStyle(4, 0xffffff, alpha * (0.28 + progress * 0.42));
+          const radius = Math.max(80, enemy.boss.radius || (enemy.boss.ability === "gravityWell" ? 330 : 260));
+          g.lineStyle(enemy.boss.ability === "gravityWell" ? 3 : 4, skin.glow, alpha * (0.24 + progress * 0.42));
           g.strokeCircle(visual.x, visual.y, radius);
-          g.lineStyle(2, 0xc084fc, alpha * (0.18 + progress * 0.32));
-          g.strokeCircle(visual.x, visual.y, radius * progress);
-          g.lineStyle(1, 0xffffff, alpha * 0.24);
+          g.lineStyle(2, skin.accent, alpha * (0.18 + progress * 0.32));
+          g.strokeCircle(visual.x, visual.y, radius * (enemy.boss.ability === "gravityWell" ? 0.95 - progress * 0.35 : progress));
+          g.lineStyle(1, skin.glow, alpha * 0.24);
           g.strokeCircle(visual.x, visual.y, Math.max(coreR + 18, radius * (0.35 + progress * 0.25)));
-        } else if (enemy.boss?.ability === "focusBarrage" && !visual.dead) {
-          g.lineStyle(2, 0xffffff, alpha * 0.28);
+        } else if ((enemy.boss?.ability === "focusBarrage" || enemy.boss?.ability === "railSweep" || enemy.boss?.ability === "armorDash") && !visual.dead) {
+          const telegraphLength = enemy.boss.ability === "armorDash" ? 360 : 300;
+          g.lineStyle(enemy.boss.ability === "armorDash" ? 4 : 2, skin.glow, alpha * (enemy.boss.ability === "armorDash" ? 0.42 : 0.28));
           g.beginPath();
           g.moveTo(visual.x + Math.cos(visual.aimAngle) * (coreR + 8), visual.y + Math.sin(visual.aimAngle) * (coreR + 8));
-          g.lineTo(visual.x + Math.cos(visual.aimAngle) * (coreR + 260), visual.y + Math.sin(visual.aimAngle) * (coreR + 260));
+          g.lineTo(visual.x + Math.cos(visual.aimAngle) * (coreR + telegraphLength), visual.y + Math.sin(visual.aimAngle) * (coreR + telegraphLength));
           g.strokePath();
-        } else if ((enemy.boss?.ability === "starBurst" || enemy.boss?.ability === "spiralBloom") && !visual.dead) {
+        } else if ((enemy.boss?.ability === "starBurst" || enemy.boss?.ability === "spiralBloom" || enemy.boss?.ability === "crossBurst" || enemy.boss?.ability === "pinwheelRicochet" || enemy.boss?.ability === "mirrorSplit" || enemy.boss?.ability === "splitVolley") && !visual.dead) {
           const progress = clamp((enemy.boss.timer || 0) / Math.max(0.1, enemy.boss.duration || 1), 0, 1);
-          g.lineStyle(2, 0xffffff, alpha * 0.22);
+          g.lineStyle(2, skin.glow, alpha * 0.22);
           g.strokeCircle(visual.x, visual.y, coreR + 24 + Math.sin(now / 90) * 4);
-          g.lineStyle(1.5, 0xc084fc, alpha * 0.18);
-          g.strokeCircle(visual.x, visual.y, coreR + 42 + progress * 24);
-        } else if (enemy.boss?.ability === "voidMines" && !visual.dead) {
-          g.lineStyle(1.5, 0xffdf57, alpha * 0.28);
+          g.lineStyle(1.5, skin.accent, alpha * 0.2);
+          g.strokeCircle(visual.x, visual.y, coreR + 42 + progress * 28);
+          if (enemy.boss?.ability === "mirrorSplit") {
+            const ghostR = 120;
+            for (let i = 0; i < 4; i++) {
+              const a = i * Math.PI / 2;
+              g.fillStyle(skin.accent, alpha * 0.14);
+              g.fillCircle(visual.x + Math.cos(a) * ghostR, visual.y + Math.sin(a) * ghostR, coreR * 0.32);
+              g.lineStyle(1, skin.glow, alpha * 0.2);
+              g.strokeCircle(visual.x + Math.cos(a) * ghostR, visual.y + Math.sin(a) * ghostR, coreR * 0.42);
+            }
+          }
+        } else if ((enemy.boss?.ability === "voidMines" || enemy.boss?.ability === "mineRing" || enemy.boss?.ability === "orbitMines") && !visual.dead) {
+          g.lineStyle(1.5, enemy.boss?.ability === "orbitMines" ? skin.glow : 0xffdf57, alpha * 0.3);
           g.strokeCircle(visual.x, visual.y, coreR + 54 + Math.sin(now / 120) * 5);
         }
       }

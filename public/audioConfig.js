@@ -90,7 +90,8 @@ window.GAME_AUDIO_CONFIG = {
       healDartImpact: "/sfx/heal.mp3",
       smokeDartImpact: "/sfx/smoke.mp3",
       collectMiss: "/sfx/collect_miss.mp3",
-      collected: "/sfx/collected.mp3"
+      collected: "/sfx/collected.mp3",
+      enemyTankDie: "/sfx/enemy_tank_die.mp3"
     },
 
     // Per-sound volume before the global SFX master multiplier is applied.
@@ -118,7 +119,8 @@ window.GAME_AUDIO_CONFIG = {
       healDartImpact: 0.2,
       smokeDartImpact: 0.2,
       collectMiss: 0.58,
-      collected: 0.34
+      collected: 0.34,
+      enemyTankDie: 0.15
     },
 
     // Pitch variation lists. Used only when enablePitchVariation is true.
@@ -145,6 +147,7 @@ window.GAME_AUDIO_CONFIG = {
       smokeDartImpact: [0.88, 0.94, 1.0, 1.07, 1.15, 1.24],
       collectMiss: [0.88, 0.94, 1.0, 1.07, 1.15, 1.24],
       collected: [0.88, 0.94, 1.0, 1.07, 1.15, 1.24],
+      enemyTankDie: [0.88, 0.94, 1.0, 1.07, 1.15, 1.24],
       gen: [0.92, 0.97, 1.0, 1.05, 1.11, 1.18]
     },
 

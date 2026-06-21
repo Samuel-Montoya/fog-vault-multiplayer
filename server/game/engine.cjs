@@ -166,6 +166,12 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
   const TANK_MAX_BULLETS = Math.max(1, Math.floor(cfgNumber(TANKS_CFG.playerMaxBullets, 5)));
   const TANK_BULLET_BOUNCES = Math.max(0, Math.floor(cfgNumber(TANKS_CFG.playerBulletBounces, 1)));
   const TANK_SHOT_COOLDOWN = Math.max(0.05, cfgNumber(TANKS_CFG.playerShotCooldown, 0.4));
+  const TANK_BURST_FAST_SHOTS = Math.max(1, Math.floor(cfgNumber(TANKS_CFG.playerBurstFastShots, 3)));
+  const TANK_BURST_RECHARGE_RATE = Math.max(0.05, cfgNumber(TANKS_CFG.playerBurstRechargeRate, 0.55));
+  const TANK_BURST_STRAIN_DECAY_RATE = Math.max(0.05, cfgNumber(TANKS_CFG.playerBurstStrainDecayRate, 0.65));
+  const TANK_BURST_SLOW_PENALTY = Math.max(0, cfgNumber(TANKS_CFG.playerBurstSlowPenalty, 0.28));
+  const TANK_BURST_SLOW_STEP = Math.max(0, cfgNumber(TANKS_CFG.playerBurstSlowStep, 0.2));
+  const TANK_BURST_MAX_COOLDOWN = Math.max(TANK_SHOT_COOLDOWN, cfgNumber(TANKS_CFG.playerBurstMaxCooldown, 1.35));
   const TANK_BULLET_TTL = Math.max(1, cfgNumber(TANKS_CFG.playerBulletTtl, 6));
   const TANK_ENEMY_TIERS = TANKS_CFG.enemyTiers || {};
   const TANK_BOSS_TIER = "voidBoss";
@@ -3682,6 +3688,10 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
         if (ch === "6") map.tankEnemySpawns.push({ x: rx + tile / 2, y: ry + tile / 2, tier: "sniper" });
         if (ch === "7") map.tankEnemySpawns.push({ x: rx + tile / 2, y: ry + tile / 2, tier: "elite" });
         if (ch === "8") map.tankEnemySpawns.push({ x: rx + tile / 2, y: ry + tile / 2, tier: "phantom" });
+        if (ch === "9") map.tankEnemySpawns.push({ x: rx + tile / 2, y: ry + tile / 2, tier: "blackHunter" });
+        if (ch === "A") map.tankEnemySpawns.push({ x: rx + tile / 2, y: ry + tile / 2, tier: "amberBoss" });
+        if (ch === "C") map.tankEnemySpawns.push({ x: rx + tile / 2, y: ry + tile / 2, tier: "crimsonBoss" });
+        if (ch === "D") map.tankEnemySpawns.push({ x: rx + tile / 2, y: ry + tile / 2, tier: "prismBoss" });
         if (ch === "B") map.tankEnemySpawns.push({ x: rx + tile / 2, y: ry + tile / 2, tier: TANK_BOSS_TIER });
       }
     }
@@ -3831,7 +3841,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       actor.x = spawn.x;
       actor.y = spawn.y;
       actor.health = 2;
-      actor.tankShotCooldown = 0;
+      resetTankShotBurst(actor);
       actor.vx = 0;
       actor.vy = 0;
       game.actors.set(actor.id, actor);
@@ -3868,6 +3878,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       tankLevel: game.tankLevel,
       tankEnemies: (game.tankEnemies || []).map((e) => ({
         id: e.id, tier: e.tier, x: e.x, y: e.y, aimAngle: e.aimAngle, dead: e.dead, size: e.size,
+        stealth: !!e.config?.stealthAfterStart, leavesTracks: !!e.config?.leavesTracks,
         health: e.health || 0, maxHealth: e.maxHealth || 0,
         boss: e.boss ? { ability: e.boss.ability, timer: Number((e.boss.timer || 0).toFixed(2)), duration: Number((e.boss.duration || 0).toFixed(2)), radius: Number((e.boss.radius || 0).toFixed(1)), targetId: e.boss.targetId || null } : null
       })),
@@ -3911,7 +3922,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       if (!player) continue;
       player.dead = false;
       player.health = 2;
-      player.tankShotCooldown = 0;
+      resetTankShotBurst(player);
       const spawn = map.tankPlayerSpawns[spawnIndex % map.tankPlayerSpawns.length];
       spawnIndex++;
       player.x = spawn.x;
@@ -3948,7 +3959,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       if (!player) continue;
       player.dead = false;
       player.health = 2;
-      player.tankShotCooldown = 0;
+      resetTankShotBurst(player);
       const spawn = map.tankPlayerSpawns[spawnIndex % map.tankPlayerSpawns.length];
       spawnIndex++;
       player.x = spawn.x;
@@ -4171,7 +4182,16 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
         const hit = segmentCircleHit(ax, ay, bx, by, enemy.x, enemy.y, (enemy.size || TANK_PLAYER_SIZE) * 0.92 + bullet.radius);
         if (hit) {
           const damage = Math.max(1, Number(enemy.config?.bulletDamageTaken || 10));
-          damageTankEnemy(game, enemy, damage, { bulletId: bullet.id, x: hit.x, y: hit.y });
+          damageTankEnemy(game, enemy, damage, {
+            bulletId: bullet.id,
+            ownerId: bullet.ownerId,
+            killerId: bullet.ownerId,
+            actorId: bullet.ownerId,
+            ownerType: bullet.ownerType,
+            source: "playerBullet",
+            x: hit.x,
+            y: hit.y
+          });
           return true;
         }
       }
@@ -4344,13 +4364,101 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     };
   }
 
+  function tankBossAbilityList(config) {
+    const list = Array.isArray(config.bossAbilities) ? config.bossAbilities.filter(Boolean) : [];
+    return list.length ? list : ["starBurst", "shockwave", "focusBarrage", "spiralBloom", "voidMines"];
+  }
+
+  function tankBossAbilityDuration(config, ability) {
+    if (ability === "starBurst") return Number(config.starDuration || 2.4);
+    if (ability === "shockwave") return Number(config.shockwaveChargeSeconds || 1.4);
+    if (ability === "focusBarrage") return Number(config.focusDuration || 5.0);
+    if (ability === "spiralBloom") return Number(config.spiralDuration || 3.0);
+    if (ability === "voidMines" || ability === "mineRing" || ability === "orbitMines") return Number(config.mineDuration || 2.2);
+    if (ability === "crossBurst") return Number(config.crossDuration || 2.0);
+    if (ability === "armorDash") return Number(config.dashChargeSeconds || 0.8) + Number(config.dashSeconds || 0.7);
+    if (ability === "railSweep") return Number(config.railDuration || 2.6);
+    if (ability === "splitVolley") return Number(config.splitDuration || 2.2);
+    if (ability === "pinwheelRicochet") return Number(config.pinwheelDuration || 3.0);
+    if (ability === "mirrorSplit") return Number(config.mirrorDuration || 2.3);
+    if (ability === "gravityWell") return Number(config.gravityDuration || 3.0);
+    return 2.0;
+  }
+
+  function tankBossSetMove(boss, x, y) {
+    const len = Math.hypot(x || 0, y || 0);
+    if (len < 0.01) {
+      boss.moveX = 0;
+      boss.moveY = 0;
+      return;
+    }
+    boss.moveX = x / len;
+    boss.moveY = y / len;
+  }
+
+  function updateTankBossMovement(game, boss, dt, allowDuringAbility = false) {
+    const config = boss.config || {};
+    if (!config.speed || config.speed <= 0) {
+      tankBossSetMove(boss, 0, 0);
+      return;
+    }
+    const brain = boss.boss || {};
+    const ability = brain.ability || null;
+    if (ability && !allowDuringAbility) {
+      tankBossSetMove(boss, 0, 0);
+      return;
+    }
+    const target = getAliveTankPlayerById(game, brain.targetId) || nearestAliveTankPlayer(game, boss.x, boss.y);
+    if (!target) {
+      tankBossSetMove(boss, 0, 0);
+      return;
+    }
+    const toTargetX = target.x - boss.x;
+    const toTargetY = target.y - boss.y;
+    const d = Math.max(1, Math.hypot(toTargetX, toTargetY));
+    const nx = toTargetX / d;
+    const ny = toTargetY / d;
+    const preferred = Math.max(140, Number(config.bossPreferredRange || 330));
+    const strafe = Number(config.bossStrafeSkill || 0.6);
+    const side = Math.sin((game.time || 0) * (1.1 + strafe * 0.35) + boss.spawnX * 0.013) >= 0 ? 1 : -1;
+
+    let mx = -ny * side * strafe;
+    let my = nx * side * strafe;
+    if (d > preferred * 1.18) {
+      mx += nx * 0.9;
+      my += ny * 0.9;
+    } else if (d < preferred * 0.72) {
+      mx -= nx * 1.1;
+      my -= ny * 1.1;
+    }
+    boss.aimAngle = Math.atan2(toTargetY, toTargetX);
+    tankBossSetMove(boss, mx, my);
+  }
+
+  function damageTankPlayersNearBoss(game, boss, radius, source, oncePerAbility = false) {
+    const brain = boss.boss || {};
+    if (oncePerAbility && !brain.hitPlayers) brain.hitPlayers = new Set();
+    for (const player of aliveTankPlayers(game)) {
+      if (oncePerAbility && brain.hitPlayers.has(player.id)) continue;
+      if (dist(player.x, player.y, boss.x, boss.y) <= radius + TANK_PLAYER_SIZE * 0.55) {
+        if (oncePerAbility) brain.hitPlayers.add(player.id);
+        player.health = Math.max(0, (player.health || 0) - 1);
+        addEvent(game, "tankPlayerHit", { playerId: player.id, enemyId: boss.id, x: player.x, y: player.y, health: player.health, source });
+        if (player.health <= 0) {
+          player.dead = true;
+          addEvent(game, "tankPlayerDeath", { playerId: player.id, enemyId: boss.id, x: player.x, y: player.y, source });
+        }
+      }
+    }
+  }
+
   function startTankBossAbility(game, boss) {
     const config = boss.config || {};
     const target = nearestAliveTankPlayer(game, boss.x, boss.y);
     if (!target) return;
     if (!boss.boss) boss.boss = { ability: null, cooldown: 1.1, timer: 0, shotTimer: 0, targetId: null, sequence: 0, released: false };
 
-    const abilities = ["starBurst", "shockwave", "focusBarrage", "spiralBloom", "voidMines"];
+    const abilities = tankBossAbilityList(config);
     const ability = abilities[(boss.boss.sequence || 0) % abilities.length];
     boss.boss.sequence = (boss.boss.sequence || 0) + 1;
     boss.boss.ability = ability;
@@ -4358,18 +4466,17 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     boss.boss.shotTimer = 0;
     boss.boss.targetId = target.id;
     boss.boss.released = false;
-    boss.boss.radius = ability === "shockwave" ? Math.max(120, Number(config.shockwaveRadius || 260)) : 0;
-    boss.boss.duration = ability === "starBurst"
-      ? Number(config.starDuration || 2.4)
-      : ability === "shockwave"
-        ? Number(config.shockwaveChargeSeconds || 1.4)
-        : ability === "focusBarrage"
-          ? Number(config.focusDuration || 5.0)
-          : ability === "spiralBloom"
-            ? Number(config.spiralDuration || 3.0)
-            : Number(config.mineDuration || 2.2);
+    boss.boss.radius = ability === "shockwave"
+      ? Math.max(120, Number(config.shockwaveRadius || 260))
+      : ability === "gravityWell"
+        ? Math.max(160, Number(config.gravityRadius || 320))
+        : 0;
+    boss.boss.duration = tankBossAbilityDuration(config, ability);
+    boss.boss.baseAngle = Math.atan2(target.y - boss.y, target.x - boss.x);
+    boss.boss.hitPlayers = new Set();
+    boss.boss.speedOverride = null;
 
-    addEvent(game, "tankBossAbility", { enemyId: boss.id, ability, x: boss.x, y: boss.y, radius: boss.boss.radius, targetId: target.id });
+    addEvent(game, "tankBossAbility", { enemyId: boss.id, tier: boss.tier, ability, x: boss.x, y: boss.y, radius: boss.boss.radius, targetId: target.id });
   }
 
   function finishTankBossAbility(boss) {
@@ -4383,13 +4490,37 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     boss.boss.released = false;
     boss.boss.radius = 0;
     boss.boss.duration = 0;
+    boss.boss.baseAngle = 0;
+    boss.boss.hitPlayers = null;
+    boss.boss.speedOverride = null;
     boss.boss.cooldown = min + Math.random() * (max - min);
+    tankBossSetMove(boss, 0, 0);
   }
 
   function fireTankBossRadial(game, boss, count, baseAngle, bulletConfig) {
     const step = (Math.PI * 2) / Math.max(1, count);
     for (let i = 0; i < count; i++) {
       fireTankBullet(game, boss.id, "enemy", boss.x, boss.y, baseAngle + step * i, bulletConfig);
+    }
+  }
+
+  function fireTankBossAtTarget(game, boss, target, bulletSpeed, spread = 0, overrides = {}) {
+    const angle = tankBossLeadAngle(boss, target, bulletSpeed);
+    boss.aimAngle = angle;
+    fireTankBullet(game, boss.id, "enemy", boss.x, boss.y, angle + spread, tankBossBulletConfig(boss, {
+      bulletSpeed,
+      bulletRadius: overrides.bulletRadius || 7,
+      bulletBounces: overrides.bulletBounces ?? 0,
+      bulletTtl: overrides.bulletTtl || 4.0,
+      maxBullets: overrides.maxBullets || 120
+    }));
+  }
+
+  function placeTankBossMineRing(game, boss, count, radius, mineConfig, angleOffset = 0) {
+    const step = (Math.PI * 2) / Math.max(1, count);
+    for (let i = 0; i < count; i++) {
+      const a = angleOffset + step * i;
+      placeTankMine(game, boss.id, "enemy", boss.x + Math.cos(a) * radius, boss.y + Math.sin(a) * radius, mineConfig);
     }
   }
 
@@ -4402,6 +4533,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     if (!alivePlayers.length) return;
 
     if (!brain.ability) {
+      updateTankBossMovement(game, boss, dt, true);
       brain.cooldown = Math.max(0, (brain.cooldown || 0) - dt);
       if (brain.cooldown <= 0) startTankBossAbility(game, boss);
       return;
@@ -4411,6 +4543,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     brain.shotTimer = Math.max(0, (brain.shotTimer || 0) - dt);
 
     if (brain.ability === "starBurst") {
+      updateTankBossMovement(game, boss, dt, false);
       const interval = Math.max(0.08, Number(config.starShotInterval || 0.2));
       if (brain.shotTimer <= 0) {
         const wave = Math.floor((brain.timer || 0) / interval);
@@ -4426,23 +4559,16 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
         brain.shotTimer = interval;
       }
     } else if (brain.ability === "shockwave") {
+      updateTankBossMovement(game, boss, dt, false);
       boss.aimAngle += dt * 1.2;
       if (!brain.released && brain.timer >= Math.max(0.35, Number(config.shockwaveChargeSeconds || 1.45))) {
         brain.released = true;
         const radius = Math.max(120, Number(config.shockwaveRadius || 270));
-        addEvent(game, "tankBossShockwave", { enemyId: boss.id, x: boss.x, y: boss.y, radius });
-        for (const player of alivePlayers) {
-          if (dist(player.x, player.y, boss.x, boss.y) <= radius + TANK_PLAYER_SIZE * 0.5) {
-            player.health = Math.max(0, (player.health || 0) - 1);
-            addEvent(game, "tankPlayerHit", { playerId: player.id, enemyId: boss.id, x: player.x, y: player.y, health: player.health, source: "bossShockwave" });
-            if (player.health <= 0) {
-              player.dead = true;
-              addEvent(game, "tankPlayerDeath", { playerId: player.id, enemyId: boss.id, x: player.x, y: player.y, source: "bossShockwave" });
-            }
-          }
-        }
+        addEvent(game, "tankBossShockwave", { enemyId: boss.id, tier: boss.tier, x: boss.x, y: boss.y, radius });
+        damageTankPlayersNearBoss(game, boss, radius, "bossShockwave", false);
       }
     } else if (brain.ability === "focusBarrage") {
+      updateTankBossMovement(game, boss, dt, false);
       let target = getAliveTankPlayerById(game, brain.targetId) || nearestAliveTankPlayer(game, boss.x, boss.y);
       if (target) {
         brain.targetId = target.id;
@@ -4467,6 +4593,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
         }
       }
     } else if (brain.ability === "spiralBloom") {
+      updateTankBossMovement(game, boss, dt, false);
       const interval = Math.max(0.06, Number(config.spiralShotInterval || 0.115));
       if (brain.shotTimer <= 0) {
         const baseAngle = (brain.timer || 0) * 4.2 + (brain.sequence || 0) * 0.37;
@@ -4487,6 +4614,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
         brain.shotTimer = interval;
       }
     } else if (brain.ability === "voidMines") {
+      updateTankBossMovement(game, boss, dt, false);
       const interval = Math.max(0.18, Number(config.mineDropInterval || 0.42));
       if (brain.shotTimer <= 0) {
         const target = getAliveTankPlayerById(game, brain.targetId) || nearestAliveTankPlayer(game, boss.x, boss.y);
@@ -4499,6 +4627,146 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
           boss.aimAngle = Math.atan2(target.y - boss.y, target.x - boss.x);
         }
         placeTankMine(game, boss.id, "enemy", boss.x + Math.cos(angle) * 145, boss.y + Math.sin(angle) * 145, mineConfig);
+        brain.shotTimer = interval;
+      }
+    } else if (brain.ability === "crossBurst") {
+      updateTankBossMovement(game, boss, dt, false);
+      const interval = Math.max(0.12, Number(config.crossShotInterval || 0.32));
+      if (brain.shotTimer <= 0) {
+        const wave = Math.floor((brain.timer || 0) / interval);
+        const baseAngle = (wave % 2 ? Math.PI / 4 : 0) + (wave % 4) * 0.035;
+        boss.aimAngle = baseAngle;
+        fireTankBossRadial(game, boss, 4, baseAngle, tankBossBulletConfig(boss, {
+          bulletSpeed: Number(config.crossBulletSpeed || 500),
+          bulletRadius: Number(config.bulletRadius || 8),
+          bulletBounces: 1,
+          bulletTtl: 4.8,
+          maxBullets: 80
+        }));
+        brain.shotTimer = interval;
+      }
+    } else if (brain.ability === "armorDash") {
+      const chargeSeconds = Math.max(0.2, Number(config.dashChargeSeconds || 0.85));
+      const dashSeconds = Math.max(0.2, Number(config.dashSeconds || 0.7));
+      let target = getAliveTankPlayerById(game, brain.targetId) || nearestAliveTankPlayer(game, boss.x, boss.y);
+      if (brain.timer < chargeSeconds) {
+        if (target) {
+          brain.baseAngle = Math.atan2(target.y - boss.y, target.x - boss.x);
+          boss.aimAngle = brain.baseAngle;
+        }
+        tankBossSetMove(boss, 0, 0);
+      } else if (brain.timer < chargeSeconds + dashSeconds) {
+        boss.aimAngle = brain.baseAngle || boss.aimAngle || 0;
+        brain.speedOverride = Number(config.dashSpeed || 340);
+        tankBossSetMove(boss, Math.cos(boss.aimAngle), Math.sin(boss.aimAngle));
+        damageTankPlayersNearBoss(game, boss, (boss.size || TANK_PLAYER_SIZE) * 0.62, "bossDash", true);
+      } else {
+        brain.speedOverride = null;
+        tankBossSetMove(boss, 0, 0);
+      }
+    } else if (brain.ability === "mineRing") {
+      updateTankBossMovement(game, boss, dt, false);
+      const interval = Math.max(0.15, Number(config.mineDropInterval || 0.28));
+      if (brain.shotTimer <= 0) {
+        const mineConfig = { ...config, tier: boss.tier, maxMines: Math.max(8, Math.floor(config.maxMines || 10)) };
+        const angle = (brain.timer || 0) * 1.8 + (brain.sequence || 0);
+        placeTankBossMineRing(game, boss, 6, Math.max(78, (boss.size || 58) * 1.55), mineConfig, angle);
+        brain.shotTimer = interval * 2.4;
+      }
+    } else if (brain.ability === "railSweep") {
+      updateTankBossMovement(game, boss, dt, false);
+      const interval = Math.max(0.07, Number(config.railShotInterval || 0.14));
+      if (brain.shotTimer <= 0) {
+        const progress = Math.max(0, Math.min(1, (brain.timer || 0) / Math.max(0.1, brain.duration || 1)));
+        const sweep = -0.9 + progress * 1.8;
+        const angle = (brain.baseAngle || boss.aimAngle || 0) + sweep;
+        boss.aimAngle = angle;
+        fireTankBullet(game, boss.id, "enemy", boss.x, boss.y, angle, tankBossBulletConfig(boss, {
+          bulletSpeed: Number(config.railBulletSpeed || 720),
+          bulletRadius: 7,
+          bulletBounces: 0,
+          bulletTtl: 3.4,
+          maxBullets: 110
+        }));
+        if (Math.floor(progress * 18) % 5 === 0) {
+          fireTankBullet(game, boss.id, "enemy", boss.x, boss.y, angle + 0.08, tankBossBulletConfig(boss, { bulletSpeed: Number(config.railBulletSpeed || 720) * 0.96, bulletRadius: 6, bulletBounces: 0, bulletTtl: 3.0, maxBullets: 110 }));
+        }
+        brain.shotTimer = interval;
+      }
+    } else if (brain.ability === "splitVolley") {
+      updateTankBossMovement(game, boss, dt, false);
+      const target = getAliveTankPlayerById(game, brain.targetId) || nearestAliveTankPlayer(game, boss.x, boss.y);
+      const interval = Math.max(0.16, Number(config.splitShotInterval || 0.34));
+      if (target && brain.shotTimer <= 0) {
+        const bulletSpeed = Number(config.splitBulletSpeed || 620);
+        const angle = tankBossLeadAngle(boss, target, bulletSpeed);
+        boss.aimAngle = angle;
+        for (const spread of [-0.18, 0, 0.18]) {
+          fireTankBullet(game, boss.id, "enemy", boss.x, boss.y, angle + spread, tankBossBulletConfig(boss, { bulletSpeed, bulletRadius: 7, bulletBounces: 0, bulletTtl: 3.8, maxBullets: 95 }));
+        }
+        brain.shotTimer = interval;
+      }
+    } else if (brain.ability === "orbitMines") {
+      updateTankBossMovement(game, boss, dt, true);
+      const interval = Math.max(0.18, Number(config.mineDropInterval || 0.36));
+      if (brain.shotTimer <= 0) {
+        const mineConfig = { ...config, tier: boss.tier, maxMines: Math.max(8, Math.floor(config.maxMines || 12)) };
+        const a = (brain.timer || 0) * 3.4;
+        placeTankMine(game, boss.id, "enemy", boss.x + Math.cos(a) * 95, boss.y + Math.sin(a) * 95, mineConfig);
+        placeTankMine(game, boss.id, "enemy", boss.x + Math.cos(a + Math.PI) * 95, boss.y + Math.sin(a + Math.PI) * 95, mineConfig);
+        brain.shotTimer = interval;
+      }
+    } else if (brain.ability === "pinwheelRicochet") {
+      updateTankBossMovement(game, boss, dt, false);
+      const interval = Math.max(0.07, Number(config.pinwheelShotInterval || 0.13));
+      if (brain.shotTimer <= 0) {
+        const baseAngle = (brain.timer || 0) * 3.6 + (brain.sequence || 0) * 0.23;
+        boss.aimAngle = baseAngle;
+        const bulletConfig = tankBossBulletConfig(boss, {
+          bulletSpeed: Number(config.pinwheelBulletSpeed || 600),
+          bulletRadius: 7,
+          bulletBounces: 2,
+          bulletTtl: 5.6,
+          maxBullets: 140
+        });
+        fireTankBossRadial(game, boss, 4, baseAngle, bulletConfig);
+        brain.shotTimer = interval;
+      }
+    } else if (brain.ability === "mirrorSplit") {
+      updateTankBossMovement(game, boss, dt, false);
+      const target = getAliveTankPlayerById(game, brain.targetId) || nearestAliveTankPlayer(game, boss.x, boss.y);
+      const interval = Math.max(0.12, Number(config.mirrorShotInterval || 0.26));
+      if (target && brain.shotTimer <= 0) {
+        const bulletSpeed = Number(config.mirrorBulletSpeed || 660);
+        const emitters = [
+          { x: boss.x, y: boss.y },
+          { x: boss.x + 120, y: boss.y },
+          { x: boss.x - 120, y: boss.y },
+          { x: boss.x, y: boss.y + 120 },
+          { x: boss.x, y: boss.y - 120 }
+        ];
+        for (const emitter of emitters) {
+          if (tankAi.circleInAnyWall?.(game, emitter.x, emitter.y, 16)) continue;
+          const angle = Math.atan2(target.y - emitter.y, target.x - emitter.x);
+          fireTankBullet(game, boss.id, "enemy", emitter.x, emitter.y, angle, tankBossBulletConfig(boss, { bulletSpeed, bulletRadius: 7, bulletBounces: 1, bulletTtl: 4.4, maxBullets: 135, muzzleOffset: 16 }));
+        }
+        boss.aimAngle = Math.atan2(target.y - boss.y, target.x - boss.x);
+        brain.shotTimer = interval;
+      }
+    } else if (brain.ability === "gravityWell") {
+      updateTankBossMovement(game, boss, dt, true);
+      const radius = Math.max(160, Number(config.gravityRadius || 330));
+      brain.radius = radius;
+      const pullSpeed = Math.max(20, Number(config.gravityPullSpeed || 84));
+      for (const player of alivePlayers) {
+        if (dist(player.x, player.y, boss.x, boss.y) > radius) continue;
+        if (tankAi.segmentHitsWall?.(game, player.x, player.y, boss.x, boss.y)) continue;
+        moveTankBody(game, player, boss.x - player.x, boss.y - player.y, pullSpeed, Math.max(14, TANK_PLAYER_SIZE * 0.72), dt);
+      }
+      const interval = Math.max(0.2, Number(config.gravityShotInterval || 0.42));
+      if (brain.shotTimer <= 0) {
+        const baseAngle = (brain.timer || 0) * 1.7;
+        fireTankBossRadial(game, boss, 6, baseAngle, tankBossBulletConfig(boss, { bulletSpeed: Number(config.bulletSpeed || 620) * 0.82, bulletRadius: 7, bulletBounces: 1, bulletTtl: 4.8, maxBullets: 120 }));
         brain.shotTimer = interval;
       }
     }
@@ -4523,12 +4791,46 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       addEvent(game, "tankEnemyHit", { ...payload, enemyId: enemy.id, tier: enemy.tier, x: payload.x ?? enemy.x, y: payload.y ?? enemy.y, health: enemy.health, maxHealth: enemy.maxHealth, boss: true });
       if (enemy.health <= 0) {
         enemy.dead = true;
-        addEvent(game, "tankBossDefeated", { enemyId: enemy.id, tier: enemy.tier, x: enemy.x, y: enemy.y });
+        addEvent(game, "tankEnemyDestroyed", {
+          enemyId: enemy.id,
+          tier: enemy.tier,
+          x: enemy.x,
+          y: enemy.y,
+          boss: true,
+          bulletId: payload.bulletId || null,
+          killerId: payload.killerId || payload.ownerId || payload.actorId || null,
+          ownerId: payload.ownerId || payload.killerId || payload.actorId || null,
+          ownerType: payload.ownerType || null,
+          source: payload.source || null
+        });
+        addEvent(game, "tankBossDefeated", {
+          enemyId: enemy.id,
+          tier: enemy.tier,
+          x: enemy.x,
+          y: enemy.y,
+          bulletId: payload.bulletId || null,
+          killerId: payload.killerId || payload.ownerId || payload.actorId || null,
+          ownerId: payload.ownerId || payload.killerId || payload.actorId || null,
+          ownerType: payload.ownerType || null,
+          source: payload.source || null
+        });
       }
       return true;
     }
     enemy.dead = true;
     addEvent(game, "tankEnemyHit", { ...payload, enemyId: enemy.id, tier: enemy.tier, x: payload.x ?? enemy.x, y: payload.y ?? enemy.y });
+    addEvent(game, "tankEnemyDestroyed", {
+      enemyId: enemy.id,
+      tier: enemy.tier,
+      x: payload.x ?? enemy.x,
+      y: payload.y ?? enemy.y,
+      boss: false,
+      bulletId: payload.bulletId || null,
+      killerId: payload.killerId || payload.ownerId || payload.actorId || null,
+      ownerId: payload.ownerId || payload.killerId || payload.actorId || null,
+      ownerType: payload.ownerType || null,
+      source: payload.source || null
+    });
     return true;
   }
 
@@ -4574,9 +4876,10 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
   }
 
   function moveTankEnemy(game, enemy, dt) {
-    if (enemy.dead || enemy.config.speed <= 0) return;
+    const speed = Math.max(0, Number(enemy.boss?.speedOverride || enemy.config.speed || 0));
+    if (enemy.dead || speed <= 0) return;
     const radius = Math.max(14, (enemy.size || TANK_PLAYER_SIZE) * 0.72);
-    const moved = moveTankBody(game, enemy, enemy.moveX || 0, enemy.moveY || 0, enemy.config.speed, radius, dt);
+    const moved = moveTankBody(game, enemy, enemy.moveX || 0, enemy.moveY || 0, speed, radius, dt);
     if (!moved && enemy._tankAi) {
       enemy._tankAi.patrolTarget = null;
       enemy._tankAi.stuckTimer = (enemy._tankAi.stuckTimer || 0) + dt;
@@ -4610,6 +4913,45 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     }
   }
 
+  function resetTankShotBurst(actor) {
+    if (!actor) return;
+    actor.tankShotCooldown = 0;
+    actor.tankShotBurstCharge = TANK_BURST_FAST_SHOTS;
+    actor.tankShotBurstStrain = 0;
+  }
+
+  function updateTankShotBurst(actor, dt) {
+    if (!actor || actor.dead) return;
+    actor.tankShotCooldown = Math.max(0, (actor.tankShotCooldown || 0) - dt);
+    const maxCharge = TANK_BURST_FAST_SHOTS;
+    const charge = Number.isFinite(actor.tankShotBurstCharge) ? actor.tankShotBurstCharge : maxCharge;
+    const strain = Number.isFinite(actor.tankShotBurstStrain) ? actor.tankShotBurstStrain : 0;
+    actor.tankShotBurstCharge = Math.min(maxCharge, charge + TANK_BURST_RECHARGE_RATE * dt);
+    actor.tankShotBurstStrain = Math.max(0, strain - TANK_BURST_STRAIN_DECAY_RATE * dt);
+  }
+
+  function getTankPlayerShotCooldown(actor) {
+    const charge = Number.isFinite(actor?.tankShotBurstCharge) ? actor.tankShotBurstCharge : TANK_BURST_FAST_SHOTS;
+    const strain = Number.isFinite(actor?.tankShotBurstStrain) ? actor.tankShotBurstStrain : 0;
+    if (charge >= 1) return TANK_SHOT_COOLDOWN;
+    const missingCharge = Math.max(0, 1 - charge);
+    return clamp(
+      TANK_SHOT_COOLDOWN + TANK_BURST_SLOW_PENALTY + missingCharge * TANK_BURST_SLOW_STEP + strain * TANK_BURST_SLOW_STEP,
+      TANK_SHOT_COOLDOWN,
+      TANK_BURST_MAX_COOLDOWN
+    );
+  }
+
+  function consumeTankPlayerShotBurst(actor) {
+    if (!actor) return;
+    const charge = Number.isFinite(actor.tankShotBurstCharge) ? actor.tankShotBurstCharge : TANK_BURST_FAST_SHOTS;
+    const strained = charge < 1;
+    actor.tankShotBurstCharge = Math.max(0, charge - 1);
+    if (strained) {
+      actor.tankShotBurstStrain = Math.min(TANK_BURST_FAST_SHOTS, (actor.tankShotBurstStrain || 0) + 1);
+    }
+  }
+
   function updateTankGame(lobby, dt) {
     const game = lobby.game;
     if (!game || game.phase !== "game" || !isTanksGame(game)) return;
@@ -4634,9 +4976,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
     // Move players
     for (const player of game.tankPlayers || []) {
       moveTankPlayer(game, player, dt);
-      if (!player.dead) {
-        player.tankShotCooldown = Math.max(0, (player.tankShotCooldown || 0) - dt);
-      }
+      updateTankShotBurst(player, dt);
     }
 
     // Enemy AI and the Level 21 boss brain. Normal tanks still use the shared AI;
@@ -4696,7 +5036,9 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
 
     const bullet = fireTankBullet(game, actor.id, "player", actor.x, actor.y, angle, config);
     if (!bullet) return { ok: false, message: "Max bullets reached." };
-    actor.tankShotCooldown = TANK_SHOT_COOLDOWN;
+    const shotCooldown = getTankPlayerShotCooldown(actor);
+    consumeTankPlayerShotBurst(actor);
+    actor.tankShotCooldown = shotCooldown;
     addEvent(game, "runnerProjectileFire", {
       x: bullet.x,
       y: bullet.y,
@@ -4712,7 +5054,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
       ammo: null,
       maxAmmo: null,
       reloadRemaining: 0,
-      fireLockoutRemaining: TANK_SHOT_COOLDOWN
+      fireLockoutRemaining: shotCooldown
     });
     return { ok: true };
   }
@@ -8397,6 +8739,7 @@ async function startRiftRunnerServer({ rootDir = path.resolve(__dirname, "..") }
         enemies: (game.tankEnemies || []).map((e) => ({
           id: e.id, tier: e.tier, x: Math.round(e.x), y: Math.round(e.y),
           aimAngle: Number((e.aimAngle || 0).toFixed(2)), dead: !!e.dead, size: e.size,
+          stealth: !!e.config?.stealthAfterStart, leavesTracks: !!e.config?.leavesTracks,
           health: e.health || 0, maxHealth: e.maxHealth || 0,
           boss: e.boss ? {
             ability: e.boss.ability || null,
